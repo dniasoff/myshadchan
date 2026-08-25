@@ -152,10 +152,7 @@ export const EditSheet = ({
           mutationOptions={enhancedMutationOptions}
           mutationMode={mutationMode}
         >
-          <Form
-            defaultValues={defaultValues}
-            className="h-dvh flex-1 flex flex-col"
-          >
+          <Form defaultValues={defaultValues} className="flex-1 flex flex-col">
             <SheetHeader className="border-b">
               <div
                 className={cn(
@@ -176,7 +173,13 @@ export const EditSheet = ({
               {children}
             </div>
 
-            <SheetFooter className="border-t flex flex-row w-full gap-4">
+            {/* The sheet is anchored to `bottom-0`, so without the inset the
+             * primary action sits partly under an iPhone's home-indicator
+             * gesture area — `SheetFooter`'s own padding is a flat `p-4`.
+             * The app's mobile nav already folds the same
+             * `env(safe-area-inset-bottom)` in (`--mobile-nav-clearance` in
+             * `src/index.css`, `layout/MobileNavigation.tsx`). */}
+            <SheetFooter className="border-t flex flex-row w-full gap-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
               <SaveButton className="flex-1 h-12" />
             </SheetFooter>
           </Form>

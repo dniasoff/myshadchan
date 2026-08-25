@@ -191,7 +191,7 @@ describe("PhotoRevealCard — immediate display", () => {
 });
 
 describe("PhotoRevealCard — hide (AC 2)", () => {
-  it("calls hideResumePhoto with the photo's id and notifies the parent", async () => {
+  it("calls hideResumePhoto with the photo's id and notifies the parent once the hide is confirmed", async () => {
     // Arrange
     const photo = buildPhoto({ id: 42 });
     const hideResumePhoto = vi.fn().mockResolvedValue(buildPhoto({ id: 42 }));
@@ -199,10 +199,46 @@ describe("PhotoRevealCard — hide (AC 2)", () => {
     // Act
     const { screen, onHidden } = await renderCard(photo, { hideResumePhoto });
     await screen.getByRole("button", { name: "Hide" }).click();
+    await screen.getByRole("button", { name: "Hide photo" }).click();
 
     // Assert
     expect(hideResumePhoto).toHaveBeenCalledExactlyOnceWith({ id: 42 });
     await expect.poll(() => onHidden.mock.calls.length).toBe(1);
+  });
+
+  /**
+   * Hiding is not a display toggle: `PhotoTab` lists `hidden_at@is: null`
+   * rows only and there is no UPDATE policy that could clear `hidden_at`
+   * again, so re-uploading the file is the only way back. A one-tap ghost
+   * button beside the photo was not a proportionate way to spend that.
+   */
+  it("hides nothing until the question is answered, and nothing at all if it is cancelled", async () => {
+    // Arrange
+    const hideResumePhoto = vi.fn().mockResolvedValue(buildPhoto());
+
+    // Act
+    const { screen, onHidden } = await renderCard(buildPhoto(), {
+      hideResumePhoto,
+    });
+    await screen.getByRole("button", { name: "Hide" }).click();
+
+    // Assert — the question names the cost of saying yes...
+    await expect
+      .element(screen.getByText("Hide this photo?"))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "It disappears from this tab for everyone. Bringing it back means uploading it again.",
+        ),
+      )
+      .toBeInTheDocument();
+    expect(hideResumePhoto).not.toHaveBeenCalled();
+
+    // ...and backing out of it leaves the photo where it is.
+    await screen.getByRole("button", { name: "Cancel" }).click();
+    expect(hideResumePhoto).not.toHaveBeenCalled();
+    expect(onHidden).not.toHaveBeenCalled();
   });
 
   it("shows a translated error and stays usable when hiding rejects", async () => {
@@ -214,6 +250,7 @@ describe("PhotoRevealCard — hide (AC 2)", () => {
       hideResumePhoto,
     });
     await screen.getByRole("button", { name: "Hide" }).click();
+    await screen.getByRole("button", { name: "Hide photo" }).click();
 
     // Assert
     await expect.element(screen.getByText("boom")).toBeInTheDocument();

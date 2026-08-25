@@ -36,7 +36,11 @@ const Wrapper = ({ children }: { children: ReactNode }) => {
             src={lightModeLogo}
             alt={title}
           />
-          <h1 className="text-xl font-semibold">{title}</h1>
+          {/* Deliberately a <span>, not an <h1>: `DashboardHeader` renders
+           * the single's name as this page's own <h1>, and two competing
+           * top-level headings leave assistive tech with no unambiguous
+           * page title. The branding line is a label, not a heading. */}
+          <span className="text-xl font-semibold">{title}</span>
         </div>
       </MobileHeader>
       {children}

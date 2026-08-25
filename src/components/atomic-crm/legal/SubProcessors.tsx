@@ -7,6 +7,9 @@ import { AuthLayout } from "../login/AuthLayout";
  * Sub-processors page — bare route (outside the app shell), reachable
  * without authentication. Lists the six known processors derived from
  * deployment infrastructure — amend when infra changes.
+ *
+ * Reading width comes from `AuthLayout`'s `maxWidthClassName` — see the same
+ * note on `PrivacyPolicy`.
  */
 export const SubProcessors = () => {
   const translate = useTranslate();
@@ -55,6 +58,7 @@ export const SubProcessors = () => {
 
   return (
     <AuthLayout
+      maxWidthClassName="max-w-3xl"
       footer={
         <>
           <Link
@@ -66,7 +70,7 @@ export const SubProcessors = () => {
         </>
       }
     >
-      <div className="mx-auto max-w-4xl space-y-8 px-6 py-10">
+      <div className="space-y-8">
         <header className="text-center space-y-2">
           <h1 className="font-display text-3xl font-bold tracking-tight">
             {translate("crm.legal.subprocessors.title", {
@@ -109,14 +113,18 @@ export const SubProcessors = () => {
                   </span>
                 )}
               </div>
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                <dt className="text-muted-foreground">
+              {/* Stacked on a phone, paired from `sm:` up: the `auto` column
+                  is sized by "Data location" and leaves the value too little
+                  room to be read one or two words at a time. A stacked <dt>
+                  has to look like a label on its own, hence `font-medium`. */}
+              <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
+                <dt className="font-medium text-muted-foreground">
                   {translate("crm.legal.subprocessors.purpose_label", {
                     _: "Purpose",
                   })}
                 </dt>
                 <dd>{p.purpose}</dd>
-                <dt className="text-muted-foreground">
+                <dt className="font-medium text-muted-foreground">
                   {translate("crm.legal.subprocessors.location_label", {
                     _: "Data location",
                   })}
@@ -133,7 +141,7 @@ export const SubProcessors = () => {
               _: "Changes to this list",
             })}
           </h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-base leading-relaxed text-muted-foreground">
             {translate("crm.legal.subprocessors.changes.body", {
               _: "This page is updated when a sub-processor is added or changed. You may object by contacting dniasoff@gmail.com; if the objection cannot be accommodated, you may export your data and delete your account from Settings → Privacy.",
             })}

@@ -43,6 +43,21 @@ const GET_SINGLES_PARAMS = {
   sort: { field: "first_name_en" as const, order: "ASC" as const },
 };
 
+/**
+ * A row can carry up to four actions ("Withdraw listing", "Allow
+ * republishing", "Manage listing", "Share"), which at 360px measure roughly
+ * 460px side by side. Nothing in the default markup can give: `ItemActions`
+ * is `flex items-center gap-2` with no wrap (`ui/item.tsx`), every `Button`
+ * carries `whitespace-nowrap shrink-0` (`ui/button.tsx`), and the enclosing
+ * `ItemGroup` is `overflow-hidden` — so the right-hand actions were silently
+ * clipped off the row and unreachable on a phone. Wrapping the strip and
+ * giving it the full row below `sm` is what makes them reachable; desktop
+ * density is unchanged. Shared with the skeleton so a settling row can never
+ * change height.
+ */
+const SINGLE_LISTING_ACTIONS_CLASS =
+  "w-full flex-wrap justify-end gap-2 sm:w-auto";
+
 /** Mirrors a settled row's exact structure (`Item size="sm"` + a real
  * `Button` of the same variant/size) so its height can never differ from
  * the row it stands in for — the same technique `ProfileSection.tsx`'s own
@@ -57,7 +72,7 @@ const SingleListingRowSkeleton = (): ReactElement => (
     <ItemContent>
       <Skeleton className="h-4 w-24" />
     </ItemContent>
-    <ItemActions className="gap-2">
+    <ItemActions className={SINGLE_LISTING_ACTIONS_CLASS}>
       <Button
         type="button"
         variant="outline"
@@ -240,7 +255,7 @@ export const SingleListingSection = (): ReactElement | null => {
                     <ItemContent>
                       <ItemTitle className="font-normal">{name}</ItemTitle>
                     </ItemContent>
-                    <ItemActions className="gap-2">
+                    <ItemActions className={SINGLE_LISTING_ACTIONS_CLASS}>
                       {/* Story 9.3 (AC-1, AC-4): both self-gate on the
                           viewer's own identity, so they render only on the
                           single's OWN row (self_manager or plain single) —

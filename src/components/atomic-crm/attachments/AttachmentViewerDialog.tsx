@@ -66,8 +66,21 @@ export function AttachmentViewerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[85vh] max-h-[85vh] w-[min(92vw,64rem)] max-w-[min(92vw,64rem)] flex-col gap-3 sm:max-w-[min(92vw,64rem)]">
-        <DialogHeader className="shrink-0">
+      {/*
+       * `dvh`, never `vh`. A mobile browser resolves `vh` against the
+       * viewport with its chrome RETRACTED, so an `85vh` dialog is taller
+       * than the visible area and the "Download a copy" button at its foot
+       * sits behind the toolbar. `dvh` tracks the chrome as it shows and
+       * hides, which is what "85% of what the reader can see" actually
+       * means. The padding steps down too: `p-6` (the DialogContent
+       * default) spends 48px of a 360px screen on margin, leaving the
+       * preview a thin band once the header and footer have taken theirs.
+       */}
+      <DialogContent className="flex h-[85dvh] max-h-[85dvh] w-[min(96vw,64rem)] max-w-[min(96vw,64rem)] flex-col gap-3 p-4 sm:w-[min(92vw,64rem)] sm:max-w-[min(92vw,64rem)] sm:p-6">
+        {/* `pr-6` keeps the file name clear of the dialog's own close "X",
+         * which `DialogContent` pins at `right-4` — inside the content box
+         * once the padding drops to `p-4` on a phone. */}
+        <DialogHeader className="shrink-0 pr-6">
           <DialogTitle className="truncate text-left">{fileName}</DialogTitle>
           <DialogDescription className="text-left">
             {translate("crm.attachments.viewer.description", {

@@ -151,10 +151,15 @@ export const ShidduchCardContent = ({
             </div>
           ) : null}
 
-          <div className="mt-3 flex items-center gap-1.5 border-t pt-2.5 text-[11.5px] text-muted-foreground">
+          {/* flex-wrap, matching ShidduchShowHeader's own meta row: without it
+              a normal-length shadchan name breaks this line mid-phrase inside
+              the narrow column and orphans the dot separators. */}
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t pt-2.5 text-[11.5px] text-muted-foreground">
             {shidduch.shadchan_name ? (
               <>
-                <span>via {shidduch.shadchan_name}</span>
+                <span className="min-w-0 truncate">
+                  via {shidduch.shadchan_name}
+                </span>
                 <span className="h-[3px] w-[3px] rounded-full bg-muted-foreground/50" />
               </>
             ) : null}

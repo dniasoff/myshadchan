@@ -56,7 +56,13 @@ export const ShadchanCard = ({
           ease-[var(--ease-out)] hover:-translate-y-0.5 hover:shadow-md"
       >
         <div className="flex items-start gap-3">
+          {/* aria-hidden: the monogram is a decorative restatement of the
+              name rendered right beside it, so a screen reader otherwise
+              announces "RS" before "Rivka Stern". Every sibling in this
+              surface group already hides it (ShadchanRow, SingleCard,
+              SingleRow, ConnectionCard) — this card was the outlier. */}
           <div
+            aria-hidden="true"
             className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[11px] text-[13px] font-bold"
             style={{
               backgroundColor: `var(--avatar-${avatarIndex})`,

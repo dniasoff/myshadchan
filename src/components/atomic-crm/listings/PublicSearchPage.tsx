@@ -49,7 +49,7 @@ const initialQueryFrom = (url: PublicSearchUrl): string =>
  * pre-Epic-1 token-based public page (deleted before this story; its
  * component is gone, only the look is being followed here). */
 const SearchShell = ({ children }: { children: ReactNode }) => (
-  <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
+  <div className="relative min-h-dvh overflow-hidden bg-background text-foreground">
     <div
       aria-hidden="true"
       className="pointer-events-none absolute inset-0"
@@ -58,7 +58,7 @@ const SearchShell = ({ children }: { children: ReactNode }) => (
           "radial-gradient(120% 80% at 50% -10%, color-mix(in oklch, var(--primary) 14%, transparent), transparent 60%), radial-gradient(90% 60% at 100% 0%, color-mix(in oklch, var(--violet, var(--primary)) 12%, transparent), transparent 55%)",
       }}
     />
-    <main className="relative mx-auto flex min-h-screen w-full max-w-3xl flex-col px-5 py-14 sm:py-20">
+    <main className="relative mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-14 sm:py-20">
       {children}
     </main>
   </div>

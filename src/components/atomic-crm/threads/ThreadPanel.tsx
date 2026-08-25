@@ -110,11 +110,59 @@ function MessagesError(): ReactElement {
   );
 }
 
-function MessageRow({ message }: { message: Message }): ReactElement {
+/**
+ * One message, attributed. A household discussion has at least two voices in
+ * it — two parents, or a household and a shadchan — and a timestamped body
+ * with no author is unreadable as a conversation.
+ *
+ * `sender_member_id` and `useCurrentMemberId()` are BOTH in the
+ * `account_members.id` space (see that hook's own comment), so this
+ * comparison is sound where a `getIdentity().id` comparison would silently
+ * be comparing two different id spaces.
+ *
+ * The other side is deliberately NOT named: the only member roster the
+ * client has, `context_members`, is keyed on `members.id` — a different id
+ * space again — so there is no client-side join from `sender_member_id` to
+ * a name, and inventing one here would be a second, subtly-wrong identity
+ * resolver (the trap this file's header comment already documents). Naming
+ * a non-self sender needs a `messages` view carrying an `author_name` join,
+ * the shape `interactions_summary` already uses
+ * (supabase/schemas/03_views.sql:310). Until then, own-vs-other is the
+ * honest distinction, and it is the whole answer in a two-person thread.
+ *
+ * The label is text, not only alignment: a screen reader gets nothing from
+ * `ms-auto`.
+ */
+function MessageRow({
+  message,
+  currentMemberId,
+}: {
+  message: Message;
+  currentMemberId: Identifier | null | undefined;
+}): ReactElement {
+  const translate = useTranslate();
+  const isMine =
+    currentMemberId != null &&
+    message.sender_member_id != null &&
+    String(message.sender_member_id) === String(currentMemberId);
+
   return (
-    <li className="flex flex-col gap-1 border-b border-border pb-2 last:border-b-0">
-      <span className="text-xs tabular-nums text-muted-foreground">
-        {formatTimelineDate(message.created_at)}
+    <li
+      className={`flex max-w-[85%] flex-col gap-1 rounded-xl px-3 py-2 ${
+        isMine ? "ms-auto items-end bg-accent text-end" : "me-auto bg-muted"
+      }`}
+    >
+      <span className="flex flex-wrap items-baseline gap-2 text-xs">
+        <span className="font-medium">
+          {isMine
+            ? translate("crm.threads.panel.senderYou", { _: "You" })
+            : translate("crm.threads.panel.senderOther", {
+                _: "Someone else",
+              })}
+        </span>
+        <span className="tabular-nums text-muted-foreground">
+          {formatTimelineDate(message.created_at)}
+        </span>
       </span>
       <p className="whitespace-pre-line text-sm">{message.body}</p>
     </li>
@@ -166,6 +214,7 @@ function Composer({
         value={body}
         rows={2}
         onChange={handleChange}
+        className="text-base md:text-sm"
         placeholder={translate("crm.threads.panel.placeholder", {
           _: "Write a message…",
         })}
@@ -353,7 +402,11 @@ export function ThreadPanel({ thread }: ThreadPanelProps): ReactNode {
       ) : (
         <ul className="flex flex-col gap-3">
           {data.map((message) => (
-            <MessageRow key={String(message.id)} message={message} />
+            <MessageRow
+              key={String(message.id)}
+              message={message}
+              currentMemberId={currentMemberId}
+            />
           ))}
         </ul>
       )}

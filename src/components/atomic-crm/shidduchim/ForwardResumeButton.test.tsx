@@ -10,8 +10,9 @@ import type { Resume, ResumeFileVersion } from "../types";
 import { ForwardResumeButton } from "./ForwardResumeButton";
 
 /**
- * Story 5.7, AC 4: the forward/share action is disabled (with an explaining
- * tooltip, never a silent no-op) when the shidduch has no resume file yet,
+ * Story 5.7, AC 4: the forward/share action is disabled (with an explanation
+ * rendered next to it, never a silent no-op) when the shidduch has no resume
+ * file yet,
  * and falls back to a plain download when the Web Share API for files is
  * unsupported. The payload-shape guarantee itself (exactly one
  * `resumes.files` entry, never anything from `resume_photos`) is
@@ -70,22 +71,25 @@ const renderButton = async (
 };
 
 describe("ForwardResumeButton — disabled state (AC 4)", () => {
-  it("is disabled with an explaining title when the shidduch has no resume yet", async () => {
+  it("is disabled with a VISIBLE explanation when the shidduch has no resume yet", async () => {
     // Arrange / Act
     const { screen } = await renderButton({
       getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
     });
 
-    // Assert — the button is disabled from the first (pending) render, but
-    // the explaining title only settles once the "no resume" state resolves.
+    // Assert — the button is disabled from the first (pending) render, and
+    // the explanation settles once the "no resume" state resolves. It is
+    // rendered text, not a `title`: a tooltip never fires on touch, and
+    // `disabled:pointer-events-none` suppressed it on a desktop too, so the
+    // reason used to reach nobody at all.
     const button = screen.getByRole("button", { name: "Forward resume" });
     await expect.element(button).toBeDisabled();
     await expect
-      .poll(() => button.element().getAttribute("title"))
-      .toBe("No resume to forward yet.");
+      .element(screen.getByText("No resume to forward yet."))
+      .toBeVisible();
   });
 
-  it("is enabled, with no disabled-reason title, once a resume file exists", async () => {
+  it("is enabled, with no disabled-reason text, once a resume file exists", async () => {
     // Arrange / Act
     const { screen } = await renderButton({
       getList: vi
@@ -96,7 +100,9 @@ describe("ForwardResumeButton — disabled state (AC 4)", () => {
     // Assert
     const button = screen.getByRole("button", { name: "Forward resume" });
     await expect.element(button).not.toBeDisabled();
-    expect(button.element().getAttribute("title")).toBeNull();
+    await expect
+      .element(screen.getByText("No resume to forward yet."))
+      .not.toBeInTheDocument();
   });
 });
 

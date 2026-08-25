@@ -111,6 +111,21 @@ describe("ReferenceCreate — resolves shidduchim_id from the router, not window
   });
 });
 
+describe("ReferenceCreate — asks for a phone number the way a phone can answer", () => {
+  it("gives the phone field type=tel so a parent gets the keypad, not the alphabet", async () => {
+    // Arrange / Act
+    const { screen } = await renderReferenceCreate(
+      "/references/new?shidduchim_id=42",
+    );
+
+    // Assert — a plain text input puts the alphabetic keyboard in front of
+    // someone typing a reference's number on a phone.
+    await expect
+      .element(screen.getByLabelText("Phone"))
+      .toHaveAttribute("type", "tel");
+  });
+});
+
 describe("ReferenceCreate — refuses creation without a resolvable shidduch (Ruling 7 clause 5)", () => {
   it("renders a refusal, not the form, when shidduchim_id is missing", async () => {
     // Arrange / Act

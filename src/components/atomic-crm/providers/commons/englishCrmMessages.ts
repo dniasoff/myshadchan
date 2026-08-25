@@ -85,6 +85,7 @@ export const englishCrmMessages = {
       },
     },
     tasks: {
+      completeLabel: "Mark done: %{task}",
       name: "Task |||| Tasks",
       forcedCaseName: "Task",
       fields: {
@@ -117,7 +118,15 @@ export const englishCrmMessages = {
     },
   },
   crm: {
+    billing: {
+      backToSettings: "Back to Settings",
+    },
     auth: {
+      invite_role_member: "member",
+      invite_role_single: "single",
+      invite_role_shadchan: "shadchan",
+      invite_role_helper: "helper",
+      invite_role_parent_admin: "parent",
       footer_private: "Private to your family",
       back_to_home: "Back to home",
       login: {
@@ -212,6 +221,8 @@ export const englishCrmMessages = {
       // and run on inline defaults only — out of this story's scope to
       // back-fill (2-3-onboarding-persona-multi-select.md Dev Notes).
       onboarding: {
+        single_first_name_required: "Enter a first name to continue.",
+        account_name_required: "Enter a name for your family record.",
         persona_title: "Which applies to you?",
         persona_subtitle:
           "Pick everything that applies — you can add more later from Settings.",
@@ -371,6 +382,16 @@ export const englishCrmMessages = {
       trigger_label: "Switch single: %{name}",
     },
     settings: {
+      connection_end_confirm_button: "Yes, end the connection",
+      connection_end_confirm_body_shadchan:
+        "This is immediate and cannot be undone. You will lose access to their singles' shidduchim and can no longer redt through this connection.",
+      connection_end_confirm_body_household:
+        "This is immediate and cannot be undone. They will lose access to your singles' shidduchim and can no longer redt through this connection.",
+      connection_end_confirm_title: "End your connection with %{name}?",
+      connection_invite_cancel_confirm_button: "Yes, cancel the invite",
+      connection_invite_cancel_confirm_body:
+        "The link stops working immediately. Anyone you already sent it to will not be able to connect with it, and you can always generate a new one.",
+      connection_invite_cancel_confirm_title: "Cancel this invite link?",
       dark_mode_logo: "Dark Mode Logo",
       light_mode_logo: "Light Mode Logo",
       notes: {
@@ -709,6 +730,8 @@ export const englishCrmMessages = {
       // membership has since left the account (interactions_summary.author_name
       // resolves to null in that case).
       notes: {
+        editLabel: "Edit note",
+        addLabel: "Add a note",
         empty: "No notes yet.",
         error: "Could not load the notes.",
         placeholder: "Add a note…",
@@ -727,6 +750,7 @@ export const englishCrmMessages = {
       // only component in the codebase that mutates tasks from a 360), and
       // TasksRailSummary's link into the tab.
       tasks: {
+        textLabel: "Task",
         empty: "No tasks yet.",
         error: "Could not load the tasks.",
         placeholder: "Add a task…",
@@ -741,6 +765,10 @@ export const englishCrmMessages = {
       // for shidduch/single targets, matching
       // entity_files_visibility_target_check).
       files: {
+        deleteConfirmAction: "Delete file",
+        deleteConfirmBody:
+          "%{fileName} will be removed for everyone. This cannot be undone.",
+        deleteConfirmTitle: "Delete this file?",
         empty: "No files yet.",
         error: "Could not load the files.",
         upload: "Upload a file",
@@ -778,6 +806,10 @@ export const englishCrmMessages = {
       // ShidduchVisibility — no `private_single`, see the story's own
       // reasoning), and PhotoRevealCard's reveal-then-show / hide controls.
       photo: {
+        hideConfirmAction: "Hide photo",
+        hideConfirmBody:
+          "It disappears from this tab for everyone. Bringing it back means uploading it again.",
+        hideConfirmTitle: "Hide this photo?",
         empty: "No photos uploaded yet.",
         error: "Could not load the photos.",
         upload: "Upload a photo",
@@ -798,6 +830,7 @@ export const englishCrmMessages = {
       // option (the tab itself is restricted to parent_admin/self_manager by
       // `visibleTo` — every note within it is visible to both, uniformly).
       medical: {
+        label: "Add a medical note",
         empty: "No medical notes yet.",
         error: "Could not load the medical notes.",
         placeholder: "Add a medical note…",
@@ -807,6 +840,11 @@ export const englishCrmMessages = {
       // Story 5.6 — ExternalLinksTab.tsx's own UX-DR11 states, its add/
       // remove controls, and the invalid-URL rejection message (AC 4).
       "external-links": {
+        cancelRemove: "Cancel",
+        confirmRemoveAction: "Yes, remove",
+        confirmRemove: "Remove this link?",
+        labelLabel: "Label (optional)",
+        urlLabel: "Link URL",
         empty: "No external links yet.",
         error: "Could not load the external links.",
         urlPlaceholder: "https://example.com/profile",
@@ -853,6 +891,14 @@ export const englishCrmMessages = {
     // `EntityListHeader` / `EntityList`'s `emptyState` (AD-18: no hardcoded
     // strings lost when the bespoke header/skeleton moved onto `EntityList`).
     singles: {
+      preferences: {
+        empty: "No preferences added yet.",
+        visibleToManagerLabel: "Visible to whoever manages this process",
+      },
+      grants: {
+        actionError: "Couldn't update that grant. Try again.",
+        accessLevelError: "Couldn't change the access level. Try again.",
+      },
       list: {
         eyebrow: "Family roster",
         subtitle:
@@ -1108,6 +1154,7 @@ export const englishCrmMessages = {
     },
     threads: {
       list: {
+        rowNoMessages: "Nothing said yet",
         empty: "No discussions yet.",
         error: "Could not load the discussions.",
         start: "Start a discussion",
@@ -1116,6 +1163,8 @@ export const englishCrmMessages = {
         rowPrivate: "Private",
       },
       panel: {
+        senderOther: "Someone else",
+        senderYou: "You",
         empty: "No messages yet.",
         error: "Could not load the messages.",
         placeholder: "Write a message…",
@@ -1142,6 +1191,9 @@ export const englishCrmMessages = {
     // book used to carry as its `contacted_count@eq: 0` filter, rehomed onto
     // the Reminders hub (`reminders/OutstandingCallsSection.tsx`).
     reminders: {
+      create: {
+        missingField: "Still needed: %{field}",
+      },
       outstandingCalls: {
         title: "Still to call",
         subtitle: "%{smart_count} conversations have not happened yet.",
@@ -1211,6 +1263,7 @@ export const englishCrmMessages = {
     // empty state verbatim, and adds the populated-state copy (stats,
     // recent-connections list) alongside it.
     shadchan_dashboard: {
+      has_unread: "Unread messages",
       title: "Your shadchanus workspace",
       empty_title: "Nothing here yet",
       empty_description:
@@ -1303,6 +1356,8 @@ export const englishCrmMessages = {
       // Story 10.1 (Task 4): the share-target resolve screen
       // (inbox/ShareTarget.tsx).
       share: {
+        photoCount:
+          "%{smart_count} photo ready to file |||| %{smart_count} photos ready to file",
         title: "File this share",
         sourceLabel: "Where this came from",
         loading: "Filing what you shared…",

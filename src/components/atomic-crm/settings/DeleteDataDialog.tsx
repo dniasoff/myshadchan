@@ -100,7 +100,19 @@ export const DeleteDataDialog = () => {
           })}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      {/* Two traps this dialog fell into, both now fixed — do not reintroduce:
+          (1) `DialogContent` always renders its own `DialogPortal` +
+          `DialogOverlay` + a `fixed z-50` panel (`ui/dialog.tsx`), so it can
+          only ever appear ONCE per `Dialog`. Each step's body used to nest a
+          second one, stacking a full-screen overlay over this dialog's own
+          footer so Cancel/Confirm could not be tapped on a phone. Bodies are
+          plain `<div>`s.
+          (2) The action buttons passed `asChild` with a plain string child,
+          which makes Radix `Slot` throw during render ("Expected a single
+          React element child") — opening this dialog crashed into the app
+          ErrorBoundary, making account deletion unreachable. `asChild` is for
+          wrapping a single element (a `<Link>`), never text. */}
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         {step === "request" && (
           <>
             <DialogHeader>
@@ -115,7 +127,7 @@ export const DeleteDataDialog = () => {
                 })}
               </DialogDescription>
             </DialogHeader>
-            <DialogContent>
+            <div className="space-y-3 text-sm">
               <p>
                 {translate("crm.profile.privacy.delete_cooling_off", {
                   _: "After confirmation, there will be a 24-hour cooling-off period during which you can cancel the deletion.",
@@ -136,13 +148,13 @@ export const DeleteDataDialog = () => {
                   </span>
                 </label>
               </div>
-            </DialogContent>
+            </div>
             <DialogFooter>
               <DialogClose asChild>
                 <Button variant="ghost">{translate("ra.action.cancel")}</Button>
               </DialogClose>
               <Button
-                asChild
+                type="button"
                 variant="destructive"
                 onClick={() => setStep("confirm")}
                 disabled={loading}
@@ -170,7 +182,7 @@ export const DeleteDataDialog = () => {
                 })}
               </DialogDescription>
             </DialogHeader>
-            <DialogContent>
+            <div className="space-y-3 text-sm">
               <p className="text-destructive">
                 {translate("crm.profile.privacy.delete_warning", {
                   _: "Are you sure you want to delete your family's entire account and all associated data?",
@@ -183,7 +195,7 @@ export const DeleteDataDialog = () => {
                   })}
                 </p>
               )}
-            </DialogContent>
+            </div>
             <DialogFooter>
               <DialogClose asChild>
                 <Button variant="ghost" onClick={() => setStep("request")}>
@@ -191,7 +203,7 @@ export const DeleteDataDialog = () => {
                 </Button>
               </DialogClose>
               <Button
-                asChild
+                type="button"
                 variant="destructive"
                 onClick={handleDelete}
                 disabled={loading}
@@ -214,7 +226,7 @@ export const DeleteDataDialog = () => {
                 })}
               </DialogTitle>
             </DialogHeader>
-            <DialogContent>
+            <div className="space-y-3 text-sm">
               <p>
                 {translate("crm.profile.privacy.deletion_in_progress", {
                   _: "Your deletion request is being processed. This may take several minutes.",
@@ -227,7 +239,7 @@ export const DeleteDataDialog = () => {
                   })}
                 </p>
               )}
-            </DialogContent>
+            </div>
             <DialogFooter>
               <DialogClose asChild>
                 <Button variant="ghost" disabled={loading}>
@@ -246,7 +258,7 @@ export const DeleteDataDialog = () => {
                 })}
               </DialogTitle>
             </DialogHeader>
-            <DialogContent>
+            <div className="space-y-3 text-sm">
               <p>
                 {translate("crm.profile.privacy.deletion_success_message", {
                   _: "Your family's data has been successfully deleted from our systems.",
@@ -259,7 +271,7 @@ export const DeleteDataDialog = () => {
                   })}
                 </p>
               )}
-            </DialogContent>
+            </div>
             <DialogFooter>
               <DialogClose asChild>
                 <Button variant="ghost" onClick={() => setStep("request")}>

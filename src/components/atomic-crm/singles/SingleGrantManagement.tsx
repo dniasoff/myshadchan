@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { useRecordContext } from "ra-core";
+import { useNotify, useRecordContext } from "ra-core";
 import { useDataProvider } from "ra-core";
 import type { Identifier } from "ra-core";
+import { Confirm } from "@/components/admin/confirm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,10 +23,11 @@ import {
 } from "@/components/ui/dialog";
 import {
   AlertCircle,
-  CheckCircle,
-  XCircle,
+  Check,
+  Copy,
   Share2,
   Loader2,
+  Scissors,
 } from "lucide-react";
 import { pickActiveContext } from "../providers/commons/roleAuthority";
 import type { CrmDataProvider } from "../providers/types";
@@ -37,6 +39,7 @@ import {
   ACCESS_LEVEL_LABELS,
   ACCESS_LEVEL_ORDER,
 } from "./childGrantAccessLevel";
+import { GrantAccessChip, GrantStatusChip } from "./GrantChips";
 
 interface GrantListItemProps {
   grant: ChildGrant;
@@ -45,11 +48,13 @@ interface GrantListItemProps {
 
 function GrantListItem({ grant, onRefresh }: GrantListItemProps) {
   const dataProvider = useDataProvider<CrmDataProvider>();
+  const notify = useNotify();
   const { data: contexts } = useMyContexts();
   const activeAccountId = pickActiveContext(contexts)?.account_id;
   const isProposer = grant.proposer_account_id === activeAccountId;
   const [loading, setLoading] = useState(false);
   const [accessLevelSaving, setAccessLevelSaving] = useState(false);
+  const [isSeverConfirmOpen, setIsSeverConfirmOpen] = useState(false);
 
   const handleAction = async (
     action: "revoke" | "sever" | "regrant",
@@ -67,7 +72,19 @@ function GrantListItem({ grant, onRefresh }: GrantListItemProps) {
       onRefresh();
     } catch (error) {
       console.error(`${action}ChildGrant error`, error);
-      alert(error instanceof Error ? error.message : "Action failed");
+      // `notify`, never `alert()`: a native alert is unstyled, outside the
+      // app's focus management, and on a phone it interrupts the whole
+      // browser. The raw provider message is the inline FALLBACK, never the
+      // notify key — a key that is really an error string would make any
+      // future catalogue entry unreachable (InvitesSection.tsx's own note).
+      notify("crm.singles.grants.actionError", {
+        type: "error",
+        messageArgs: {
+          _:
+            (error instanceof Error ? error.message : "") ||
+            "Couldn't update that grant. Try again.",
+        },
+      });
     } finally {
       setLoading(false);
     }
@@ -82,53 +99,16 @@ function GrantListItem({ grant, onRefresh }: GrantListItemProps) {
       onRefresh();
     } catch (error) {
       console.error("updateChildGrantAccess error", error);
-      alert(
-        error instanceof Error
-          ? error.message
-          : "Failed to update access level",
-      );
+      notify("crm.singles.grants.accessLevelError", {
+        type: "error",
+        messageArgs: {
+          _:
+            (error instanceof Error ? error.message : "") ||
+            "Couldn't change the access level. Try again.",
+        },
+      });
     } finally {
       setAccessLevelSaving(false);
-    }
-  };
-
-  const getStatusBadge = () => {
-    switch (grant.status) {
-      case "pending":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-800">
-            <span className="size-1.5 rounded-full bg-yellow-500" />
-            Pending
-          </span>
-        );
-      case "accepted":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-            <CheckCircle className="size-3" />
-            Active
-          </span>
-        );
-      case "revoked":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
-            <XCircle className="size-3" />
-            Revoked
-          </span>
-        );
-      case "expired":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-medium text-orange-800">
-            <AlertCircle className="size-3" />
-            Expired
-          </span>
-        );
-      case "severed":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
-            <XCircle className="size-3" />
-            Severed
-          </span>
-        );
     }
   };
 
@@ -139,38 +119,59 @@ function GrantListItem({ grant, onRefresh }: GrantListItemProps) {
   // consent to (update_child_grant_access is scoped to accepted grants).
   const canEditAccessLevel = isProposer && grant.status === "accepted";
 
+  // Never the raw `grantee_account_id`: "With household #4127" names nobody
+  // a parent can recognise, on the row where they decide whether to cut
+  // access to their single's record. The acceptance date is the one fact
+  // this row actually carries about the other side. Showing the household's
+  // NAME needs a denormalized snapshot on the read path, the way
+  // `connections.household_account_name` already works.
+  const acceptanceLine =
+    grant.grantee_account_id == null
+      ? "Awaiting acceptance"
+      : grant.accepted_at
+        ? `Accepted ${new Date(grant.accepted_at).toLocaleDateString()}`
+        : "Accepted by the other household";
+
   return (
-    <div className="flex items-center justify-between p-4 border rounded-lg bg-card">
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Share2 className="size-5 text-muted-foreground" />
-          <div>
-            <p className="font-medium">Grant to another household</p>
-            <p className="text-sm text-muted-foreground">
-              {grant.grantee_account_id == null
-                ? "Awaiting acceptance"
-                : `With household #${grant.grantee_account_id}`}
+    // Stacked on a phone, side-by-side from `sm:`. As one non-wrapping
+    // `justify-between` row the combined intrinsic width of the two text
+    // lines plus three controls far exceeded 360px, and the right-hand
+    // controls — Revoke / Sever / Re-grant — were pushed out of view.
+    // `min-w-0` on the text column is the other half: without it a flex
+    // item's `min-width:auto` resolves to min-content and refuses to shrink.
+    <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
+        <Share2
+          className="size-5 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <div className="min-w-0">
+          <p className="truncate font-medium">Grant to another household</p>
+          <p className="truncate text-sm text-muted-foreground">
+            {acceptanceLine}
+          </p>
+          {grant.severed_at ? (
+            <p className="truncate text-xs text-muted-foreground">
+              Severed {new Date(grant.severed_at).toLocaleDateString()}
             </p>
-          </div>
+          ) : null}
         </div>
-        {grant.status === "accepted" && grant.severed_at && (
-          <span className="text-xs text-muted-foreground">
-            Severed {new Date(grant.severed_at).toLocaleDateString()}
-          </span>
-        )}
       </div>
-      <div className="flex items-center gap-3">
-        {getStatusBadge()}
+      <div className="flex flex-wrap items-center gap-2">
+        <GrantStatusChip status={grant.status} />
         {canEditAccessLevel ? (
           <Select
             value={grant.access_level}
             onValueChange={handleAccessLevelChange}
             disabled={accessLevelSaving}
           >
+            {/* No `size="sm"` and no `h-7`: the trigger is a real control a
+                finger has to hit. `data-[size=default]` is what carries this
+                repo's `min-h-11 md:min-h-9` touch floor (ui/select.tsx) —
+                `sm` opts out of it, and an explicit `h-7` beat it anyway. */}
             <SelectTrigger
-              size="sm"
               aria-label="Change access level"
-              className="h-7 gap-1 border-none bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800 shadow-none hover:bg-blue-200"
+              className="gap-1.5 border-0 bg-secondary px-2.5 text-xs font-semibold text-muted-foreground shadow-none ring-1 ring-border hover:bg-secondary/80"
             >
               <AccessLevelIcon className="size-3" />
               <SelectValue />
@@ -184,65 +185,61 @@ function GrantListItem({ grant, onRefresh }: GrantListItemProps) {
             </SelectContent>
           </Select>
         ) : (
-          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
-            <AccessLevelIcon className="size-3" />
-            {ACCESS_LEVEL_LABELS[grant.access_level]}
-          </span>
+          <GrantAccessChip
+            Icon={AccessLevelIcon}
+            label={ACCESS_LEVEL_LABELS[grant.access_level]}
+          />
         )}
-        <div className="flex items-center gap-2">
-          {grant.status === "pending" && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleAction("revoke", grant.id)}
-                disabled={loading}
-                title="Revoke this pending grant"
-              >
-                Revoke
-              </Button>
-            </>
-          )}
-          {grant.status === "accepted" && (
-            <>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  if (
-                    confirm(
-                      "Sever this grant? The other household will immediately lose access to this child's record.",
-                    )
-                  ) {
-                    handleAction("sever", grant.id);
-                  }
-                }}
-                disabled={loading}
-              >
-                {loading ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  "Sever"
-                )}
-              </Button>
-            </>
-          )}
-          {["severed", "revoked", "expired"].includes(grant.status) && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleAction("regrant", grant.id)}
-              disabled={loading}
-            >
-              {loading ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                "Re-grant"
-              )}
-            </Button>
-          )}
-        </div>
+        {grant.status === "pending" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleAction("revoke", grant.id)}
+            disabled={loading}
+            title="Revoke this pending grant"
+          >
+            Revoke
+          </Button>
+        )}
+        {grant.status === "accepted" && (
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setIsSeverConfirmOpen(true)}
+            disabled={loading}
+          >
+            {loading ? <Loader2 className="size-4 animate-spin" /> : "Sever"}
+          </Button>
+        )}
+        {["severed", "revoked", "expired"].includes(grant.status) && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleAction("regrant", grant.id)}
+            disabled={loading}
+          >
+            {loading ? <Loader2 className="size-4 animate-spin" /> : "Re-grant"}
+          </Button>
+        )}
       </div>
+      {/* The app's own confirm shape, not a native `confirm()`: that one is
+          unstyled, not focus-trapped, and on a phone it is a browser-chrome
+          sheet the destructive action then fires from with no visible link
+          back to the row it belongs to. */}
+      <Confirm
+        isOpen={isSeverConfirmOpen}
+        loading={loading}
+        title="Sever this grant?"
+        content="The other household will immediately lose access to this single's record."
+        confirm="Sever"
+        confirmColor="warning"
+        ConfirmIcon={Scissors}
+        onClose={() => setIsSeverConfirmOpen(false)}
+        onConfirm={() => {
+          setIsSeverConfirmOpen(false);
+          void handleAction("sever", grant.id);
+        }}
+      />
     </div>
   );
 }
@@ -259,6 +256,21 @@ function ProposeGrantDialog({ single, onSuccess }: ProposeGrantDialogProps) {
   const [accessLevel, setAccessLevel] = useState<ChildGrantAccessLevel>("read");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createdLink, setCreatedLink] = useState<string | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
+
+  // Reset on close so the next open starts clean rather than re-showing the
+  // previous grant's link (SingleLoginInvite.tsx's own handleOpenChange).
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (!next) {
+      setEmail("");
+      setAccessLevel("read");
+      setError(null);
+      setCreatedLink(null);
+      setIsCopied(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -270,12 +282,15 @@ function ProposeGrantDialog({ single, onSuccess }: ProposeGrantDialogProps) {
         email,
         accessLevel,
       );
-      setOpen(false);
-      setEmail("");
-      setAccessLevel("read");
-      alert(
-        `Grant created! Share this link with the other parent:\n\n${window.location.origin}/accept-grant/${token}`,
-      );
+      // Two things were wrong with the `alert()` this replaces. Its text is
+      // not selectable or copyable in iOS Safari or Android Chrome, so on a
+      // phone the whole share flow dead-ended with a link the parent could
+      // read and not take. And the link itself was path-shaped — this app
+      // runs on ra-core's default HashRouter, so `/accept-grant/<token>`
+      // reaches the web server, never the router; only the `/#/…` form is
+      // reachable (SingleLoginInvite.tsx and InvitesSection.tsx both build
+      // their accept links that way).
+      setCreatedLink(`${window.location.origin}/#/accept-grant/${token}`);
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create grant");
@@ -284,19 +299,64 @@ function ProposeGrantDialog({ single, onSuccess }: ProposeGrantDialogProps) {
     }
   };
 
+  const handleCopy = () => {
+    if (!createdLink) return;
+    navigator.clipboard.writeText(createdLink).then(() => setIsCopied(true));
+  };
+
   return (
-    <>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild>
-          <Button>
-            <Share2 className="size-4 mr-2" />
-            Share with another household
-          </Button>
-        </DialogTrigger>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Share this single's record</DialogTitle>
-          </DialogHeader>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button>
+          <Share2 className="size-4 mr-2" />
+          Share with another household
+        </Button>
+      </DialogTrigger>
+      {/* `sm:max-w-md`, never a bare `max-w-md`: tailwind-merge keeps the
+          LAST unprefixed `max-w-*`, so an unprefixed cap silently replaces
+          the base component's `max-w-[calc(100%-2rem)]` — the rule that
+          reserves the 16px gutter each side at phone width. `dvh`, not
+          `vh`, so mobile browser chrome is accounted for; without the cap
+          and the scroll this panel is centre-translated off both edges of
+          the visual viewport once the software keyboard opens. */}
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Share this single's record</DialogTitle>
+        </DialogHeader>
+        {createdLink ? (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Send this link to the other parent. They will be asked to accept
+              before they can see anything.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-2">
+              {/* `text-base` below `md`: ui/input.tsx's own base is
+                  `text-sm` (14px), and iOS Safari auto-zooms the page
+                  whenever a focused input is under 16px — a readonly field
+                  included, since it still takes focus when it is tapped to
+                  select the link. Same reason as SingleLoginInvite.tsx's. */}
+              <Input
+                readOnly
+                value={createdLink}
+                aria-label="Invitation link"
+                className="min-w-0 flex-1 text-base md:text-sm"
+              />
+              <Button type="button" variant="outline" onClick={handleCopy}>
+                {isCopied ? (
+                  <Check className="size-4" />
+                ) : (
+                  <Copy className="size-4" />
+                )}
+                {isCopied ? "Copied" : "Copy"}
+              </Button>
+            </div>
+            <div className="flex justify-end pt-2">
+              <Button type="button" onClick={() => handleOpenChange(false)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <p className="text-sm text-muted-foreground">
               Enter the email address of the parent you want to share this
@@ -307,6 +367,7 @@ function ProposeGrantDialog({ single, onSuccess }: ProposeGrantDialogProps) {
               <Input
                 id="grantee-email"
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="parent@example.com"
@@ -350,11 +411,11 @@ function ProposeGrantDialog({ single, onSuccess }: ProposeGrantDialogProps) {
                 {error}
               </div>
             )}
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setOpen(false)}
+                onClick={() => handleOpenChange(false)}
               >
                 Cancel
               </Button>
@@ -370,9 +431,9 @@ function ProposeGrantDialog({ single, onSuccess }: ProposeGrantDialogProps) {
               </Button>
             </div>
           </form>
-        </DialogContent>
-      </Dialog>
-    </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -418,7 +479,7 @@ export function SingleGrantManagement(): React.ReactElement | null {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-semibold">Shared access</h3>
         <ProposeGrantDialog single={record} onSuccess={loadGrants} />
       </div>
@@ -430,7 +491,7 @@ export function SingleGrantManagement(): React.ReactElement | null {
       ) : grants.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
           <Share2 className="size-12 mx-auto mb-3 opacity-50" />
-          <p>This child's record is not shared with any other household.</p>
+          <p>This single's record is not shared with any other household.</p>
           <p className="text-sm mt-1">
             Use "Share with another household" to grant access.
           </p>

@@ -21,6 +21,7 @@ import {
 import type { CrmDataProvider } from "../providers/types";
 import { useMyContexts } from "../root/useMyContexts";
 import type { MyContext } from "../types";
+import { MOBILE_MENU_ITEM_CLASSNAME } from "./menuItemClassName";
 
 type Translate = ReturnType<typeof useTranslate>;
 
@@ -119,6 +120,10 @@ export const ContextMenuItems = ({
         <DropdownMenuItem
           key={context.account_id}
           onSelect={() => handleSelect(context.account_id)}
+          // These same rows render inside the mobile "More" menu, where a
+          // 32px row is under the touch minimum and a mis-tap switches the
+          // whole account. Desktop density is unchanged above `md`.
+          className={MOBILE_MENU_ITEM_CLASSNAME}
         >
           {contextLabel(context, translate)}
           {context.account_id === active.account_id ? (

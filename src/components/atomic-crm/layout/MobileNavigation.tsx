@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { buildNewPath } from "../entity360/entityPaths";
 import { useGlobalSearchDialog } from "../misc/useGlobalSearch";
 import { ContextMenuItems } from "./ContextSwitcher";
+import { MOBILE_MENU_ITEM_CLASSNAME } from "./menuItemClassName";
 import {
   PRIMARY_NAV,
   SHADCHANUS_NAV,
@@ -44,7 +45,17 @@ const inboxItem = findNavItem(PRIMARY_NAV, "/inbox_items");
 const tasksItem = findNavItem(PRIMARY_NAV, "/tasks");
 const remindersItem = findNavItem(PRIMARY_NAV, "/reminders");
 const settingsItem = findNavItem(PRIMARY_NAV, "/settings");
-const connectionsItem = findNavItem(SHADCHANUS_NAV, "/connections");
+
+/**
+ * Whether `pathname` is inside a nav item's section. `"/"` has to match
+ * exactly (every path is "inside" it otherwise); everything else matches its
+ * own detail routes too, so `/shidduchim/12` still lights the Shidduchim
+ * slot.
+ */
+const matchesNavItem = (item: NavItem, pathname: string) =>
+  item.to === "/"
+    ? matchPath("/", pathname) !== null
+    : matchPath(`${item.to}/*`, pathname) !== null;
 
 /**
  * Mobile bottom nav (Story 8.1, AC-2): the top-level export follows the
@@ -56,7 +67,7 @@ const connectionsItem = findNavItem(SHADCHANUS_NAV, "/connections");
 export const MobileNavigation = () => {
   const nav = useActiveNav();
   return nav === SHADCHANUS_NAV ? (
-    <ShadchanusMobileNavigation />
+    <ShadchanusMobileNavigation nav={nav} />
   ) : (
     <HouseholdMobileNavigation />
   );
@@ -137,28 +148,41 @@ const HouseholdMobileNavigation = () => {
   );
 };
 
+/** Bar slots in the shadchanus nav; everything past this goes in "More". */
+const SHADCHANUS_BAR_SLOTS = 3;
+
 /**
- * The shadchanus bottom nav (Story 8.1, AC-1/AC-2): a plain 4-slot bar —
- * Dashboard, Connections, Settings, then "More" (context switcher + theme
- * only — no household quick links, and no raised center create button:
- * there is no taskable target in a shadchanus account yet, see the story's
- * Dev Notes "Why no Tasks or Reminders"). Context switching and the theme
- * toggle stay reachable here rather than disappearing for a shadchan who
- * also holds a household context — `SettingsPageMobile.tsx`'s own comment
- * records that this "More" menu is mobile's only entry point for both
- * (Story 4.4 NFR-14).
+ * The shadchanus bottom nav (Story 8.1, AC-1/AC-2): a 4-slot bar — the first
+ * three `SHADCHANUS_NAV` destinations, then "More" holding the rest, the
+ * context switcher and theme. No raised center create button: there is no
+ * taskable target in a shadchanus account yet, see the story's Dev Notes
+ * "Why no Tasks or Reminders". Context switching and the theme toggle stay
+ * reachable here rather than disappearing for a shadchan who also holds a
+ * household context — `SettingsPageMobile.tsx`'s own comment records that
+ * this "More" menu is mobile's only entry point for both (Story 4.4 NFR-14).
+ *
+ * Every slot is derived from the `nav` array the dispatcher already resolved,
+ * the way `Sidebar.tsx` does it — never a hand-picked subset. The previous
+ * version hardcoded three items and an EMPTY "More", so when `SHADCHANUS_NAV`
+ * grew from 3 entries to 6, `/shidduchim`, `/singles` and `/shadchanim`
+ * became unreachable on a phone: the routes exist (`root/routeManifest.ts`
+ * registers all three for `contextKind: "shadchanus"`) and the desktop
+ * sidebar links to them, but no mobile surface did. Slicing the array cannot
+ * drift that way again.
  */
-const ShadchanusMobileNavigation = () => {
+const ShadchanusMobileNavigation = ({ nav }: { nav: NavItem[] }) => {
   const location = useLocation();
   const translate = useTranslate();
 
+  const barItems = nav.slice(0, SHADCHANUS_BAR_SLOTS);
+  const overflowItems = nav.slice(SHADCHANUS_BAR_SLOTS);
+
+  const activeItem = nav.find((item) =>
+    matchesNavItem(item, location.pathname),
+  );
   let currentPath: string | false = false;
-  if (matchPath("/", location.pathname)) {
-    currentPath = "/";
-  } else if (matchPath(`${connectionsItem.to}/*`, location.pathname)) {
-    currentPath = connectionsItem.to;
-  } else if (matchPath(settingsItem.to, location.pathname)) {
-    currentPath = settingsItem.to;
+  if (activeItem) {
+    currentPath = barItems.includes(activeItem) ? activeItem.to : "more";
   }
 
   return (
@@ -169,32 +193,26 @@ const ShadchanusMobileNavigation = () => {
         bg-(--glass-bg) pb-[env(safe-area-inset-bottom)] shadow-lg
         backdrop-blur-[var(--glass-blur)]"
     >
-      <NavigationButton
-        href="/"
-        Icon={Home}
-        label={translate("ra.page.dashboard")}
-        isActive={currentPath === "/"}
-        tourId="dashboard"
+      {barItems.map((item) => (
+        <NavigationButton
+          key={item.to}
+          href={item.to}
+          Icon={item.icon}
+          // `smart_count: 2` resolves pluralized resource-name catalog
+          // entries (e.g. "Shadchan |||| Shadchanim"); harmless no-op for
+          // plain keys — same call shape as `Sidebar.tsx`.
+          label={translate(item.labelKey, {
+            smart_count: 2,
+            _: item.labelDefault,
+          })}
+          isActive={currentPath === item.to}
+          tourId={item.tourId}
+        />
+      ))}
+      <MoreButton
+        isActive={currentPath === "more"}
+        quickLinks={overflowItems}
       />
-      <NavigationButton
-        href={connectionsItem.to}
-        Icon={connectionsItem.icon}
-        label={translate(connectionsItem.labelKey, {
-          _: connectionsItem.labelDefault,
-        })}
-        isActive={currentPath === connectionsItem.to}
-        tourId={connectionsItem.tourId}
-      />
-      <NavigationButton
-        href={settingsItem.to}
-        Icon={settingsItem.icon}
-        label={translate(settingsItem.labelKey, {
-          _: settingsItem.labelDefault,
-        })}
-        isActive={currentPath === settingsItem.to}
-        tourId={settingsItem.tourId}
-      />
-      <MoreButton isActive={false} quickLinks={[]} />
     </nav>
   );
 };
@@ -220,7 +238,14 @@ const NavigationButton = ({
       isActive ? "text-primary" : "text-muted-foreground",
     )}
   >
-    <Link to={href} data-tour={tourId ? `nav-${tourId}` : undefined}>
+    <Link
+      to={href}
+      // The only cues otherwise are `text-primary` and the `aria-hidden` dot
+      // below — nothing a screen reader or voice control can hear. Matches
+      // `Sidebar.tsx`'s own `aria-current` on the desktop nav.
+      aria-current={isActive ? "page" : undefined}
+      data-tour={tourId ? `nav-${tourId}` : undefined}
+    >
       <span className="relative">
         <Icon className="size-6" aria-hidden="true" />
         {isActive ? (
@@ -261,10 +286,10 @@ const CreateButton = () => {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="center" className="mb-2">
-          <DropdownMenuItem asChild>
+          <DropdownMenuItem asChild className={MOBILE_MENU_ITEM_CLASSNAME}>
             <Link to={buildNewPath("shidduchim")}>Add a suggestion</Link>
           </DropdownMenuItem>
-          <DropdownMenuItem disabled>
+          <DropdownMenuItem disabled className={MOBILE_MENU_ITEM_CLASSNAME}>
             Scan a resume (coming soon)
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -297,6 +322,7 @@ const MoreButton = ({
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
+          aria-current={isActive ? "true" : undefined}
           data-tour="nav-more"
           className={cn(
             "flex h-full w-16 flex-col items-center justify-center gap-1 rounded-none px-1",
@@ -310,7 +336,7 @@ const MoreButton = ({
       <DropdownMenuContent align="end" className="mb-2">
         <DropdownMenuItem
           onSelect={openGlobalSearch}
-          className="flex items-center gap-2"
+          className={cn("flex items-center gap-2", MOBILE_MENU_ITEM_CLASSNAME)}
         >
           <Search className="size-4" aria-hidden="true" />
           {translate("crm.global_search.trigger_label", { _: "Search" })}
@@ -322,7 +348,10 @@ const MoreButton = ({
               <Link
                 to={item.to}
                 data-tour={`nav-${item.tourId}`}
-                className="flex items-center gap-2"
+                className={cn(
+                  "flex items-center gap-2",
+                  MOBILE_MENU_ITEM_CLASSNAME,
+                )}
               >
                 <Icon className="size-4" aria-hidden="true" />
                 {translate(item.labelKey, { _: item.labelDefault })}
@@ -351,17 +380,26 @@ const ThemeMenuItems = () => {
 
   return (
     <>
-      <DropdownMenuItem onClick={() => setTheme("light")}>
+      <DropdownMenuItem
+        onClick={() => setTheme("light")}
+        className={MOBILE_MENU_ITEM_CLASSNAME}
+      >
         <Sun className="size-4" aria-hidden="true" />
         Light
         <Check className={cn("ms-auto", theme !== "light" && "hidden")} />
       </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => setTheme("dark")}>
+      <DropdownMenuItem
+        onClick={() => setTheme("dark")}
+        className={MOBILE_MENU_ITEM_CLASSNAME}
+      >
         <Moon className="size-4" aria-hidden="true" />
         Dark
         <Check className={cn("ms-auto", theme !== "dark" && "hidden")} />
       </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => setTheme("system")}>
+      <DropdownMenuItem
+        onClick={() => setTheme("system")}
+        className={MOBILE_MENU_ITEM_CLASSNAME}
+      >
         System
         <Check className={cn("ms-auto", theme !== "system" && "hidden")} />
       </DropdownMenuItem>

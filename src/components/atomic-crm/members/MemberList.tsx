@@ -61,7 +61,11 @@ const OptionsField = (_props: { label?: string | boolean }) => {
   };
 
   return (
-    <div className="flex flex-row gap-1">
+    // `gap-2` and `items-center`, not `gap-1`: the only destructive action on
+    // this screen sat 4px from the status badges, so on a phone the two are
+    // one crowded strip and the remove button is easy to hit by accident.
+    // Its own 44px floor comes from ui/button.tsx's `icon` size.
+    <div className="flex flex-row items-center gap-2">
       {record.administrator && (
         <Badge variant="outline" className="border-primary">
           {translate("resources.members.fields.administrator")}
@@ -86,7 +90,11 @@ const OptionsField = (_props: { label?: string | boolean }) => {
         <Trash2 className="h-4 w-4" />
       </Button>
       <Dialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
-        <DialogContent>
+        {/* dvh, not vh — mobile browser chrome makes vh wrong — and an
+            internal scroll, since the base DialogContent is centre-
+            translated with no height cap: past the viewport height the
+            footer is simply clipped away with no way to reach it. */}
+        <DialogContent className="max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {translate("crm.members.remove.confirmTitle", {

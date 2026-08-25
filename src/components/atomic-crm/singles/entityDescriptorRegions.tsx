@@ -50,14 +50,27 @@ export const SingleIdentityHeader = ({ record }: { record: Single }) => (
  * `entityDescriptorRegions.tsx`'s own "thin adapter list" convention.
  *
  * Story 13.1: adds `SingleGrantManagement` for the grant lifecycle —
- * proposing, accepting, severing grants to another household.
+ * proposing, accepting, severing grants to another household. It renders
+ * BELOW the toolbar, not inside it: it is a management panel with its own
+ * heading, grant rows and empty-state prose, not a toolbar action. Inside
+ * `TopToolbar` it inherited that component's `whitespace-nowrap`, and
+ * because a flex item's `min-width:auto` resolves to min-content, the
+ * unwrappable empty-state sentence forced the item wider than a 360px
+ * viewport — and since the row is `justify-end`, the overflow went off the
+ * LEFT edge, where the page cannot scroll to reach it. `whitespace-normal`
+ * and `min-w-0` here are what keep it inside the viewport; do not fold it
+ * back into the toolbar.
  */
 export const SingleActions = ({ record }: { record: Single }) => (
-  <TopToolbar>
-    <SingleLoginInvite single={record} />
-    <SingleGrantManagement />
-    <EditButton />
-  </TopToolbar>
+  <div className="flex flex-col gap-4">
+    <TopToolbar>
+      <SingleLoginInvite single={record} />
+      <EditButton />
+    </TopToolbar>
+    <div className="min-w-0 whitespace-normal">
+      <SingleGrantManagement />
+    </div>
+  </div>
 );
 
 /**

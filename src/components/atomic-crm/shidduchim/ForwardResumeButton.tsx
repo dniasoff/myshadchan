@@ -78,15 +78,23 @@ export function ForwardResumeButton({
   };
 
   return (
-    <Button
-      type="button"
-      disabled={isPending || isSending || !latestFile}
-      title={disabledReason ?? undefined}
-      onClick={handleForward}
-    >
-      {translate("crm.entity360.rail.forward.action", {
-        _: "Forward resume",
-      })}
-    </Button>
+    <div className="flex flex-col">
+      <Button
+        type="button"
+        disabled={isPending || isSending || !latestFile}
+        onClick={handleForward}
+      >
+        {translate("crm.entity360.rail.forward.action", {
+          _: "Forward resume",
+        })}
+      </Button>
+      {/* Visible text, not the `title` this used to be: a tooltip never fires
+          on touch (there is no hover), and `disabled:pointer-events-none` in
+          buttonVariants suppresses it on a desktop too — so the one
+          explanation for the disabled state was reaching nobody at all. */}
+      {disabledReason ? (
+        <p className="mt-1.5 text-xs text-muted-foreground">{disabledReason}</p>
+      ) : null}
+    </div>
   );
 }

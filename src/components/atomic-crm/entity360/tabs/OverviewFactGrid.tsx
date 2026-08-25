@@ -55,7 +55,13 @@ export function OverviewFactGrid(props: {
   }
 
   return (
-    <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+    // Mobile-first, deliberately: this used to start at `grid-cols-2` with an
+    // `sm:` step UP and no step down, so a 360px phone got two ~152px columns
+    // on the landing tab of every record. A `dd` here is an English value and
+    // its `dir="rtl"` Hebrew on one baseline row (see `FactRow`), which at
+    // 152px wraps to three or four lines each. One column at phone width is
+    // what lets the pair sit on the single row it was designed for.
+    <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
       {facts.map((fact, index) => (
         <FactRow key={`${fact.label}-${index}`} {...fact} />
       ))}

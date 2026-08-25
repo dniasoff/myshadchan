@@ -215,9 +215,13 @@ export const LoginPage = (props: { redirectTo?: string }) => {
     >
       <div className="space-y-6">
         <div className="text-center">
-          <h2 className="font-display text-2xl font-bold tracking-tight">
+          {/* h1, not h2: this is the page's top-level heading. `AuthLayout`'s
+              brand lockup is a plain span, so an h2 here left the document
+              outline starting at level 2 with nothing above it. Every other
+              auth screen already uses h1. */}
+          <h1 className="font-display text-2xl font-bold tracking-tight">
             {translate("crm.auth.login.title", { _: "Welcome back" })}
-          </h2>
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {step === "email"
               ? translate("crm.auth.login.subtitle", {

@@ -35,14 +35,20 @@ export const DashboardHeader = ({
       </div>
 
       {singleList.length > 1 ? (
-        <div className="inline-flex gap-0.5 rounded-full border border-border bg-secondary p-0.5">
+        // The pills drive the whole dashboard, so they get the 44px touch
+        // floor on a phone (`min-h-11 md:min-h-0`, the same shape
+        // `ui/button.tsx`'s default size uses) and stop wrapping their own
+        // labels: with three or four singles at typical name lengths this
+        // row used to squeeze at 360px. It scrolls sideways instead.
+        <div className="inline-flex max-w-full gap-1 overflow-x-auto rounded-full border border-border bg-secondary p-0.5">
           {singleList.map((single) => (
             <button
               key={single.id}
               type="button"
               onClick={() => onSelectSingle(single.id)}
               className={cn(
-                "rounded-full px-4 py-1.5 text-[13px] font-semibold outline-none",
+                "shrink-0 rounded-full px-4 py-2.5 text-[13px] font-semibold whitespace-nowrap",
+                "min-h-11 outline-none md:min-h-0 md:py-1.5",
                 "transition-colors duration-[160ms]",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 single.id === singleId

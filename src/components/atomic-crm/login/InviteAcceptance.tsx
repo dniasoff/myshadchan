@@ -62,6 +62,7 @@ export const InviteAcceptance = () => {
   const [step, setStep] = useState<InviteStep>("affirm");
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isResending, setIsResending] = useState(false);
 
   const {
     data: invite,
@@ -101,7 +102,15 @@ export const InviteAcceptance = () => {
       .finally(() => setIsRequesting(false));
   };
 
+  // Guarded and flagged in flight, same as `LoginPage.handleResend()`: an
+  // un-disabled "Resend code" on a slow mobile connection gets tapped again
+  // and again, and each tap is another OTP request until Supabase rate-limits
+  // the invitee out of the invite they are in the middle of accepting.
   const handleResend = () => {
+    if (isResending) {
+      return;
+    }
+    setIsResending(true);
     requestCode()
       .then(() => {
         notify("crm.auth.login.code_resent", {
@@ -115,7 +124,8 @@ export const InviteAcceptance = () => {
             type: "error",
           },
         );
-      });
+      })
+      .finally(() => setIsResending(false));
   };
 
   // Review finding #4 (2.7): calls `authProvider.login()` directly rather
@@ -213,9 +223,12 @@ export const InviteAcceptance = () => {
       ) : (
         <div className="space-y-6">
           <div className="text-center">
-            <h2 className="font-display text-2xl font-bold tracking-tight">
+            {/* h1: the affirm step's heading (InvitePreviewSummary) is an h1
+                and this step replaces it, so an h2 left the code step with no
+                top-level heading at all. */}
+            <h1 className="font-display text-2xl font-bold tracking-tight">
               {translate("crm.auth.login.title", { _: "Welcome back" })}
-            </h2>
+            </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {translate("crm.auth.login.code_sent_to", {
                 email: invite.email,
@@ -251,8 +264,15 @@ export const InviteAcceptance = () => {
               <button
                 type="button"
                 onClick={handleResend}
-                className="text-muted-foreground hover:text-foreground hover:underline"
+                disabled={isResending}
+                className="text-muted-foreground hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-60"
               >
+                {isResending ? (
+                  <Loader2
+                    className="me-1 inline size-3 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : null}
                 {translate("crm.auth.login.resend_code", {
                   _: "Resend code",
                 })}
@@ -267,8 +287,33 @@ export const InviteAcceptance = () => {
 
 InviteAcceptance.path = "/accept-invite/:token";
 
+/**
+ * Human wording for `invites.role`. `get_invite_preview()` returns the raw
+ * database enum, and interpolating that straight into the sentence below put
+ * "…on MyShadchan as a parent_admin." on the very first screen an invitee ever
+ * sees. The indefinite article stays in `crm.auth.invite_body`, so these are
+ * bare nouns, not "a parent". `InvitePreview.role` is typed `string` (the RPC
+ * is anon-callable and returns whatever the row holds), hence the fallback
+ * rather than an exhaustive `Record<MemberRole, …>`.
+ */
+const ROLE_LABELS: Record<string, { key: string; fallback: string }> = {
+  parent_admin: {
+    key: "crm.auth.invite_role_parent_admin",
+    fallback: "parent",
+  },
+  helper: { key: "crm.auth.invite_role_helper", fallback: "helper" },
+  shadchan: { key: "crm.auth.invite_role_shadchan", fallback: "shadchan" },
+  single: { key: "crm.auth.invite_role_single", fallback: "single" },
+};
+
+const UNKNOWN_ROLE_LABEL = {
+  key: "crm.auth.invite_role_member",
+  fallback: "member",
+};
+
 const InvitePreviewSummary = ({ invite }: { invite: InvitePreview }) => {
   const translate = useTranslate();
+  const roleLabel = ROLE_LABELS[invite.role] ?? UNKNOWN_ROLE_LABEL;
 
   return (
     <div className="space-y-2 text-center">
@@ -291,7 +336,7 @@ const InvitePreviewSummary = ({ invite }: { invite: InvitePreview }) => {
         {translate("crm.auth.invite_body", {
           _: "Join %{accountName} on MyShadchan as a %{role}.",
           accountName: invite.account_name,
-          role: invite.role,
+          role: translate(roleLabel.key, { _: roleLabel.fallback }),
         })}
       </p>
       <p className="text-xs text-muted-foreground/80">{invite.email}</p>

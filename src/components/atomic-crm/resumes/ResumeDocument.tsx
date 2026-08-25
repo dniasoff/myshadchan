@@ -14,8 +14,18 @@ import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
  * and expressed in viewport height so a laptop gets a usable document and a
  * phone does not get a letterbox. The floor matters more than the ratio: at
  * `70vh` alone, a short landscape window would render a two-inch strip.
+ *
+ * The phone value is `svh`, NOT `vh`, and that is the trap worth naming: on
+ * a mobile browser `vh` measures the viewport with the chrome RETRACTED, so
+ * `70vh` is more than 70% of what the reader can actually see. Combined with
+ * the ~590px `MobileContent` leaves on a 390x844 handset, the embed filled
+ * the whole content area — and because it is an iframe, dragging over it
+ * scrolls the document rather than the page, so `ResumeVersionList` below
+ * became hard to reach. `60svh` measures the SMALL viewport (chrome shown)
+ * and leaves the version list visibly poking out, which is what makes the
+ * page obviously scrollable past the frame.
  */
-const EMBED_HEIGHT = "h-[70vh] min-h-[24rem]";
+const EMBED_HEIGHT = "h-[60svh] min-h-[18rem] md:h-[70vh] md:min-h-[24rem]";
 
 /**
  * The Resume tab, whole: the document itself, then the versions beneath it.

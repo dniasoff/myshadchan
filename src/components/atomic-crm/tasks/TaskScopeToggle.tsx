@@ -32,8 +32,11 @@ export const TaskScopeToggle = ({ scope, onChange }: TaskScopeToggleProps) => {
     <div
       role="group"
       aria-label={groupLabel}
-      className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border p-0.5"
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border p-0.5"
     >
+      {/* gap-1.5, not gap-0.5: these two 44px targets sat 2px apart, and
+          this is the primary filter on both /tasks and /reminders. The height
+          floor itself comes from ui/button.tsx's `sm` size. */}
       <Button
         type="button"
         size="sm"

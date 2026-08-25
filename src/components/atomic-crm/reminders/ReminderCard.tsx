@@ -24,7 +24,10 @@ export interface ReminderCardProps {
  * One reminder row. Overdue reads as the honey "catch" surface (design-
  * language §5.8) — never red, never alarming — with a calm "Since {date}"
  * instead of a raw overdue count. Quick-complete and snooze are both
- * one-tap, ≥44px targets.
+ * one-tap, ≥44px targets — snooze by its own `h-11`, complete by the
+ * checkbox's transparent hit extension. This line used to assert that
+ * guarantee while the checkbox was a bare 20px box; do not shrink either
+ * back without rewriting it.
  */
 export const ReminderCard = ({
   item,
@@ -50,8 +53,14 @@ export const ReminderCard = ({
             : "border-border bg-card",
         )}
       >
+        {/* The only way to complete a reminder on this surface. `-inset-3`
+            on a size-5 box is exactly 44x44, and exactly the `gap-3` to its
+            right — so it reaches the 44px floor without covering the first
+            pixels of the linked-entity link. The box stays visually 20px:
+            enlarging it would turn a reading list into a form (the same
+            trade `entity360/tabs/TasksTab.tsx` documents). */}
         <Checkbox
-          className="mt-1 size-5 shrink-0"
+          className="relative mt-1 size-5 shrink-0 before:absolute before:-inset-3 before:content-['']"
           checked={false}
           onCheckedChange={onComplete}
           aria-label={`Mark "${task.text}" done`}

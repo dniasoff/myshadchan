@@ -128,6 +128,43 @@ describe("OnboardingChoice — persona multi-select", () => {
     expect(calls).toEqual(["addPersona:parent", "addPersona:single"]);
   });
 
+  it("says why the family-record step will not advance when the name is empty", async () => {
+    // Arrange: both of FirstRunSetup's fields are registered `required`, but
+    // nothing rendered `formState.errors` — so an empty submit produced no
+    // message at all and Continue simply looked dead. On a phone, where the
+    // field may be behind the keyboard when focus jumps back to it, that
+    // reads as a broken app on the first screen after signup.
+    const calls: string[] = [];
+    const personasAfterSubmit: MyPersona[] = [
+      {
+        persona: "parent",
+        account_id: 42,
+        account_kind: "household",
+        role: "parent_admin",
+      },
+    ];
+    const screen = await renderOnboarding(
+      buildDataProvider(calls, personasAfterSubmit),
+    );
+    await goToPersonaSelect(screen);
+    await screen.getByRole("checkbox", { name: PERSONA_LABELS.parent }).click();
+    await screen.getByRole("button", { name: "Continue" }).click();
+    await expect
+      .element(screen.getByText("Name your family's record"))
+      .toBeVisible();
+
+    // Act: submit with the field left empty.
+    await screen.getByRole("button", { name: "Continue" }).click();
+
+    // Assert
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("Enter a name for your family record.");
+    await expect
+      .element(screen.getByLabelText("Family record name"))
+      .toHaveAttribute("aria-invalid", "true");
+  });
+
   it("lands single-only on a finished record, never the 'add a single' step (AC-4)", async () => {
     // Arrange
     const calls: string[] = [];

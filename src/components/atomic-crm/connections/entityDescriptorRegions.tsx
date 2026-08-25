@@ -120,14 +120,30 @@ export const ConnectionStatBand = ({ record }: { record: Connection }) => {
 };
 
 /**
- * The `rightRail` region (AC-4, AC-5): "Send a redt" launches Story 8.3's
+ * The `actions` region (AC-4): "Send a redt" launches Story 8.3's
  * `RedtComposeDialog`, pre-bound to this connection — disabled with an
- * explanation once the connection has ended. "End connection" is a
- * confirm-and-call action over Story 8.2's `endConnection()`.
+ * explanation once the connection has ended (AC-5).
+ *
+ * It lives here rather than in `rightRail` because `Entity360` lays the
+ * content/rail row out as `flex flex-col … lg:flex-row`: below 1024px the
+ * rail renders AFTER the entire tab body, so on a phone the one thing a
+ * shadchan opens this screen to do sat beneath a whole ThreadList/Notes/
+ * Tasks panel, far below the fold, with nothing at the top hinting it
+ * existed. `EntityShow` renders `actions` immediately under the identity
+ * header, above the tab bar, at every width. Do not move it back.
+ */
+export const ConnectionActions = ({ record }: { record: Connection }) => (
+  <ConnectionSendRedtAction connection={record} />
+);
+
+/**
+ * The `rightRail` region (AC-5): "End connection" is a confirm-and-call
+ * action over Story 8.2's `endConnection()`. It stays in the rail — a
+ * destructive, rarely-used affordance is one the mobile order should bury,
+ * not promote (the same reasoning that moved "Send a redt" out of it).
  */
 export const ConnectionRightRail = ({ record }: { record: Connection }) => (
   <div className="flex flex-col gap-3">
-    <ConnectionSendRedtAction connection={record} />
     <ConnectionEndAction connection={record} />
   </div>
 );

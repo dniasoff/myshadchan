@@ -1,5 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { page } from "vitest/browser";
+
+// Real Tailwind, so the touch-target test below measures the rendered box
+// rather than an unstyled one.
+import "@/index.css";
 import {
   CoreAdminContext,
   ListContextProvider,
@@ -96,6 +101,10 @@ const renderPipelineList = (
 };
 
 describe("ShidduchimPipelineList — state-grouped pipeline (AC-7)", () => {
+  afterEach(async () => {
+    await page.viewport(1280, 720);
+  });
+
   it("renders one section per PIPELINE_STATES entry, in canonical order, with correct counts", async () => {
     // Arrange
     const data = [
@@ -154,6 +163,25 @@ describe("ShidduchimPipelineList — state-grouped pipeline (AC-7)", () => {
         await expect.element(addHere).not.toBeInTheDocument();
       }
     }
+  });
+
+  it("keeps each section's 'Add here' at the 44px touch floor on a phone", async () => {
+    // Arrange — List is the view a phone lands on, so this is the primary
+    // create affordance there; it used to be a 32px target.
+    await page.viewport(390, 844);
+    const data = [buildShidduch({ id: 1, pipeline_state: "new" })];
+
+    // Act
+    const screen = await renderPipelineList({ data });
+    const addHere = regionFor(screen, "New").getByRole("link", {
+      name: /Add here/,
+    });
+
+    // Assert
+    await expect.element(addHere).toBeInTheDocument();
+    expect(
+      addHere.element().getBoundingClientRect().height,
+    ).toBeGreaterThanOrEqual(44);
   });
 
   it("renders no sections at all — one EmptyState with the action — when the pipeline is genuinely empty", async () => {

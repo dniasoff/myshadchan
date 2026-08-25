@@ -272,13 +272,18 @@ const ExploreDemoButton = ({
       PRIMARY_CTA_CLASSNAME,
     )}
   >
-    <div className="flex items-center gap-2">
+    {/* Wraps on a phone. The icon and the badge are both `shrink-0`, so on a
+        360px screen they took ~130px of the ~216px this row has inside the
+        card and the title broke over three lines beside the badge. Letting
+        the badge drop to its own line gives the title the full width; it only
+        floats right from `sm:` up, where there is room for both. */}
+    <div className="flex flex-wrap items-center gap-2">
       <Sparkles className="size-5 shrink-0" aria-hidden="true" />
       <span className="font-display text-base font-bold">
         Explore with demo data
       </span>
       <span
-        className="ms-auto shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide"
+        className="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide sm:ms-auto"
         style={{ background: "oklch(1 0 0 / 0.22)" }}
       >
         Recommended

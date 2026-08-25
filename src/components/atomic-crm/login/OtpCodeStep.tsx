@@ -10,6 +10,11 @@ import { PRIMARY_CTA_CLASSNAME } from "./primaryCtaClassName";
 export interface OtpCodeStepProps {
   email: string;
   isVerifying: boolean;
+  /** Whether a resend is in flight. Required, not optional: on a slow phone
+   * connection an un-disabled "Resend code" looks inert, and every extra tap
+   * sends another OTP until Supabase rate-limits the visitor out of their own
+   * signup. A caller that has no resend state has to say so deliberately. */
+  isResending: boolean;
   onSubmit: SubmitHandler<FieldValues>;
   onResend: () => void;
   /** Heading for this step. Defaults to the sign-in wording; RegisterFlow
@@ -32,6 +37,7 @@ export interface OtpCodeStepProps {
 export const OtpCodeStep = ({
   email,
   isVerifying,
+  isResending,
   onSubmit,
   onResend,
   onUseDifferentEmail,
@@ -42,9 +48,12 @@ export const OtpCodeStep = ({
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="font-display text-2xl font-bold tracking-tight">
+        {/* h1: this step replaces its host's header entirely, so it is the
+            page's top-level heading while it is mounted — an h2 left the
+            outline starting at level 2 with nothing above it. */}
+        <h1 className="font-display text-2xl font-bold tracking-tight">
           {translate(title.id, { _: title.defaultMessage })}
-        </h2>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {translate("crm.auth.login.code_sent_to", {
             email,
@@ -93,8 +102,15 @@ export const OtpCodeStep = ({
           <button
             type="button"
             onClick={onResend}
-            className="text-muted-foreground hover:text-foreground hover:underline"
+            disabled={isResending}
+            className="text-muted-foreground hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-60"
           >
+            {isResending ? (
+              <Loader2
+                className="me-1 inline size-3 animate-spin"
+                aria-hidden="true"
+              />
+            ) : null}
             {translate("crm.auth.login.resend_code", { _: "Resend code" })}
           </button>
         </div>

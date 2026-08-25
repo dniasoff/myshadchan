@@ -1,3 +1,4 @@
+import { useLayoutEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
@@ -8,6 +9,10 @@ import {
   TestMemoryRouter,
 } from "ra-core";
 import type { ListControllerResult, Store } from "ra-core";
+
+// Real Tailwind, so the touch-target test below measures the rendered box
+// rather than an unstyled one.
+import "@/index.css";
 
 // Side-effect import — registers the "shidduchim" entity descriptor
 // (RecordLink / buildNewPath used deep inside the pipeline list).
@@ -93,6 +98,24 @@ const renderSwitch = (
   );
 };
 
+/**
+ * Captures the DOM as of the FIRST commit: a layout effect runs during the
+ * commit, before any passive effect — so it sees exactly what a phone would
+ * paint for one frame. Once passive effects have flushed, an effect-resolved
+ * viewport hook and a synchronous one agree, which is why every other test in
+ * this file passed while the Board still flashed.
+ */
+const FirstCommitProbe = ({
+  onCommit,
+}: {
+  onCommit: (html: string) => void;
+}) => {
+  useLayoutEffect(() => {
+    onCommit(document.body.innerHTML);
+  }, [onCommit]);
+  return null;
+};
+
 describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5, AC-6)", () => {
   afterEach(async () => {
     await page.viewport(DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height);
@@ -170,6 +193,77 @@ describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5,
     await expect
       .element(screen.getByRole("button", { name: "Board view" }))
       .toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("paints the list on its FIRST commit at a mobile viewport — never a frame of the Board", async () => {
+    // Arrange — the defect this pins: `useIsMobile()` starts `undefined` and
+    // resolves in an effect, so the first paint chose "board" and a phone
+    // rendered the 7-column, ~1850px-wide horizontal scroller for one frame.
+    await page.viewport(MOBILE_VIEWPORT.width, MOBILE_VIEWPORT.height);
+    let firstCommitHtml: string | null = null;
+    const capture = (html: string) => {
+      firstCommitHtml ??= html;
+    };
+
+    // Act
+    await render(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          store={memoryStore()}
+          dataProvider={{} as unknown as CrmDataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <ListContextProvider value={buildListContextValue({})}>
+            <ShidduchimViewSwitch />
+            <FirstCommitProbe onCommit={capture} />
+          </ListContextProvider>
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    // Assert — the pipeline list's own sections were in the very first
+    // commit, and the Board's drag-and-drop droppables never were.
+    expect(firstCommitHtml).toContain('data-slot="pipeline-section"');
+    expect(firstCommitHtml).not.toContain("data-rbd-droppable-id");
+  });
+
+  it("keeps the three view buttons at the 44px touch floor on a phone", async () => {
+    // Arrange — one render per test: two mounted copies of the switch make
+    // the role query ambiguous.
+    await page.viewport(MOBILE_VIEWPORT.width, MOBILE_VIEWPORT.height);
+
+    // Act
+    const screen = await renderSwitch(
+      {},
+      memoryStore({ "shidduchim.pageView": "list" }),
+    );
+    const box = screen
+      .getByRole("button", { name: "List view" })
+      .element()
+      .getBoundingClientRect();
+
+    // Assert — `size="icon"` is a flat 36px, so the floor `button.tsx` gives
+    // its `default` size has to be re-applied at this call site.
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.width).toBeGreaterThanOrEqual(44);
+  });
+
+  it("keeps the view buttons compact at a laptop width", async () => {
+    // Arrange
+    await page.viewport(DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height);
+
+    // Act
+    const screen = await renderSwitch(
+      {},
+      memoryStore({ "shidduchim.pageView": "list" }),
+    );
+    const box = screen
+      .getByRole("button", { name: "List view" })
+      .element()
+      .getBoundingClientRect();
+
+    // Assert
+    expect(box.height).toBeLessThan(44);
   });
 
   it("renders the shared error state — never Board or the pipeline list — regardless of the stored view", async () => {

@@ -87,7 +87,11 @@ function DossierCardContent({ data }: { data: DossierResponse }) {
         ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="grid grid-cols-3 gap-4">
+        {/* Three prose facts, not three numbers: at 360px a bare
+            `grid-cols-3` gives each column ~90px and every sentence
+            renders one or two words per line. Stack first, columns from
+            sm up — the same shape `ReferenceMergeCollision.tsx` uses. */}
+        <div className="grid gap-4 sm:grid-cols-3">
           <div className="flex flex-col gap-1">
             <p className="text-sm font-medium">
               {translate("crm.diligence.dossier.consensus", { _: "Consensus" })}

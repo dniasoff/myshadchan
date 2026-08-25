@@ -27,7 +27,15 @@ function PaginationContent({
   return (
     <ul
       data-slot="pagination-content"
-      className={cn("flex flex-row items-center gap-1", className)}
+      // `flex-wrap` is what keeps a long pager reachable on a phone, and it
+      // has to be here rather than only on the row outside: without it this
+      // list's min-content width is the whole strip of links (measured 420px
+      // for a 12-page list at 44px per link), so it cannot shrink into a
+      // 375px viewport and centres itself into an overhang — first item at
+      // x=-45, i.e. "previous page" rendered, enabled and off the left edge
+      // where the page cannot scroll to reach it. With wrapping the list's
+      // min-content is one link, so it fits and spills onto a second line.
+      className={cn("flex flex-row flex-wrap items-center gap-1", className)}
       {...props}
     />
   )

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { useDataProvider, useNotify, useTranslate } from "ra-core";
 
+import { Confirm } from "@/components/admin/confirm";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -38,6 +39,7 @@ export function PhotoRevealCard({
   const [isRevealing, setIsRevealing] = useState(false);
   const [autoRevealFailed, setAutoRevealFailed] = useState(false);
   const [isHiding, setIsHiding] = useState(false);
+  const [isConfirmingHide, setIsConfirmingHide] = useState(false);
   const autoRevealAttempted = useRef(false);
   const requestGeneration = useRef(0);
   const mounted = useRef(true);
@@ -117,10 +119,16 @@ export function PhotoRevealCard({
     void handleReveal(true);
   }, [handleReveal, revealOnClick, signedUrl]);
 
+  // Reached only from the confirm dialog. Hiding is not a display toggle: the
+  // Photo tab lists `hidden_at@is: null` rows only, and there is no UPDATE
+  // policy that could clear `hidden_at` again (see `PhotoTab.tsx`'s own note)
+  // — re-uploading the file is the only way back. A one-tap ghost button
+  // beside the photo was not a proportionate way to spend that.
   const handleHide = async () => {
     setIsHiding(true);
     try {
       await dataProvider.hideResumePhoto({ id: photo.id });
+      setIsConfirmingHide(false);
       onHidden();
     } catch (error) {
       notify(
@@ -171,12 +179,32 @@ export function PhotoRevealCard({
           type="button"
           variant="ghost"
           size="sm"
+          className="text-destructive hover:text-destructive"
           disabled={isHiding}
-          onClick={handleHide}
+          onClick={() => setIsConfirmingHide(true)}
         >
           {translate("crm.entity360.photo.hide", { _: "Hide" })}
         </Button>
       </div>
+      {/* The same `@/components/admin/confirm` primitive `FilesTab.tsx` gates
+       * its delete on, so the two irreversible actions in this area ask the
+       * question the same way. */}
+      <Confirm
+        isOpen={isConfirmingHide}
+        loading={isHiding}
+        title={translate("crm.entity360.photo.hideConfirmTitle", {
+          _: "Hide this photo?",
+        })}
+        content={translate("crm.entity360.photo.hideConfirmBody", {
+          _: "It disappears from this tab for everyone. Bringing it back means uploading it again.",
+        })}
+        confirm={translate("crm.entity360.photo.hideConfirmAction", {
+          _: "Hide photo",
+        })}
+        confirmColor="warning"
+        onConfirm={handleHide}
+        onClose={() => setIsConfirmingHide(false)}
+      />
     </div>
   );
 }

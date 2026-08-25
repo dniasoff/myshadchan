@@ -242,7 +242,28 @@ describe("ExternalLinksTab — AC 5: rendered link attributes", () => {
 });
 
 describe("ExternalLinksTab — remove a link", () => {
-  it("removes the link through the dataProvider", async () => {
+  it("asks first: the Remove tap alone deletes nothing", async () => {
+    // Arrange — there is no undo behind this delete, and the control sits a
+    // few pixels from the link it belongs to.
+    const link = buildLink({ id: 3 });
+    const getList = vi.fn().mockResolvedValue({ data: [link], total: 1 });
+    const deleteOne = vi.fn().mockResolvedValue({ data: link });
+
+    // Act
+    const { screen } = await renderTabWithMock(1, {
+      getList,
+      delete: deleteOne,
+    });
+    await screen.getByRole("button", { name: "Remove", exact: true }).click();
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "Yes, remove" }))
+      .toBeVisible();
+    expect(deleteOne).not.toHaveBeenCalled();
+  });
+
+  it("removes the link through the dataProvider once the removal is confirmed", async () => {
     // Arrange
     const link = buildLink({ id: 3 });
     const getList = vi.fn().mockResolvedValue({ data: [link], total: 1 });
@@ -253,13 +274,58 @@ describe("ExternalLinksTab — remove a link", () => {
       getList,
       delete: deleteOne,
     });
-    await screen.getByRole("button", { name: "Remove" }).click();
+    await screen.getByRole("button", { name: "Remove", exact: true }).click();
+    await screen.getByRole("button", { name: "Yes, remove" }).click();
 
     // Assert
     expect(deleteOne).toHaveBeenCalledTimes(1);
     const [resource, params] = deleteOne.mock.calls[0];
     expect(resource).toBe("shidduchim_external_links");
     expect(params.id).toBe(3);
+  });
+
+  it("cancelling the confirmation leaves the link alone", async () => {
+    // Arrange
+    const link = buildLink({ id: 4 });
+    const getList = vi.fn().mockResolvedValue({ data: [link], total: 1 });
+    const deleteOne = vi.fn().mockResolvedValue({ data: link });
+
+    // Act
+    const { screen } = await renderTabWithMock(1, {
+      getList,
+      delete: deleteOne,
+    });
+    await screen.getByRole("button", { name: "Remove", exact: true }).click();
+    await screen.getByRole("button", { name: "Cancel" }).click();
+
+    // Assert
+    expect(deleteOne).not.toHaveBeenCalled();
+    await expect
+      .element(screen.getByRole("button", { name: "Remove", exact: true }))
+      .toBeVisible();
+  });
+});
+
+describe("ExternalLinksTab — the URL field's naming and keyboard", () => {
+  it("is named by a label that survives typing, and asks for a URL keyboard", async () => {
+    // Arrange / Act — the field requires an absolute URL (`new URL()` has to
+    // parse it), so a phone must not open the plain alphabetic keyboard for
+    // it, and the placeholder that used to be its only name disappears at the
+    // first keystroke.
+    const { screen } = await renderTabWithMock(1, {});
+    const urlInput = screen.getByLabelText("Link URL");
+
+    // Assert
+    await expect.element(urlInput).toHaveAttribute("type", "url");
+    await expect.element(urlInput).toHaveAttribute("inputmode", "url");
+
+    // Act
+    await urlInput.fill("https://example.com/profile");
+
+    // Assert — still named after the placeholder is gone.
+    await expect
+      .element(screen.getByLabelText("Link URL"))
+      .toHaveValue("https://example.com/profile");
   });
 });
 

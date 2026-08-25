@@ -93,7 +93,14 @@ export const RedtComposeDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && handleClose()}>
-      <DialogContent className="bg-popover border-border shadow-lg sm:max-w-lg">
+      {/* A height cap and an internal scroll, in `dvh` so mobile browser
+          chrome is accounted for. The base DialogContent is `fixed top-[50%]
+          -translate-y-[50%]` with no cap of its own, so once a title, a
+          description, a subject field, a 5-row textarea and a footer exceed
+          the visual viewport — which the software keyboard alone is enough
+          to cause — the Send/Cancel footer is clipped off-screen and there
+          is nothing to scroll to reach it. */}
+      <DialogContent className="max-h-[85dvh] overflow-y-auto bg-popover border-border shadow-lg sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-display text-2xl font-semibold tracking-tight">
             {translate("crm.redt_compose.title", { _: "Send a redt" })}

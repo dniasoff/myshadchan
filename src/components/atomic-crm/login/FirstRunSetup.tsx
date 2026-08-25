@@ -74,6 +74,13 @@ export const FirstRunSetup = ({
     gender?: string;
   }>({ defaultValues: { first_name_en: "", gender: "" } });
 
+  // Both fields are registered `required`, so without rendering these an
+  // empty submit is silent and the Continue button simply looks dead — worst
+  // of all on a phone, where the field it is about may be scrolled behind the
+  // keyboard when focus jumps back to it.
+  const accountErrors = accountForm.formState.errors;
+  const singleErrors = singleForm.formState.errors;
+
   const stepIndex = STEPS.indexOf(step);
 
   const handleAccountSubmit = accountForm.handleSubmit((values) => {
@@ -186,8 +193,23 @@ export const FirstRunSetup = ({
                 <Input
                   id="account-name"
                   placeholder="The Klein Family"
+                  aria-invalid={accountErrors.name ? true : undefined}
+                  aria-describedby={
+                    accountErrors.name ? "account-name-error" : undefined
+                  }
                   {...accountForm.register("name", { required: true })}
                 />
+                {accountErrors.name ? (
+                  <p
+                    id="account-name-error"
+                    role="alert"
+                    className="text-sm font-medium text-destructive"
+                  >
+                    {translate("crm.auth.onboarding.account_name_required", {
+                      _: "Enter a name for your family record.",
+                    })}
+                  </p>
+                ) : null}
               </div>
               <Button
                 type="submit"
@@ -243,8 +265,26 @@ export const FirstRunSetup = ({
                 <Input
                   id="single-first-name-en"
                   autoFocus
+                  aria-invalid={singleErrors.first_name_en ? true : undefined}
+                  aria-describedby={
+                    singleErrors.first_name_en
+                      ? "single-first-name-en-error"
+                      : undefined
+                  }
                   {...singleForm.register("first_name_en", { required: true })}
                 />
+                {singleErrors.first_name_en ? (
+                  <p
+                    id="single-first-name-en-error"
+                    role="alert"
+                    className="text-sm font-medium text-destructive"
+                  >
+                    {translate(
+                      "crm.auth.onboarding.single_first_name_required",
+                      { _: "Enter a first name to continue." },
+                    )}
+                  </p>
+                ) : null}
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="single-gender">

@@ -76,7 +76,11 @@ export const ShidduchMoveSheet = ({
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom">
+        {/* 7 state rows plus 2 group headings overflow a short or landscape
+            phone, and a bottom-anchored sheet overflows UPWARD — off the top
+            of the viewport, where the first options become unreachable. dvh,
+            not vh, so mobile browser chrome is accounted for. */}
+        <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>{name ?? "This shidduch"}</SheetTitle>
             <SheetDescription className="flex items-center gap-2">

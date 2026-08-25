@@ -153,12 +153,21 @@ export const CreateShareLinkDialog = ({
   return (
     <form onSubmit={handleCreate} className="space-y-4">
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-foreground">
+        <label
+          htmlFor="share-recipient-name"
+          className="block text-sm font-medium text-foreground"
+        >
           {translate("crm.sharing.create_dialog.recipient_name", {
             _: "Recipient Name",
           })}
         </label>
-        <input
+        {/* The design-system `Input` rather than a raw `<input>`: it carries
+         * the `min-h-11 md:min-h-9` mobile touch floor and the
+         * `focus-visible` ring that the hand-rolled `focus:outline-none`
+         * here used to remove. The `htmlFor`/`id` pair is what gives this
+         * required field an accessible name at all. */}
+        <Input
+          id="share-recipient-name"
           type="text"
           value={recipientName}
           onChange={(e) => setRecipientName(e.target.value)}
@@ -168,7 +177,6 @@ export const CreateShareLinkDialog = ({
               _: "Enter recipient's name (e.g., shadchan name)",
             },
           )}
-          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
           required
         />
       </div>
@@ -203,19 +211,27 @@ export const CreateShareLinkDialog = ({
           </SelectContent>
         </Select>
       </div>
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-foreground">
+      {/* A Switch is 32px wide by design and its thumb travels ~14px. These
+       * rows used to stretch it with `w-full`, which left that same 14px of
+       * travel inside a full-width bar — so on/off read only as a track
+       * colour, for a real privacy decision. Keep the pill its natural size
+       * and pair it with the label instead. */}
+      <div className="flex min-h-11 items-center justify-between gap-3">
+        <label
+          htmlFor="share-include-photo"
+          className="text-sm font-medium text-foreground"
+        >
           {translate("crm.sharing.create_dialog.include_photo", {
             _: "Include photo",
           })}
         </label>
         <Switch
+          id="share-include-photo"
           checked={includePhoto}
           onCheckedChange={setIncludePhoto}
           aria-label={translate("crm.sharing.create_dialog.include_photo", {
             _: "Include photo",
           })}
-          className="w-full"
         />
       </div>
       {/*
@@ -228,20 +244,25 @@ export const CreateShareLinkDialog = ({
        * actually composite a watermark — never before.
        */}
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-muted-foreground">
-          {translate("crm.sharing.create_dialog.watermark", {
-            _: "Add watermark — not available yet",
-          })}
-        </label>
-        <Switch
-          checked={watermark}
-          onCheckedChange={setWatermark}
-          disabled
-          aria-label={translate("crm.sharing.create_dialog.watermark", {
-            _: "Add watermark — not available yet",
-          })}
-          className="w-full"
-        />
+        <div className="flex min-h-11 items-center justify-between gap-3">
+          <label
+            htmlFor="share-watermark"
+            className="text-sm font-medium text-muted-foreground"
+          >
+            {translate("crm.sharing.create_dialog.watermark", {
+              _: "Add watermark — not available yet",
+            })}
+          </label>
+          <Switch
+            id="share-watermark"
+            checked={watermark}
+            onCheckedChange={setWatermark}
+            disabled
+            aria-label={translate("crm.sharing.create_dialog.watermark", {
+              _: "Add watermark — not available yet",
+            })}
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
           {translate("crm.sharing.create_dialog.watermarkUnavailable", {
             _: "Shared files are not watermarked yet. This option turns on when watermarking ships.",
@@ -249,7 +270,12 @@ export const CreateShareLinkDialog = ({
         </p>
       </div>
       <div className="flex justify-end space-x-3">
+        {/* `type="button"` is load-bearing: `ui/button.tsx` sets no default
+         * type, so inside a <form> this defaults to `submit` — tapping Reset
+         * used to clear the fields AND create a real, live share link to a
+         * single's profile that nobody asked for. */}
         <Button
+          type="button"
           variant="ghost"
           onClick={() => {
             setExpiryDays(7);

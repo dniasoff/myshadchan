@@ -65,7 +65,12 @@ export const FormToolbar = ({
   <div
     {...rest}
     className={cn(
-      "sticky pt-4 pb-4 md:block md:pt-2 md:pb-0 bottom-0 bg-linear-to-b from-transparent to-background to-10%",
+      // Lifted clear of the fixed mobile navigation, exactly as
+      // atomic-crm/layout/FormToolbar.tsx is: at `bottom-0` this sticky bar
+      // renders inside the 64px band the z-50 nav occupies, so Save sits
+      // behind it for the whole scroll of the form. `z-30` keeps it above the
+      // page and below the nav.
+      "sticky z-30 pt-4 pb-4 md:block md:pt-2 md:pb-0 bottom-(--mobile-nav-clearance) md:bottom-0 bg-linear-to-b from-transparent to-background to-10%",
       className,
     )}
     role="toolbar"

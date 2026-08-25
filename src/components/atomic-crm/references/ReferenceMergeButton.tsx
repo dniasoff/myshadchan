@@ -128,7 +128,7 @@ export const ReferenceMergeButton = () => {
       </Button>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {translate("crm.references.merge.title", {
@@ -180,8 +180,16 @@ export const ReferenceMergeButton = () => {
 
           {preview ? (
             <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
+              {/* This comparison is the only thing separating the record
+                  that survives from the one that is destroyed, and the
+                  merge cannot be undone. A fixed grid-cols-2 gives each
+                  side ~120px on a phone and wraps names and phone numbers
+                  mid-value, so it stacks first (the shape
+                  `ReferenceMergeCollision.tsx` already uses) — and once
+                  stacked, column position no longer says which is which,
+                  so the destructive side carries its own border. */}
+              <div className="grid gap-4 text-sm sm:grid-cols-2">
+                <div className="rounded-md border border-border p-3">
                   <p className="font-medium">
                     {translate("crm.references.merge.keeping", {
                       _: "Keeping",
@@ -192,7 +200,7 @@ export const ReferenceMergeButton = () => {
                     {preview.winner.phone} {preview.winner.relationship}
                   </p>
                 </div>
-                <div>
+                <div className="rounded-md border border-destructive/40 p-3">
                   <p className="font-medium">
                     {translate("crm.references.merge.removing", {
                       _: "Removing",

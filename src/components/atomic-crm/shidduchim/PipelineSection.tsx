@@ -77,9 +77,13 @@ export const PipelineSection = ({
           <Link
             to={`${buildNewPath("shidduchim")}?state=${state.value}`}
             data-tour={tourAnchor ? "add-suggestion" : undefined}
-            className="ms-auto inline-flex min-h-8 items-center gap-1 rounded-lg px-2
+            // The create affordance on the view a phone actually lands on:
+            // `min-h-11 md:min-h-8` is the same touch floor `components/ui/
+            // button.tsx` applies to its `default` size — 44px on a phone, the
+            // original 32px header density from `md` up.
+            className="ms-auto inline-flex min-h-11 items-center gap-1 rounded-lg px-3
               text-xs font-medium text-muted-foreground transition-colors
-              hover:bg-secondary hover:text-foreground"
+              hover:bg-secondary hover:text-foreground md:min-h-8"
           >
             <Plus className="size-3.5" aria-hidden="true" />
             Add here

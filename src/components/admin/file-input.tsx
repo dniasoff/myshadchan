@@ -337,12 +337,19 @@ export const FileInputPreview = (props: FileInputPreviewProps) => {
   }, [file]);
 
   return (
-    <div className={cn("flex flex-row gap-1", className)} {...rest}>
+    <div className={cn("flex flex-row gap-2", className)} {...rest}>
       <Button
         type="button"
         variant="ghost"
         size="icon"
-        className="h-6 w-6 rounded-full shadow-sm cursor-pointer"
+        // `h-6 w-6` keeps the chip visually tiny beside the preview it
+        // deletes; the `icon` variant's `min-h-11 min-w-11` (ui/button.tsx)
+        // is what makes it tappable on a phone, since a 24px destructive
+        // target sitting next to the thing it destroys is a mis-tap waiting
+        // to happen. The `md:min-*` pair re-shrinks it from `md` up, where
+        // the variant's own 36px floor would otherwise win — a min-width
+        // always beats a width, whatever order the classes are written in.
+        className="h-6 w-6 md:min-h-6 md:min-w-6 rounded-full shadow-sm cursor-pointer"
         onClick={onRemove}
         aria-label={translate("ra.action.delete")}
         title={translate("ra.action.delete")}

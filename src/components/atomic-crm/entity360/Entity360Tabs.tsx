@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { useRecordContext, useResourceContext } from "ra-core";
 import type { Identifier } from "ra-core";
@@ -142,6 +142,32 @@ export function Entity360TabStrip({
   const { resource, recordId, activeKey } = useResolvedTabs(tabs, {
     ownsRedirect: true,
   });
+  const listRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * Below `sm` the strip scrolls rather than wraps (see the `TabsList`
+   * comment), and a scrolled strip can leave the active tab off to the
+   * right — which is the "Discussions is present and cannot be found"
+   * failure the wrap was introduced to fix, reappearing in the other axis.
+   * Arriving on a deep-linked tab has to bring that tab into view.
+   *
+   * Only the strip's OWN `scrollLeft` is written. `scrollIntoView()` would
+   * be shorter and is wrong here: it scrolls every scrollable ancestor as
+   * well, so on a phone it yanks the identity header off the screen just to
+   * settle a tab. On a wrapped (desktop) strip there is nothing to scroll
+   * and the assignment is a no-op, which is why this needs no breakpoint
+   * check of its own.
+   */
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || activeKey === undefined) return;
+    const active = list.querySelector<HTMLElement>('[data-state="active"]');
+    if (!active) return;
+    const listBox = list.getBoundingClientRect();
+    const activeBox = active.getBoundingClientRect();
+    list.scrollLeft +=
+      activeBox.left - listBox.left - (listBox.width - activeBox.width) / 2;
+  }, [activeKey]);
 
   // AC 7 — an empty `tabs` array (or a record/resource not yet available)
   // renders nothing: no strip, no navigation.
@@ -152,24 +178,41 @@ export function Entity360TabStrip({
   return (
     <Tabs value={activeKey}>
       {/*
-       * Wraps; it does not scroll. `overflow-x-auto` was the previous
-       * treatment and it failed twice over on a 12-tab entity like a
-       * shidduch. The visible failure was cosmetic and specific: per CSS
-       * Overflow §3, an `overflow-x` other than `visible` forces the
-       * unspecified `overflow-y` to compute to `auto` as well, so the
-       * strip grew a SECOND, vertical scrollbar — on Linux, a stepper with
-       * up/down arrows — sitting on top of the last tab. The failure that
-       * actually mattered was that the overflowing tabs were simply gone:
-       * a horizontal scroll region inside a vertically-scrolling page is
-       * close to undiscoverable with a mouse, so "Discussions" existed and
+       * Wraps from `sm` up; scrolls below it. Which one is right turns
+       * entirely on the input device, so it is a breakpoint and not a
+       * preference.
+       *
+       * `overflow-x-auto` everywhere was the original treatment and it
+       * failed twice over on a 12-tab entity like a shidduch. The cosmetic
+       * failure: per CSS Overflow §3 an `overflow-x` other than `visible`
+       * forces the unspecified `overflow-y` to compute to `auto` too, so
+       * the strip grew a SECOND, vertical scrollbar — on Linux a stepper
+       * with up/down arrows — over the last tab. `max-sm:overflow-y-hidden`
+       * is what stops that recurring, and it is not optional: dropping it
+       * brings the stepper straight back. The failure that actually
+       * mattered was that the overflowing tabs were simply gone — a
+       * horizontal scroll region inside a vertically-scrolling page is
+       * close to undiscoverable WITH A MOUSE, so "Discussions" existed and
        * could not be found.
        *
-       * `h-auto` is load-bearing — `TabsList`'s own `h-9` would clip the
-       * second row to nothing — and `flex-none` on the triggers cancels
-       * the primitive's `flex-1`, which in a wrapping container stretches
-       * a short final row across the full width.
+       * Wrapping everywhere then bought that back at the phone's expense:
+       * a shidduch's eleven tabs stack into ~4 rows of 44px, ~200px of
+       * chrome above the fold on every record. A horizontal swipe is a
+       * discoverable gesture on a touch screen in a way it is not with a
+       * mouse — that asymmetry is the whole argument — and the effect
+       * above keeps the active tab in view so nothing is lost off-screen.
+       *
+       * `h-auto` is load-bearing for the wrapping half — `TabsList`'s own
+       * `h-9` would clip the second row to nothing — and `flex-none` on the
+       * triggers is load-bearing for BOTH: it cancels the primitive's
+       * `flex-1`, which stretches a short final row across the full width
+       * when wrapping, and would squeeze every tab to fit (leaving nothing
+       * to scroll) when not.
        */}
-      <TabsList className="h-auto w-full flex-wrap justify-start gap-1">
+      <TabsList
+        ref={listRef}
+        className="h-auto w-full justify-start gap-1 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:overflow-y-hidden sm:flex-wrap"
+      >
         {tabs.map((tab) => (
           <TabsTrigger
             key={tab.key}

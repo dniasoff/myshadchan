@@ -30,8 +30,6 @@ const ImageEditorField = (props: ImageEditorFieldProps) => {
 
   const commonProps = {
     src: imageUrl,
-    onClick: () => setIsDialogOpen(true),
-    style: { cursor: "pointer" },
     className: `${props.className || ""}`,
   };
 
@@ -45,31 +43,49 @@ const ImageEditorField = (props: ImageEditorFieldProps) => {
           linkPosition === "right" ? "flex-row" : "flex-col"
         } items-center ${linkPosition === "right" ? "gap-2" : "gap-1"}`}
       >
+        {/* `flex`, not the default block: making the preview a real <button>
+         * (below) puts an inline-level child in this box, so it sits on a
+         * text baseline and the line box reserves descender space beneath
+         * it — measured 55px around a 50px avatar. That 5px is a layout
+         * shift against the skeleton that holds this row's place while the
+         * profile loads, which `settings/ProfileSection.test.tsx` pins.
+         * A flex container has no line box, so the accessibility fix costs
+         * no height. */}
         <div
-          className={`rounded ${props.backgroundImageColor ? "p-4" : "p-0"}`}
+          className={`flex rounded ${props.backgroundImageColor ? "p-4" : "p-0"}`}
           style={{
             backgroundColor: props.backgroundImageColor || "transparent",
           }}
         >
-          {props.type === "avatar" ? (
-            <Avatar
-              {...commonProps}
-              className={`cursor-pointer`}
-              style={{ width, height }}
-            >
-              <AvatarImage src={imageUrl} />
-              <AvatarFallback>{emptyText}</AvatarFallback>
-            </Avatar>
-          ) : (
-            <img
-              {...commonProps}
-              className="cursor-pointer object-cover"
-              style={{ width, height }}
-              alt={translate("crm.image_editor.editable_content", {
-                _: "Editable content",
-              })}
-            />
-          )}
+          {/* The preview IS the affordance that opens the editor, so it has
+           * to be a real control: an onClick on the <Avatar>/<img> left
+           * keyboard and screen-reader users with no way to change the
+           * picture at all, because the "Change" link below is optional and
+           * `linkPosition` defaults to "none". `type="button"` is
+           * load-bearing — this field renders inside a react-hook-form
+           * <form>, where a bare <button> would submit the whole record. */}
+          <button
+            type="button"
+            onClick={() => setIsDialogOpen(true)}
+            aria-label={translate("crm.image_editor.change")}
+            className="cursor-pointer rounded outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            {props.type === "avatar" ? (
+              <Avatar {...commonProps} style={{ width, height }}>
+                <AvatarImage src={imageUrl} />
+                <AvatarFallback>{emptyText}</AvatarFallback>
+              </Avatar>
+            ) : (
+              <img
+                {...commonProps}
+                className="object-cover"
+                style={{ width, height }}
+                alt={translate("crm.image_editor.editable_content", {
+                  _: "Editable content",
+                })}
+              />
+            )}
+          </button>
         </div>
         {linkPosition !== "none" && (
           <button
@@ -156,7 +172,12 @@ const ImageEditorDialog = (props: ImageEditorDialogProps) => {
                     `}
         </style>
       )}
-      <DialogContent>
+      {/* A portrait phone photo makes the cropper taller than the screen,
+       * and a centred `fixed` dialog with no height cap then puts Update and
+       * Delete below the fold with nothing to scroll. Cap the dialog, scroll
+       * it, and cap the cropper itself (`dvh`, never `vh` — browser chrome
+       * makes `vh` wrong on a phone) so the footer is always reachable. */}
+      <DialogContent className="max-h-[85dvh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle>
             {translate("crm.image_editor.title", {
@@ -184,6 +205,7 @@ const ImageEditorDialog = (props: ImageEditorDialogProps) => {
               aspectRatio={1}
               guides={false}
               cropBoxResizable={false}
+              style={{ maxHeight: "45dvh", width: "100%" }}
             />
           )}
         </div>

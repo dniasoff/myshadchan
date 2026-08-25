@@ -47,8 +47,13 @@ export const ReferenceInputs = () => {
           })}
         </h3>
         <div className="grid gap-4 sm:grid-cols-2">
+          {/* type="tel" is what puts the numeric keypad in front of a
+              parent typing a reference's number on a phone — TextInput
+              spreads it straight onto the underlying <input>. */}
           <TextInput
             source="phone"
+            type="tel"
+            autoComplete="tel"
             label={translate("crm.references.form.phone", { _: "Phone" })}
             helperText={false}
           />

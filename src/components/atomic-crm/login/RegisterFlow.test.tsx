@@ -5,6 +5,7 @@ import {
   type ReactNode,
 } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, type AuthProvider } from "ra-core";
 import { testI18nProvider } from "@/components/atomic-crm/providers/commons/i18nProvider";
@@ -117,11 +118,79 @@ describe("RegisterFlow", () => {
     // and handleContinue's own guard is what has to hold.
     await screen.getByRole("button", { name: "Continue" }).click();
 
+    // Assert: beside the field, not as a toast — a toast about one empty
+    // field can sit behind the on-screen keyboard or expire before it is
+    // read, leaving a form that will not advance and no visible reason why.
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("Enter your email to continue.");
+    await expect
+      .element(screen.getByLabelText(/email/i))
+      .toHaveAttribute("aria-invalid", "true");
+    expect(login).not.toHaveBeenCalled();
+  });
+
+  it("requests a code when the email is submitted from the keyboard", async () => {
+    // Arrange: this step used to be a plain div holding a `type="button"`,
+    // so the mobile keyboard's "Go" key did nothing at all and the visitor
+    // had to dismiss the keyboard and hunt for the button — while
+    // LoginPage's identical email step submitted straight from the keyboard.
+    const login = vi.fn().mockResolvedValue(undefined);
+    const screen = await renderRegisterFlow(login);
+    await fillDetailsStep(screen, "ada@example.com");
+
+    // Act: `fill` leaves the field focused, so this is the keyboard's own
+    // implicit form submission, not a click on the button.
+    await userEvent.keyboard("{Enter}");
+
     // Assert
     await expect
-      .element(screen.getByText("Enter your email to continue."))
-      .toBeVisible();
-    expect(login).not.toHaveBeenCalled();
+      .element(screen.getByRole("button", { name: "Sign in" }))
+      .toBeInTheDocument();
+    expect(login).toHaveBeenCalledExactlyOnceWith({
+      email: "ada@example.com",
+      requestOtp: true,
+      allowSignup: true,
+      captchaToken: FAKE_CAPTCHA_TOKEN,
+    });
+  });
+
+  it("disables 'Resend code' while a resend is in flight", async () => {
+    // Arrange: an in-flight resend used to be invisible here — no disabled
+    // state, no spinner — so on a slow phone connection the button looked
+    // inert and every extra tap sent another OTP until Supabase rate-limited
+    // the visitor out of their own signup. LoginPage's copy of this control
+    // already guarded it, which is what proved the omission.
+    let releaseResend: (() => void) | undefined;
+    const login = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseResend = () => resolve();
+          }),
+      );
+    const screen = await renderRegisterFlow(login);
+    await fillDetailsStep(screen, "ada@example.com");
+    await screen.getByRole("button", { name: "Continue" }).click();
+    await expect
+      .element(screen.getByRole("button", { name: "Sign in" }))
+      .toBeInTheDocument();
+
+    // Act
+    const resend = screen.getByRole("button", { name: "Resend code" });
+    await resend.click();
+
+    // Assert: the second tap has nothing to hit, so exactly one resend was
+    // sent (two calls in total, counting the initial request).
+    await expect.element(resend).toBeDisabled();
+    expect(login).toHaveBeenCalledTimes(2);
+
+    // Cleanup: let the pending resend settle so the component is not left
+    // updating state after the test has finished.
+    releaseResend?.();
+    await expect.element(resend).not.toBeDisabled();
   });
 
   it("verifies the typed code without allowSignup or a captcha token", async () => {

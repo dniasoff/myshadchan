@@ -156,6 +156,66 @@ describe("ThreadPanel — reading messages", () => {
   });
 });
 
+describe("ThreadPanel — who said what", () => {
+  it("labels the caller's own message 'You' and everyone else's 'Someone else'", async () => {
+    // Arrange — one thread, two senders: the caller (CALLER_MEMBER_ID) and
+    // somebody else. This is the household case the panel exists for — two
+    // parents, or a household and a shadchan — where a timestamp and a body
+    // alone say nothing about who is speaking.
+    const { screen } = await renderPanel((db) => {
+      seedThreadWithParticipant(db);
+      db.messages = [
+        {
+          id: 1,
+          account_id: 1,
+          connection_id: null,
+          thread_id: 1,
+          sender_member_id: CALLER_MEMBER_ID,
+          body: "I spoke to the shadchan",
+          created_at: "2026-01-01T09:00:00Z",
+        },
+        {
+          id: 2,
+          account_id: 1,
+          connection_id: null,
+          thread_id: 1,
+          sender_member_id: 999,
+          body: "What did she say",
+          created_at: "2026-01-01T10:00:00Z",
+        },
+      ];
+    });
+
+    // Assert — the attribution is TEXT, not only bubble alignment: a screen
+    // reader gets nothing from `ms-auto`.
+    await expect.element(screen.getByText("You")).toBeInTheDocument();
+    await expect.element(screen.getByText("Someone else")).toBeInTheDocument();
+  });
+
+  it("treats a message with no sender as somebody else's, never as the caller's", async () => {
+    // Arrange — `sender_member_id` is nullable; a null must not compare
+    // equal to a null `currentMemberId` and silently claim the message.
+    const { screen } = await renderPanel((db) => {
+      seedThreadWithParticipant(db);
+      db.messages = [
+        {
+          id: 1,
+          account_id: 1,
+          connection_id: null,
+          thread_id: 1,
+          sender_member_id: null,
+          body: "An unattributed message",
+          created_at: "2026-01-01T09:00:00Z",
+        },
+      ];
+    });
+
+    // Assert
+    await expect.element(screen.getByText("Someone else")).toBeInTheDocument();
+    expect(screen.getByText("You").query()).toBeNull();
+  });
+});
+
 describe("ThreadPanel — the composer (AC-4, AC-8)", () => {
   it("a listed participant can post, and the new message appears without a page reload", async () => {
     // Arrange — the caller IS the thread's listed participant.

@@ -118,7 +118,11 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
             {count} redts
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Tap a row to open it. Tap ⇄ to move it along.
+            {/* View-neutral on purpose: this line sits ABOVE the Board /
+                List / Cards switch, and the Board has no rows and no ⇄
+                control, so naming either was telling a parent to do
+                something the screen in front of them does not offer. */}
+            Tap a suggestion to open it, or move it to another stage.
           </p>
         </div>
       </div>

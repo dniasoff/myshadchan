@@ -154,7 +154,7 @@ export const GuidedCallSession = ({
     <Sheet open={true} onOpenChange={handleClose}>
       <SheetContent
         side="bottom"
-        className="max-h-[92vh] overflow-y-auto
+        className="max-h-[92dvh] overflow-y-auto
           bg-[var(--glass-bg)] backdrop-blur-[var(--glass-blur)]
           border-[var(--glass-border)]"
       >
@@ -220,7 +220,11 @@ export const GuidedCallSession = ({
               </span>
             </div>
             <Progress value={progressPercent} className="h-2" />
-            <ol className="text-sm text-muted-foreground space-y-1 max-h-40 overflow-y-auto">
+            {/* One-handed, mid-call: 20px rows 4px apart are not a target,
+                and a 160px scroll box nested inside an already-scrolling
+                sheet is a second thing to steer. Padded 44px rows, two
+                readable lines each, in a taller box. */}
+            <ol className="text-sm text-muted-foreground space-y-0.5 max-h-56 overflow-y-auto">
               {script.map((s, idx) => {
                 const stepNum = idx + 1;
                 const isAnswered = answeredSteps.has(stepNum);
@@ -230,7 +234,7 @@ export const GuidedCallSession = ({
                     <button
                       type="button"
                       className={cn(
-                        "flex items-center gap-2 truncate w-full text-left",
+                        "flex min-h-11 w-full items-start gap-2 rounded-md py-2 text-left",
                         isAnswered && "text-primary font-medium",
                         isCurrent && "font-semibold",
                       )}
@@ -252,7 +256,7 @@ export const GuidedCallSession = ({
                       >
                         {isAnswered ? "✓" : stepNum}
                       </span>
-                      <span className="truncate">{s.question}</span>
+                      <span className="line-clamp-2">{s.question}</span>
                     </button>
                   </li>
                 );

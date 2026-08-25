@@ -246,7 +246,7 @@ describe("FilesTab — replace (AC 6c)", () => {
 });
 
 describe("FilesTab — delete (AC 6d)", () => {
-  it("deletes the file by id and storage path", async () => {
+  it("deletes the file by id and storage path once the delete is confirmed", async () => {
     // Arrange
     const row = buildFileRow({ id: 77, storage_path: "1/shidduch/1/x.pdf" });
     const getList = vi.fn().mockResolvedValue({ data: [row], total: 1 });
@@ -255,12 +255,47 @@ describe("FilesTab — delete (AC 6d)", () => {
     // Act
     const { screen } = await renderFilesTab({}, { getList, deleteEntityFile });
     await screen.getByRole("button", { name: "Delete" }).click();
+    await screen.getByRole("button", { name: "Delete file" }).click();
 
     // Assert
     expect(deleteEntityFile).toHaveBeenCalledExactlyOnceWith({
       id: 77,
       storagePath: "1/shidduch/1/x.pdf",
     });
+  });
+
+  /**
+   * The row's own "Delete" now only ASKS. It sits one wrapping-row gap from
+   * "Replace" in a strip of four identical ghost buttons, and the call it
+   * used to make on a single tap destroys the `entity_files` row and the
+   * storage object with no undo anywhere in the product.
+   */
+  it("destroys nothing until the question is answered, and nothing at all if it is cancelled", async () => {
+    // Arrange
+    const row = buildFileRow({ id: 77, file_name: "kesuba.pdf" });
+    const getList = vi.fn().mockResolvedValue({ data: [row], total: 1 });
+    const deleteEntityFile = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    const { screen } = await renderFilesTab({}, { getList, deleteEntityFile });
+    await screen.getByRole("button", { name: "Delete" }).click();
+
+    // Assert — the question is on screen and names the file...
+    await expect
+      .element(screen.getByText("Delete this file?"))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "kesuba.pdf will be removed for everyone. This cannot be undone.",
+        ),
+      )
+      .toBeInTheDocument();
+    expect(deleteEntityFile).not.toHaveBeenCalled();
+
+    // ...and backing out of it leaves the file alone.
+    await screen.getByRole("button", { name: "Cancel" }).click();
+    expect(deleteEntityFile).not.toHaveBeenCalled();
   });
 });
 

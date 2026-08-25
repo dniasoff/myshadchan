@@ -184,7 +184,10 @@ describe("PhotoTab — hide removes a photo from the grid (AC 2)", () => {
       .poll(() => screen.container.querySelector("img"))
       .not.toBeNull();
 
+    // Hiding is irreversible (there is no UPDATE policy that could clear
+    // `hidden_at` again), so the card asks first — see `PhotoRevealCard`.
     await screen.getByRole("button", { name: "Hide" }).click();
+    await screen.getByRole("button", { name: "Hide photo" }).click();
 
     // Assert — the reveal card is gone and the empty state returns...
     await expect

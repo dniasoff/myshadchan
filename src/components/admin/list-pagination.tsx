@@ -117,7 +117,18 @@ export const ListPagination = ({
 
   return (
     <div
-      className={`flex items-center justify-end space-x-2 gap-4 ${className}`}
+      className={cn(
+        // `flex-wrap` is load-bearing on narrow viewports, exactly as it is in
+        // atomic-crm/layout/TopToolbar.tsx: without it the range text plus the
+        // page links stay on one line, and because the row is `justify-end`
+        // the overflow goes off the LEFT edge, where the page cannot scroll to
+        // reach it — "Previous" ends up rendered, visible, enabled and
+        // untappable. `space-x-2` is dropped rather than kept alongside: it
+        // adds a left margin to every child but the first, which on a wrapped
+        // row indents whichever item happens to start line two.
+        "flex flex-wrap items-center justify-end gap-2 gap-y-3",
+        className,
+      )}
     >
       <div className="hidden md:flex items-center space-x-2">
         <p className="text-sm font-medium">
@@ -157,7 +168,14 @@ export const ListPagination = ({
             : null}
         </Translate>
       </div>
-      <Pagination className="-w-full -mx-auto">
+      {/* `w-auto mx-0` overrides Pagination's own `w-full mx-auto`, which in a
+          wrapping flex row would give this nav a 100% hypothetical width and
+          so push it onto a line of its own at every viewport — and then let
+          its auto margins re-centre it, undoing the row's `justify-end`.
+          (The classes here used to read `-w-full -mx-auto`; negative variants
+          of those utilities do not exist in Tailwind v4, so they compiled to
+          nothing and the base `w-full mx-auto` was what actually applied.) */}
+      <Pagination className="w-auto mx-0">
         <PaginationContent>
           <PaginationItem>
             {hasPreviousPage ? (
@@ -171,7 +189,7 @@ export const ListPagination = ({
                 <ChevronLeftIcon />
               </PaginationLink>
             ) : (
-              <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium size-9">
+              <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium size-9 min-h-11 min-w-11 md:min-h-9 md:min-w-9">
                 <ChevronLeftIcon
                   aria-label={translate("ra.navigation.previous", {
                     _: "Previous",
@@ -252,7 +270,11 @@ export const ListPagination = ({
                 onClick={pageChangeHandler(page + 1)}
                 size="default"
                 className={cn(
-                  "gap-1 px-2.5 sm:pr-2.5",
+                  // `size="default"` carries a height floor but no width one,
+                  // and this link holds a single 16px chevron: measured 40px
+                  // wide on a phone, i.e. under the floor every other link in
+                  // the row clears.
+                  "gap-1 px-2.5 sm:pr-2.5 min-w-11 md:min-w-9",
                   !hasNextPage ? "opacity-50 cursor-not-allowed" : "",
                 )}
                 aria-label={translate("ra.navigation.next", { _: "Next" })}
@@ -260,7 +282,7 @@ export const ListPagination = ({
                 <ChevronRightIcon />
               </PaginationLink>
             ) : (
-              <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium size-9">
+              <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium size-9 min-h-11 min-w-11 md:min-h-9 md:min-w-9">
                 <ChevronRightIcon
                   aria-label={translate("ra.navigation.next", { _: "Next" })}
                   size="16"

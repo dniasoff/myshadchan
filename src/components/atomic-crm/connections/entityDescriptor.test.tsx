@@ -288,6 +288,29 @@ describe("connectionsDescriptor — identity header and stat band (Story 8.5, AC
   });
 });
 
+describe("connectionsDescriptor — where the primary action sits", () => {
+  it("renders 'Send a redt' ABOVE the tab strip, not after the tab body", async () => {
+    // Arrange — `Entity360` lays the content/rail row out as
+    // `flex flex-col … lg:flex-row`, so below 1024px the rail renders after
+    // the WHOLE tab body. While "Send a redt" lived in the rail, the one
+    // thing a shadchan opens this screen to do sat far below the fold on a
+    // phone. It is an `actions` region now, which `EntityShow` renders
+    // immediately under the identity header.
+    const { screen } = await renderConnectionShow(1);
+    const sendButton = screen.getByRole("button", { name: "Send a redt" });
+    await expect.element(sendButton).toBeInTheDocument();
+    const firstTab = screen.getByRole("tab", { name: "Overview", exact: true });
+    await expect.element(firstTab).toBeInTheDocument();
+
+    // Assert — document order, not CSS: the assertion has to hold at every
+    // viewport, and the stacking order below `lg` IS document order.
+    expect(
+      sendButton.element().compareDocumentPosition(firstTab.element()) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+});
+
 describe("connectionsDescriptor — right rail actions (Story 8.5, AC-4/AC-5)", () => {
   it("shows an enabled 'Send a redt' button and an 'End connection' button for an accepted connection", async () => {
     // Act

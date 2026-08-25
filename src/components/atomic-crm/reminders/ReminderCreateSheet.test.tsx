@@ -75,6 +75,43 @@ const fillMinimalForm = async (screen: Awaited<ReturnType<typeof render>>) => {
   await screen.getByRole("option", { name: "Chaim Cohen" }).click();
 };
 
+describe("ReminderCreateSheet — says why the button is disabled", () => {
+  it("names the field still missing, and stops once the form is complete", async () => {
+    // Arrange — four separate fields gate the submit button. With nothing
+    // filled in and no message, a disabled button just reads as broken; on a
+    // phone the unmet field is usually scrolled out of view besides.
+    const { screen } = await renderSheet();
+
+    // Assert — the first missing field, in the order the form asks.
+    await expect
+      .element(screen.getByText("Still needed: Remind me to..."))
+      .toBeInTheDocument();
+
+    // Act — answer it, and the hint moves on to the next one rather than
+    // disappearing.
+    await screen.getByLabelText("Remind me to...").fill("Call about the redt");
+
+    // Assert
+    await expect
+      .element(screen.getByText("Still needed: Due date"))
+      .toBeInTheDocument();
+
+    // Act — complete the form.
+    await screen.getByLabelText("Due date").fill("2026-08-10");
+    await screen.getByLabelText("Time").fill("09:00");
+    await screen.getByRole("combobox").nth(1).click();
+    await screen.getByRole("option", { name: "Chaim Cohen" }).click();
+
+    // Assert — nothing left to say, and the button is live.
+    await expect
+      .element(screen.getByText(/^Still needed:/))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Add reminder" }))
+      .not.toBeDisabled();
+  });
+});
+
 describe("ReminderCreateSheet — stops offering a channel it cannot deliver (AC-3, Story 12.2)", () => {
   it("has no push checkbox in the DOM", async () => {
     // Arrange / Act

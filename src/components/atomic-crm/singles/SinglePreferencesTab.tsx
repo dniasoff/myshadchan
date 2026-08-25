@@ -42,8 +42,12 @@ function PreferencesEmpty(): ReactElement {
   const translate = useTranslate();
   return (
     <p className="text-sm text-muted-foreground">
+      {/* Person-neutral: a single may be male, and this tab is reached from
+          a son's own profile as often as a daughter's. `gender` is on the
+          record, but branching copy on it buys nothing here — there is no
+          sentence that needs the pronoun. */}
       {translate("crm.singles.preferences.empty", {
-        _: "She has not added any preferences yet.",
+        _: "No preferences added yet.",
       })}
     </p>
   );
@@ -149,7 +153,7 @@ function AddPreferenceForm({
           />
           <span>
             {translate("crm.singles.preferences.visibleToManagerLabel", {
-              _: "Visible to whoever manages her process",
+              _: "Visible to whoever manages this process",
             })}
           </span>
         </label>

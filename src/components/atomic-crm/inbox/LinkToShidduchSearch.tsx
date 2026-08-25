@@ -134,21 +134,28 @@ export function LinkToShidduchSearch({
                 key={String(shidduch.id)}
                 className="flex items-center justify-between gap-2 rounded-lg border border-border/70 px-3 py-2"
               >
-                <span className="flex min-w-0 items-center gap-2 text-sm">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={
-                      stateDef
-                        ? { backgroundColor: `var(${stateDef.token})` }
-                        : undefined
-                    }
-                    aria-hidden="true"
-                  />
-                  <span className="truncate">
-                    {shidduch.name_en || `#${shidduch.id}`}
+                {/* Two lines, not one. Side by side the boilerplate status
+                    was `shrink-0` and the NAME was `truncate`, so on a phone
+                    the one thing identifying which suggestion you are about
+                    to link to collapsed to an ellipsis while "already on the
+                    board" kept its full width. */}
+                <span className="flex min-w-0 flex-col gap-0.5 text-sm">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="size-2 shrink-0 rounded-full"
+                      style={
+                        stateDef
+                          ? { backgroundColor: `var(${stateDef.token})` }
+                          : undefined
+                      }
+                      aria-hidden="true"
+                    />
+                    <span className="line-clamp-1">
+                      {shidduch.name_en || `#${shidduch.id}`}
+                    </span>
                   </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    · {stateDef?.label ?? shidduch.pipeline_state}{" "}
+                  <span className="text-xs text-muted-foreground">
+                    {stateDef?.label ?? shidduch.pipeline_state}{" "}
                     {translate("crm.inbox.linkSearch.onBoard", {
                       _: "already on the board",
                     })}

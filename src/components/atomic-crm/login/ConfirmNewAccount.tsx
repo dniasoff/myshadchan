@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 import type { CrmDataProvider } from "../providers/types";
 import { AuthLayout } from "./AuthLayout";
@@ -126,9 +127,13 @@ export const ConfirmNewAccount = ({ onConfirmed }: ConfirmNewAccountProps) => {
         </div>
 
         <div className="space-y-3">
+          {/* `w-full`, like every other primary action in this cluster: the
+              "sign me out" button below it is full width, so without this the
+              screen's destructive choice was the visually dominant one and
+              Continue was a ~90px pill beside it. */}
           <Button
             type="button"
-            className={PRIMARY_CTA_CLASSNAME}
+            className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
             disabled={!affirmed || saving}
             onClick={handleContinue}
           >

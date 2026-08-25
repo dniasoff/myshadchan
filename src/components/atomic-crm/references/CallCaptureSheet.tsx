@@ -91,7 +91,7 @@ export const CallCaptureSheet = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="max-h-[92vh] overflow-y-auto
+        className="max-h-[92dvh] overflow-y-auto
           bg-[var(--glass-bg)] backdrop-blur-[var(--glass-blur)]
           border-[var(--glass-border)]"
       >
@@ -105,7 +105,11 @@ export const CallCaptureSheet = ({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-col gap-6 p-4">
+        {/* calc(), not a bare pb-[env(...)]: that would REPLACE p-4's
+            bottom padding with the inset (0 on most devices) instead of
+            adding to it, and the Save button would sit tighter than
+            before on exactly the phones this is for. */}
+        <div className="flex flex-col gap-6 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           <div>
             <p className="mb-2 text-sm font-medium">
               {translate("crm.references.call.howDidItGo", {

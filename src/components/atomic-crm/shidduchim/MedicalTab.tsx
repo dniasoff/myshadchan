@@ -11,6 +11,7 @@ import {
 import type { Identifier } from "ra-core";
 
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -107,7 +108,16 @@ function AddMedicalNoteForm({
 
   return (
     <div className="flex flex-col gap-2">
+      {/* A real <Label>, the same shape SingleInputForm uses: the placeholder
+          was the only naming this field had, and a placeholder is gone the
+          moment the first character is typed. */}
+      <Label htmlFor="medical-note-body">
+        {translate("crm.entity360.medical.label", {
+          _: "Add a medical note",
+        })}
+      </Label>
       <Textarea
+        id="medical-note-body"
         value={body}
         rows={3}
         onChange={handleChange}

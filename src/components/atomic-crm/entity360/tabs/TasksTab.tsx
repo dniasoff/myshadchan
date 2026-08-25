@@ -174,9 +174,15 @@ export function TasksTab({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2 sm:flex-row">
+        {/* Named the same way as the two controls beside it. It carried only
+         * a placeholder, which stops being a name the moment someone types
+         * into it — and it is the primary field of the row. */}
         <Input
           value={text}
           onChange={(event) => setText(event.target.value)}
+          aria-label={translate("crm.entity360.tasks.textLabel", {
+            _: "Task",
+          })}
           placeholder={translate("crm.entity360.tasks.placeholder", {
             _: "Add a task…",
           })}
@@ -216,12 +222,32 @@ export function TasksTab({
       ) : (
         <ul className="flex flex-col gap-2">
           {tasks.map((task) => (
-            <li key={String(task.id)} className="flex items-start gap-3">
+            <li
+              key={String(task.id)}
+              className="flex min-h-11 items-start gap-3 md:min-h-0"
+            >
+              {/*
+               * Completing a task is the most-used action on this tab and the
+               * control is `size-4` — 16px, roughly a third of what a thumb
+               * needs. The `before:` box is a transparent 44x44 hit extension:
+               * the checkbox stays visually 16px (enlarging it would turn a
+               * reading list into a form), while the tappable area does not.
+               *
+               * The two `md:` gates are ONE decision, so do not split them. A
+               * task with no due date and no assignee chip is a ~28px row, and
+               * at `gap-2` two such rows put their checkboxes ~36px apart —
+               * closer than the 44px boxes are wide, so the boxes overlap and
+               * the LOWER row wins the seam (later sibling, painted on top).
+               * `min-h-11` on the row is what keeps them apart on a phone;
+               * above `md` the row floor is dropped for density, so the
+               * extension has to go with it. Removing either one alone
+               * reintroduces "tapping just under a task ticks the next one".
+               */}
               <Checkbox
                 checked={Boolean(task.done_date)}
                 onCheckedChange={() => handleToggle(task)}
                 aria-label={task.text}
-                className="mt-1"
+                className="relative mt-1 before:absolute before:-inset-3.5 before:content-[''] md:before:hidden"
               />
               <div className="min-w-0">
                 <p

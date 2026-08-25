@@ -208,7 +208,7 @@ describe("GuidedCallSession responsive layout (AC-11)", () => {
     await expect.element(question).toBeVisible();
 
     // scrollWidth on the sheet content does NOT detect horizontal overflow here:
-    // the sheet has className "max-h-[92vh] overflow-y-auto" (vertical only),
+    // the sheet has className "max-h-[92dvh] overflow-y-auto" (vertical only),
     // so overflow-x remains visible. Descendants wider than the viewport simply
     // spill out without growing the scroll container's scrollWidth.
     const sheet = document.body.querySelector('[data-slot="sheet-content"]');

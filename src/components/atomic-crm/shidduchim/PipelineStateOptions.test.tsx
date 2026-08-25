@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { page } from "vitest/browser";
 
 import "@/index.css";
 
@@ -44,7 +45,42 @@ const renderAt = async (orientation: "list" | "row", width: number) => {
   return { ...result, screen: result };
 };
 
+const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
+const DESKTOP_VIEWPORT = { width: 1280, height: 720 } as const;
+
 describe("PipelineStateOptions", () => {
+  afterEach(async () => {
+    await page.viewport(DESKTOP_VIEWPORT.width, DESKTOP_VIEWPORT.height);
+  });
+
+  it("keeps the row form's chips at the 44px touch floor on a phone", async () => {
+    // Arrange — the row form is the Shidduch 360 page's own move control, so
+    // on a phone these chips are the primary way a parent moves a suggestion,
+    // and every one of them can fire a move that cannot be undone. One render
+    // per test: this file deliberately leaves renders mounted, so a second
+    // one here would make the role query ambiguous.
+    await page.viewport(MOBILE_VIEWPORT.width, MOBILE_VIEWPORT.height);
+
+    // Act
+    const { screen } = await renderAt("row", 360);
+    const chip = screen.getByRole("button", { name: /^New\b/ }).element();
+
+    // Assert
+    expect(chip.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  });
+
+  it("keeps the row form's compact height on a laptop, which is what it exists for", async () => {
+    // Arrange
+    await page.viewport(DESKTOP_VIEWPORT.width, DESKTOP_VIEWPORT.height);
+
+    // Act
+    const { screen } = await renderAt("row", 900);
+    const chip = screen.getByRole("button", { name: /^New\b/ }).element();
+
+    // Assert
+    expect(chip.getBoundingClientRect().height).toBeLessThan(44);
+  });
+
   it("costs far less vertical space as a row than as a list", async () => {
     // The reason this prop exists. At a laptop's content width the list form
     // stacked seven full-width rows and pushed the facts, the resume and the

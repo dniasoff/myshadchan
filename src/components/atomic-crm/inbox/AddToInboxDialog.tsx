@@ -79,11 +79,15 @@ export const AddToInboxDialog = ({
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="inbox-text">What arrived</Label>
+            {/* text-base below md: the shared Textarea is 14px, and iOS
+                Safari zooms the page on focus for anything under 16px —
+                and does not zoom back out afterwards. */}
             <Textarea
               id="inbox-text"
               rows={5}
               value={text}
               onChange={(event) => setText(event.target.value)}
+              className="text-base md:text-sm"
               placeholder="Paste the WhatsApp/text/email you received…"
             />
           </div>
@@ -93,6 +97,7 @@ export const AddToInboxDialog = ({
               id="inbox-sender"
               value={sender}
               onChange={(event) => setSender(event.target.value)}
+              className="text-base md:text-sm"
               placeholder="e.g. Mrs. Feldman"
             />
           </div>

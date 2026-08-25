@@ -25,6 +25,7 @@ import { pickActiveContext } from "../providers/commons/roleAuthority";
 import type { CrmDataProvider } from "../providers/types";
 import { useMyContexts } from "../root/useMyContexts";
 import type { Account, Connection, ConnectionInvite } from "../types";
+import { ConfirmDestructiveAction } from "./ConfirmDestructiveAction";
 import { SectionLabel } from "./SectionLabel";
 
 const GET_LIST_PARAMS = {
@@ -198,17 +199,28 @@ const PendingInvites = () => {
               </ItemDescription>
             </ItemContent>
             <ItemActions>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
+              <ConfirmDestructiveAction
+                triggerLabel={translate(
+                  "crm.settings.connection_invite_cancel",
+                  { _: "Cancel invite" },
+                )}
+                title={translate(
+                  "crm.settings.connection_invite_cancel_confirm_title",
+                  { _: "Cancel this invite link?" },
+                )}
+                description={translate(
+                  "crm.settings.connection_invite_cancel_confirm_body",
+                  {
+                    _: "The link stops working immediately. Anyone you already sent it to will not be able to connect with it, and you can always generate a new one.",
+                  },
+                )}
+                confirmLabel={translate(
+                  "crm.settings.connection_invite_cancel_confirm_button",
+                  { _: "Yes, cancel the invite" },
+                )}
                 disabled={revokingId === invite.id}
-                onClick={() => handleRevoke(invite)}
-              >
-                {translate("crm.settings.connection_invite_cancel", {
-                  _: "Cancel invite",
-                })}
-              </Button>
+                onConfirm={() => handleRevoke(invite)}
+              />
             </ItemActions>
           </Item>
         </div>
@@ -316,17 +328,33 @@ const HouseholdConnectionPanel = ({ accountId }: { accountId: Identifier }) => {
                     </ItemContent>
                     {!isEnded ? (
                       <ItemActions>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
+                        <ConfirmDestructiveAction
+                          triggerLabel={translate(
+                            "crm.settings.connection_end_button",
+                            { _: "End connection" },
+                          )}
+                          title={translate(
+                            "crm.settings.connection_end_confirm_title",
+                            {
+                              _: "End your connection with %{name}?",
+                              name:
+                                shadchan?.name ??
+                                connection.shadchanus_account_id,
+                            },
+                          )}
+                          description={translate(
+                            "crm.settings.connection_end_confirm_body_household",
+                            {
+                              _: "This is immediate and cannot be undone. They will lose access to your singles' shidduchim and can no longer redt through this connection.",
+                            },
+                          )}
+                          confirmLabel={translate(
+                            "crm.settings.connection_end_confirm_button",
+                            { _: "Yes, end the connection" },
+                          )}
                           disabled={endingId === connection.id}
-                          onClick={() => handleEnd(connection)}
-                        >
-                          {translate("crm.settings.connection_end_button", {
-                            _: "End connection",
-                          })}
-                        </Button>
+                          onConfirm={() => handleEnd(connection)}
+                        />
                       </ItemActions>
                     ) : null}
                   </Item>
@@ -431,17 +459,33 @@ const ShadchanusConnectionPanel = ({
                     </ItemContent>
                     {!isEnded ? (
                       <ItemActions>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
+                        <ConfirmDestructiveAction
+                          triggerLabel={translate(
+                            "crm.settings.connection_end_button",
+                            { _: "End connection" },
+                          )}
+                          title={translate(
+                            "crm.settings.connection_end_confirm_title",
+                            {
+                              _: "End your connection with %{name}?",
+                              name:
+                                household?.name ??
+                                connection.household_account_id,
+                            },
+                          )}
+                          description={translate(
+                            "crm.settings.connection_end_confirm_body_shadchan",
+                            {
+                              _: "This is immediate and cannot be undone. You will lose access to their singles' shidduchim and can no longer redt through this connection.",
+                            },
+                          )}
+                          confirmLabel={translate(
+                            "crm.settings.connection_end_confirm_button",
+                            { _: "Yes, end the connection" },
+                          )}
                           disabled={endingId === connection.id}
-                          onClick={() => handleEnd(connection)}
-                        >
-                          {translate("crm.settings.connection_end_button", {
-                            _: "End connection",
-                          })}
-                        </Button>
+                          onConfirm={() => handleEnd(connection)}
+                        />
                       </ItemActions>
                     ) : null}
                   </Item>

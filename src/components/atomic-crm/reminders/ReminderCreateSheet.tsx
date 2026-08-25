@@ -140,6 +140,21 @@ export const ReminderCreateSheet = ({
   const canSubmit =
     text.trim() !== "" && date !== "" && time !== "" && targetId != null;
 
+  // Four separate fields gate the submit button, and a disabled button with
+  // nothing next to it reads as broken — on a phone the unmet field is
+  // usually scrolled out of view behind the sheet's own scroll. Name the
+  // first one still missing, in the order the form asks for them.
+  const missingFieldLabel =
+    text.trim() === ""
+      ? translate("crm.reminders.create.what", { _: "Remind me to..." })
+      : date === ""
+        ? translate("crm.reminders.create.date", { _: "Due date" })
+        : time === ""
+          ? translate("crm.reminders.create.time", { _: "Time" })
+          : targetId == null
+            ? translate("crm.reminders.create.linkedTo", { _: "Linked to" })
+            : null;
+
   const resetForm = () => {
     setText("");
     setDate("");
@@ -189,7 +204,7 @@ export const ReminderCreateSheet = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="max-h-[92vh] overflow-y-auto border-t-[var(--glass-border)]
+        className="max-h-[92dvh] overflow-y-auto border-t-[var(--glass-border)]
           bg-[var(--glass-bg)] backdrop-blur-[var(--glass-blur)]"
       >
         <SheetHeader>
@@ -358,6 +373,14 @@ export const ReminderCreateSheet = ({
         </div>
 
         <SheetFooter className="border-t">
+          {missingFieldLabel != null ? (
+            <p className="text-xs text-muted-foreground">
+              {translate("crm.reminders.create.missingField", {
+                field: missingFieldLabel,
+                _: "Still needed: %{field}",
+              })}
+            </p>
+          ) : null}
           <Button
             type="button"
             className="min-h-[48px] md:min-h-[48px] w-full text-base"

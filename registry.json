@@ -212,6 +212,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/singles/GrantChips.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/singles/GrantAccept.tsx",
           "type": "registry:component"
         },
@@ -533,6 +537,10 @@
         },
         {
           "path": "src/components/atomic-crm/settings/ConnectionSection.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/settings/ConfirmDestructiveAction.tsx",
           "type": "registry:component"
         },
         {
@@ -1333,6 +1341,10 @@
         },
         {
           "path": "src/components/atomic-crm/layout/navItems.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/layout/menuItemClassName.ts",
           "type": "registry:component"
         },
         {

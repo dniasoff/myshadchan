@@ -34,12 +34,26 @@ import { MAX_ROWS, useDueReminders } from "./useDueReminders";
  * card never returns `null`.
  */
 
-/** `h-72` (18rem / 288px) — not a computed/arbitrary value: three rows'
- * worth of label + text + due line + assignee chip, plus the overflow
- * line, comfortably fit with `overflow-hidden` as a hard backstop, and a
- * plain Tailwind scale step keeps this file's height budget legible
- * without an arbitrary-bracket value the tailwind-arbitrary-var guard has
- * to reason about (`scripts/check-tailwind-arbitrary-var.mjs`). */
+/** `h-72` (18rem / 288px) — not a computed/arbitrary value: a plain
+ * Tailwind scale step keeps this file's height budget legible without an
+ * arbitrary-bracket value the tailwind-arbitrary-var guard has to reason
+ * about (`scripts/check-tailwind-arbitrary-var.mjs`).
+ *
+ * It is paired with `overflow-y-auto`, NOT `overflow-hidden`: three rows do
+ * NOT always fit. In a multi-member household (the core sharing model, so
+ * `TaskAssigneeChip` renders on every row) at 360px, where the
+ * "X · about Y" label wraps to two lines, the third row's lower half and
+ * the "and N more" line fall outside 288px — with `overflow-hidden` they
+ * were clipped and unreachable.
+ *
+ * The tempting fix is `min-h-72`, and it is wrong here: two guards depend
+ * on this region measuring the SAME height loading, empty and full —
+ * `DueRemindersCard.test.tsx`'s identical-height test (AC-2) and
+ * `e2e/dashboard-reminders-cls.spec.ts`, which exists because the dashboard
+ * has a measured 0.122 CLS regression in its history
+ * (`layout/DemoBanner.tsx:37-61`). A region that grows when its query lands
+ * pushes everything below it down and reproduces exactly that. Scrolling
+ * keeps the fixed height and makes the overflow reachable. */
 const LIST_REGION_HEIGHT_CLASS = "h-72";
 
 function DueReminderRowSkeleton() {
@@ -169,7 +183,7 @@ export const DueRemindersCard = () => {
 
       <div
         data-role="due-reminders-list"
-        className={cn(LIST_REGION_HEIGHT_CLASS, "overflow-hidden")}
+        className={cn(LIST_REGION_HEIGHT_CLASS, "overflow-y-auto")}
       >
         {isPending ? (
           <DueReminderRowSkeleton />
@@ -203,7 +217,12 @@ export const DueRemindersCard = () => {
         )}
       </div>
 
-      <Link to="/reminders" className="text-sm underline">
+      <Link
+        to="/reminders"
+        className="inline-flex min-h-11 items-center self-start text-sm underline
+          outline-none focus-visible:ring-2 focus-visible:ring-ring
+          focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      >
         {translate("crm.reminders.dueCard.seeAll", { _: "See all reminders" })}
       </Link>
     </Card>

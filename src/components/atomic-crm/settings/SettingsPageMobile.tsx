@@ -20,6 +20,7 @@ import { ConnectionSection } from "./ConnectionSection";
 import { FamilySection } from "./FamilySection";
 import { InvitesSection } from "./InvitesSection";
 import { PersonasSection } from "./PersonasSection";
+import { PlatformMetricsSection } from "./PlatformMetricsSection";
 import { PreferencesSection } from "./PreferencesSection";
 import { PrivacySection } from "./PrivacySection";
 import { ProfileSection } from "./ProfileSection";
@@ -56,7 +57,14 @@ export const SettingsPageMobile = () => {
           {translate("crm.settings.title")}
         </h1>
       </MobileHeader>
-      <div className="flex min-h-[calc(100dvh-3.5rem-4.5rem)] flex-col">
+      {/* The two fixed bars are read from the tokens `MobileContent` itself
+          reserves clearance from (`--mobile-header-h` / `--mobile-nav-clearance`,
+          `index.css`), plus that wrapper's own 1rem of padding at each end.
+          Hardcoding them drifted: the old `4.5rem` overstated a nav clearance
+          that is `4rem + env(safe-area-inset-bottom)`, so this column was
+          always taller than the space it had and the page scrolled with
+          nothing to show. */}
+      <div className="flex min-h-[calc(100dvh-var(--mobile-header-h)-var(--mobile-nav-clearance)-2rem)] flex-col">
         <div className="space-y-6">
           <ProfileSection />
           <FamilySection />
@@ -73,6 +81,11 @@ export const SettingsPageMobile = () => {
           <ConnectionSection />
           <ShadchanListingSection />
           <PrivacySection />
+          {/* Mirrors the desktop SettingsPage order. Self-gated behind
+              `CanAccess resource="members"`, so a non-admin still sees
+              nothing — its absence here simply put the platform metrics out
+              of an admin's reach on a phone. */}
+          <PlatformMetricsSection />
           <BillingSection />
         </div>
 

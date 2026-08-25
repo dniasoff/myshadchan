@@ -75,8 +75,16 @@ export const PersonaChecklist = ({
             disabled ? "opacity-60" : "cursor-pointer hover:bg-secondary/50",
           )}
         >
+          {/* `aria-label` as well as the wrapping <Label>. Radix renders this
+           * as `<button role="checkbox">`, and neither `htmlFor` nor a
+           * wrapping <label> names a button — both associate with form
+           * controls only. Without this the accessible name resolved empty
+           * in a real browser, so a screen reader announced three identical
+           * "checkbox, unchecked" rows here. The <Label> still earns its
+           * place: it makes the whole card a tap target. */}
           <Checkbox
             id={`persona-checkbox-${persona}`}
+            aria-label={translate(key, { _: fallback })}
             checked={value.includes(persona)}
             onCheckedChange={(checked) => toggle(persona, checked === true)}
             disabled={disabled}

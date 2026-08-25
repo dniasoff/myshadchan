@@ -15,6 +15,12 @@ import { RedtComposeDialog } from "./RedtComposeDialog";
  * than a Radix tooltip on the disabled `<button>` itself, since a disabled
  * element does not reliably receive the hover/focus events a tooltip
  * trigger needs.
+ *
+ * Story 8.5 mounted this in `rightRail`, where a full-width button was the
+ * right shape for a 320px column. It now renders in the `actions` region
+ * (see `entityDescriptorRegions.tsx` for why), which is page-width — hence
+ * `w-full sm:w-auto`: a comfortable full-width tap target on a phone, an
+ * ordinary button from `sm:` up rather than one stretched across the page.
  */
 export const ConnectionSendRedtAction = ({
   connection,
@@ -29,14 +35,14 @@ export const ConnectionSendRedtAction = ({
   });
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col items-stretch gap-1.5 sm:items-start">
       <span
-        className="inline-block w-full"
+        className="inline-block w-full sm:w-auto"
         title={isEnded ? disabledReason : undefined}
       >
         <Button
           type="button"
-          className="w-full"
+          className="w-full sm:w-auto"
           disabled={isEnded}
           onClick={() => setOpen(true)}
         >

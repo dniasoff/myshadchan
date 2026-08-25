@@ -9,6 +9,7 @@ import {
 } from "ra-core";
 import type { Identifier } from "ra-core";
 
+import { Confirm } from "@/components/admin/confirm";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -185,6 +186,7 @@ function FileRowView({
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
   // Stable across renders so the viewer's mint-on-open effect does not
   // re-sign the URL on every parent render while the dialog is open.
@@ -214,6 +216,11 @@ function FileRowView({
     }
   };
 
+  // Reached only from the confirm dialog — never straight off the row. The
+  // call destroys the `entity_files` row AND the storage object, with no undo
+  // anywhere in the product, and "Delete" sits one wrapped-row gap from
+  // "Replace" on a phone. A toast after the fact is not a substitute for a
+  // question before it.
   const handleDelete = async () => {
     setIsBusy(true);
     try {
@@ -221,6 +228,7 @@ function FileRowView({
         id: file.id,
         storagePath: file.storage_path,
       });
+      setIsConfirmingDelete(false);
       onChanged();
     } catch (error) {
       notify(
@@ -335,12 +343,15 @@ function FileRowView({
           aria-label={replaceLabel}
           onChange={handleReplace}
         />
+        {/* Reads as destructive BEFORE it is pressed — the four row actions
+         * are otherwise identical ghost buttons in one wrapping row. */}
         <Button
           type="button"
           variant="ghost"
           size="sm"
+          className="text-destructive hover:text-destructive"
           disabled={isBusy}
-          onClick={handleDelete}
+          onClick={() => setIsConfirmingDelete(true)}
         >
           {translate("crm.entity360.files.delete", { _: "Delete" })}
         </Button>
@@ -351,6 +362,27 @@ function FileRowView({
         fileName={file.file_name}
         mimeType={file.mime_type}
         signUrl={signUrl}
+      />
+      {/* `@/components/admin/confirm` rather than a hand-rolled dialog: it is
+       * the repo's existing confirmation primitive for destructive actions,
+       * and `resumes/PhotoRevealCard.tsx` gates its own irreversible "Hide"
+       * on the same component, so the two cannot drift. */}
+      <Confirm
+        isOpen={isConfirmingDelete}
+        loading={isBusy}
+        title={translate("crm.entity360.files.deleteConfirmTitle", {
+          _: "Delete this file?",
+        })}
+        content={translate("crm.entity360.files.deleteConfirmBody", {
+          _: "%{fileName} will be removed for everyone. This cannot be undone.",
+          fileName: file.file_name,
+        })}
+        confirm={translate("crm.entity360.files.deleteConfirmAction", {
+          _: "Delete file",
+        })}
+        confirmColor="warning"
+        onConfirm={handleDelete}
+        onClose={() => setIsConfirmingDelete(false)}
       />
     </li>
   );

@@ -107,10 +107,17 @@ function AddNoteForm({
 
   return (
     <div className="flex flex-col gap-2">
+      {/* A placeholder is not an accessible name, and it is not even a
+       * visible one for long: it disappears on the first keystroke, which
+       * on a phone leaves the field as the only thing on screen with
+       * nothing saying what it is. `aria-label` names it permanently. */}
       <Textarea
         value={body}
         rows={3}
         onChange={(event) => setBody(event.target.value)}
+        aria-label={translate("crm.entity360.notes.addLabel", {
+          _: "Add a note",
+        })}
         placeholder={translate("crm.entity360.notes.placeholder", {
           _: "Add a note…",
         })}
@@ -216,10 +223,15 @@ function NoteRowView({
       </div>
       {isEditing ? (
         <div className="flex flex-col gap-2">
+          {/* The edit field had no name at all — no label, no aria-label,
+           * not even a placeholder to fall back on. */}
           <Textarea
             value={draft}
             rows={3}
             onChange={(event) => setDraft(event.target.value)}
+            aria-label={translate("crm.entity360.notes.editLabel", {
+              _: "Edit note",
+            })}
           />
           <div className="flex justify-end gap-2">
             <Button

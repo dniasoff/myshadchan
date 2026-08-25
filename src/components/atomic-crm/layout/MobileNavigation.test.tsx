@@ -15,6 +15,7 @@ import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import "../shidduchim/entityDescriptor";
 import type { MyContext } from "../types";
 import { MobileNavigation } from "./MobileNavigation";
+import { SHADCHANUS_NAV } from "./navItems";
 
 /**
  * Story 4.4: pins AC-5 (mobile "More" overflow holds Inbox, Tasks,
@@ -176,7 +177,7 @@ describe("MobileNavigation — More menu contents (AC-5)", () => {
 });
 
 describe("MobileNavigation — shadchanus context (Story 8.1, AC-1/AC-2/AC-7)", () => {
-  it("renders Dashboard, Connections and Settings, and no household-only path", async () => {
+  it("renders no household-only path", async () => {
     // Arrange / Act — a single-context login always has that context active
     // (review F4: useActiveContextKind() no longer falls back to
     // contexts[0] when none is marked active, so a fixture must say so
@@ -184,15 +185,17 @@ describe("MobileNavigation — shadchanus context (Story 8.1, AC-1/AC-2/AC-7)", 
     const screen = await renderMobileNavigation([
       { ...shadchanus, is_active: true },
     ]);
+    await screen.getByRole("button", { name: "More" }).click();
 
-    // Assert — AC-7: no household-only `to` path anywhere in the DOM.
+    // Assert — AC-7. The guarded set is exactly `navItems.test.ts`'s
+    // GUARDED_HOUSEHOLD_PATHS: /shidduchim, /singles and /shadchanim are NOT
+    // household-only — a shadchanus account owns its own suggestions,
+    // singles and shadchan book (see SHADCHANUS_NAV's docstring), and the
+    // next test pins that they are reachable here.
     const links = Array.from(document.querySelectorAll("a[href]")).map((link) =>
       link.getAttribute("href"),
     );
     for (const guardedPath of [
-      "/shidduchim",
-      "/singles",
-      "/shadchanim",
       "/references",
       "/inbox_items",
       "/tasks",
@@ -200,14 +203,35 @@ describe("MobileNavigation — shadchanus context (Story 8.1, AC-1/AC-2/AC-7)", 
     ]) {
       expect(links).not.toContain(guardedPath);
     }
+  });
 
-    // The shadchanus nav's own destinations are present.
-    expect(links).toContain("/connections");
-    expect(links).toContain("/settings");
+  it("reaches every SHADCHANUS_NAV destination — bar slots plus the More menu", async () => {
+    // Arrange / Act — the bug this pins: the bar hardcoded 3 slots and an
+    // EMPTY More menu, so the three destinations SHADCHANUS_NAV grew after
+    // it was written (/shidduchim, /singles, /shadchanim) had no link
+    // anywhere on a phone even though their routes and sidebar links exist.
+    const screen = await renderMobileNavigation([
+      { ...shadchanus, is_active: true },
+    ]);
 
+    // Assert — the first three are the bar itself...
+    const barLinks = Array.from(document.querySelectorAll("a[href]")).map(
+      (link) => link.getAttribute("href"),
+    );
+    expect(barLinks).toEqual(["/", "/connections", "/shidduchim"]);
+
+    // ...and every remaining one is in the overflow menu.
+    await screen.getByRole("button", { name: "More" }).click();
     await expect
-      .element(screen.getByRole("link", { name: /connections/i }))
+      .element(screen.getByRole("menuitem", { name: "Settings" }))
       .toBeInTheDocument();
+
+    const allLinks = Array.from(document.querySelectorAll("a[href]")).map(
+      (link) => link.getAttribute("href"),
+    );
+    for (const item of SHADCHANUS_NAV) {
+      expect(allLinks).toContain(item.to);
+    }
   });
 
   it("never renders the raised center create button", async () => {
@@ -291,5 +315,64 @@ describe("MobileNavigation — 'more' active-path matching (AC-5)", () => {
     await expect
       .element(screen.getByRole("button", { name: "More" }))
       .not.toHaveClass("text-primary");
+  });
+});
+
+describe("MobileNavigation — active-state semantics", () => {
+  it("marks the current bar destination with aria-current, and no other", async () => {
+    // Arrange / Act — the active state was carried only by `text-primary`
+    // and an `aria-hidden` dot, so nothing announced it.
+    const screen = await renderMobileNavigation([household], ["/shidduchim"]);
+
+    // Assert
+    await expect
+      .element(screen.getByRole("link", { name: /shidduchim/i }))
+      .toHaveAttribute("aria-current", "page");
+
+    const current = Array.from(document.querySelectorAll("[aria-current]")).map(
+      (node) => node.getAttribute("href"),
+    );
+    expect(current).toEqual(["/shidduchim"]);
+  });
+
+  it("marks the More trigger with aria-current when the route lives in its menu", async () => {
+    // Arrange / Act
+    const screen = await renderMobileNavigation([household], ["/tasks"]);
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "More" }))
+      .toHaveAttribute("aria-current", "true");
+  });
+
+  it("leaves aria-current off every item on a route that is in no slot", async () => {
+    // Arrange / Act
+    await renderMobileNavigation([household], ["/references/7"]);
+
+    // Assert — RULING 7: references has no nav slot at all, so nothing is
+    // current. An `aria-current` that never clears is worse than none.
+    expect(document.querySelectorAll("[aria-current]")).toHaveLength(0);
+  });
+});
+
+describe("MobileNavigation — More menu touch targets", () => {
+  it("gives every row of the menu the 44px mobile hit area", async () => {
+    // Arrange / Act — the More menu is mobile's only route to Inbox, Tasks,
+    // Reminders, Settings, search, context and theme, and a plain
+    // `<DropdownMenuItem>` is a 32px row with no gap to its neighbour.
+    const screen = await renderMobileNavigation([household, shadchanus]);
+    await screen.getByRole("button", { name: "More" }).click();
+    await expect
+      .element(screen.getByRole("menuitem", { name: "Settings" }))
+      .toBeInTheDocument();
+
+    // Assert — asserted on the class rather than the measured box because
+    // this suite renders without `@/index.css`; the class carries the
+    // `md:` reset that keeps desktop density.
+    const rows = Array.from(document.querySelectorAll('[role="menuitem"]'));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.className).toContain("min-h-11");
+    }
   });
 });

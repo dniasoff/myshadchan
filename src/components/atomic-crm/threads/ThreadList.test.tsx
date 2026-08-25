@@ -56,6 +56,76 @@ const renderList = async (
   return { screen, dataProvider };
 };
 
+describe("ThreadList — telling one discussion from another", () => {
+  it("titles each row with its latest message, and says so when a thread has none", async () => {
+    // Arrange — two discussions on the same subject. Thread 2 is the newer
+    // one, so it auto-selects into the panel; thread 1 stays closed, which
+    // is what makes its row title uniquely assertable (the panel would
+    // otherwise render the same body a second time).
+    const { screen } = await renderList((db) => {
+      db.threads = [
+        {
+          id: 1,
+          account_id: 1,
+          connection_id: null,
+          subject_type: "shidduch",
+          subject_id: 1,
+          visibility: "open",
+          created_by_member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+        {
+          id: 2,
+          account_id: 1,
+          connection_id: null,
+          subject_type: "shidduch",
+          subject_id: 1,
+          visibility: "private",
+          created_by_member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-05T00:00:00Z",
+        },
+      ];
+      db.messages = [
+        {
+          id: 1,
+          account_id: 1,
+          connection_id: null,
+          thread_id: 1,
+          sender_member_id: CALLER_MEMBER_ID,
+          body: "Her uncle is happy to talk",
+          created_at: "2026-01-02T09:00:00Z",
+        },
+        {
+          id: 2,
+          account_id: 1,
+          connection_id: null,
+          thread_id: 1,
+          sender_member_id: CALLER_MEMBER_ID,
+          body: "He is free after Shabbos",
+          created_at: "2026-01-03T09:00:00Z",
+        },
+      ];
+    });
+
+    // Assert — the row's title is the LATEST thing said in it, not the
+    // oldest and not the thread's privacy setting...
+    await expect
+      .element(screen.getByText("He is free after Shabbos"))
+      .toBeInTheDocument();
+    expect(screen.getByText("Her uncle is happy to talk").query()).toBeNull();
+
+    // ...and a discussion nobody has written in says exactly that.
+    await expect
+      .element(screen.getByText("Nothing said yet"))
+      .toBeInTheDocument();
+
+    // Privacy survives the demotion — still text, not an icon alone, so a
+    // screen reader still hears it.
+    await expect.element(screen.getByText("Private")).toBeInTheDocument();
+    await expect.element(screen.getByText("Open")).toBeInTheDocument();
+  });
+});
+
 describe("ThreadList — reading threads for a subject", () => {
   it("shows the empty state and no panel when the subject has no threads", async () => {
     // Act

@@ -21,11 +21,18 @@ const buttonVariants = cva(
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
       },
+      // `min-h-11 md:min-h-<desktop>` is this repo's touch-target idiom (see
+      // ui/input.tsx, ui/select.tsx, ui/tabs.tsx): 44px for a finger, the
+      // original density from `md` up. It used to be on `default` only — so
+      // the rule was honoured by the biggest buttons and silently skipped by
+      // the compact ones that make up almost every row action in Settings and
+      // the share dialog, which is exactly backwards. `icon` needs the width
+      // floor too, since it has no padding to grow into.
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3 min-h-11 md:min-h-9",
-        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
-        icon: "size-9",
+        sm: "h-8 min-h-11 md:min-h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
+        lg: "h-10 min-h-11 md:min-h-10 rounded-md px-6 has-[>svg]:px-4",
+        icon: "size-9 min-h-11 min-w-11 md:min-h-9 md:min-w-9",
       },
     },
     defaultVariants: {

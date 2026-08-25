@@ -241,10 +241,20 @@ export const ShadchanDashboard = () => {
                       </div>
                     </div>
                     {unreadConnectionIds.has(String(connection.id)) ? (
-                      <span
-                        className="me-1 inline-block size-2 shrink-0 rounded-full bg-primary"
-                        aria-hidden="true"
-                      />
+                      <>
+                        {/* The dot stays decorative, but "has unread
+                         * messages" cannot be carried by an 8px colour alone
+                         * — this is the text equivalent for screen readers. */}
+                        <span
+                          className="me-1 inline-block size-2 shrink-0 rounded-full bg-primary"
+                          aria-hidden="true"
+                        />
+                        <span className="sr-only">
+                          {translate("crm.shadchan_dashboard.has_unread", {
+                            _: "Unread messages",
+                          })}
+                        </span>
+                      </>
                     ) : null}
                   </RecordLink>
                 </li>

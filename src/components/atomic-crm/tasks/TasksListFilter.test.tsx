@@ -81,6 +81,25 @@ describe("TaskListFilter", () => {
     await expect.element(screen.getByText("Load more")).toBeInTheDocument();
   });
 
+  it("offers Load more as a button, never as a link to nowhere", async () => {
+    // Arrange / Act
+    const tasks = Array.from({ length: 8 }, (_, i) => createTask(i + 1, today));
+    const screen = await render(
+      <TaskListFilter tasks={tasks} title="Today" isMobile={false} />,
+      {
+        wrapper: Wrapper,
+      },
+    );
+
+    // Assert — it used to be an <a href="#"> with its click prevented, which
+    // a screen reader announces as a link going nowhere and which pushes a
+    // hash onto history on keyboard activation.
+    await expect
+      .element(screen.getByRole("button", { name: "Load more" }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Load more" }).query()).toBeNull();
+  });
+
   it("Load more increases visible page size", async () => {
     const tasks = Array.from({ length: 8 }, (_, i) => createTask(i + 1, today));
     const { container, getByText } = await render(

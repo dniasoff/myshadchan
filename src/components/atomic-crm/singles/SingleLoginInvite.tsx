@@ -144,7 +144,17 @@ export function SingleLoginInvite({ single }: { single: Single }) {
 
         {createdLink ? (
           <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-2">
-            <Input readOnly value={createdLink} className="text-xs" />
+            {/* `text-base` below `md`: iOS Safari auto-zooms the page
+                whenever a focused input's font-size is under 16px, and a
+                readonly input still takes focus when it is tapped to select
+                the link — so the small size is kept only from the tablet
+                breakpoint up. `min-w-0` lets it shrink beside the Copy
+                button instead of pushing it out of the popover. */}
+            <Input
+              readOnly
+              value={createdLink}
+              className="min-w-0 text-base md:text-xs"
+            />
             <Button
               type="button"
               variant="outline"

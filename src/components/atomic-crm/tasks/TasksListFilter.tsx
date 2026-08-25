@@ -5,6 +5,8 @@ import {
   useTranslate,
 } from "ra-core";
 
+import { Button } from "@/components/ui/button";
+
 import { TasksIterator } from "./TasksIterator";
 
 type TaskListProps = {
@@ -37,16 +39,18 @@ export const TaskListFilter = ({ tasks, title, isMobile }: TaskListProps) => {
       </ResourceContextProvider>
       {total > listContext.perPage && (
         <div className="flex justify-center">
-          <a
-            href="#"
-            onClick={(e) => {
-              listContext.setPerPage(listContext.perPage + 10);
-              e.preventDefault();
-            }}
-            className="text-sm underline hover:no-underline"
+          {/* A real button, not an <a href="#"> with its click prevented:
+              that announced a link going nowhere to a screen reader, pushed
+              a hash onto history on keyboard activation, and was an
+              unpadded ~20px target between two task groups. */}
+          <Button
+            type="button"
+            variant="ghost"
+            className="underline hover:no-underline"
+            onClick={() => listContext.setPerPage(listContext.perPage + 10)}
           >
             {translate("crm.common.load_more")}
-          </a>
+          </Button>
         </div>
       )}
     </div>

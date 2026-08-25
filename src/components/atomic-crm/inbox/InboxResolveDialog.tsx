@@ -390,24 +390,31 @@ export const InboxResolveDialog = ({
             </div>
 
             <FormToolbar>
-              <div className="flex flex-row justify-between gap-2">
+              {/* Stacked below sm. All three of these come from
+                  buttonVariants' `whitespace-nowrap shrink-0` base, so on one
+                  row they cannot shrink or wrap: at 360px they need ~420px
+                  against a ~280px content box, and DialogContent's
+                  `overflow-y-auto` computes overflow-x to auto — so the
+                  primary CTA does not clip visibly, it slides off sideways
+                  behind a scrollbar nobody looks for. */}
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
                 <button
                   type="button"
                   onClick={onDismiss}
                   disabled={isBusy}
-                  className="inline-flex h-11 items-center rounded-xl px-4 text-sm font-medium text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-sm font-medium text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                 >
                   Dismiss — not a redt
                 </button>
-                <div className="flex flex-row justify-end gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                   <CancelButton
-                    className="h-11"
+                    className="h-11 w-full justify-center sm:w-auto"
                     onClick={onClose}
                     disabled={isBusy}
                   />
                   <SaveButton
                     label="File as a suggestion"
-                    className={INBOX_PRIMARY_CTA_CLASS}
+                    className={`${INBOX_PRIMARY_CTA_CLASS} w-full justify-center sm:w-auto`}
                     disabled={isBusy}
                   />
                 </div>

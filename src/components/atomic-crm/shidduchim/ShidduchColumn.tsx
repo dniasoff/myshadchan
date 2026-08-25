@@ -65,7 +65,13 @@ export const ShidduchColumn = ({
     <section
       data-tour={tourAnchor ? "pipeline-column" : undefined}
       className={cn(
-        "flex w-[250px] shrink-0 flex-col gap-3 transition-opacity duration-150",
+        // A hard 250px across all 7 PIPELINE_STATES is ~1850px — about five
+        // phone screens of horizontal scroll, and a drag has to cross all of
+        // it. Below `sm` a column is 85vw instead, so one column plus a peek
+        // of the next fills the screen and a drag is one swipe. Do NOT
+        // "cap" this with `max-w-[250px]`: min(85vw, 250px) is 250px on every
+        // phone wider than ~294px, which is the old value with extra classes.
+        "flex w-[85vw] shrink-0 flex-col gap-3 transition-opacity duration-150 sm:w-[250px]",
         isDropDisabled && "opacity-40",
       )}
     >

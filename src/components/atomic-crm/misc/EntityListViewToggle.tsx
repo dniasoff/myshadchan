@@ -39,7 +39,12 @@ export const EntityListViewToggle = ({
     <div
       role="group"
       aria-label={groupLabel}
-      className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border p-0.5"
+      // The two buttons were 2px apart — close enough on a phone that a
+      // thumb aimed at one hits the other. The 44px touch floor itself is
+      // the `icon` size's own job (`ui/button.tsx`'s
+      // `min-h-11 min-w-11 md:min-h-9 md:min-w-9`); this only has to stop
+      // the two targets from touching.
+      className="inline-flex shrink-0 items-center gap-1 rounded-lg border p-0.5"
     >
       <Button
         type="button"

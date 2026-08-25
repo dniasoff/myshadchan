@@ -67,6 +67,12 @@ type SharedAttachment = {
   src: string;
 };
 
+/** One image thumbnail in the preview panel. The filename travels WITH
+ * the object URL because the preview list is filtered to images before
+ * it is mapped — so its indices no longer line up with `files`, and the
+ * name cannot be recovered by position at render time. */
+type SharedImagePreview = { url: string; name: string };
+
 type SharedFileManifestEntry = { name: string; type: string };
 
 /** The result of trying to read back whatever `src/sw.ts` stashed in the
@@ -181,7 +187,13 @@ export const ShareTarget = () => {
   const [sourceTab, setSourceTab] = useState<ShareSourceTab | null>(null);
   const [singleId, setSingleId] = useState<Identifier | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  // {url, name}, not a bare url: the filename is the ONLY description a
+  // screen-reader user can be given of what they are about to file, and
+  // a photo shared with no accompanying text leaves the preview panel
+  // otherwise empty. The list is filtered before it is mapped, so the
+  // indices do not line up with `files` — the name has to travel with
+  // the object URL rather than being looked up later.
+  const [imagePreviews, setImagePreviews] = useState<SharedImagePreview[]>([]);
 
   // AC 1: read the shared file(s) back exactly once per landing. Review fix
   // (F5, MEDIUM): a partial or total read failure now surfaces as a warning
@@ -229,12 +241,12 @@ export const ShareTarget = () => {
   // Image thumbnails (Task 4: "a preview of the raw text or image(s)").
   // Revoked on every recompute so a re-share never leaks the previous set.
   useEffect(() => {
-    const urls = (files ?? [])
+    const previews = (files ?? [])
       .filter((file) => file.type.startsWith("image/"))
-      .map((file) => URL.createObjectURL(file));
-    setPreviewUrls(urls);
+      .map((file) => ({ url: URL.createObjectURL(file), name: file.name }));
+    setImagePreviews(previews);
     return () => {
-      urls.forEach((objectUrl) => URL.revokeObjectURL(objectUrl));
+      previews.forEach((preview) => URL.revokeObjectURL(preview.url));
     };
   }, [files]);
 
@@ -480,24 +492,32 @@ export const ShareTarget = () => {
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
             {rawText}
           </p>
-        ) : previewUrls.length === 0 ? (
+        ) : imagePreviews.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {translate("crm.inbox.share.noPreview", {
               _: "No text — see the attached file.",
             })}
           </p>
         ) : null}
-        {previewUrls.length > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {previewUrls.map((previewUrl) => (
-              <img
-                key={previewUrl}
-                src={previewUrl}
-                alt=""
-                className="h-24 w-24 rounded-lg object-cover"
-              />
-            ))}
-          </div>
+        {imagePreviews.length > 0 ? (
+          <>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {translate("crm.inbox.share.photoCount", {
+                smart_count: imagePreviews.length,
+                _: "%{smart_count} photo ready to file |||| %{smart_count} photos ready to file",
+              })}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {imagePreviews.map((preview) => (
+                <img
+                  key={preview.url}
+                  src={preview.url}
+                  alt={preview.name}
+                  className="h-24 w-24 rounded-lg object-cover"
+                />
+              ))}
+            </div>
+          </>
         ) : null}
       </div>
 

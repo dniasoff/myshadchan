@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { page } from "@vitest/browser/context";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import type { DataProvider } from "ra-core";
@@ -6,6 +7,9 @@ import type { DataProvider } from "ra-core";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { ContextMember, Task as TaskRecord } from "../types";
 import { Task } from "./Task";
+
+const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
+const DEFAULT_VIEWPORT = { width: 1280, height: 720 } as const;
 
 const buildTask = (overrides: Partial<TaskRecord> = {}): TaskRecord => ({
   id: 1,
@@ -127,5 +131,30 @@ describe("Task — archived-assignee state offers Reassign (AC-7)", () => {
     await expect
       .element(screen.getByRole("button", { name: "Reassign" }))
       .not.toBeInTheDocument();
+  });
+});
+
+describe("Task — a tap on a nested control never completes the task", () => {
+  afterEach(async () => {
+    await page.viewport(DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height);
+  });
+
+  it("tapping Reassign on a phone opens the editor without marking the task done", async () => {
+    // Arrange — a phone. The row's content wrapper used to carry an onClick
+    // that toggled the task done on mobile, and every interactive child
+    // inside it bubbled into that handler, so this correct tap fired the
+    // wrong mutation as well as the right one.
+    await page.viewport(MOBILE_VIEWPORT.width, MOBILE_VIEWPORT.height);
+    const task = buildTask({ member_id: 99 });
+    const { screen, dataProvider } = await renderTask(task, [
+      buildMember({ id: 1, is_self: true }),
+      buildMember({ id: 2, user_id: "2", is_self: false }),
+    ]);
+
+    // Act
+    await screen.getByRole("button", { name: "Reassign" }).click();
+
+    // Assert — no completion write of any kind.
+    expect(dataProvider.update).not.toHaveBeenCalled();
   });
 });

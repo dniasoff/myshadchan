@@ -1,9 +1,9 @@
 import { Kanban, LayoutGrid, LayoutList } from "lucide-react";
 import { useStore, useTranslate } from "ra-core";
+import { useSyncExternalStore } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 import { useEntityListStatus } from "../misc/useEntityListStatus";
 import {
@@ -41,11 +41,32 @@ const VIEW_OPTIONS: {
 ];
 
 /**
+ * The default view is decided on the FIRST paint, which is why this does not
+ * call `useIsMobile()`: that hook starts at `undefined` and only resolves in
+ * an effect, so `!!isMobile` is `false` for one frame and a phone painted the
+ * 7-column, ~1850px-wide Board before flipping to the list.
+ * `ShidduchInputs.tsx` dropped its own `useIsMobile()` fork for exactly this
+ * reason. `useSyncExternalStore` reads `matchMedia` synchronously during
+ * render and still re-renders on a resize. 768px is `useIsMobile()`'s own
+ * MOBILE_BREAKPOINT, kept identical on purpose — the same way
+ * `ShidduchimList.tsx` keeps its `md:` toolbar rule aligned to it.
+ */
+const MOBILE_MEDIA_QUERY = "(max-width: 767px)";
+
+const subscribeToViewport = (onStoreChange: () => void) => {
+  const mql = window.matchMedia(MOBILE_MEDIA_QUERY);
+  mql.addEventListener("change", onStoreChange);
+  return () => mql.removeEventListener("change", onStoreChange);
+};
+
+const readIsMobile = () => window.matchMedia(MOBILE_MEDIA_QUERY).matches;
+
+/**
  * AC-1/AC-2/AC-5/AC-6: the one three-position control (Board · List ·
  * Cards), keyed to the store — never the URL (see the story's Dev Notes,
- * "Why the view choice cannot live in the URL"). The single `useIsMobile()`
- * call under `shidduchim/` lives here and its only consumer is the
- * `useStore` default below (AC-2). The single `useEntityListStatus()` call
+ * "Why the view choice cannot live in the URL"). The single viewport read
+ * under `shidduchim/` lives here and its only consumer is the `useStore`
+ * default below (AC-2). The single `useEntityListStatus()` call
  * here renders the shared loading/error(+retry) states — no position below
  * renders its own (AC-5). Board, List and Cards all read the SAME
  * `useListContext()` data from the SAME enclosing `<List>` in
@@ -54,7 +75,9 @@ const VIEW_OPTIONS: {
 export const ShidduchimViewSwitch = () => {
   const translate = useTranslate();
   const status = useEntityListStatus();
-  const isMobile = useIsMobile(); // AC-2: the ONLY call under shidduchim/
+  // AC-2: the ONLY viewport read under shidduchim/ — and synchronous, so the
+  // first paint already knows which default it is choosing.
+  const isMobile = useSyncExternalStore(subscribeToViewport, readIsMobile);
   const [stored, setStored] = useStore<ShidduchimPageView>(
     "shidduchim.pageView",
   );
@@ -90,7 +113,7 @@ export const ShidduchimViewSwitch = () => {
         aria-label={translate("crm.shidduchim.pageView.label", {
           _: "Pipeline view",
         })}
-        className="inline-flex shrink-0 items-center gap-0.5 self-end rounded-lg border p-0.5"
+        className="inline-flex shrink-0 items-center gap-1 self-end rounded-lg border p-0.5"
       >
         {VIEW_OPTIONS.map(({ value, Icon, labelKey, labelDefault }) => {
           const label = translate(labelKey, { _: labelDefault });
@@ -99,6 +122,11 @@ export const ShidduchimViewSwitch = () => {
               key={value}
               type="button"
               size="icon"
+              // `size="icon"` is a flat `size-9` (36px) — the `min-h-11
+              // md:min-h-9` touch floor was applied to the `default` size and
+              // missed here, leaving the only control for changing view below
+              // the 44px minimum. Same shape, applied at the call site.
+              className="size-11 md:size-9"
               variant={view === value ? "secondary" : "ghost"}
               aria-pressed={view === value}
               aria-label={label}

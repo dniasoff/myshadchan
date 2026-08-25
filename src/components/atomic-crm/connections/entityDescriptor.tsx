@@ -3,6 +3,7 @@ import { registerEntityDescriptor } from "../entity360/registry";
 import type { Connection } from "../types";
 import { ConnectionOverviewTab } from "./ConnectionOverviewTab";
 import {
+  ConnectionActions,
   ConnectionActivityTab,
   ConnectionDiscussionsTab,
   ConnectionIdentityHeader,
@@ -29,10 +30,13 @@ import {
  * and this file's export, `connectionsDescriptor`, is not —
  * `react-refresh/only-export-components` flags a file mixing the two).
  *
- * No `actions` region: unlike `shadchanim`/`references`, a connection has no
- * Edit route (it is never a user-authored form — Story 8.2's consent
- * workflow is the only writer) — the two affordances a viewer needs
- * ("Send a redt", "End connection") live in `rightRail` instead (AC-4/AC-5).
+ * The `actions` region carries "Send a redt" (AC-4) — not an Edit button:
+ * unlike `shadchanim`/`references`, a connection has no Edit route (it is
+ * never a user-authored form — Story 8.2's consent workflow is the only
+ * writer). Both affordances used to live in `rightRail` together, which put
+ * the primary one below the whole tab body on any viewport under 1024px
+ * (`Entity360` stacks content-then-rail there). "End connection" stays in
+ * the rail (AC-5): burying a destructive action on a phone is correct.
  *
  * `overview` renders `ConnectionOverviewTab` — the facts left outside the
  * identity header (proposed-by side, ended-at). `discussions` renders
@@ -49,6 +53,7 @@ export const connectionsDescriptor: EntityDescriptor<Connection> = {
   buildRecordPath: (id) => `/connections/${id}`,
   identityHeader: ConnectionIdentityHeader,
   statBand: ConnectionStatBand,
+  actions: ConnectionActions,
   rightRail: ConnectionRightRail,
   tabs: [
     { key: "overview", render: () => <ConnectionOverviewTab /> },

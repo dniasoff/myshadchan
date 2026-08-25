@@ -74,14 +74,18 @@ export const InboxCapturePreview = ({ item }: { item: InboxItem }) => {
           No text — see the attached file.
         </p>
       )}
+      {/* A padded 44px row, negatively margined so the link still lines up
+          with the text above it — the visual weight is unchanged, only the
+          target. space-y-0 because the rows now carry their own padding; 4px
+          between two padded targets reads as one blur. */}
       {item.attachments && item.attachments.length > 0 ? (
-        <ul className="mt-2 space-y-1">
+        <ul className="mt-2 space-y-0">
           {item.attachments.map((attachment) => (
             <li key={attachment.path}>
               <button
                 type="button"
                 onClick={() => handleOpenAttachment(attachment)}
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-2 hover:underline"
+                className="-mx-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium text-primary underline-offset-2 hover:underline"
               >
                 <Paperclip className="size-3.5" aria-hidden="true" />
                 {attachment.title}

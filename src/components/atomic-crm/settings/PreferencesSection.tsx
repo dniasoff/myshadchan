@@ -157,10 +157,14 @@ const LanguageRow = () => {
       </ItemContent>
       <ItemActions>
         <Select value={locale} onValueChange={setLocale}>
-          <SelectTrigger
-            size="sm"
-            className="w-auto !h-auto py-0 border-none shadow-none"
-          >
+          {/* Borderless to stay quiet in the row, but NOT shrunk: this used
+              to be `size="sm" !h-auto py-0`, which discarded the trigger's
+              height entirely and left the only way to change language a
+              ~20px run of text. The default size carries the mobile touch
+              floor (`min-h-11 md:min-h-9` in `ui/select.tsx`), so keeping it
+              is what makes the row tappable; the chevron the trigger always
+              renders is the remaining affordance that it is a control. */}
+          <SelectTrigger className="w-auto border-none shadow-none">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

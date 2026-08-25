@@ -4,6 +4,17 @@ import { REGISTER_PATH, SIGN_IN_PATH } from "./landingLinks";
 import { translateLanding } from "./landingTranslate";
 
 /**
+ * Footer legal links. `hover:underline` alone is a state that does not exist
+ * on a touch device, so on a phone these read as plain grey caption text with
+ * nothing to say they are tappable — and at ~20px tall they were well under
+ * the 44px touch minimum. The underline is therefore permanent (dimmed, so it
+ * still reads as secondary) and the row is a real target.
+ */
+const FOOTER_LINK_CLASSNAME =
+  "inline-flex min-h-11 items-center underline underline-offset-4 " +
+  "decoration-muted-foreground/40 hover:text-foreground hover:decoration-current";
+
+/**
  * Two intents, two weights: a visitor who already knows they want to sign in
  * gets the solid button, same as before this pair existed; "Create an
  * account" sits beside it in the quieter ghost treatment, since the header's
@@ -56,17 +67,14 @@ export const LandingFooter = () => (
           "The code is public. The record is free; the optional AI features are paid. Run at cost.",
         )}
       </p>
-      <nav className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-        <a href="/terms" className="hover:text-foreground hover:underline">
+      <nav className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted-foreground">
+        <a href="/terms" className={FOOTER_LINK_CLASSNAME}>
           {translateLanding("crm.landing.footer.terms", "Terms of Service")}
         </a>
-        <a href="/privacy" className="hover:text-foreground hover:underline">
+        <a href="/privacy" className={FOOTER_LINK_CLASSNAME}>
           {translateLanding("crm.landing.footer.privacy", "Privacy Policy")}
         </a>
-        <a
-          href="/sub-processors"
-          className="hover:text-foreground hover:underline"
-        >
+        <a href="/sub-processors" className={FOOTER_LINK_CLASSNAME}>
           {translateLanding(
             "crm.landing.footer.subprocessors",
             "Sub-processors",

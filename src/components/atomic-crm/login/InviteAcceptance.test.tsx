@@ -301,4 +301,78 @@ describe("InviteAcceptance", () => {
       .element(screen.getByText("This invite has been revoked"))
       .toBeInTheDocument();
   });
+
+  it("names the role in plain words, never the raw database enum", async () => {
+    // Arrange / Act: `get_invite_preview()` hands back `invites.role`
+    // verbatim, and this sentence is the first thing an invitee ever reads
+    // of the product — it used to say "as a parent_admin."
+    const screen = await renderInviteAcceptance({
+      invite: { ...PENDING_INVITE, role: "parent_admin" },
+    });
+
+    // Assert
+    await expect
+      .element(
+        screen.getByText("Join The Klein Family on MyShadchan as a parent."),
+      )
+      .toBeVisible();
+    await expect
+      .element(screen.getByText(/parent_admin/))
+      .not.toBeInTheDocument();
+  });
+
+  it("falls back to a readable word for a role it does not know", async () => {
+    // Arrange / Act: `InvitePreview.role` is typed `string` — the RPC is
+    // anon-callable and returns whatever the row holds — so an unmapped
+    // value must still never reach the sentence.
+    const screen = await renderInviteAcceptance({
+      invite: { ...PENDING_INVITE, role: "self_manager" },
+    });
+
+    // Assert
+    await expect
+      .element(
+        screen.getByText("Join The Klein Family on MyShadchan as a member."),
+      )
+      .toBeVisible();
+  });
+
+  it("disables 'Resend code' while a resend is in flight", async () => {
+    // Arrange: an in-flight resend used to be invisible here — no disabled
+    // state, no spinner — so on a slow phone connection the button looked
+    // inert and every extra tap sent another OTP until Supabase rate-limited
+    // the invitee out of the invite they were in the middle of accepting.
+    let releaseResend: (() => void) | undefined;
+    const login = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseResend = () => resolve();
+          }),
+      );
+    const screen = await renderInviteAcceptance({
+      invite: PENDING_INVITE,
+      login,
+    });
+    await screen.getByRole("button", { name: "Continue" }).click();
+    await expect
+      .element(screen.getByRole("button", { name: "Sign in" }))
+      .toBeInTheDocument();
+
+    // Act
+    const resend = screen.getByRole("button", { name: "Resend code" });
+    await resend.click();
+
+    // Assert: the second tap has nothing to hit, so exactly one resend was
+    // sent (two calls in total, counting the initial request).
+    await expect.element(resend).toBeDisabled();
+    expect(login).toHaveBeenCalledTimes(2);
+
+    // Cleanup: let the pending resend settle so the component is not left
+    // updating state after the test has finished.
+    releaseResend?.();
+    await expect.element(resend).not.toBeDisabled();
+  });
 });

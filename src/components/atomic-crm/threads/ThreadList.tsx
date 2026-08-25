@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ReactElement, ReactNode } from "react";
+import { Lock, Unlock } from "lucide-react";
 import {
   useDataProvider,
   useGetList,
@@ -83,43 +84,68 @@ function ThreadListError(): ReactElement {
   );
 }
 
+/**
+ * One thread in the list. The row's TITLE is what was last said in it — a
+ * household with several discussions was previously shown a stack of rows
+ * whose entire title was the privacy setting ("Private" / "Private" /
+ * "Open") plus a date, which identifies nothing. Privacy stays, demoted to
+ * an icon plus its own word on a muted second line: it is a real property of
+ * the thread, and dropping the word for an icon alone would take the label
+ * away from screen readers and retire two live catalogue keys.
+ */
 function ThreadRow({
   thread,
   isSelected,
   isUnread,
+  preview,
   onSelect,
 }: {
   thread: Thread;
   isSelected: boolean;
   isUnread: boolean;
+  preview: string | null;
   onSelect: () => void;
 }): ReactElement {
   const translate = useTranslate();
+  const isPrivate = thread.visibility === "private";
+  const PrivacyIcon = isPrivate ? Lock : Unlock;
   return (
     <li>
       <button
         type="button"
         onClick={onSelect}
         aria-pressed={isSelected}
-        className={`w-full rounded-md border px-3 py-2 text-start text-sm transition-colors ${
+        className={`flex w-full flex-col gap-0.5 rounded-md border px-3 py-2 text-start text-sm transition-colors ${
           isSelected
             ? "border-primary bg-accent"
             : "border-border hover:bg-accent/50"
         }`}
       >
-        {isUnread ? (
+        <span className="flex min-w-0 items-center gap-2">
+          {isUnread ? (
+            <span
+              className="inline-block size-2 shrink-0 rounded-full bg-primary"
+              aria-hidden="true"
+            />
+          ) : null}
           <span
-            className="me-2 inline-block size-2 rounded-full bg-primary align-middle"
-            aria-hidden="true"
-          />
-        ) : null}
-        <span className={isUnread ? "font-semibold" : "font-medium"}>
-          {thread.visibility === "private"
-            ? translate("crm.threads.list.rowPrivate", { _: "Private" })
-            : translate("crm.threads.list.rowOpen", { _: "Open" })}
+            className={`line-clamp-1 ${isUnread ? "font-semibold" : "font-medium"}`}
+          >
+            {preview ??
+              translate("crm.threads.list.rowNoMessages", {
+                _: "Nothing said yet",
+              })}
+          </span>
         </span>
-        <span className="ms-2 text-xs text-muted-foreground">
-          {formatTimelineDate(thread.created_at)}
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <PrivacyIcon className="size-3 shrink-0" aria-hidden="true" />
+          <span>
+            {isPrivate
+              ? translate("crm.threads.list.rowPrivate", { _: "Private" })
+              : translate("crm.threads.list.rowOpen", { _: "Open" })}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>{formatTimelineDate(thread.created_at)}</span>
         </span>
         {isUnread ? (
           <span className="sr-only">
@@ -210,6 +236,20 @@ export function ThreadList(props: ThreadListProps): ReactNode {
     recentMessages ?? [],
   );
 
+  // The row-title preview, from the messages ALREADY fetched above for the
+  // unread derivation — no extra round trip. That query is sorted
+  // created_at DESC, so the first row seen for a thread is its latest.
+  // It shares that query's `perPage: 200` ceiling across all 20 threads:
+  // past it a thread falls back to the "nothing said yet" label rather than
+  // showing a stale preview, which is the safe direction to be wrong in.
+  const latestBodyByThreadId = new Map<string, string>();
+  for (const message of recentMessages ?? []) {
+    const key = String(message.thread_id);
+    if (!latestBodyByThreadId.has(key)) {
+      latestBodyByThreadId.set(key, message.body);
+    }
+  }
+
   const activeId = selectedId ?? data?.[0]?.id ?? null;
   // Story 7.3 (Task 4): the FULL thread record, not just its id — ThreadPanel
   // needs `visibility` to render its lock control, and this list already
@@ -265,6 +305,7 @@ export function ThreadList(props: ThreadListProps): ReactNode {
                 thread={thread}
                 isSelected={String(thread.id) === String(activeId)}
                 isUnread={unreadThreadIds.has(thread.id)}
+                preview={latestBodyByThreadId.get(String(thread.id)) ?? null}
                 onSelect={() => setSelectedId(thread.id)}
               />
             ))}

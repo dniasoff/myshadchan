@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Loader2, Lock } from "lucide-react";
 import { useAuthProvider, useLogin, useNotify, useTranslate } from "ra-core";
 import type { SubmitHandler, FieldValues } from "react-hook-form";
@@ -19,6 +19,17 @@ import { TurnstileWidget, type TurnstileWidgetHandle } from "./TurnstileWidget";
 import { TURNSTILE_SITE_KEY } from "./turnstileConfig";
 
 type RegisterStep = "details" | "code";
+
+/**
+ * Footer legal links. `hover:underline` alone is a state that does not exist
+ * on a touch device, so on a phone these read as plain grey caption text with
+ * nothing to say they are tappable — and at ~20px tall they were well under
+ * the 44px touch minimum. Mirrors `LandingChrome`'s footer, which carries the
+ * same links.
+ */
+const FOOTER_LINK_CLASSNAME =
+  "inline-flex min-h-11 items-center underline underline-offset-4 " +
+  "decoration-muted-foreground/40 hover:text-foreground hover:decoration-current";
 
 /**
  * The open self-service signup path (`/register`), the counterpart to
@@ -60,8 +71,10 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
   const { redirectTo } = props;
   const [step, setStep] = useState<RegisterStep>("details");
   const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isResending, setIsResending] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const turnstileRef = useRef<TurnstileWidgetHandle>(null);
   const authProvider = useAuthProvider();
@@ -103,12 +116,19 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
     }
     const trimmedEmail = email.trim();
     if (!trimmedEmail) {
-      notify("crm.auth.register.email_required", {
-        type: "error",
-        messageArgs: { _: "Enter your email to continue." },
-      });
+      // Beside the field, not as a toast. A toast about one empty field can
+      // sit behind the on-screen keyboard or expire before it is read,
+      // leaving a form that will not advance and no visible reason why.
+      // `notify()` below still carries server-side failures, which are not
+      // about a field the visitor is looking at.
+      setEmailError(
+        translate("crm.auth.register.email_required", {
+          _: "Enter your email to continue.",
+        }),
+      );
       return;
     }
+    setEmailError(null);
     setIsRequesting(true);
     requestCode(trimmedEmail)
       .then(() => {
@@ -126,6 +146,11 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
       .finally(() => setIsRequesting(false));
   };
 
+  const handleSubmitEmail = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    handleContinue();
+  };
+
   const handleVerifyCode: SubmitHandler<FieldValues> = (values) => {
     setIsVerifying(true);
     login({ email, token: values.token, verifyOtp: true }, redirectTo).catch(
@@ -139,7 +164,15 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
     );
   };
 
+  // Guarded and flagged in flight, same as `LoginPage.handleResend()`: an
+  // un-disabled "Resend code" on a slow mobile connection gets tapped again
+  // and again, and each tap is another OTP request until Supabase rate-limits
+  // the visitor out of the signup they are in the middle of.
   const handleResend = () => {
+    if (isResending) {
+      return;
+    }
+    setIsResending(true);
     requestCode(email)
       .then(() => {
         notify("crm.auth.login.code_resent", {
@@ -153,7 +186,8 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
           id: "ra.auth.sign_in_error",
           defaultMessage: "Authentication failed, please retry",
         });
-      });
+      })
+      .finally(() => setIsResending(false));
   };
 
   return (
@@ -166,25 +200,19 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
               _: "Private to your family",
             })}
           </span>
-          <nav className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-            <Link to="/terms" className="hover:text-foreground hover:underline">
+          <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-sm text-muted-foreground">
+            <Link to="/terms" className={FOOTER_LINK_CLASSNAME}>
               {translate("crm.auth.footer.terms", { _: "Terms of Service" })}
             </Link>
-            <Link
-              to="/privacy"
-              className="hover:text-foreground hover:underline"
-            >
+            <Link to="/privacy" className={FOOTER_LINK_CLASSNAME}>
               {translate("crm.auth.footer.privacy", { _: "Privacy Policy" })}
             </Link>
-            <Link
-              to="/sub-processors"
-              className="hover:text-foreground hover:underline"
-            >
+            <Link to="/sub-processors" className={FOOTER_LINK_CLASSNAME}>
               {translate("crm.auth.footer.subprocessors", {
                 _: "Sub-processors",
               })}
             </Link>
-            <Link to="/" className="hover:text-foreground hover:underline">
+            <Link to="/" className={FOOTER_LINK_CLASSNAME}>
               {translate("crm.auth.back_to_home", { _: "Back to home" })}
             </Link>
           </nav>
@@ -197,11 +225,14 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
             this block on the code step printed that sentence twice. */}
         {step === "details" ? (
           <div className="text-center">
-            <h2 className="font-display text-2xl font-bold tracking-tight">
+            {/* h1: the page's top-level heading — see the same note on
+                LoginPage. The code step's heading lives in OtpCodeStep, which
+                is an h1 for the same reason. */}
+            <h1 className="font-display text-2xl font-bold tracking-tight">
               {translate("crm.auth.register.title", {
                 _: "Create your account",
               })}
-            </h2>
+            </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {translate("crm.auth.register.subtitle", {
                 _: "It only takes a minute.",
@@ -217,31 +248,53 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
 
         {step === "details" ? (
           <div className="space-y-6">
-            <div className="space-y-1.5 text-start">
-              <label
-                htmlFor="register-email"
-                className="text-sm font-medium text-foreground"
-              >
-                {translate("ra.auth.email", { _: "Email" })}
-              </label>
-              <Input
-                id="register-email"
-                type="email"
-                autoComplete="email"
-                value={email}
+            {/* A real <form>, not a div holding an onClick button: the mobile
+                keyboard's "Go" key submits a form and does nothing at all
+                without one, so this door used to need the keyboard dismissed
+                and the button hunted for, while LoginPage's identical email
+                step submitted straight from the keyboard. */}
+            <form onSubmit={handleSubmitEmail} className="space-y-6">
+              <div className="space-y-1.5 text-start">
+                <label
+                  htmlFor="register-email"
+                  className="text-sm font-medium text-foreground"
+                >
+                  {translate("ra.auth.email", { _: "Email" })}
+                </label>
+                <Input
+                  id="register-email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  disabled={isRequesting}
+                  aria-invalid={emailError ? true : undefined}
+                  aria-describedby={
+                    emailError ? "register-email-error" : undefined
+                  }
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    setEmailError(null);
+                  }}
+                  className={AUTH_FIELD_CLASSNAME}
+                />
+                {emailError ? (
+                  <p
+                    id="register-email-error"
+                    role="alert"
+                    className="text-sm font-medium text-destructive"
+                  >
+                    {emailError}
+                  </p>
+                ) : null}
+              </div>
+              <Button
+                type="submit"
+                className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
                 disabled={isRequesting}
-                onChange={(event) => setEmail(event.target.value)}
-                className={AUTH_FIELD_CLASSNAME}
-              />
-            </div>
-            <Button
-              type="button"
-              className={cn("w-full cursor-pointer", PRIMARY_CTA_CLASSNAME)}
-              disabled={isRequesting}
-              onClick={handleContinue}
-            >
-              {translate("crm.auth.continue", { _: "Continue" })}
-            </Button>
+              >
+                {translate("crm.auth.continue", { _: "Continue" })}
+              </Button>
+            </form>
             {isGoogleOAuthEnabled() ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -282,6 +335,7 @@ export const RegisterFlow = (props: { redirectTo?: string }) => {
           <OtpCodeStep
             email={email}
             isVerifying={isVerifying}
+            isResending={isResending}
             onSubmit={handleVerifyCode}
             onResend={handleResend}
             title={{

@@ -365,6 +365,68 @@ describe("ShadchanDashboard — populated state (Story 8.5, AC-7)", () => {
     expect(segment?.textContent).toBe("Unread conversations1");
   });
 
+  // UX/mobile audit fix: "has unread messages" used to be an 8px
+  // `aria-hidden` dot and nothing else, so the distinction was unavailable to
+  // screen readers and carried by colour alone for everyone else.
+  it("gives the unread dot a text equivalent, and renders none on a read connection", async () => {
+    // Arrange — connection 1 has an unread thread; connection 2 has one the
+    // caller has already read past.
+    const { screen } = await renderDashboard((db) => {
+      db.connections = [
+        buildConnection({ id: 1, household_account_name: "Klein Family" }),
+        buildConnection({ id: 2, household_account_name: "Feldman Family" }),
+      ];
+      db.threads = [1, 2].map((id) => ({
+        id,
+        account_id: null,
+        connection_id: id,
+        subject_type: "relationship" as const,
+        subject_id: null,
+        visibility: "open" as const,
+        created_by_member_id: CALLER_MEMBER_ID,
+        created_at: "2026-01-01T00:00:00Z",
+      }));
+      db.thread_participants = [
+        {
+          id: 1,
+          account_id: null,
+          connection_id: 1,
+          thread_id: 1,
+          member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-01T00:00:00Z",
+          last_read_at: null,
+        },
+        {
+          id: 2,
+          account_id: null,
+          connection_id: 2,
+          thread_id: 2,
+          member_id: CALLER_MEMBER_ID,
+          created_at: "2026-01-01T00:00:00Z",
+          // Read AFTER the message below — connection 2 is NOT unread.
+          last_read_at: "2026-01-05T00:00:00Z",
+        },
+      ];
+      db.messages = [1, 2].map((id) => ({
+        id,
+        account_id: null,
+        connection_id: id,
+        thread_id: id,
+        sender_member_id: null,
+        body: "Any updates?",
+        created_at: "2026-01-02T00:00:00Z",
+      }));
+    });
+
+    // Assert
+    const unreadLink = screen.getByRole("link", { name: /Klein Family/ });
+    await expect.element(unreadLink).toBeInTheDocument();
+    expect(unreadLink.element().textContent).toContain("Unread messages");
+
+    const readLink = screen.getByRole("link", { name: /Feldman Family/ });
+    expect(readLink.element().textContent).not.toContain("Unread messages");
+  });
+
   it("links each recent connection through RecordLink, resolving to the real Connection 360 route", async () => {
     // Arrange
     const { screen } = await renderDashboard((db) => {

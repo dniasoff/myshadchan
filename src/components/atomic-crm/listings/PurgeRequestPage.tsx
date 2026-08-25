@@ -28,7 +28,7 @@ const purgeRequestSchema = z.object({
 type PurgeRequestFormData = z.infer<typeof purgeRequestSchema>;
 
 const SearchShell = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
+  <div className="relative min-h-dvh overflow-hidden bg-background text-foreground">
     <div
       aria-hidden="true"
       className="pointer-events-none absolute inset-0"
@@ -37,7 +37,7 @@ const SearchShell = ({ children }: { children: React.ReactNode }) => (
           "radial-gradient(120% 80% at 50% -10%, color-mix(in oklch, var(--primary) 14%, transparent), transparent 60%), radial-gradient(90% 60% at 100% 0%, color-mix(in oklch, var(--violet, var(--primary)) 12%, transparent), transparent 55%)",
       }}
     />
-    <main className="relative mx-auto flex min-h-screen w-full max-w-3xl flex-col px-5 py-14 sm:py-20">
+    <main className="relative mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-14 sm:py-20">
       {children}
     </main>
   </div>
@@ -86,8 +86,13 @@ export const PurgeRequestPage = () => {
     <SearchShell>
       <Card className="w-full">
         <CardHeader className="text-center pb-4">
-          <CardTitle className="font-display text-2xl font-bold tracking-tight">
-            Request Removal of Your Information
+          <CardTitle>
+            {/* `CardTitle` is a plain <div> and takes no `asChild`
+             * (ui/card.tsx), so without this nested <h1> the page — a public,
+             * unauthenticated surface — has no top-level heading at all. */}
+            <h1 className="font-display text-2xl font-bold tracking-tight">
+              Request Removal of Your Information
+            </h1>
           </CardTitle>
           <CardDescription className="text-base">
             You found your name in our system and you want it removed. This page
@@ -119,9 +124,9 @@ export const PurgeRequestPage = () => {
           ) : (
             <>
               <div className="space-y-3 text-sm text-muted-foreground border-l-4 border-primary pl-4">
-                <h3 className="font-medium text-foreground">
+                <h2 className="font-medium text-foreground">
                   What happens after you submit
-                </h3>
+                </h2>
                 <ul className="list-disc list-inside space-y-2 text-left">
                   <li>
                     <strong>Identity is verified first.</strong> A purge request

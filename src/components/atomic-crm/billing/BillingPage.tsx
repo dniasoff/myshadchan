@@ -1,7 +1,12 @@
+import { ChevronLeft } from "lucide-react";
 import { useCallback } from "react";
 import { useTranslate } from "ra-core";
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 
+import { useIsMobile } from "@/hooks/use-mobile";
+
+import MobileHeader from "../layout/MobileHeader";
 import {
   AI_ENTITLEMENT_QUERY_KEY,
   useAiEntitlementInfo,
@@ -26,6 +31,16 @@ import { UsageMeter } from "./UsageMeter";
  * `isEntitled`/`isLapsed` below are derived ONLY from `info`, i.e. from the
  * server's `ai_entitlement()` — the only way an account becomes entitled is
  * the webhook's own service_role write to `subscription`.
+ *
+ * This route is `surface: "both"` (`root/routeManifest.ts`) but was written
+ * desktop-only: on a phone it added its own `px-6`/`mt-10` on top of the
+ * gutter and fixed-header clearance `layout/MobileContent.tsx` already
+ * reserves, and rendered no `MobileHeader` — so a parent got ~112px of empty
+ * space, no title bar, and no way back to Settings. The `useIsMobile()`
+ * branch below is `tasks/TasksListPage.tsx`'s idiom for a shared route: the
+ * fixed header is mobile-only (it is `fixed z-10` and would sit over the
+ * desktop TopBar), and the in-page `<h1>` is desktop-only so the title never
+ * renders twice.
  */
 export const BillingPage = () => (
   <RequireBillingEligibleRole>
@@ -35,9 +50,39 @@ export const BillingPage = () => (
 
 BillingPage.path = "/billing";
 
+/** Mobile-only title bar with the back link to Settings, the only place a
+ * phone can reach this page from (`settings/SettingsPageMobile.tsx`'s
+ * BillingSection). The target is the `/settings` literal `layout/TopBar.tsx`
+ * already uses rather than `SettingsPageMobile.path`, because both Settings
+ * pages import `BillingPage` for its own `.path` — importing back would make
+ * that a module cycle for the sake of one string. */
+const BillingMobileHeader = () => {
+  const translate = useTranslate();
+
+  return (
+    <MobileHeader>
+      <div className="flex items-center gap-1">
+        <Link
+          to="/settings"
+          aria-label={translate("crm.billing.backToSettings", {
+            _: "Back to Settings",
+          })}
+          className="-ms-2 flex min-h-11 items-center rounded-md px-2 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          <ChevronLeft className="size-6" aria-hidden="true" />
+        </Link>
+        <h1 className="text-xl font-semibold">
+          {translate("crm.billing.title", { _: "Billing" })}
+        </h1>
+      </div>
+    </MobileHeader>
+  );
+};
+
 const BillingPageContent = () => {
   const translate = useTranslate();
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
   const { info, isLoading } = useAiEntitlementInfo();
 
   // Passed down to BillingReturnNotice rather than it calling
@@ -50,9 +95,12 @@ const BillingPageContent = () => {
 
   if (isLoading) {
     return (
-      <div className="mx-auto mt-10 w-full max-w-4xl px-6">
-        <div className="h-64 animate-pulse rounded-2xl bg-secondary/50" />
-      </div>
+      <>
+        {isMobile ? <BillingMobileHeader /> : null}
+        <div className="mx-auto w-full max-w-4xl md:mt-10 md:px-6">
+          <div className="h-64 animate-pulse rounded-2xl bg-secondary/50" />
+        </div>
+      </>
     );
   }
 
@@ -90,87 +138,92 @@ const BillingPageContent = () => {
   ];
 
   return (
-    <div className="mx-auto mt-10 w-full max-w-4xl px-6 pb-16">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-          {translate("crm.billing.eyebrow", { _: "AI features" })}
-        </p>
-        <h1 className="font-display text-[2rem] font-bold tracking-tight">
-          {translate("crm.billing.title", { _: "Billing" })}
-        </h1>
-        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          {translate("crm.billing.intro", {
-            _: "Run at cost, not for profit. Everything here is free forever — the optional AI tier only covers what inference actually costs.",
-          })}
-        </p>
-      </div>
-
-      {isLapsed ? (
-        <div className="mt-6 rounded-lg border border-border bg-muted/40 p-4">
-          <p className="text-sm font-medium">
-            {translate("crm.billing.lapsed.title", {
-              _: "Your AI tier has paused",
-            })}
+    <>
+      {isMobile ? <BillingMobileHeader /> : null}
+      <div className="mx-auto w-full max-w-4xl pb-16 md:mt-10 md:px-6">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+            {translate("crm.billing.eyebrow", { _: "AI features" })}
           </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {translate("crm.billing.lapsed.body", {
-              _: "Nothing is lost — every note, reference and match is still here, and the free manual path works exactly as before. AI auto-fill simply pauses. Renew whenever you like.",
+          {isMobile ? null : (
+            <h1 className="font-display text-[2rem] font-bold tracking-tight">
+              {translate("crm.billing.title", { _: "Billing" })}
+            </h1>
+          )}
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            {translate("crm.billing.intro", {
+              _: "Run at cost, not for profit. Everything here is free forever — the optional AI tier only covers what inference actually costs.",
             })}
           </p>
         </div>
-      ) : null}
 
-      <BillingReturnNotice
-        isEntitled={isEntitled}
-        onNeedsRefresh={refreshEntitlement}
-      />
+        {isLapsed ? (
+          <div className="mt-6 rounded-lg border border-border bg-muted/40 p-4">
+            <p className="text-sm font-medium">
+              {translate("crm.billing.lapsed.title", {
+                _: "Your AI tier has paused",
+              })}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {translate("crm.billing.lapsed.body", {
+                _: "Nothing is lost — every note, reference and match is still here, and the free manual path works exactly as before. AI auto-fill simply pauses. Renew whenever you like.",
+              })}
+            </p>
+          </div>
+        ) : null}
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-2 lg:items-stretch">
-        <PlanCard
-          name={translate("crm.billing.free.name", { _: "Free forever" })}
-          priceLabel={translate("crm.billing.free.price", { _: "$0" })}
-          priceSubLabel={translate("crm.billing.free.priceSub", {
-            _: "Always free. No card required.",
-          })}
-          features={freeFeatures}
-          isCurrent={!isEntitled}
+        <BillingReturnNotice
+          isEntitled={isEntitled}
+          onNeedsRefresh={refreshEntitlement}
         />
 
-        <PlanCard
-          name={translate("crm.billing.ai.name", { _: "AI tier" })}
-          priceLabel={translate("crm.billing.ai.price", {
-            price: AI_PRICE_QUARTERLY,
-            _: "%{price} / 3 months",
-          })}
-          priceSubLabel={translate("crm.billing.ai.priceSub", {
-            price: AI_PRICE_YEARLY,
-            _: "or %{price} / year",
-          })}
-          features={aiFeatures}
-          isCurrent={isEntitled}
-          highlighted={!isEntitled}
-          cta={
-            isEntitled ? (
-              <div className="flex flex-col gap-3">
-                <p className="text-sm text-muted-foreground">
-                  {translate("crm.billing.ai.active", {
-                    _: "You are on the AI tier. Thank you for supporting the running costs.",
-                  })}
-                </p>
+        <div className="mt-8 grid gap-6 lg:grid-cols-2 lg:items-stretch">
+          <PlanCard
+            name={translate("crm.billing.free.name", { _: "Free forever" })}
+            priceLabel={translate("crm.billing.free.price", { _: "$0" })}
+            priceSubLabel={translate("crm.billing.free.priceSub", {
+              _: "Always free. No card required.",
+            })}
+            features={freeFeatures}
+            isCurrent={!isEntitled}
+          />
+
+          <PlanCard
+            name={translate("crm.billing.ai.name", { _: "AI tier" })}
+            priceLabel={translate("crm.billing.ai.price", {
+              price: AI_PRICE_QUARTERLY,
+              _: "%{price} / 3 months",
+            })}
+            priceSubLabel={translate("crm.billing.ai.priceSub", {
+              price: AI_PRICE_YEARLY,
+              _: "or %{price} / year",
+            })}
+            features={aiFeatures}
+            isCurrent={isEntitled}
+            highlighted={!isEntitled}
+            cta={
+              isEntitled ? (
+                <div className="flex flex-col gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    {translate("crm.billing.ai.active", {
+                      _: "You are on the AI tier. Thank you for supporting the running costs.",
+                    })}
+                  </p>
+                  <ManageSubscriptionButton info={info} />
+                </div>
+              ) : isLapsed ? (
                 <ManageSubscriptionButton info={info} />
-              </div>
-            ) : isLapsed ? (
-              <ManageSubscriptionButton info={info} />
-            ) : (
-              <SubscribeButton />
-            )
-          }
-        />
-      </div>
+              ) : (
+                <SubscribeButton />
+              )
+            }
+          />
+        </div>
 
-      <div className="mt-6">
-        <UsageMeter used={info.resumes_used} limit={info.resumes_limit} />
+        <div className="mt-6">
+          <UsageMeter used={info.resumes_used} limit={info.resumes_limit} />
+        </div>
       </div>
-    </div>
+    </>
   );
 };

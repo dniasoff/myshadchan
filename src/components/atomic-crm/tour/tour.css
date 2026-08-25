@@ -130,3 +130,27 @@
     animation: none !important;
   }
 }
+
+/* Phones (below the 768px `useIsMobile()` breakpoint the rest of the shell
+   uses). The walkthrough is the first guided experience a parent gets on a
+   phone, and driver.js's own footer buttons are ~30px tall with 12.5px
+   labels — under the 44px touch floor `ui/button.tsx` and `ui/input.tsx`
+   already hold everywhere else, with body copy under the readable floor.
+   The max-width also stops the 340px popover from crowding a 360px
+   viewport; `100vw` is correct here where `100vh` would not be, because it
+   is the browser chrome's HEIGHT that makes viewport units lie. */
+@media (max-width: 767px) {
+  .driver-popover {
+    max-width: calc(100vw - 32px);
+  }
+
+  .driver-popover-description {
+    font-size: 15px;
+  }
+
+  .driver-popover-footer-btn {
+    min-height: 44px;
+    padding: 10px 18px;
+    font-size: 15px;
+  }
+}

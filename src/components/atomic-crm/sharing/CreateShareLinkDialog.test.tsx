@@ -176,6 +176,26 @@ describe("CreateShareLinkDialog", () => {
     expect(Math.abs(expiresAt - expected)).toBeLessThan(60_000);
   });
 
+  // UX audit fix: `ui/button.tsx` sets no default `type`, so this Reset
+  // button defaulted to `submit` inside the <form> — tapping it cleared the
+  // fields AND created a real, live share link to a single's profile.
+  it("Reset clears the form without creating a link", async () => {
+    // Arrange
+    const { screen, create } = await renderDialog();
+    const recipient = screen.getByPlaceholder(
+      "Enter recipient's name (e.g., shadchan name)",
+    );
+    await recipient.fill("Test Recipient");
+
+    // Act
+    await screen.getByRole("button", { name: "Reset" }).click();
+
+    // Assert — the click was handled (the field is cleared) and no share
+    // link was created.
+    await expect.element(recipient).toHaveValue("");
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it("shows an error notification when the create is refused, and never crashes", async () => {
     // Arrange
     const { screen } = await renderDialog(

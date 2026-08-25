@@ -94,22 +94,48 @@ export const Task = ({ task }: { task: TData }) => {
   return (
     <>
       <div className="flex items-start justify-between">
-        <div
-          className="flex items-start gap-2 flex-1"
-          onClick={isMobile ? handleCheck() : undefined}
-        >
+        {/*
+         * No onClick on this wrapper. It used to toggle the task done on
+         * mobile, and every interactive child bubbled into it — so tapping
+         * "Reassign" (below) fired the toggle as well as the edit, and a
+         * tap on the checkbox itself fired the mutation twice. A <div> with
+         * onClick and no role/tabIndex/key handler is unreachable by
+         * keyboard besides.
+         *
+         * The tap target lives on the checkbox instead, as the transparent
+         * `before:` hit extension `entity360/tabs/TasksTab.tsx` already
+         * uses: the box stays visually 16px (enlarging it would turn a
+         * reading list into a form) while the tappable area is 44px. Gated
+         * `md:before:hidden` for the same reason it is there — above md the
+         * rows tighten, and a 44px box on a ~28px row overlaps its
+         * neighbour, with the LOWER row winning the seam.
+         */}
+        <div className="flex items-start gap-2 flex-1">
+          {/* `aria-label`, not `id` + a `<label htmlFor>`. Radix renders this
+           * as `<button role="checkbox">`, and a `<label for>` names form
+           * controls only — it does not name a button. The id was sitting
+           * here with no label pointing at it, so a screen reader announced
+           * "checkbox, unchecked" with no way to know which task it
+           * completes. Confirmed by resolving the accessible name in a real
+           * browser, which returned empty. */}
           <Checkbox
             id={labelId}
+            aria-label={translate("crm.tasks.completeLabel", {
+              _: "Mark done: %{task}",
+              task: task.text,
+            })}
             checked={!!task.done_date}
             onCheckedChange={handleCheck()}
             disabled={isUpdatePending}
-            className="mt-1"
+            className="relative mt-1 before:absolute before:-inset-3.5 before:content-[''] md:before:hidden"
           />
           <div className={`flex-grow ${task.done_date ? "line-through" : ""}`}>
-            <div className="text-sm">
+            {/* 16px body on a phone, the same responsive step this file's
+                own dropdown items below already take. */}
+            <div className="text-base md:text-sm">
               {task.type && task.type !== "none" && (
                 <>
-                  <span className="font-semibold text-sm">
+                  <span className="font-semibold">
                     {(() => {
                       const matchedTaskType = taskTypes.find(
                         (taskType) => taskType.value === task.type,
@@ -127,7 +153,7 @@ export const Task = ({ task }: { task: TData }) => {
             {/* Shared with `ReminderCard` — the same `due_date` used to read
                 `7/24/2026, 2:00:00 PM` here and `24 Jul, 2:00 PM` in the
                 reminders hub. */}
-            <div className="text-sm text-muted-foreground">
+            <div className="text-base md:text-sm text-muted-foreground">
               {translate("resources.tasks.fields.due_short")}
               &nbsp;
               {task.due_date ? formatDueMoment(task.due_date) : null}

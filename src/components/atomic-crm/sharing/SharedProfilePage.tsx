@@ -26,7 +26,7 @@ export interface SharedProfilePageProps {
  * `PublicSearchPage.tsx` (Story 9.4) both used, so this pre-CRM surface
  * reads as one family rather than three one-offs. */
 const ShareShell = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
+  <div className="relative min-h-dvh overflow-hidden bg-background text-foreground">
     <div
       aria-hidden="true"
       className="pointer-events-none absolute inset-0"
@@ -35,7 +35,7 @@ const ShareShell = ({ children }: { children: React.ReactNode }) => (
           "radial-gradient(120% 80% at 50% -10%, color-mix(in oklch, var(--primary) 14%, transparent), transparent 60%), radial-gradient(90% 60% at 100% 0%, color-mix(in oklch, var(--violet, var(--primary)) 12%, transparent), transparent 55%)",
       }}
     />
-    <main className="relative mx-auto flex min-h-screen w-full max-w-2xl flex-col px-5 py-14 sm:py-20">
+    <main className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col px-5 py-14 sm:py-20">
       {children}
     </main>
   </div>

@@ -24,6 +24,15 @@ import { ConnectionSection } from "./ConnectionSection";
  * they must render correctly even when the dataProvider never returns a
  * `shadchanim` row at all (the deleted-book-row scenario the finding
  * proved).
+ *
+ * DELIBERATE BEHAVIOUR CHANGE (mobile UX round): "End connection" and
+ * "Cancel invite" no longer fire on the first tap. Both sever something
+ * irreversibly, both sit in-row beside ordinary content where a thumb
+ * reaches them by accident, and neither has an undo — so both now go
+ * through `ConfirmDestructiveAction`. The confirm button's copy is
+ * deliberately different from the trigger's ("Yes, end the connection" vs
+ * "End connection"), because otherwise the two are one accessible name to a
+ * screen reader and ambiguous to `getByRole`.
  */
 
 const householdContext: MyContext = {
@@ -206,6 +215,9 @@ describe("ConnectionSection — household panel", () => {
 
     // Act
     await screen.getByRole("button", { name: "End connection" }).click();
+    await screen
+      .getByRole("button", { name: "Yes, end the connection" })
+      .click();
 
     // Assert
     await expect
@@ -216,6 +228,29 @@ describe("ConnectionSection — household panel", () => {
       )
       .toBeGreaterThan(0);
     expect(dataProvider.endConnection).toHaveBeenCalledWith(100);
+  });
+
+  it("asks before ending a connection, names the shadchan, and does nothing if the confirmation is cancelled", async () => {
+    // Arrange
+    const { screen, dataProvider } = await renderSection(
+      householdContext,
+      { connections: { data: [buildConnection()], total: 1 } },
+      { accounts: [buildAccount()] },
+    );
+
+    // Act — open the confirmation...
+    await screen.getByRole("button", { name: "End connection" }).click();
+
+    // Assert — it names the other party, so the reader knows which row.
+    await expect
+      .element(screen.getByText("End your connection with Rivka the Shadchan?"))
+      .toBeVisible();
+
+    // Act — ...and back out of it.
+    await screen.getByRole("button", { name: "Cancel", exact: true }).click();
+
+    // Assert — the connection was never touched.
+    expect(dataProvider.endConnection).not.toHaveBeenCalled();
   });
 
   it("shows no End connection button for an already-ended connection", async () => {
@@ -259,6 +294,9 @@ describe("ConnectionSection — household panel", () => {
 
     // Act
     await screen.getByRole("button", { name: "Cancel invite" }).click();
+    await screen
+      .getByRole("button", { name: "Yes, cancel the invite" })
+      .click();
 
     // Assert
     await expect
@@ -269,6 +307,24 @@ describe("ConnectionSection — household panel", () => {
       )
       .toBeGreaterThan(0);
     expect(dataProvider.revokeConnectionInvite).toHaveBeenCalledWith(7);
+  });
+
+  it("asks before cancelling a pending invite, and does nothing if the confirmation is cancelled", async () => {
+    // Arrange
+    const { screen, dataProvider } = await renderSection(householdContext, {
+      connections: { data: [], total: 0 },
+      connection_invites: { data: [buildInvite({ id: 7 })], total: 1 },
+    });
+
+    // Act
+    await screen.getByRole("button", { name: "Cancel invite" }).click();
+    await expect
+      .element(screen.getByText("Cancel this invite link?"))
+      .toBeVisible();
+    await screen.getByRole("button", { name: "Cancel", exact: true }).click();
+
+    // Assert
+    expect(dataProvider.revokeConnectionInvite).not.toHaveBeenCalled();
   });
 
   it("shows no pending-invite section when there are none", async () => {
@@ -317,7 +373,7 @@ describe("ConnectionSection — shadchan panel", () => {
       .toBeInTheDocument();
   });
 
-  it("clicking End connection calls dataProvider.endConnection with that connection's id", async () => {
+  it("confirming End connection calls dataProvider.endConnection with that connection's id", async () => {
     // Arrange
     const household = buildAccount({
       id: 1,
@@ -337,6 +393,12 @@ describe("ConnectionSection — shadchan panel", () => {
 
     // Act
     await screen.getByRole("button", { name: "End connection" }).click();
+    await expect
+      .element(screen.getByText("End your connection with The Klein Family?"))
+      .toBeVisible();
+    await screen
+      .getByRole("button", { name: "Yes, end the connection" })
+      .click();
 
     // Assert
     await expect

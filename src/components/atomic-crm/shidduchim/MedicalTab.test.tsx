@@ -106,6 +106,25 @@ describe("MedicalTab — add a note (AC 1)", () => {
   });
 });
 
+describe("MedicalTab — the note field's accessible name", () => {
+  it("names the textarea with a label that survives typing, not a placeholder alone", async () => {
+    // Arrange / Act
+    const { screen } = await renderTab(1);
+    const field = screen.getByLabelText("Add a medical note");
+
+    // Assert
+    await expect.element(field).toBeVisible();
+
+    // Act — a placeholder is gone at the first keystroke; a label is not.
+    await field.fill("Peanut allergy");
+
+    // Assert
+    await expect
+      .element(screen.getByLabelText("Add a medical note"))
+      .toHaveValue("Peanut allergy");
+  });
+});
+
 describe("MedicalTab — lists only this shidduch's notes (AC 1)", () => {
   it("does not render a note belonging to a different shidduch", async () => {
     // Arrange

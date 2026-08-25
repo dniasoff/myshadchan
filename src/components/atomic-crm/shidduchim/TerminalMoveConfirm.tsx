@@ -65,7 +65,11 @@ export const TerminalMoveConfirm = ({
 
   return (
     <Sheet open={toState !== null} onOpenChange={handleOpenChange}>
-      <SheetContent side="bottom">
+      {/* The reason field is a textarea, so on a phone the keyboard opens over
+          this sheet — and a bottom sheet with `h-auto` and no scroller has no
+          way back to its own Confirm/Cancel once that happens. dvh, never vh:
+          vh ignores the mobile browser chrome the keyboard sits under. */}
+      <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto">
         <SheetHeader>
           <SheetTitle>
             Move {name ?? "this shidduch"} to {label}?
@@ -88,6 +92,12 @@ export const TerminalMoveConfirm = ({
             placeholder="A short note for the record — optional"
           />
         </div>
+        {/* Cancel stays LAST — in this column footer that is the bottom, the
+            thumb-nearest position, which is where the harmless choice belongs
+            when the other one cannot be undone. And the confirm is
+            deliberately not `variant="destructive"`: the terminal set includes
+            `yes`, and a red "Confirm — move to Yes" reads as a warning about a
+            happy outcome. The irreversibility is stated in words above. */}
         <SheetFooter>
           <Button type="button" onClick={handleConfirm}>
             Confirm — move to {label}

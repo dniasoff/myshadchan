@@ -104,12 +104,26 @@ export function RelatedRecordsTab({
   }
 
   return (
-    <ul className="flex flex-col gap-2">
+    /*
+     * Tailwind's preflight strips the browser's default anchor colour and
+     * underline, and `src/index.css` restores only `cursor: pointer` — so a
+     * `RecordLink` with no `className` renders as plain text. These rows are
+     * the ONLY way to get from this record to a related one, and they looked
+     * like static labels. The affordance below is the one the sibling call
+     * sites already use (`ActivityTab.tsx`, `TasksRailSummary.tsx`), plus the
+     * row height a thumb needs: `gap-2` between two 20px lines of text made
+     * every row a 20px target 8px from the next one.
+     */
+    <ul className="flex flex-col gap-1">
       {data.map((row) => {
         const id = relationship.linkId?.(row) ?? row.id;
         return (
           <li key={String(id)}>
-            <RecordLink resource={linkResource} id={id}>
+            <RecordLink
+              resource={linkResource}
+              id={id}
+              className="flex min-h-11 items-center text-sm font-medium text-primary underline underline-offset-4 md:min-h-9"
+            >
               {relationship.linkLabel?.(row) ?? getRecordRepresentation(row)}
             </RecordLink>
           </li>

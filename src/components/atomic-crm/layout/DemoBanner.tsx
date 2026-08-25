@@ -19,7 +19,16 @@ import { TOUR_COMPLETED_KEY } from "../root/onboardingKeys";
 import { useAccountDemo } from "../root/useAccountDemo";
 import { useTour } from "../tour/useTour";
 
+/**
+ * `size="sm"` is a 32px control — under the 44px touch minimum, and these
+ * three sit in a wrapped row 8px apart with a destructive action among them.
+ * `min-h-11 md:min-h-8` is the same floor `ui/button.tsx`'s default size and
+ * `ui/input.tsx` already apply, so the desktop banner is unchanged.
+ */
+const BANNER_BUTTON_CLASSNAME = "min-h-11 md:min-h-8";
+
 const CLEAR_BUTTON_CLASSNAME = cn(
+  BANNER_BUTTON_CLASSNAME,
   "text-[color:var(--attention-foreground)] shadow-sm",
   "bg-[color-mix(in_oklch,var(--attention-strong)_85%,transparent)]",
   "hover:bg-[color-mix(in_oklch,var(--attention-strong)_100%,transparent)]",
@@ -125,7 +134,12 @@ export const DemoBanner = () => {
           />
           You&apos;re exploring demo data — nothing here is real.
         </div>
-        <p className="ps-6 text-xs font-normal text-muted-foreground">
+        {/* Hidden on phones: this bar is `sticky`, so every line it costs is
+            a line permanently gone from a ~650px viewport that also carries a
+            fixed header and a fixed bottom nav. The scenario copy is a
+            desktop-reading aid; "Take the tour" is the mobile route into the
+            same walkthrough. */}
+        <p className="hidden ps-6 text-xs font-normal text-muted-foreground sm:block">
           Start in Klein, switch to Feldman or Gross from Context, then use
           Sharing and Reminders for the demo listing, share, and delivery
           history scenarios.
@@ -142,12 +156,24 @@ const DemoBannerActions = () => {
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 sm:ms-auto">
-      <Button type="button" variant="ghost" size="sm" asChild>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className={BANNER_BUTTON_CLASSNAME}
+        asChild
+      >
         <a href="/find?demo=1" data-tour="demo-listings-link">
           Preview listings
         </a>
       </Button>
-      <Button type="button" variant="ghost" size="sm" onClick={startTour}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className={BANNER_BUTTON_CLASSNAME}
+        onClick={startTour}
+      >
         Take the tour
       </Button>
       <Button

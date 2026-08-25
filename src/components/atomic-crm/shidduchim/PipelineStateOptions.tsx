@@ -67,7 +67,15 @@ export const PipelineStateOptions = ({
             <div className="px-1 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
               {group.label}
             </div>
-            <div className={cn("flex gap-1", isRow ? "flex-wrap" : "flex-col")}>
+            <div
+              className={cn(
+                "flex",
+                // Row chips are adjacent targets for moves that cannot be
+                // undone, so they get more room between them than a stacked
+                // list (where a mis-tap needs a whole row's height) does.
+                isRow ? "flex-wrap gap-2" : "flex-col gap-1",
+              )}
+            >
               {groupOptions.map((option) => (
                 <PipelineStateOptionRow
                   key={option.state}
@@ -130,7 +138,13 @@ const PipelineStateOptionRow = ({
         "flex items-center text-start outline-none transition-colors",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         isRow
-          ? "min-h-9 gap-2 rounded-full border border-border px-3 py-1.5"
+          ? // The row form exists for density (~100px against the list form's
+            // ~750px) — but density is a DESKTOP concern, and this is the
+            // primary place a parent moves a suggestion on a phone. Same
+            // `min-h-11 md:min-h-9` shape `components/ui/button.tsx` gives its
+            // `default` size: the 44px touch floor below `md`, the original
+            // 36px height from `md` up, so nothing is lost on a laptop.
+            "min-h-11 gap-2 rounded-full border border-border px-3 py-1.5 md:min-h-9"
           : "min-h-11 gap-2.5 rounded-xl px-3 py-2",
         option.isCurrent && "cursor-default bg-secondary",
         option.isCurrent && isRow && "border-transparent",

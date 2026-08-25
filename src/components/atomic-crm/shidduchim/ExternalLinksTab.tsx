@@ -13,6 +13,7 @@ import type { Identifier } from "ra-core";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import type { ShidduchExternalLink, ShidduchSummary } from "../types";
@@ -143,13 +144,28 @@ function AddExternalLinkForm({
 
   return (
     <form className="flex flex-col gap-2" onSubmit={handleAdd} noValidate>
+      {/* A real <Label>, not the placeholder-plus-aria-label this used to be:
+          the placeholder disappears at the first keystroke, and the field it
+          was naming is the one whose value has to be an absolute URL. */}
+      <Label htmlFor="external-link-url">
+        {translate("crm.entity360.external-links.urlLabel", {
+          _: "Link URL",
+        })}
+      </Label>
       <Input
+        id="external-link-url"
+        // `type="url"` + `inputMode="url"` is what puts "/" and ".com" on a
+        // phone keyboard for a field that rejects anything `new URL()` cannot
+        // parse. The form is `noValidate`, so the native constraint never
+        // pre-empts this component's own visible message (AC 4).
+        type="url"
+        inputMode="url"
+        autoComplete="url"
+        autoCapitalize="none"
+        spellCheck={false}
         value={url}
         onChange={handleUrlChange}
         placeholder={translate("crm.entity360.external-links.urlPlaceholder", {
-          _: "https://example.com/profile",
-        })}
-        aria-label={translate("crm.entity360.external-links.urlPlaceholder", {
           _: "https://example.com/profile",
         })}
         aria-invalid={urlError != null}
@@ -159,16 +175,20 @@ function AddExternalLinkForm({
           {urlError}
         </p>
       ) : null}
+      <Label htmlFor="external-link-label">
+        {translate("crm.entity360.external-links.labelLabel", {
+          _: "Label (optional)",
+        })}
+      </Label>
       <Input
+        id="external-link-label"
+        type="text"
         value={label}
         onChange={(event) => setLabel(event.target.value)}
         placeholder={translate(
           "crm.entity360.external-links.labelPlaceholder",
           { _: "Label (optional)" },
         )}
-        aria-label={translate("crm.entity360.external-links.labelPlaceholder", {
-          _: "Label (optional)",
-        })}
       />
       <div className="flex justify-end">
         <Button
@@ -198,8 +218,12 @@ function ExternalLinkRow({
   const [deleteOne, { isPending }] = useDelete();
   const notify = useNotify();
   const translate = useTranslate();
+  // A delete with no undo behind it: the row asks in place rather than
+  // opening a sheet, so the question stays next to the link it is about.
+  const [isConfirming, setIsConfirming] = useState(false);
 
   const handleRemove = async () => {
+    setIsConfirming(false);
     try {
       await deleteOne(
         "shidduchim_external_links",
@@ -232,21 +256,57 @@ function ExternalLinkRow({
       >
         {displayLabel}
       </a>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-3">
         <span className="text-xs text-muted-foreground">
           {formatTimelineDate(link.created_at)}
         </span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={isPending}
-          onClick={handleRemove}
-        >
-          {translate("crm.entity360.external-links.remove", {
-            _: "Remove",
-          })}
-        </Button>
+        {isConfirming ? (
+          <>
+            <span className="text-xs text-muted-foreground">
+              {translate("crm.entity360.external-links.confirmRemove", {
+                _: "Remove this link?",
+              })}
+            </span>
+            {/* `min-h-11 md:min-h-8`: `size="sm"` is a flat `h-8` (32px), below
+                the touch floor, and this one deletes something. */}
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="min-h-11 md:min-h-8"
+              disabled={isPending}
+              onClick={handleRemove}
+            >
+              {translate("crm.entity360.external-links.confirmRemoveAction", {
+                _: "Yes, remove",
+              })}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="min-h-11 md:min-h-8"
+              onClick={() => setIsConfirming(false)}
+            >
+              {translate("crm.entity360.external-links.cancelRemove", {
+                _: "Cancel",
+              })}
+            </Button>
+          </>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="min-h-11 md:min-h-8"
+            disabled={isPending}
+            onClick={() => setIsConfirming(true)}
+          >
+            {translate("crm.entity360.external-links.remove", {
+              _: "Remove",
+            })}
+          </Button>
+        )}
       </div>
     </li>
   );
