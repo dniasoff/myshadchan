@@ -27,20 +27,22 @@ const ENTITY_FILES_BUCKET = "entity-files";
 export const ENTITY_FILE_URL_TTL_SECONDS = 60;
 
 /**
- * Longer than the download TTL, and for a concrete reason rather than
- * caution: a browser's built-in PDF viewer does not fetch the file once. It
- * issues HTTP range requests lazily as the reader scrolls, so a URL that
- * expires while the document is still on screen starts returning 401 — and
- * that failure looks like a corrupt PDF, not an expiry.
+ * Longer than the download TTL. The original reason — that a browser's PDF
+ * viewer range-requests the file lazily as the reader scrolls, so a URL can
+ * expire under a document already on screen — no longer applies: PDFs are now
+ * parsed by `attachments/PdfPreview`, which fetches the whole file once and
+ * never touches the URL again. Two reasons remain, and they are enough:
  *
- * An hour, not the ten minutes this started at, because the viewer is no
- * longer only a dialog. `resumes/ResumeDocument` embeds it in the page, so
- * its lifetime is however long someone leaves the Resume tab open, not how
- * long they keep a modal up. Ten minutes was sized for open-read-close and
- * would have started failing on a tab left open over a phone call. Matches
- * `dataProvider.ts`'s `ATTACHMENT_URL_TTL_SECONDS`, which is already an hour;
- * the URL is still minted per mount and still never persisted, so the
- * privacy posture is unchanged.
+ * - An hour matches the window an EMBEDDED viewer actually needs.
+ *   `resumes/ResumeDocument` puts the resume in the page, so its lifetime is
+ *   however long someone leaves the Resume tab open — not how long they keep
+ *   a modal up. Ten minutes was sized for open-read-close and would fail a
+ *   tab left open over a phone call.
+ * - It matches `dataProvider.ts`'s `ATTACHMENT_URL_TTL_SECONDS`, so there is
+ *   one viewing window in the product rather than three.
+ *
+ * The URL is still minted per mount and still never persisted, so the privacy
+ * posture is unchanged either way.
  */
 export const ENTITY_FILE_VIEW_TTL_SECONDS = 3600;
 

@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { isCanvasPainted, stubFetchWithPdf } from "@/test/pdfFixture";
 import { render } from "vitest-browser-react";
 import type { DataProvider } from "ra-core";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
@@ -67,13 +69,34 @@ const renderDocument = async (files: ResumeFileVersion[]) => {
   return { screen, signResumeFileUrl };
 };
 
-const frameFor = (title: string) =>
-  document.querySelector<HTMLIFrameElement>(`iframe[title="${title}"]`);
+/**
+ * The embedded resume's first page, painted.
+ *
+ * These used to look for an `<iframe>`. A PDF is now parsed by pdf.js and
+ * drawn onto a canvas — because an iframe needs a PDF plugin that Chrome for
+ * Android does not have, and rendered a placeholder there instead of the
+ * document. `isCanvasPainted` is what makes this an assertion about the
+ * resume being VISIBLE rather than about an element existing.
+ */
+const paintedPageFor = (fileName: string) => {
+  const canvas = document.querySelector<HTMLCanvasElement>(
+    `canvas[aria-label^="${fileName} — page 1"]`,
+  );
+  return canvas !== null && isCanvasPainted(canvas);
+};
+const anyPageCanvas = () => document.querySelector("canvas");
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("ResumeDocument — the resume is on the page, not behind a click", () => {
-  it("embeds the newest version without anyone opening anything", async () => {
-    // Arrange / Act — an older version listed first, to prove the embed picks
-    // by `uploaded_at` rather than by array order.
+  it("paints the newest version into the page without anyone opening anything", async () => {
+    // Arrange — pdf.js really parses now, so the embed needs real bytes.
+    stubFetchWithPdf();
+
+    // Act — an older version listed first, to prove the embed picks by
+    // `uploaded_at` rather than by array order.
     await renderDocument([
       version({ path: "p/older-a.pdf", filename: "older-a.pdf" }),
       version({
@@ -83,15 +106,16 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
       }),
     ]);
 
-    // Assert
+    // Assert — the resume is on screen, not merely mounted.
     await expect
-      .poll(() => frameFor("newest-a.pdf")?.src)
-      .toBe(`${SIGNED}/p/newest-a.pdf`);
-    expect(frameFor("older-a.pdf")).toBeNull();
+      .poll(() => paintedPageFor("newest-a.pdf"), { timeout: 15000 })
+      .toBe(true);
+    expect(paintedPageFor("older-a.pdf")).toBe(false);
   });
 
   it("asks for the viewing form of the URL, so it renders instead of downloading", async () => {
     // Arrange / Act
+    stubFetchWithPdf();
     const { signResumeFileUrl } = await renderDocument([
       version({ path: "p/inline-b.pdf", filename: "inline-b.pdf" }),
     ]);
@@ -108,6 +132,7 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
 
   it("swaps the embed to an older version on Show", async () => {
     // Arrange
+    stubFetchWithPdf();
     const { screen } = await renderDocument([
       version({
         path: "p/newest-c.pdf",
@@ -116,7 +141,9 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
       }),
       version({ path: "p/older-c.pdf", filename: "older-c.pdf" }),
     ]);
-    await expect.poll(() => frameFor("newest-c.pdf")).not.toBeNull();
+    await expect
+      .poll(() => paintedPageFor("newest-c.pdf"), { timeout: 15000 })
+      .toBe(true);
 
     // Act — the newest row is already shown, so the only Show belongs to the
     // older version.
@@ -124,18 +151,23 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
 
     // Assert
     await expect
-      .poll(() => frameFor("older-c.pdf")?.src)
-      .toBe(`${SIGNED}/p/older-c.pdf`);
-    expect(frameFor("newest-c.pdf")).toBeNull();
+      .poll(() => paintedPageFor("older-c.pdf"), { timeout: 15000 })
+      .toBe(true);
+    expect(
+      document.querySelector('canvas[aria-label^="newest-c.pdf"]'),
+    ).toBeNull();
   });
 
   it("offers no Show button when there is only one version to show", async () => {
     // Arrange / Act — a control that cannot change anything is the same
     // defect as pagination on a single-page list.
+    stubFetchWithPdf();
     const { screen } = await renderDocument([
       version({ path: "p/only-d.pdf", filename: "only-d.pdf" }),
     ]);
-    await expect.poll(() => frameFor("only-d.pdf")).not.toBeNull();
+    await expect
+      .poll(() => paintedPageFor("only-d.pdf"), { timeout: 15000 })
+      .toBe(true);
 
     // Assert — but Download stays, because keeping a copy is still meaningful.
     expect(screen.getByRole("button", { name: "Show" }).query()).toBeNull();
@@ -148,10 +180,14 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     // Arrange / Act
     const { screen } = await renderDocument([]);
 
-    // Assert — an empty bordered box would read as a broken document.
+    // Assert — an empty bordered box would read as a broken document. Both
+    // element kinds are checked: asserting only "no iframe" would now pass
+    // even if a blank canvas were rendered, which is the exact vacuity this
+    // change could otherwise have introduced here.
     await expect
       .element(screen.getByText("No resume uploaded yet."))
       .toBeVisible();
+    expect(anyPageCanvas()).toBeNull();
     expect(document.querySelector("iframe")).toBeNull();
   });
 });

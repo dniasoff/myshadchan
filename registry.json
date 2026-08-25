@@ -1824,6 +1824,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/attachments/PdfPreview.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/attachments/DocxPreview.tsx",
           "type": "registry:component"
         },

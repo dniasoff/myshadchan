@@ -23,20 +23,31 @@ const sources = import.meta.glob("../**/*.{ts,tsx}", {
   eager: true,
 }) as Record<string, string>;
 
-/** A top-level `import`/`export ... from "<pkg>"`, but NOT `await import()`. */
+/** A top-level `import`/`export ... from "<pkg>"`, but NOT `await import()`.
+ *
+ * The specifier match allows a SUBPATH (`"pdfjs-dist/build/…"`), which the
+ * first version of this guard did not: pdf.js needs a second import for its
+ * worker, and an exact-specifier pattern would have let a static one through
+ * while reporting the package clean. `import(` has no space after it, so the
+ * dynamic form still cannot match the `(?:import|export)\s` prefix. */
 function hasStaticImportOf(source: string, packageName: string): boolean {
   const pattern = new RegExp(
-    // `import x from "pkg"` / `import "pkg"` / `export * from "pkg"`, with the
-    // dynamic form excluded by requiring `import`/`export` at a line start.
-    String.raw`^\s*(?:import|export)\s[^\n]*?["']${packageName}["']`,
-    "m",
+    String.raw`^\s*(?:import|export)\s[^\n]*?["']${packageName}(?:/[^"']*)?["']`,
+    "gm",
   );
-  return pattern.test(source);
+  // `import type {...} from "pkg"` is erased by the compiler and reaches no
+  // bundle, so counting it would fail a file that costs nothing — which is
+  // exactly what this guard did to `PdfPreview.tsx`, whose only static
+  // reference to pdfjs is its `PDFDocumentProxy` type. The entry-bundle check
+  // in the build is what confirms the exemption is real rather than assumed.
+  return [...source.matchAll(pattern)].some(
+    (match) => !/^\s*(?:import|export)\s+type\s/.test(match[0]),
+  );
 }
 
-const HEAVY_PACKAGES = ["mammoth", "dompurify"];
+const HEAVY_PACKAGES = ["mammoth", "dompurify", "pdfjs-dist"];
 
-describe("the docx libraries stay out of everyone else's bundle", () => {
+describe("the heavy viewer libraries stay out of everyone else's bundle", () => {
   it("finds source files to check, so an empty glob cannot pass vacuously", () => {
     // Arrange / Act / Assert — the failure mode this whole file would
     // otherwise have: a glob that matches nothing reports every package clean.
@@ -63,7 +74,7 @@ describe("the docx libraries stay out of everyone else's bundle", () => {
 
     // Assert
     for (const packageName of HEAVY_PACKAGES) {
-      expect(all).toContain(`import("${packageName}")`);
+      expect(all).toContain(`import("${packageName}`);
     }
   });
 });

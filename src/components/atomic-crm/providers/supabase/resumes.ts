@@ -27,9 +27,8 @@ const DOCUMENTS_BUCKET = "documents";
 export const RESUME_FILE_URL_TTL_SECONDS = 60;
 
 /** The viewing counterpart — see `entityFiles.ts`'s
- * `ENTITY_FILE_VIEW_TTL_SECONDS` for why a previewed PDF needs a longer
- * window than a downloaded one, and why an embedded viewer needs a longer
- * one than a modal. This is the constant the embedded resume actually uses. */
+ * `ENTITY_FILE_VIEW_TTL_SECONDS` for why an embedded viewer needs a longer
+ * window than a modal. This is the constant the embedded resume uses. */
 export const RESUME_FILE_VIEW_TTL_SECONDS = 3600;
 
 /**

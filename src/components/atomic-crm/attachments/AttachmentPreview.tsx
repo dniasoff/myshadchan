@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import { resolveAttachmentPreviewMode } from "./attachmentPreview";
 import { DocxPreview } from "./DocxPreview";
+import { PdfPreview } from "./PdfPreview";
 
 /** Mints the URL. `inline: true` asks for a URL served for viewing rather
  * than saving; the caller supplies it because a resume and an entity file
@@ -89,29 +90,19 @@ function useSignedPreviewUrl(
  * resume — names, ages, family details, a photo — to a third party on every
  * open, which is exactly what this product promises not to do.
  *
- * The PDF frame carries no `sandbox`, and that is measured rather than
- * conceded. Chromium implements its PDF viewer as an extension frame, and ANY
- * `sandbox` attribute stops it loading: probed headed under Xvfb against a
- * real cross-origin PDF, `sandbox=""`, `allow-scripts`, `allow-same-origin`
- * and `allow-scripts allow-same-origin` all landed on
- * `chrome-error://chromewebdata/` with a blank frame, while the unsandboxed
- * one loaded `chrome-extension://…/index.html` and rendered. Shipping the
- * attribute would have shipped an empty viewer.
+ * A PDF is not handed to the browser either (`PdfPreview`): `<iframe
+ * src="….pdf">` depends on a PDF viewer plugin, and Chrome for Android has
+ * none — reproduced, it swaps in a placeholder page with an "Open" button
+ * instead of the document, which is the grey box a reader on a phone was
+ * seeing. pdf.js parses the file and paints it to a canvas, which every
+ * browser can do. See `PdfPreview.tsx` for the full evidence, including why
+ * mobile emulation cannot reproduce the failure OR confirm the fix.
  *
- * What actually contains this is not the attribute:
- *
- * - The allow-list in `attachmentPreview.ts` decides what reaches the frame,
- *   and only `application/pdf` ever does.
- * - Supabase serves these bytes from its own storage origin, so the frame is
- *   cross-origin and cannot read the app's DOM, cookies or storage.
- * - The `mime_type` this checks and the `Content-Type` storage returns both
- *   derive from the same value recorded at upload, so they cannot disagree:
- *   an HTML file uploaded as `application/pdf` is also SERVED as
- *   `application/pdf` and is handed to the PDF renderer, not the HTML parser.
- *
- * `allow=""` and `referrerPolicy="no-referrer"` are kept — the same probe
- * confirmed both render fine — so the frame is granted no permission-policy
- * features and leaks no referrer.
+ * So only images now take the signed-URL path, and `<img>` is the one element
+ * here that renders a remote file directly. That is safe for the reason the
+ * allow-list exists: every admitted image type is decoded by the image
+ * pipeline and cannot express script, and `image/svg+xml` — a document format
+ * that can carry `<script>` — is refused explicitly.
  */
 export function AttachmentPreview({
   fileName,
@@ -121,17 +112,23 @@ export function AttachmentPreview({
   onDownload,
 }: AttachmentPreviewProps): ReactElement {
   const mode = resolveAttachmentPreviewMode(mimeType, fileName);
-  // A Word document is not fetched as a URL for the browser to display — it
-  // is downloaded, converted and sanitised inside `DocxPreview`, which owns
-  // its own fetch. Minting a display URL here as well would sign twice.
-  const { url, error } = useSignedPreviewUrl(
-    active,
-    mode !== "none" && mode !== "docx",
-    signUrl,
-  );
+  // Only an image is displayed straight from a signed URL. A Word document
+  // and a PDF each fetch their own bytes (to convert, or to parse), so
+  // minting a display URL for them here would sign the same file twice.
+  const { url, error } = useSignedPreviewUrl(active, mode === "image", signUrl);
 
   if (mode === "none") {
     return <NoPreview fileName={fileName} onDownload={onDownload} />;
+  }
+  if (mode === "pdf") {
+    return (
+      <PdfPreview
+        fileName={fileName}
+        signUrl={signUrl}
+        active={active}
+        onDownload={onDownload}
+      />
+    );
   }
   if (mode === "docx") {
     return (
@@ -148,17 +145,6 @@ export function AttachmentPreview({
   }
   if (url === null) {
     return <PreviewPending />;
-  }
-  if (mode === "pdf") {
-    return (
-      <iframe
-        allow=""
-        referrerPolicy="no-referrer"
-        src={url}
-        title={fileName}
-        className="h-full w-full border-0"
-      />
-    );
   }
   return (
     <div className="flex h-full w-full items-center justify-center overflow-auto p-2">

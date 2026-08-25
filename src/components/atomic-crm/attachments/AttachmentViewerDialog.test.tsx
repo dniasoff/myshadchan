@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { isCanvasPainted, stubFetchWithPdf } from "@/test/pdfFixture";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext } from "ra-core";
 
@@ -33,27 +35,80 @@ const renderViewer = async (
   return { screen, signUrl };
 };
 
-/** The dialog portals out of the render container, so frames and images are
- * looked up on the document. Scoped by the file name each test uses, which is
- * unique per case, so no two dialogs can be confused for one another. */
-const frameFor = (title: string) =>
-  document.querySelector<HTMLIFrameElement>(`iframe[title="${title}"]`);
+/** The dialog portals out of the render container, so nodes are looked up on
+ * the document. Scoped by the file name each test uses, which is unique per
+ * case, so no two dialogs can be confused for one another. */
 const imageFor = (alt: string) =>
   document.querySelector<HTMLImageElement>(`img[alt="${alt}"]`);
+/** Any iframe at all. A PDF used to render in one; the assertion now is that
+ * none exists for any type, so this is deliberately not scoped by title. */
+const anyFrame = () => document.querySelector("iframe");
+/** A PDF's first painted page — `PdfPreview` labels each canvas by file and
+ * page, which is also what a screen reader announces. */
+const pageCanvasFor = (fileName: string) =>
+  document.querySelector<HTMLCanvasElement>(
+    `canvas[aria-label^="${fileName} — page 1"]`,
+  );
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("AttachmentViewerDialog — reading without downloading", () => {
-  it("renders a PDF in a frame pointed at the signed URL", async () => {
-    // Arrange / Act
+  it("paints the PDF onto a canvas, and never uses an iframe", async () => {
+    // Arrange — pdf.js really parses, so real bytes and a real fetch are
+    // needed; `SIGNED_URL` is what `signUrl` hands it and what it fetches.
+    const fetchSpy = stubFetchWithPdf();
+
+    // Act
     const { signUrl } = await renderViewer({ fileName: "a-pdf-case.pdf" });
 
-    // Assert
-    await expect.poll(() => frameFor("a-pdf-case.pdf")?.src).toBe(SIGNED_URL);
-    // ...asking for the viewing form of the URL, not the download form.
+    // Assert — painted, not merely mounted (see `isCanvasPainted`).
+    await expect
+      .poll(
+        () => {
+          const canvas = pageCanvasFor("a-pdf-case.pdf");
+          return canvas ? isCanvasPainted(canvas) : false;
+        },
+        { timeout: 15000 },
+      )
+      .toBe(true);
+
+    // ...via the viewing form of the URL, not the download form...
     expect(signUrl).toHaveBeenCalledWith({ inline: true });
+    expect(fetchSpy).toHaveBeenCalledWith(SIGNED_URL);
+    // ...and with no iframe anywhere, which is the whole point of the change:
+    // an iframe depends on a PDF plugin that Chrome for Android lacks.
+    expect(anyFrame()).toBeNull();
   });
 
-  it("renders an image with an <img>, not a frame", async () => {
-    // Arrange / Act
+  it("fetches the file once rather than range-requesting it as you scroll", async () => {
+    // Arrange — pdf.js given a URL issues lazy range requests, so a signed URL
+    // can expire under a document already open and fail as if it were corrupt.
+    // Passing a buffer removes that class, and this is what holds it.
+    const fetchSpy = stubFetchWithPdf();
+
+    // Act
+    await renderViewer({ fileName: "a-onefetch-case.pdf" });
+    await expect
+      .poll(
+        () => {
+          const canvas = pageCanvasFor("a-onefetch-case.pdf");
+          return canvas ? isCanvasPainted(canvas) : false;
+        },
+        { timeout: 15000 },
+      )
+      .toBe(true);
+
+    // Assert
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, init] = fetchSpy.mock.calls[0];
+    expect((init as RequestInit | undefined)?.headers).toBeUndefined();
+  });
+
+  it("renders an image with an <img>, not a canvas or a frame", async () => {
+    // Arrange / Act — an image is the one type still shown straight from a
+    // signed URL, so this also pins that PDFs did not take images with them.
     await renderViewer({
       fileName: "a-image-case.jpg",
       mimeType: "image/jpeg",
@@ -61,23 +116,7 @@ describe("AttachmentViewerDialog — reading without downloading", () => {
 
     // Assert
     await expect.poll(() => imageFor("a-image-case.jpg")?.src).toBe(SIGNED_URL);
-    expect(frameFor("a-image-case.jpg")).toBeNull();
-  });
-
-  it("carries no sandbox on the PDF frame, which would blank it in Chromium", async () => {
-    // Arrange / Act — measured, not assumed: every sandbox value tried,
-    // `sandbox=""` included, put Chromium's PDF viewer on
-    // chrome-error://chromewebdata/. This pins the finding so a later
-    // "hardening" pass cannot silently re-break the viewer.
-    await renderViewer({ fileName: "a-sandbox-case.pdf" });
-
-    // Assert
-    await expect.poll(() => frameFor("a-sandbox-case.pdf")).not.toBeNull();
-    const frame = frameFor("a-sandbox-case.pdf")!;
-    expect(frame.hasAttribute("sandbox")).toBe(false);
-    // The hardening that does survive rendering.
-    expect(frame.getAttribute("allow")).toBe("");
-    expect(frame.referrerPolicy).toBe("no-referrer");
+    expect(anyFrame()).toBeNull();
   });
 });
 
@@ -98,15 +137,15 @@ describe("AttachmentViewerDialog — types that cannot be shown", () => {
         ),
       )
       .toBeVisible();
-    expect(frameFor("a-zip-case.zip")).toBeNull();
+    expect(anyFrame()).toBeNull();
     expect(imageFor("a-zip-case.zip")).toBeNull();
     expect(signUrl).not.toHaveBeenCalledWith({ inline: true });
   });
 
-  it("never puts a Word document in the frame — it takes the converted path", async () => {
-    // Arrange / Act — a `.docx` IS previewable now, but only by conversion
-    // inside this tab. Reaching the iframe would mean the browser was handed
-    // the raw file, which is the thing this must never do.
+  it("never puts a Word document in a frame — it takes the converted path", async () => {
+    // Arrange / Act — a `.docx` IS previewable, but only by conversion inside
+    // this tab. Reaching an iframe would mean the browser was handed the raw
+    // file, which is the thing this must never do.
     await renderViewer({
       fileName: "a-docx-case.docx",
       mimeType:
@@ -114,7 +153,7 @@ describe("AttachmentViewerDialog — types that cannot be shown", () => {
     });
 
     // Assert
-    expect(frameFor("a-docx-case.docx")).toBeNull();
+    expect(anyFrame()).toBeNull();
     expect(imageFor("a-docx-case.docx")).toBeNull();
   });
 
@@ -126,7 +165,7 @@ describe("AttachmentViewerDialog — types that cannot be shown", () => {
     });
 
     // Assert
-    expect(frameFor("a-html-case.html")).toBeNull();
+    expect(anyFrame()).toBeNull();
     expect(imageFor("a-html-case.html")).toBeNull();
   });
 
@@ -139,7 +178,7 @@ describe("AttachmentViewerDialog — types that cannot be shown", () => {
 
     // Assert
     expect(imageFor("a-svg-case.svg")).toBeNull();
-    expect(frameFor("a-svg-case.svg")).toBeNull();
+    expect(anyFrame()).toBeNull();
   });
 });
 
@@ -158,7 +197,7 @@ describe("AttachmentViewerDialog — failures and closing", () => {
     await expect
       .element(screen.getByText("Could not open this file for reading."))
       .toBeVisible();
-    expect(frameFor("a-error-case.pdf")).toBeNull();
+    expect(anyFrame()).toBeNull();
   });
 
   it("handles a failed download rather than leaving an unhandled rejection", async () => {
@@ -215,6 +254,6 @@ describe("AttachmentViewerDialog — failures and closing", () => {
 
     // Assert
     expect(signUrl).not.toHaveBeenCalled();
-    expect(frameFor("a-closed-case.pdf")).toBeNull();
+    expect(pageCanvasFor("a-closed-case.pdf")).toBeNull();
   });
 });
