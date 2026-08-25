@@ -207,6 +207,18 @@ export default defineConfig({
          * excludable from the precache above without also excluding the app.
          */
         manualChunks(id: string) {
+          // MUST come first. Rollup's CommonJS interop helpers
+          // (`getDefaultExportFromCjs` and friends) are a virtual module that
+          // every CJS dependency in the app shares. Naming a chunk for
+          // mammoth — which is CJS-heavy — pulled those helpers in with it,
+          // and then EVERY other chunk had to import the mammoth chunk to get
+          // them back: the built entry chunk contained a literal
+          // `import{g,c}from"./mammoth-*.js"`. The result was 141 KB (brotli)
+          // of Word renderer downloaded eagerly on the login page — strictly
+          // worse than the precache waste this rule exists to fix, and only
+          // visible by measuring the deployed site. Giving the helpers their
+          // own chunk keeps mammoth reachable by dynamic import alone.
+          if (id.includes("commonjsHelpers")) return "cjs-interop";
           if (id.includes("node_modules/mammoth")) return "mammoth";
           return undefined;
         },

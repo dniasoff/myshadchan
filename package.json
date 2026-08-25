@@ -11,7 +11,7 @@
     "test:unit:scripts": "vitest --config vitest.config.ts --project scripts",
     "dev": "vite --force",
     "dev:demo": "vite --config vite.demo.config --force",
-    "build": "tsc && vite build && node ./scripts/verify-push-sw-build.mjs",
+    "build": "tsc && vite build && node ./scripts/verify-push-sw-build.mjs && node ./scripts/verify-lazy-chunks.mjs",
     "build:e2e": "vite build --mode e2e",
     "build:demo": "tsc && vite build --config vite.demo.config",
     "typecheck": "tsc --noEmit --project tsconfig.app.json && tsc --noEmit --project tsconfig.workers.json && tsc --noEmit --project tsconfig.node.json",
