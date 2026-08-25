@@ -400,7 +400,17 @@ export function ThreadPanel({ thread }: ThreadPanelProps): ReactNode {
       ) : !data || data.length === 0 ? (
         <MessagesEmpty />
       ) : (
-        <ul className="flex flex-col gap-3">
+        /* Named, so the two lists on this screen are distinguishable. A
+         * screen reader announcing two unnamed "list"s says nothing about
+         * which is the discussions and which is the messages inside one —
+         * and since ThreadList's rows now preview their last message, the
+         * same sentence genuinely appears in both. */
+        <ul
+          aria-label={translate("crm.threads.panel.messagesLabel", {
+            _: "Messages",
+          })}
+          className="flex flex-col gap-3"
+        >
           {data.map((message) => (
             <MessageRow
               key={String(message.id)}

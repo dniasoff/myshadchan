@@ -1154,6 +1154,7 @@ export const englishCrmMessages = {
     },
     threads: {
       list: {
+        threadsLabel: "Discussions",
         rowNoMessages: "Nothing said yet",
         empty: "No discussions yet.",
         error: "Could not load the discussions.",
@@ -1163,6 +1164,7 @@ export const englishCrmMessages = {
         rowPrivate: "Private",
       },
       panel: {
+        messagesLabel: "Messages",
         senderOther: "Someone else",
         senderYou: "You",
         empty: "No messages yet.",

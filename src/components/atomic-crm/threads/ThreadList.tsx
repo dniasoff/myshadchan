@@ -298,7 +298,14 @@ export function ThreadList(props: ThreadListProps): ReactNode {
         ) : !data || data.length === 0 ? (
           <ThreadListEmpty />
         ) : (
-          <ul className="flex flex-col gap-2">
+          /* Named for the same reason as the panel's message list — see
+           * ThreadPanel.tsx. */
+          <ul
+            aria-label={translate("crm.threads.list.threadsLabel", {
+              _: "Discussions",
+            })}
+            className="flex flex-col gap-2"
+          >
             {data.map((thread) => (
               <ThreadRow
                 key={String(thread.id)}

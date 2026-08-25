@@ -47,10 +47,20 @@ test("a parent_admin opens Discussions on a shidduch, starts a discussion, and p
   await page.getByRole("button", { name: "Send" }).click();
 
   // Assert — the message reads back without a page reload.
-  await expect(page.getByText(messageText)).toBeVisible();
+  //
+  // Scoped to the messages list, not the page: the discussion list beside it
+  // now titles each row with that thread's last message, so an unscoped
+  // getByText for the message body legitimately matches twice. Asserting
+  // BOTH places is the stronger test — it pins that the message posted AND
+  // that the list row it belongs to reflects it.
+  const messages = page.getByRole("list", { name: "Messages" });
+  const discussions = page.getByRole("list", { name: "Discussions" });
+  await expect(messages.getByText(messageText)).toBeVisible();
+  await expect(discussions.getByText(messageText)).toBeVisible();
 
   // Reload to prove the message and thread both actually persisted server-
   // side (RLS-readable on a fresh fetch), not merely held in client state.
   await page.reload();
-  await expect(page.getByText(messageText)).toBeVisible();
+  await expect(messages.getByText(messageText)).toBeVisible();
+  await expect(discussions.getByText(messageText)).toBeVisible();
 });
