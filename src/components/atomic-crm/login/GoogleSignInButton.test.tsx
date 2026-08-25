@@ -154,9 +154,48 @@ describe("GoogleSignInButton", () => {
       .not.toBeDisabled();
   });
 
-  it("re-enables the button when the browser never starts the OAuth redirect", async () => {
+  it("disarms the timer as soon as the browser starts navigating away", async () => {
+    // Arrange — THE regression guard for this component's real defect.
+    //
+    // `signInWithOAuth()` is network-free (auth-js builds the URL locally and
+    // calls `window.location.assign()`), so the timer below can only observe
+    // whether a new document has committed — it cannot tell "the redirect was
+    // blocked" from "the redirect is slow". It used to assume the former and
+    // show an ERROR toast over a sign-in that was working: reproduced against
+    // production, toast at click+10.01s, Google reached at click+10.65s.
+    //
+    // `beforeunload` fires when the navigation STARTS (measured: 10 seconds
+    // before the timer fired), so the fix is to disarm on it. This asserts
+    // exactly that, and fails on the pre-fix code, which attached no such
+    // listener and therefore never called `clearTimeout`.
+    vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
+    const TIMER_ID = 4242;
+    vi.spyOn(window, "setTimeout").mockImplementation(
+      () => TIMER_ID as unknown as ReturnType<typeof window.setTimeout>,
+    );
+    const clearTimeoutSpy = vi
+      .spyOn(window, "clearTimeout")
+      .mockImplementation(() => undefined);
+    const login = vi.fn(() => new Promise<void>(() => undefined));
+    const screen = await renderGoogleSignInButton(login);
+
+    // Act — click, then let the browser announce that it is leaving.
+    await screen.getByRole("button", { name: "Continue with Google" }).click();
+    expect(clearTimeoutSpy).not.toHaveBeenCalledWith(TIMER_ID);
+    window.dispatchEvent(new Event("beforeunload"));
+
+    // Assert — the pending timer was cancelled, so nothing can claim failure.
+    await expect
+      .poll(() => clearTimeoutSpy.mock.calls.some(([id]) => id === TIMER_ID))
+      .toBe(true);
+  });
+
+  it("recovers the button, without claiming failure, if nothing has happened yet", async () => {
     // Arrange: a stalled provider call represents a blocked or interrupted
     // browser hand-off. It must not leave the visitor with an infinite spinner.
+    // The message is INFO, not error: on iOS Safari neither `beforeunload` nor
+    // `pagehide` reliably fires before commit, so this can still run while the
+    // redirect is genuinely in flight, and the copy must not assert otherwise.
     vi.stubEnv("VITE_ENABLE_GOOGLE_OAUTH", "true");
     let timeoutCallback: (() => void) | undefined;
     const setTimeoutSpy = vi
@@ -182,7 +221,7 @@ describe("GoogleSignInButton", () => {
     // Assert
     await expect.element(button).not.toBeDisabled();
     await expect
-      .element(screen.getByText(/Google sign-in did not open/i))
+      .element(screen.getByText(/Still opening Google sign-in/i))
       .toBeVisible();
   });
 });

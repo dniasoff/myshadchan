@@ -161,8 +161,8 @@ export const englishCrmMessages = {
       },
       google_oauth_not_configured:
         "Google sign-in is not configured. Ask an administrator to enable and configure the Google provider in Supabase.",
-      google_oauth_timeout:
-        "Google sign-in did not open. Check your browser settings and try again.",
+      google_oauth_slow:
+        "Still opening Google sign-in. If nothing happens, tap the button again.",
       // oauthCallback.ts's own mapped, calm messages for a rejected OAuth
       // redirect. AuthCallback (components/admin/authentication.tsx)
       // translates the thrown error's message with the message itself as

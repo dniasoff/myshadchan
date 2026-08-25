@@ -11,7 +11,23 @@ export type GoogleSignInButtonProps = {
   redirect?: string;
 };
 
-export const GOOGLE_OAUTH_REDIRECT_TIMEOUT_MS = 10_000;
+/**
+ * Measured, not guessed. This timer can only ever observe ONE thing: whether
+ * the browser has committed a new document yet. `signInWithOAuth()` makes no
+ * network request at all — auth-js's `_handleProviderSignIn` builds the
+ * provider URL locally and calls `window.location.assign()`, and the promise
+ * resolves in microseconds regardless of the connection. So a redirect that
+ * is merely SLOW is indistinguishable, to this code, from one that never
+ * started.
+ *
+ * Ten seconds was not enough for that. The hand-off is two cold cross-origin
+ * hops — `…supabase.co/auth/v1/authorize` (302) then `accounts.google.com` —
+ * and on a phone with cold DNS, a cold TLS handshake and a sleeping radio
+ * those cross 10s routinely. Reproduced against production at ~3.3s per
+ * request: the toast fired at click+10.01s and the browser reached Google at
+ * click+10.65s. The sign-in was working; the app called it broken.
+ */
+export const GOOGLE_OAUTH_REDIRECT_TIMEOUT_MS = 30_000;
 
 /**
  * "Continue with Google" on `LoginPage` — a plain OAuth button. Clicking it
@@ -46,20 +62,28 @@ export const GoogleSignInButton = (_props: GoogleSignInButtonProps) => {
   const [isPending, setIsPending] = useState(false);
   const attemptRef = useRef(0);
   const timeoutRef = useRef<number | null>(null);
+  const detachNavigationListenersRef = useRef<(() => void) | null>(null);
 
   const clearRedirectTimeout = () => {
     if (timeoutRef.current !== null) {
       window.clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
+    detachNavigationListenersRef.current?.();
+    detachNavigationListenersRef.current = null;
   };
 
+  // Inlined rather than calling `clearRedirectTimeout`, so the effect can keep
+  // an empty dependency array without lying about what it closes over. Both
+  // refs are stable, so this is the same work.
   useEffect(
     () => () => {
       if (timeoutRef.current !== null) {
         window.clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
+      detachNavigationListenersRef.current?.();
+      detachNavigationListenersRef.current = null;
     },
     [],
   );
@@ -92,16 +116,42 @@ export const GoogleSignInButton = (_props: GoogleSignInButtonProps) => {
     const attempt = ++attemptRef.current;
     setIsPending(true);
     clearRedirectTimeout();
+
+    // The browser LEAVING this page is the only real success signal, and the
+    // promise cannot carry it: `signInWithOAuth()` hands off through
+    // `window.location.assign()` and resolves long before the navigation
+    // commits. Chromium and Firefox fire `beforeunload` the moment the
+    // navigation STARTS — measured 10 seconds before this timer fired, on a
+    // redirect that went on to succeed — so listening for it disarms the
+    // timer on a redirect that is only slow. `pagehide` fires at commit, and
+    // with `persisted: true` on the way into bfcache, so a visitor who
+    // reaches Google and presses Back does not return to a stale timer.
+    //
+    // Attached per click and removed in `clearRedirectTimeout()`: a permanent
+    // `beforeunload` listener costs bfcache eligibility in Firefox.
+    const disarm = () => clearRedirectTimeout();
+    window.addEventListener("beforeunload", disarm);
+    window.addEventListener("pagehide", disarm);
+    detachNavigationListenersRef.current = () => {
+      window.removeEventListener("beforeunload", disarm);
+      window.removeEventListener("pagehide", disarm);
+    };
+
     timeoutRef.current = window.setTimeout(() => {
       if (attemptRef.current !== attempt) {
         return;
       }
-      timeoutRef.current = null;
+      clearRedirectTimeout();
       setIsPending(false);
-      notify("crm.auth.google_oauth_timeout", {
-        type: "error",
+      // Deliberately NOT an error. Neither `beforeunload` nor `pagehide`
+      // reliably fires before commit on iOS Safari, so on that platform this
+      // can still run while the redirect is genuinely in flight. We cannot
+      // tell "blocked" from "slow", so the copy says only what is true and
+      // the button becomes usable again.
+      notify("crm.auth.google_oauth_slow", {
+        type: "info",
         messageArgs: {
-          _: "Google sign-in did not open. Check your browser settings and try again.",
+          _: "Still opening Google sign-in. If nothing happens, tap the button again.",
         },
       });
     }, GOOGLE_OAUTH_REDIRECT_TIMEOUT_MS);
