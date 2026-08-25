@@ -141,9 +141,18 @@ export const CommunicationSection = () => {
                 className="gap-2"
               >
                 <div className="flex items-center gap-2">
+                  {/* `aria-label` as well as the <Label htmlFor>: Radix renders
+                   * this as `<button role="radio">`, and `htmlFor` names form
+                   * controls only — never a button, so the accessible name
+                   * resolved empty. Measured in a real browser, not read off
+                   * the markup, which looks correct. */}
                   <RadioGroupItem
                     value="open"
                     id="communication-visibility-open"
+                    aria-label={translate(
+                      "crm.settings.communication.visibility_open",
+                      { _: "Open — everyone in the household" },
+                    )}
                   />
                   <Label
                     htmlFor="communication-visibility-open"
@@ -155,9 +164,18 @@ export const CommunicationSection = () => {
                   </Label>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* `aria-label` as well as the <Label htmlFor>: Radix renders
+                   * this as `<button role="radio">`, and `htmlFor` names form
+                   * controls only — never a button, so the accessible name
+                   * resolved empty. Measured in a real browser, not read off
+                   * the markup, which looks correct. */}
                   <RadioGroupItem
                     value="private"
                     id="communication-visibility-private"
+                    aria-label={translate(
+                      "crm.settings.communication.visibility_private",
+                      { _: "Private — only participants" },
+                    )}
                   />
                   <Label
                     htmlFor="communication-visibility-private"

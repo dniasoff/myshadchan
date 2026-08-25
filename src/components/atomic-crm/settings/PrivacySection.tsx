@@ -112,19 +112,25 @@ export const PrivacySection = () => {
         </div>
 
         <nav className="flex flex-wrap items-center gap-4 pt-4 border-t text-sm text-muted-foreground">
-          <Link to="/terms" className="hover:text-foreground hover:underline">
+          <Link
+            to="/terms"
+            className="inline-flex min-h-11 items-center hover:text-foreground hover:underline md:min-h-0"
+          >
             {translate("crm.settings.privacy.terms_link", {
               _: "Terms of Service",
             })}
           </Link>
-          <Link to="/privacy" className="hover:text-foreground hover:underline">
+          <Link
+            to="/privacy"
+            className="inline-flex min-h-11 items-center hover:text-foreground hover:underline md:min-h-0"
+          >
             {translate("crm.settings.privacy.privacy_link", {
               _: "Privacy Policy",
             })}
           </Link>
           <Link
             to="/sub-processors"
-            className="hover:text-foreground hover:underline"
+            className="inline-flex min-h-11 items-center hover:text-foreground hover:underline md:min-h-0"
           >
             {translate("crm.settings.privacy.subprocessors_link", {
               _: "Sub-processors",

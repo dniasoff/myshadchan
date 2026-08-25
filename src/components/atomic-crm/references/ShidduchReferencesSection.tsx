@@ -101,7 +101,7 @@ export const ShidduchReferencesSection = ({
                     <RecordLink
                       resource="references"
                       id={link.reference_id}
-                      className="font-medium hover:underline"
+                      className="inline-flex min-h-11 items-center font-medium hover:underline md:min-h-0"
                     >
                       {link.reference_name_en}
                     </RecordLink>

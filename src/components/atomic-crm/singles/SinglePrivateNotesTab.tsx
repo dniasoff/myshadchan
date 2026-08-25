@@ -129,7 +129,15 @@ function AddNoteForm({
       />
       <div className="flex items-center justify-between">
         <label className="flex items-center gap-2 text-sm">
+          {/* Same string as the <span> beside it; Radix makes this a
+           * `<button role="switch">`, which no adjacent label can name. */}
           <Switch
+            aria-label={translate(
+              "crm.singles.privateNotes.visibleToManagerLabel",
+              {
+                _: "Share this note with whoever manages your process",
+              },
+            )}
             checked={visibleToManager}
             onCheckedChange={setVisibleToManager}
           />

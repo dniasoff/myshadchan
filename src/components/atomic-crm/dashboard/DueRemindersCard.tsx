@@ -100,7 +100,7 @@ function DueReminderRowView({
             <RecordLink
               resource={row.link.resource}
               id={row.link.id}
-              className="inline-flex min-w-0 max-w-full flex-wrap items-baseline gap-0.5 text-xs
+              className="inline-flex min-h-11 min-w-0 max-w-full flex-wrap items-baseline gap-0.5 text-xs md:min-h-0
                 font-semibold text-primary outline-none transition-colors duration-[160ms]
                 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
                 focus-visible:ring-offset-background"

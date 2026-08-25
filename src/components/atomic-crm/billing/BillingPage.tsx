@@ -67,7 +67,7 @@ const BillingMobileHeader = () => {
           aria-label={translate("crm.billing.backToSettings", {
             _: "Back to Settings",
           })}
-          className="-ms-2 flex min-h-11 items-center rounded-md px-2 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+          className="-ms-2 flex min-h-11 min-w-11 items-center justify-center rounded-md px-2 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
         >
           <ChevronLeft className="size-6" aria-hidden="true" />
         </Link>

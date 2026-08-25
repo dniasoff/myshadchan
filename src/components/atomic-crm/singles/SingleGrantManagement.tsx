@@ -387,9 +387,15 @@ function ProposeGrantDialog({ single, onSuccess }: ProposeGrantDialogProps) {
               >
                 {ACCESS_LEVEL_ORDER.map((level) => (
                   <div key={level} className="flex items-start gap-2">
+                    {/* aria-label as well as the <Label htmlFor> below.
+                     * Radix renders this as `<button role="radio">`, and
+                     * `htmlFor` names form controls only — never a button —
+                     * so without it the accessible name resolves EMPTY. The
+                     * label's own first line, so the two cannot drift. */}
                     <RadioGroupItem
                       value={level}
                       id={`grant-access-level-${level}`}
+                      aria-label={ACCESS_LEVEL_LABELS[level]}
                       className="mt-0.5"
                     />
                     <Label

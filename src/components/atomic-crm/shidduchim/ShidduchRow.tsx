@@ -64,7 +64,7 @@ export const ShidduchRow = ({
       <RecordLink
         resource="shidduchim"
         id={shidduch.id}
-        className="flex min-w-0 flex-1 items-center gap-3"
+        className="flex min-h-11 min-w-0 flex-1 items-center gap-3 md:min-h-0"
       >
         <span
           aria-hidden="true"

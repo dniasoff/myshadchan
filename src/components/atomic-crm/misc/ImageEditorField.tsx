@@ -91,7 +91,7 @@ const ImageEditorField = (props: ImageEditorFieldProps) => {
           <button
             type="button"
             onClick={() => setIsDialogOpen(true)}
-            className="text-xs underline hover:no-underline cursor-pointer text-center"
+            className="inline-flex min-h-11 items-center justify-center text-xs underline hover:no-underline cursor-pointer text-center md:min-h-0"
           >
             {translate("crm.image_editor.change")}
           </button>

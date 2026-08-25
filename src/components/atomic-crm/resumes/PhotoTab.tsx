@@ -122,7 +122,16 @@ function PhotoUpload({ subject }: { subject: ResumeSubject }): ReactElement {
       >
         {VISIBILITY_OPTIONS.map((option) => (
           <div key={option} className="flex items-center gap-2">
-            <RadioGroupItem value={option} id={`photo-visibility-${option}`} />
+            {/* Same string as the <Label> below; Radix makes this a
+             * `<button role="radio">`, which `htmlFor` cannot name. */}
+            <RadioGroupItem
+              value={option}
+              id={`photo-visibility-${option}`}
+              aria-label={translate(
+                `crm.entity360.photo.visibilityOption.${option}`,
+                { _: option },
+              )}
+            />
             <Label htmlFor={`photo-visibility-${option}`}>
               {translate(`crm.entity360.photo.visibilityOption.${option}`, {
                 _: option,

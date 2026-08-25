@@ -147,7 +147,15 @@ function AddPreferenceForm({
       />
       <div className="flex items-center justify-between">
         <label className="flex items-center gap-2 text-sm">
+          {/* Same string as the <span> beside it; Radix makes this a
+           * `<button role="switch">`, which no adjacent label can name. */}
           <Switch
+            aria-label={translate(
+              "crm.singles.preferences.visibleToManagerLabel",
+              {
+                _: "Visible to whoever manages this process",
+              },
+            )}
             checked={visibleToManager}
             onCheckedChange={setVisibleToManager}
           />

@@ -146,11 +146,24 @@ export const RadioButtonGroupInput = (inProps: RadioButtonGroupInputProps) => {
             const value = getChoiceValue(choice);
             const isDisabled = disabled || readOnly || getDisableValue(choice);
 
+            // The SAME value the visible <Label> renders below, so the two
+            // cannot drift. Only when it is a string: `getChoiceText` may
+            // return a ReactNode, and an object stringified into aria-label
+            // announces worse than nothing.
+            const choiceText = getChoiceText(choice);
+
             return (
               <div key={value} className="flex items-center space-x-2">
+                {/* aria-label as well as the <Label htmlFor>: Radix renders
+                 * this as `<button role="radio">`, and `htmlFor` names form
+                 * controls only — never a button — so without this the
+                 * accessible name resolves EMPTY. */}
                 <RadioGroupItem
                   value={value}
                   id={`${id}-${value}`}
+                  aria-label={
+                    typeof choiceText === "string" ? choiceText : undefined
+                  }
                   disabled={isDisabled}
                 />
                 <Label
@@ -160,7 +173,7 @@ export const RadioButtonGroupInput = (inProps: RadioButtonGroupInputProps) => {
                     isDisabled && "opacity-50 cursor-not-allowed",
                   )}
                 >
-                  {getChoiceText(choice)}
+                  {choiceText}
                 </Label>
               </div>
             );

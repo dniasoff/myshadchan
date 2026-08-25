@@ -110,13 +110,23 @@ export const ConfirmNewAccount = ({ onConfirmed }: ConfirmNewAccountProps) => {
         </div>
 
         <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-muted/30 p-4">
+          {/* `aria-labelledby`, not `aria-label`. Radix renders this as a
+           * `<button role="checkbox">`, which a `<label for>` cannot name, so
+           * the accessible name was empty — but an `aria-label` here would be
+           * worse than the disease: it OVERRIDES the label, and any wording
+           * that is not the visible sentence puts the control in breach of
+           * WCAG 2.5.3 (Label in Name) and desynchronises it from what the
+           * person is actually affirming. Pointing at the label element makes
+           * the name literally the visible text, so they cannot drift. */}
           <Checkbox
             id="age-affirmation"
             checked={affirmed}
             onCheckedChange={(checked) => setAffirmed(checked === true)}
+            aria-labelledby="age-affirmation-label"
             className="mt-0.5"
           />
           <Label
+            id="age-affirmation-label"
             htmlFor="age-affirmation"
             className="text-sm font-normal leading-relaxed"
           >

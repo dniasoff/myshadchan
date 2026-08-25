@@ -169,10 +169,14 @@ export const Task = ({ task }: { task: TData }) => {
                 assigneesById={assigneesById}
                 isMultiMember={isMultiMember}
               />
+              {/* Reassign is sized for a finger on a phone. It sits beside
+               * the assignee name in a dense row, so the transparent halo
+               * the checkboxes use would overlap its neighbour — a real
+               * min-height row is the right shape here. */}
               {isUnresolvedAssignee && (
                 <button
                   type="button"
-                  className="text-xs text-muted-foreground underline"
+                  className="inline-flex min-h-11 items-center text-xs text-muted-foreground underline md:min-h-0"
                   onClick={handleEdit}
                 >
                   {translate("crm.tasks.assignee.reassign", {

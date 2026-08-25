@@ -24,8 +24,13 @@ function RadioGroupItem({
   return (
     <RadioGroupPrimitive.Item
       data-slot="radio-group-item"
+      // The `before:` pseudo-element is a touch-target extension, not
+      // decoration: the dot stays 16px (a 44px radio would look broken) while
+      // the tappable area reaches the 44px floor. Mirrors ui/checkbox.tsx, and
+      // `md:before:hidden` for the same reason — a mouse does not need it, and
+      // an invisible halo on desktop would sit over whatever is 14px away.
       className={cn(
-        "border-input text-primary focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 aspect-square size-4 shrink-0 rounded-full border shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
+        "border-input text-primary focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 aspect-square size-4 shrink-0 rounded-full border shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 relative before:absolute before:-inset-3.5 before:content-[''] md:before:hidden",
         className
       )}
       {...props}

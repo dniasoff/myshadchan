@@ -48,8 +48,12 @@ export function ListingToggleField({
         <Label htmlFor={id} className="font-normal">
           {label}
         </Label>
+        {/* The same `label` the <Label> renders — Radix makes this a
+         * `<button role="switch">`, which `htmlFor` cannot name. See
+         * ui/radixControlNames.guard.test.ts. */}
         <Switch
           id={id}
+          aria-label={label}
           checked={checked}
           onCheckedChange={onCheckedChange}
           disabled={disabled}

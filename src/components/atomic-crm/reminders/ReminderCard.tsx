@@ -71,7 +71,7 @@ export const ReminderCard = ({
             <RecordLink
               resource={RESOURCE_FOR_TARGET[linkedEntity.type]}
               id={linkedEntity.id}
-              className="inline-flex min-w-0 max-w-full items-baseline gap-2 rounded-md text-xs font-semibold
+              className="inline-flex min-h-11 min-w-0 max-w-full items-baseline gap-2 rounded-md text-xs font-semibold md:min-h-0
                 text-primary outline-none transition-colors duration-[160ms] hover:underline
                 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >

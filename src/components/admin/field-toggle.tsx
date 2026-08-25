@@ -134,13 +134,17 @@ export const FieldToggle = (props: FieldToggleProps) => {
         htmlFor={`switch_${index}`}
         className="flex items-center gap-2 cursor-pointer"
       >
+        {/* `aria-labelledby` for the same reason as admin/boolean-input.tsx:
+         * the label is a <FieldTitle> element, and the wrapping <label>
+         * cannot name the `<button role="switch">` Radix renders. */}
         <Switch
           id={`switch_${index}`}
+          aria-labelledby={`switch_${index}_label`}
           checked={selected}
           onCheckedChange={onToggle}
           name={`${index}`}
         />
-        <span className="text-sm">
+        <span id={`switch_${index}_label`} className="text-sm">
           <FieldTitle label={label} source={source} resource={resource} />
         </span>
       </label>

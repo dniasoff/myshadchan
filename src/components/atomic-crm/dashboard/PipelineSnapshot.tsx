@@ -36,10 +36,10 @@ export const PipelineSnapshot = ({ singleId }: PipelineSnapshotProps) => {
         </h2>
         <Link
           to="/shidduchim"
-          className="text-sm font-medium text-primary outline-none
-            hover:underline focus-visible:ring-2 focus-visible:ring-ring
-            focus-visible:ring-offset-2 focus-visible:ring-offset-background
-            rounded-sm"
+          className="inline-flex min-h-11 items-center text-sm font-medium
+            text-primary outline-none hover:underline focus-visible:ring-2
+            focus-visible:ring-ring focus-visible:ring-offset-2
+            focus-visible:ring-offset-background rounded-sm md:min-h-0"
         >
           View pipeline
         </Link>

@@ -279,10 +279,30 @@ export const SelectInput = (props: SelectInputProps) => {
               <SelectValue placeholder={renderEmptyItemOption()} />
 
               {field.value && field.value !== emptyValue ? (
+                /* Three things this was missing, all invisible from the
+                 * markup: no accessible name (a bare X icon), no keyboard
+                 * route to it at all (a `div` with `role="button"` is not
+                 * focusable without `tabIndex`), and a 16px hit area. It
+                 * stays a `div` rather than becoming a `<button>` because it
+                 * renders INSIDE Radix's SelectTrigger, which is itself a
+                 * button — nesting one would be invalid HTML. */
                 <div
                   role="button"
-                  className="p-0 ml-auto pointer-events-auto hover:bg-transparent text-muted-foreground opacity-50 hover:opacity-100"
+                  tabIndex={0}
+                  aria-label={translate("ra.action.clear_input_value", {
+                    _: "Clear value",
+                  })}
+                  className="relative p-0 ml-auto pointer-events-auto hover:bg-transparent text-muted-foreground opacity-50 hover:opacity-100 before:absolute before:-inset-3.5 before:content-[''] md:before:hidden"
                   onClick={handleReset}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    // Stop the trigger beneath from also opening the menu.
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleReset(
+                      event as unknown as React.MouseEvent<HTMLDivElement>,
+                    );
+                  }}
                 >
                   <X className="h-4 w-4" />
                 </div>

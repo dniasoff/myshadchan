@@ -78,14 +78,21 @@ export const BooleanInput = (props: BooleanInputProps) => {
   return (
     <FormField className={className} id={id} name={field.name}>
       <div className="flex items-center space-x-2">
+        {/* `aria-labelledby`, not `aria-label`: the label is a <FieldTitle>
+         * element, not a string, and stringifying a React node announces
+         * worse than nothing. Radix renders this as `<button role="switch">`,
+         * which the <FormLabel htmlFor> below cannot name — see
+         * ui/radixControlNames.guard.test.ts for why that is a trap rather
+         * than a preference. */}
         <Switch
           id={id}
+          aria-labelledby={`${id}-label`}
           checked={Boolean(field.value)}
           onFocus={onFocus}
           onCheckedChange={handleChange}
           disabled={disabled || readOnly}
         />
-        <FormLabel htmlFor={id}>
+        <FormLabel id={`${id}-label`} htmlFor={id}>
           <FieldTitle
             label={label}
             source={source}

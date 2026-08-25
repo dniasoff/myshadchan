@@ -141,6 +141,7 @@ DataTable.Col = DataTableColumn;
 DataTable.NumberCol = DataTableNumberColumn;
 
 const DataTableHead = ({ children }: { children: ReactNode }) => {
+  const translate = useTranslate();
   const data = useDataTableDataContext();
   const { hasBulkActions = false } = useDataTableConfigContext();
   const { onSelect } = useDataTableCallbacksContext();
@@ -166,7 +167,13 @@ const DataTableHead = ({ children }: { children: ReactNode }) => {
       <TableRow>
         {hasBulkActions ? (
           <TableHead className="w-8">
+            {/* Named: Radix renders a `<button role="checkbox">` with no text
+             * of its own, so this announced as an anonymous checkbox — and
+             * unlike the row boxes below it has no adjacent label at all. */}
             <Checkbox
+              aria-label={translate("ra.action.select_all", {
+                _: "Select all",
+              })}
               onCheckedChange={handleToggleSelectAll}
               checked={
                 selectedIds &&
@@ -215,6 +222,7 @@ const DataTableRow = ({
   children: ReactNode;
   className?: string;
 }) => {
+  const translate = useTranslate();
   const { rowClick, handleToggleItem } = useDataTableCallbacksContext();
   const selectedIds = useDataTableSelectedIdsContext();
   const { hasBulkActions = false } = useDataTableConfigContext();
@@ -270,7 +278,11 @@ const DataTableRow = ({
     >
       {hasBulkActions ? (
         <TableCell className="flex w-8" onClick={handleToggle}>
+          {/* See the select-all box above — same reason, per row. */}
           <Checkbox
+            aria-label={translate("ra.action.select_row", {
+              _: "Select this row",
+            })}
             checked={selectedIds?.includes(record.id)}
             onClick={handleToggle}
           />

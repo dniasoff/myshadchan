@@ -51,7 +51,7 @@ const LinkCard = ({
               <RecordLink
                 resource="shidduchim"
                 id={link.shidduchim_id}
-                className="text-base font-medium hover:underline"
+                className="inline-flex min-h-11 items-center text-base font-medium hover:underline md:min-h-0"
               >
                 {shidduchName}
               </RecordLink>

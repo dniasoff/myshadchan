@@ -146,9 +146,12 @@ export function TasksRailSummary({
           ))}
         </ul>
       )}
+      {/* `inline-flex` + `min-h-11`: a bare text link is ~20px tall, less
+       * than half the 44px touch floor, and this is the only way out of the
+       * rail to the full task list. Desktop keeps its text-link density. */}
       <Link
         to={buildTabPath(resource, targetId, "tasks")}
-        className="text-sm underline"
+        className="inline-flex min-h-11 items-center text-sm underline md:min-h-0"
       >
         {translate("crm.entity360.tasks.viewAll", { _: "See all tasks" })}
       </Link>
