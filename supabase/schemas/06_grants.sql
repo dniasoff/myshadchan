@@ -1818,6 +1818,10 @@ grant execute on function public.account_is_disposable(bigint) to service_role;
 revoke all on function public.dispose_orphaned_account(bigint) from public, anon, authenticated;
 grant execute on function public.dispose_orphaned_account(bigint) to service_role;
 
+revoke all on function public.delete_account_data(bigint, uuid, boolean) from public, anon;
+grant execute on function public.delete_account_data(bigint, uuid, boolean) to authenticated;
+grant execute on function public.delete_account_data(bigint, uuid, boolean) to service_role;
+
 -- Creates an account and its owning membership in ONE transaction, which is
 -- the only way a REST caller can satisfy assert_account_not_orphaned().
 -- service_role only: it creates a membership for an arbitrary user, so no
