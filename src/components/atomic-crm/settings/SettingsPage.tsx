@@ -19,7 +19,6 @@ import { ConnectionSection } from "./ConnectionSection";
 import { FamilySection } from "./FamilySection";
 import { InvitesSection } from "./InvitesSection";
 import { PersonasSection } from "./PersonasSection";
-import { PlatformMetricsSection } from "./PlatformMetricsSection";
 import { PreferencesSection } from "./PreferencesSection";
 import { PrivacySection } from "./PrivacySection";
 import { ProfileSection } from "./ProfileSection";
@@ -79,10 +78,6 @@ export const SettingsPage = () => {
           <ConnectionSection />
           <ShadchanListingSection />
           <PrivacySection />
-          {/* Operator metrics, admin-only — moved off the family dashboard,
-              where they told a parent nothing about their own child. */}
-          <PlatformMetricsSection />
-
           <div>
             <SectionLabel>
               {translate("crm.billing.eyebrow", { _: "AI features" })}

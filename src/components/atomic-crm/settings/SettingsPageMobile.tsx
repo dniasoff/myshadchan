@@ -20,7 +20,6 @@ import { ConnectionSection } from "./ConnectionSection";
 import { FamilySection } from "./FamilySection";
 import { InvitesSection } from "./InvitesSection";
 import { PersonasSection } from "./PersonasSection";
-import { PlatformMetricsSection } from "./PlatformMetricsSection";
 import { PreferencesSection } from "./PreferencesSection";
 import { PrivacySection } from "./PrivacySection";
 import { ProfileSection } from "./ProfileSection";
@@ -81,11 +80,6 @@ export const SettingsPageMobile = () => {
           <ConnectionSection />
           <ShadchanListingSection />
           <PrivacySection />
-          {/* Mirrors the desktop SettingsPage order. Self-gated behind
-              `CanAccess resource="members"`, so a non-admin still sees
-              nothing — its absence here simply put the platform metrics out
-              of an admin's reach on a phone. */}
-          <PlatformMetricsSection />
           <BillingSection />
         </div>
 

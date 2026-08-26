@@ -18,11 +18,9 @@ import { useDashboardData } from "./useDashboardData";
  * seeded shidduchim data for the selected single.
  *
  * Every box here answers a question a PARENT or a SINGLE actually has about
- * their own shidduchim. Story 15.2's platform metrics (cross-account leaks,
- * mis-routed items, duplicate false-positive rate, trial-to-paid conversion,
- * AI cost per active family) used to sit second on this page; they measure
- * whether the PRODUCT is working, which is the operator's question, not the
- * family's. They now live in Settings -> Platform metrics, admin-only.
+ * their own shidduchim. Platform metrics measure whether the PRODUCT is
+ * working, not the family's own shidduchim, so they are not rendered here or
+ * on another customer-facing surface.
  *
  * Gating them here by role was tried first and was the wrong fix: the first
  * login in a fresh database is made `administrator = true` by

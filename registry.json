@@ -520,10 +520,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/settings/PlatformMetricsSection.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/settings/PersonasSection.tsx",
           "type": "registry:component"
         },
@@ -1721,10 +1717,6 @@
         },
         {
           "path": "src/components/atomic-crm/dashboard/MobileDashboard.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/dashboard/MetricsCards.tsx",
           "type": "registry:component"
         },
         {

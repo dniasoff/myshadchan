@@ -88,11 +88,10 @@ export interface ParentFocusCardsProps {
  * This replaces the platform metric strip that used to sit here (Story 15.2's
  * north-star and counter-metrics: cross-account leaks, mis-routed items,
  * duplicate false-positive rate, trial-to-paid conversion, AI cost per active
- * family). Those measure whether the PRODUCT is working and belong to whoever
- * runs it; they told a parent nothing about their own child's shidduchim, and
- * they were account-wide on a page that is otherwise entirely per-single. They
- * now live in Settings (`settings/PlatformMetricsSection.tsx`), behind the
- * `members` list permission — moved off this page entirely rather than merely
+ * family). Those measure whether the PRODUCT is working and told a parent
+ * nothing about their own child's shidduchim, and they were account-wide on a
+ * page that is otherwise entirely per-single. They are not rendered in the
+ * product UI — moved off this page entirely rather than merely
  * hidden from non-administrators, because the first login in a fresh database
  * is made an administrator by `handle_new_user()`, so a permission gate here
  * would have kept showing them to exactly the parent they confuse.

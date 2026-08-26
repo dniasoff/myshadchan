@@ -7,10 +7,11 @@ import desktopDashboard from "./Dashboard.tsx?raw";
 import mobileDashboard from "./MobileDashboard.tsx?raw";
 import shadchanDashboard from "./ShadchanDashboard.tsx?raw";
 import settingsPage from "../settings/SettingsPage.tsx?raw";
-import platformSection from "../settings/PlatformMetricsSection.tsx?raw";
+import settingsPageMobile from "../settings/SettingsPageMobile.tsx?raw";
 
 /**
- * Where Story 15.2's platform metrics may and may not appear.
+ * Platform metrics were useful during product development, but are not a
+ * customer-facing feature. Keep their cards out of every rendered surface.
  *
  * This is a placement rule, so it is checked at the source: rendering a whole
  * dashboard would need the entire data-provider surface stubbed, and the
@@ -37,15 +38,18 @@ describe("platform metrics placement", () => {
     }
   });
 
-  it("keeps them reachable to an operator, in Settings, behind the admin gate", () => {
-    expect(settingsPage).toContain("PlatformMetricsSection");
-    expect(platformSection).toContain("MetricsCards");
-    expect(platformSection).toContain('CanAccess resource="members"');
-  });
-
-  it("says out loud that these are not the family's own numbers", () => {
-    // The copy is the whole point of the move: an operator opening Settings
-    // must not mistake a cross-account aggregate for their own household.
-    expect(platformSection).toContain("Nothing here is about your own");
+  it("keeps the metrics out of Settings on desktop and mobile", () => {
+    for (const [name, source] of [
+      ["SettingsPage.tsx", settingsPage],
+      ["SettingsPageMobile.tsx", settingsPageMobile],
+    ] as const) {
+      expect(
+        source,
+        `${name} must not mount PlatformMetricsSection`,
+      ).not.toContain("PlatformMetricsSection");
+      expect(source, `${name} must not mount MetricsCards`).not.toContain(
+        "MetricsCards",
+      );
+    }
   });
 });
