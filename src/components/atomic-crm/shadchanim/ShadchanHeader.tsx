@@ -38,8 +38,9 @@ const formatBookSince = (
  * "In your book since {month year}" is the non-null fallback, since most
  * shadchanim have no location yet), a tasteful responsiveness chip, and
  * contact quick actions (when present — `contacts` is a free-form jsonb
- * column with no seeded shape yet, so missing fields are simply omitted,
- * never fabricated). Notes live in the Notes tab (Story 5.9) — this card no
+ * column; missing fields are simply omitted, never fabricated. The demo seed
+ * supplies a synthetic phone number for each shadchan). Notes live in the
+ * Notes tab (Story 5.9) — this card no
  * longer renders `shadchanim.notes`, which the same story dropped.
  *
  * The name/meta group and the chip share a `flex-wrap` row (wave S review,

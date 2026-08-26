@@ -143,6 +143,12 @@ describe("FakeRest showcase fixture", () => {
     for (const collection of REQUIRED_SHOWCASE_COLLECTIONS) {
       expect(db[collection], collection).not.toHaveLength(0);
     }
+    expect(db.shadchanim.map((shadchan) => shadchan.contacts)).toEqual([
+      { phone: "410-555-0101" },
+      { phone: "718-555-0102" },
+      { phone: "732-555-0103" },
+      { phone: "732-555-0104" },
+    ]);
     expect(db.inbox_items.map((row) => row.status)).toEqual(
       expect.arrayContaining([
         "unresolved",

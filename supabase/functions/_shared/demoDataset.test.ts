@@ -10,6 +10,7 @@ import {
   RESUME_FILES,
   RESUME_PHOTOS,
   RIVKY_SUGGESTIONS,
+  SHADCHANIM,
   SINGLES,
   validateDemoDataset,
   validateOfficialDemoBundle,
@@ -119,6 +120,14 @@ describe("persistent demo dataset", () => {
     ]);
     expect(RIVKY_SUGGESTIONS).toHaveLength(13);
     expect(YAAKOV_SUGGESTIONS).toHaveLength(7);
+    expect(SHADCHANIM).toHaveLength(5);
+    expect(SHADCHANIM.map((shadchan) => shadchan.contacts.phone)).toEqual([
+      "732-555-0101",
+      "732-555-0102",
+      "845-555-0103",
+      "718-555-0104",
+      "973-555-0105",
+    ]);
     expect(
       RIVKY_SUGGESTIONS.every((suggestion) => suggestion.sex === "male"),
     ).toBe(true);

@@ -87,6 +87,7 @@ export type DemoShadchan = {
   key: string;
   name: string;
   location: string;
+  contacts: { phone: string };
   responsiveness: "high" | "medium" | "low";
 };
 
@@ -95,30 +96,35 @@ export const SHADCHANIM: DemoShadchan[] = [
     key: "S1",
     name: "Mrs. Leah Feldman",
     location: "Lakewood, NJ",
+    contacts: { phone: "732-555-0101" },
     responsiveness: "high",
   },
   {
     key: "S2",
     name: "Rabbi Shmuel Weiss",
     location: "Lakewood, NJ",
+    contacts: { phone: "732-555-0102" },
     responsiveness: "medium",
   },
   {
     key: "S3",
     name: "Mrs. Chaya Rosenberg",
     location: "Monsey, NY",
+    contacts: { phone: "845-555-0103" },
     responsiveness: "high",
   },
   {
     key: "S4",
     name: "Mrs. Sarah Greenberg",
     location: "Brooklyn, NY",
+    contacts: { phone: "718-555-0104" },
     responsiveness: "low",
   },
   {
     key: "S5",
     name: "Rabbi Yosef Kanarek",
     location: "Passaic, NJ",
+    contacts: { phone: "973-555-0105" },
     responsiveness: "medium",
   },
 ];
