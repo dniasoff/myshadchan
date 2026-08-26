@@ -284,6 +284,51 @@ describe("OnboardingChoice — persona multi-select", () => {
     });
   });
 
+  it("reconciles a completed demo when the seed response and intent read are lost", async () => {
+    // Arrange: the seed activated the account, but both the seed response and
+    // the onboarding-intent read were lost. The authoritative demo flag still
+    // proves that the user can enter the demo without retrying.
+    const currentAccountDemo = vi.fn().mockResolvedValue(true);
+    const getDemoOnboardingState = vi.fn().mockResolvedValue(null);
+    const base = fakeDataProvider({
+      members: [{ id: 0, first_name: "Jane", last_name: "Doe" }],
+      accounts: [{ id: 42, name: "My Account" }],
+      account_members: [],
+      singles: [],
+    });
+    const dataProvider = {
+      ...base,
+      prepareDemoOnboarding: vi.fn().mockResolvedValue({
+        state: "pending",
+        account_id: null,
+        attempts: 1,
+      }),
+      addPersona: vi.fn().mockResolvedValue(undefined),
+      seedDemo: vi
+        .fn()
+        .mockRejectedValue(new Error("The demo request did not complete")),
+      getDemoOnboardingState,
+      currentAccountDemo,
+    } as unknown as DataProvider;
+    const screen = await renderOnboarding(dataProvider);
+
+    // Act
+    await screen.getByText("Explore with demo data").click();
+
+    // Assert: the demo flag wins over the lost response; no false error toast
+    // is shown and the client proceeds to invalidate the app queries.
+    await vi.waitFor(() => {
+      expect(currentAccountDemo).toHaveBeenCalledTimes(1);
+    });
+    await expect
+      .element(
+        screen.getByText(
+          "The demo request did not complete. Your data was left untouched; retry when ready.",
+        ),
+      )
+      .not.toBeInTheDocument();
+  });
+
   it("surfaces a notify error and re-enables Continue when addPersona rejects, allowing retry (review finding #10)", async () => {
     // Arrange: addPersona rejects once, then succeeds — pins that the error
     // path does not leave the button permanently disabled.

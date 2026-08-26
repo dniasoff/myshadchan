@@ -180,7 +180,20 @@ const OnboardingChoiceCard = ({ onChooseOwn }: { onChooseOwn: () => void }) => {
       } catch {
         // An unreadable state is not proof that cleanup is safe.
       }
-      if (onboardingState?.state === "completed") {
+      // The seed function flips accounts.demo as part of activation. That is
+      // an independent, authoritative completion signal when the response
+      // was lost before the onboarding-intent read could observe `completed`.
+      // `currentAccountDemo()` is fail-soft in the provider, so a read error
+      // remains false and cannot suppress safe cleanup/error handling.
+      let demoActivated = false;
+      try {
+        if (typeof dataProvider.currentAccountDemo === "function") {
+          demoActivated = await dataProvider.currentAccountDemo();
+        }
+      } catch {
+        // An unreadable demo flag is not proof that seeding completed.
+      }
+      if (onboardingState?.state === "completed" || demoActivated) {
         setJustSeeded(true);
         setTourCompleted(false);
         await queryClient.invalidateQueries();
