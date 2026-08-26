@@ -142,7 +142,11 @@ const OnboardingChoiceCard = ({ onChooseOwn }: { onChooseOwn: () => void }) => {
       if (typeof dataProvider.prepareDemoOnboarding === "function") {
         await dataProvider.prepareDemoOnboarding();
       }
-      await dataProvider.addPersona("parent");
+      // The RPC can commit the bootstrap membership and still lose its HTTP
+      // response. Re-read before treating that transport failure as a failed
+      // demo attempt; otherwise the next click is the first one that appears
+      // to work, while the demo seed is never reached on the original click.
+      await addPersonaAndReconcile(dataProvider, "parent");
       const seedResult = await dataProvider.seedDemo();
       if (seedResult.seeded !== true) {
         if (typeof dataProvider.cancelDemoOnboarding === "function") {
@@ -341,6 +345,33 @@ const OwnFamilyButton = ({
 // provisioning-independent (a separate shadchanus account) so it runs last.
 const PERSONA_SUBMIT_ORDER: Persona[] = ["parent", "single", "shadchan"];
 
+/**
+ * PostgREST can commit an RPC and lose the response while the browser is
+ * waiting for it. Treat a failed response as successful when the follow-up
+ * persona read proves that the requested server-side change already landed;
+ * otherwise the user sees an error, retries, and the idempotent RPC appears to
+ * work only on the second click.
+ */
+const addPersonaAndReconcile = async (
+  dataProvider: CrmDataProvider,
+  persona: Persona,
+) => {
+  try {
+    await dataProvider.addPersona(persona);
+  } catch (error) {
+    try {
+      const personas = await dataProvider.getMyPersonas();
+      if (personas.some((candidate) => candidate.persona === persona)) {
+        return;
+      }
+    } catch {
+      // Preserve the original provisioning error. A failed reconciliation
+      // read cannot prove that the RPC did not commit.
+    }
+    throw error;
+  }
+};
+
 const PersonaSelectCard = ({
   onHousehold,
   onDone,
@@ -377,7 +408,7 @@ const PersonaSelectCard = ({
       // two concurrent calls would both read "no membership" and each
       // create a household — exactly what 2.2 AC-7 forbids.
       for (const persona of toProvision) {
-        await dataProvider.addPersona(persona);
+        await addPersonaAndReconcile(dataProvider, persona);
       }
 
       if (selected.includes("parent")) {

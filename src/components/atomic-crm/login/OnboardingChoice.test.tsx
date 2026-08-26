@@ -235,6 +235,55 @@ describe("OnboardingChoice — persona multi-select", () => {
     });
   });
 
+  it("seeds the demo when the bootstrap persona response is lost", async () => {
+    // Arrange: add_persona committed the household, but its response was
+    // lost. The demo path must reconcile that write and continue to seed.
+    const calls: string[] = [];
+    const base = fakeDataProvider({
+      members: [{ id: 0, first_name: "Jane", last_name: "Doe" }],
+      accounts: [{ id: 42, name: "My Account" }],
+      account_members: [],
+      singles: [],
+    });
+    const dataProvider = {
+      ...base,
+      prepareDemoOnboarding: async () => {
+        calls.push("prepareDemoOnboarding");
+        return { state: "pending", account_id: null, attempts: 1 };
+      },
+      addPersona: async () => {
+        calls.push("addPersona:parent");
+        throw new Error("Couldn't set that up. Try again.");
+      },
+      getMyPersonas: async () => [
+        {
+          persona: "parent" as const,
+          account_id: 42,
+          account_kind: "household" as const,
+          role: "parent_admin" as const,
+        },
+      ],
+      seedDemo: async () => {
+        calls.push("seedDemo");
+        return { seeded: true };
+      },
+      currentAccountDemo: async () => false,
+    } as unknown as DataProvider;
+    const screen = await renderOnboarding(dataProvider);
+
+    // Act
+    await screen.getByText("Explore with demo data").click();
+
+    // Assert: the seed is reached without a second click.
+    await vi.waitFor(() => {
+      expect(calls).toEqual([
+        "prepareDemoOnboarding",
+        "addPersona:parent",
+        "seedDemo",
+      ]);
+    });
+  });
+
   it("surfaces a notify error and re-enables Continue when addPersona rejects, allowing retry (review finding #10)", async () => {
     // Arrange: addPersona rejects once, then succeeds — pins that the error
     // path does not leave the button permanently disabled.
@@ -319,6 +368,50 @@ describe("OnboardingChoice — persona multi-select", () => {
     await expect
       .element(screen.getByText("Name your family's record"))
       .not.toBeInTheDocument();
+  });
+
+  it("reconciles a committed persona when the add RPC response is lost", async () => {
+    // Arrange: the server-side write lands, but the browser receives a
+    // transport error. The follow-up persona read is the only safe way to
+    // distinguish that case from a rolled-back RPC.
+    const calls: string[] = [];
+    let personas: MyPersona[] = [];
+    const base = fakeDataProvider({
+      members: [{ id: 0, first_name: "Jane", last_name: "Doe" }],
+      accounts: [{ id: 42, name: "My Account" }],
+      account_members: [],
+      singles: [],
+    });
+    const dataProvider = {
+      ...base,
+      addPersona: async (persona: Persona) => {
+        calls.push(`addPersona:${persona}`);
+        personas = [
+          {
+            persona,
+            account_id: 42,
+            account_kind: "household",
+            role: "parent_admin",
+          },
+        ];
+        throw new Error("Couldn't set that up. Try again.");
+      },
+      getMyPersonas: async () => personas,
+      seedDemo: async () => ({ seeded: true }),
+      currentAccountDemo: async () => false,
+    } as unknown as DataProvider;
+    const screen = await renderOnboarding(dataProvider);
+    await goToPersonaSelect(screen);
+    await screen.getByRole("checkbox", { name: PERSONA_LABELS.parent }).click();
+
+    // Act
+    await screen.getByRole("button", { name: "Continue" }).click();
+
+    // Assert: no second click is needed, and the family setup step is shown.
+    await expect
+      .element(screen.getByText("Name your family's record"))
+      .toBeVisible();
+    expect(calls).toEqual(["addPersona:parent"]);
   });
 
   it("cancels an abandoned demo intent when the user chooses own family", async () => {
