@@ -1,8 +1,44 @@
 import {
+  capitalizeName,
   countSuggestionsByShadchan,
   isResponsivenessLevel,
+  normalizeShadchanName,
   parseContactInfo,
 } from "./shadchanUtils";
+
+describe("capitalizeName", () => {
+  it("capitalizes the first letter of each lower-case word without lower-casing the rest", () => {
+    expect(capitalizeName("rivka cohen")).toBe("Rivka Cohen");
+    expect(capitalizeName("de la Cruz")).toBe("De La Cruz");
+    expect(capitalizeName("McKay O'Neil")).toBe("McKay O'Neil");
+  });
+
+  it("handles hyphenated names, whitespace and Hebrew without mangling text", () => {
+    expect(capitalizeName("mary-jane  levy")).toBe("Mary-Jane  Levy");
+    expect(capitalizeName("  רחל לוי  ")).toBe("  רחל לוי  ");
+  });
+
+  it("is safe for empty input", () => {
+    expect(capitalizeName("")).toBe("");
+  });
+});
+
+describe("normalizeShadchanName", () => {
+  it("normalizes the name in a form record while preserving other fields", () => {
+    const record = { name: "rivka cohen", location: "Jerusalem" };
+
+    expect(normalizeShadchanName(record)).toEqual({
+      name: "Rivka Cohen",
+      location: "Jerusalem",
+    });
+  });
+
+  it("leaves records without a string name unchanged", () => {
+    const record = { name: null, location: "Jerusalem" };
+
+    expect(normalizeShadchanName(record)).toBe(record);
+  });
+});
 
 describe("parseContactInfo", () => {
   it("reads phone, email and whatsapp from a well-formed contacts object", () => {

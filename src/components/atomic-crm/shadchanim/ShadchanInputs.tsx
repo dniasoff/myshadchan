@@ -4,6 +4,7 @@ import { required } from "ra-core";
 import { TextInput } from "@/components/admin/text-input";
 
 import { ResponsivenessInput } from "./ResponsivenessInput";
+import { capitalizeName } from "./shadchanUtils";
 
 const SectionLabel = ({ children }: { children: ReactNode }) => (
   <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
@@ -24,6 +25,9 @@ export const ShadchanInputs = () => (
         source="name"
         label="Name"
         validate={required()}
+        parse={capitalizeName}
+        format={capitalizeName}
+        autoFocus
         helperText={false}
       />
     </div>
