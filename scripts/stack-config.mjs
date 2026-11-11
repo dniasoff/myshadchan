@@ -36,7 +36,7 @@ const PORT_KEYS = [
   { section: "db", key: "shadow_port", port: "shadow" },
   { section: "db.pooler", key: "port", port: "pooler" },
   { section: "studio", key: "port", port: "studio" },
-  { section: "inbucket", key: "port", port: "inbucket" },
+  { section: "local_smtp", key: "port", port: "inbucket" },
   { section: "analytics", key: "port", port: "analytics" },
   { section: "analytics", key: "vector_port", port: "vector" },
 ];
