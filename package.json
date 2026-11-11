@@ -132,6 +132,7 @@
     "playwright": "^1.60.0",
     "prettier": "^3.6.2",
     "shadcn": "^3.5.0",
+    "supabase": "2.111.0",
     "storybook": "^9.1.19",
     "tldts": "^7.0.26",
     "typescript": "~5.8.3",

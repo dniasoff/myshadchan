@@ -290,6 +290,7 @@ function main() {
       `\n[1/4] resetting to the last deployed migration (${baselineVersion})`,
     );
     run("npx", [
+      "--no-install",
       "supabase",
       "db",
       "reset",
@@ -342,12 +343,21 @@ function restoreStack(workdir, keep) {
   if (keep) return;
   console.log(`\nrestoring the stack to head`);
   try {
-    run("npx", ["supabase", "db", "reset", "--workdir", workdir]);
+    run("npx", [
+      "--no-install",
+      "supabase",
+      "db",
+      "reset",
+      "--workdir",
+      workdir,
+    ]);
   } catch (error) {
     console.error(
       `WARNING: could not restore the stack to head: ${error.message}`,
     );
-    console.error(`Run: npx supabase db reset --workdir ${workdir}`);
+    console.error(
+      `Run: npx --no-install supabase db reset --workdir ${workdir}`,
+    );
   }
 }
 
