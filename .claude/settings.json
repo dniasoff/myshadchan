@@ -1,9 +1,44 @@
 {
+  "enabledPlugins": {
+    "ecc@ecc": true
+  },
+  "extraKnownMarketplaces": {
+    "ecc": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/affaan-m/ECC.git"
+      }
+    }
+  },
   "lspServers": {
     "typescript": {
+      "args": [
+        "--stdio"
+      ],
       "command": "typescript-language-server",
-      "args": ["--stdio"],
-      "fileTypes": [".ts", ".tsx", ".mjs", ".js", ".jsx"]
+      "fileTypes": [
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".js",
+        ".jsx"
+      ]
     }
-  }
+  },
+  "pluginConfigs": {
+    "ecc@ecc": {
+      "disabled_hooks": [],
+      "hook_profile": "standard",
+      "keep_deny_gates": [
+        "gateguard",
+        "config-protection",
+        "block-no-verify"
+      ]
+    }
+  },
+  "deniedMcpServers": [
+    {
+      "serverName": "plugin:ecc:chrome-devtools"
+    }
+  ]
 }
