@@ -12,28 +12,16 @@
   },
   "lspServers": {
     "typescript": {
-      "args": [
-        "--stdio"
-      ],
+      "args": ["--stdio"],
       "command": "typescript-language-server",
-      "fileTypes": [
-        ".ts",
-        ".tsx",
-        ".mjs",
-        ".js",
-        ".jsx"
-      ]
+      "fileTypes": [".ts", ".tsx", ".mjs", ".js", ".jsx"]
     }
   },
   "pluginConfigs": {
     "ecc@ecc": {
       "disabled_hooks": [],
       "hook_profile": "standard",
-      "keep_deny_gates": [
-        "gateguard",
-        "config-protection",
-        "block-no-verify"
-      ]
+      "keep_deny_gates": ["gateguard", "config-protection", "block-no-verify"]
     }
   },
   "deniedMcpServers": [
