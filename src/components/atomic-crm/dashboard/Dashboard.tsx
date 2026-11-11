@@ -1,6 +1,7 @@
 import { Users } from "lucide-react";
 
 import { buildNewPath } from "../entity360/entityPaths";
+import { useViewerRole } from "../entity360/useViewerRole";
 import { EmptyState } from "../misc/EmptyState";
 import { AttentionSection } from "./AttentionSection";
 import { DashboardHeader } from "./DashboardHeader";
@@ -37,6 +38,8 @@ export const Dashboard = () => {
     hasSuggestions,
     totalShadchanim,
   } = useDashboardData();
+  const { role, isPending: isRolePending } = useViewerRole();
+  const canAddSingle = !isRolePending && role != null && role !== "single";
 
   if (isPending) return null;
 
@@ -45,8 +48,8 @@ export const Dashboard = () => {
       <EmptyState
         title="Add your first single"
         description="A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions."
-        actionLabel="Add a single"
-        actionTo={buildNewPath("singles")}
+        actionLabel={canAddSingle ? "Add a single" : undefined}
+        actionTo={canAddSingle ? buildNewPath("singles") : undefined}
       />
     );
   }

@@ -1740,6 +1740,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/dashboard/AddSingleLink.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/connections/index.ts",
           "type": "registry:component"
         },

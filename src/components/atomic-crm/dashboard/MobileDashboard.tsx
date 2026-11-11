@@ -2,6 +2,7 @@ import { Users } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { buildNewPath } from "../entity360/entityPaths";
+import { useViewerRole } from "../entity360/useViewerRole";
 import MobileHeader from "../layout/MobileHeader";
 import { EmptyState } from "../misc/EmptyState";
 import { useConfigurationContext } from "../root/ConfigurationContext";
@@ -58,6 +59,8 @@ export const MobileDashboard = () => {
     hasSuggestions,
     totalShadchanim,
   } = useDashboardData();
+  const { role, isPending: isRolePending } = useViewerRole();
+  const canAddSingle = !isRolePending && role != null && role !== "single";
 
   if (isPending) return null;
 
@@ -67,8 +70,8 @@ export const MobileDashboard = () => {
         <EmptyState
           title="Add your first single"
           description="A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions."
-          actionLabel="Add a single"
-          actionTo={buildNewPath("singles")}
+          actionLabel={canAddSingle ? "Add a single" : undefined}
+          actionTo={canAddSingle ? buildNewPath("singles") : undefined}
         />
       </Wrapper>
     );

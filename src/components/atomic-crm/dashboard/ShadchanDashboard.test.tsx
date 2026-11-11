@@ -8,6 +8,7 @@ import generateData from "../providers/fakerest/dataGenerator";
 import { buildRecordPath } from "../entity360/entityPaths";
 import type { Connection } from "../types";
 import "../connections/entityDescriptor";
+import "../singles/entityDescriptor";
 import { ShadchanDashboard } from "./ShadchanDashboard";
 
 /**
@@ -23,6 +24,14 @@ const CALLER_MEMBER_ID = 1;
 const SHADCHANUS_ACCOUNT_ID = 9;
 
 const seedCaller = (db: ReturnType<typeof generateData>) => {
+  db.accounts = [
+    {
+      ...db.accounts[0],
+      id: SHADCHANUS_ACCOUNT_ID,
+      name: "Test Shadchanus",
+      kind: "shadchanus",
+    },
+  ];
   db.account_members = [
     {
       id: CALLER_MEMBER_ID,
@@ -99,14 +108,16 @@ describe("ShadchanDashboard — empty state (Story 8.1 AC-5, preserved by Story 
         ),
       )
       .toBeInTheDocument();
+    const addSingle = screen.getByRole("link", { name: "Add a single" });
+    await expect.element(addSingle).toBeVisible();
+    expect(addSingle.element().getAttribute("href")).toBe("/singles/new");
   });
 
-  it("never renders a household-only figure like a single or shidduch count", async () => {
+  it("never renders a household-only shidduch count", async () => {
     // Arrange / Act
     const { screen } = await renderDashboard();
 
     // Assert
-    await expect.element(screen.getByText(/single/i)).not.toBeInTheDocument();
     await expect.element(screen.getByText(/shidduch/i)).not.toBeInTheDocument();
   });
 });
@@ -129,6 +140,9 @@ describe("ShadchanDashboard — populated state (Story 8.5, AC-7)", () => {
     await expect.element(link).toBeInTheDocument();
     const statLink = screen.getByRole("link").first();
     expect(statLink.element().getAttribute("href")).toBe("/connections");
+    const addSingle = screen.getByRole("link", { name: "Add a single" });
+    await expect.element(addSingle).toBeVisible();
+    expect(addSingle.element().getAttribute("href")).toBe("/singles/new");
   });
 
   it("counts the exact accepted total past the 200-row page cap (review fix, M1 — reads `total`, not the capped array length)", async () => {
