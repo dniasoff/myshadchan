@@ -1,6 +1,9 @@
 name: Supabase private R2 backup
 description: Dump roles, schema and data and upload the complete set to the private R2 backup bucket.
 inputs:
+  supabase-access-token:
+    description: Access token for the linked Supabase project.
+    required: true
   supabase-db-password:
     description: Password for the linked Supabase database.
     required: true
@@ -22,6 +25,7 @@ runs:
     - name: Dump and upload roles, schema and data
       shell: bash
       env:
+        SUPABASE_ACCESS_TOKEN: ${{ inputs.supabase-access-token }}
         SUPABASE_DB_PASSWORD: ${{ inputs.supabase-db-password }}
         AWS_ACCESS_KEY_ID: ${{ inputs.r2-access-key-id }}
         AWS_SECRET_ACCESS_KEY: ${{ inputs.r2-secret-access-key }}
