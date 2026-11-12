@@ -48,18 +48,15 @@ export function isCleanSchemaDiff(stdout) {
   // accepting that real transcript, but never let a SQL statement hide behind
   // the marker. A diff is emitted as SQL; operational messages are not.
   const lines = trimmed.split("\n").map((line) => line.trim());
-  const lastLine = lines.at(-1);
   const hasSql = lines.some((line) =>
     /^(?:alter|comment|create|delete|do|drop|grant|insert|revoke|set|truncate|update)\b/i.test(
       line,
     ),
   );
-  if (
-    (lastLine === CLEAN_MESSAGE || lastLine === `${CLEAN_MESSAGE}.`) &&
-    !hasSql
-  ) {
-    return true;
-  }
+  const hasCleanMarker = lines.some(
+    (line) => line === CLEAN_MESSAGE || line === `${CLEAN_MESSAGE}.`,
+  );
+  if (hasCleanMarker && !hasSql) return true;
 
   try {
     const result = JSON.parse(trimmed);
