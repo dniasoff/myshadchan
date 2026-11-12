@@ -275,12 +275,18 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
         .getByLabelText("Upload a photo")
         .upload(new File([pngBytes], "ronit-photo.png", { type: "image/png" }));
 
+      await expect
+        .element(screen.getByText("Photo ready to add."))
+        .toBeInTheDocument();
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(
         screen.container.querySelector('button[aria-label="Enlarge photo"]'),
       ).toBeNull();
+      const image = screen.container.querySelector("img");
+      expect(image).not.toBeNull();
+      image?.dispatchEvent(new Event("load", { bubbles: true }));
       setImageSrc.mockRestore();
       setImageProperty.mockRestore();
-      screen.container.querySelector("img")?.dispatchEvent(new Event("load"));
       await expect
         .element(screen.getByRole("button", { name: "Enlarge photo" }))
         .toBeInTheDocument();
