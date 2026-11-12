@@ -1,7 +1,7 @@
 import { useDataProvider } from "ra-core";
 import type { Identifier } from "ra-core";
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import type { CrmDataProvider } from "../providers/types";
 import type { Interaction } from "../types";
@@ -23,9 +23,12 @@ const compareIdsDescending = (left: Identifier, right: Identifier): number => {
 };
 
 const compareNewestFirst = (left: ShadchanNote, right: ShadchanNote) => {
-  const dateOrder = String(right.created_at).localeCompare(
-    String(left.created_at),
-  );
+  const leftTime = Date.parse(String(left.created_at));
+  const rightTime = Date.parse(String(right.created_at));
+  const dateOrder =
+    Number.isFinite(leftTime) && Number.isFinite(rightTime)
+      ? rightTime - leftTime
+      : String(right.created_at).localeCompare(String(left.created_at));
   return dateOrder || compareIdsDescending(left.id, right.id);
 };
 
@@ -41,29 +44,46 @@ export const useShadchanNotes = (shadchanIds: readonly Identifier[]) => {
   const query = useQuery({
     queryKey: ["shadchanim", "live-note-indicators", normalizedIds],
     enabled: normalizedIds.length > 0,
+    gcTime: 0,
+    placeholderData: keepPreviousData,
+    refetchOnMount: "always",
     queryFn: async () => {
-      const result = await dataProvider.getList<ShadchanNote>(
-        "interactions_summary",
-        {
-          filter: {
-            target_type: "shadchan",
-            kind: "note",
-            scope: "account",
-            "deleted_at@is": null,
-            "target_id@in": `(${normalizedIds.join(",")})`,
+      const rows: ShadchanNote[] = [];
+      let page = 1;
+      while (true) {
+        const result = await dataProvider.getList<ShadchanNote>(
+          "interactions_summary",
+          {
+            filter: {
+              target_type: "shadchan",
+              kind: "note",
+              scope: "account",
+              "deleted_at@is": null,
+              "target_id@in": `(${normalizedIds.join(",")})`,
+            },
+            sort: { field: "created_at", order: "DESC" },
+            pagination: { page, perPage: NOTE_PAGE_SIZE },
           },
-          sort: { field: "created_at", order: "DESC" },
-          pagination: { page: 1, perPage: NOTE_PAGE_SIZE },
-        },
-      );
-      return result.data;
+        );
+        rows.push(...result.data);
+
+        if (
+          result.data.length === 0 ||
+          (typeof result.total === "number"
+            ? rows.length >= result.total
+            : result.data.length < NOTE_PAGE_SIZE)
+        ) {
+          return rows;
+        }
+        page += 1;
+      }
     },
   });
 
   const notesByShadchanId = useMemo(() => {
     const visibleIds = new Set(normalizedIds);
     const newestByShadchanId = new Map<string, ShadchanNote>();
-    if (query.isPending || query.isFetching || query.error) {
+    if (query.isPending || query.error) {
       return newestByShadchanId;
     }
     for (const note of query.data ?? []) {
@@ -83,18 +103,11 @@ export const useShadchanNotes = (shadchanIds: readonly Identifier[]) => {
       }
     }
     return newestByShadchanId;
-  }, [
-    normalizedIds,
-    query.data,
-    query.error,
-    query.isFetching,
-    query.isPending,
-  ]);
+  }, [normalizedIds, query.data, query.error, query.isPending]);
 
   return {
     notesByShadchanId,
-    isPending:
-      normalizedIds.length > 0 && (query.isPending || query.isFetching),
+    isPending: normalizedIds.length > 0 && query.isPending,
     error: normalizedIds.length > 0 ? query.error : null,
   };
 };

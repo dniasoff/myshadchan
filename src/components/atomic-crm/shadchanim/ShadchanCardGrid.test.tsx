@@ -57,6 +57,18 @@ const SHADCHANIM = [
   { id: 2, name: "Moshe Adler" },
 ];
 
+const NOTE = {
+  id: 22,
+  account_id: 1,
+  target_type: "shadchan" as const,
+  target_id: 1,
+  scope: "account" as const,
+  kind: "note" as const,
+  body: "Private body",
+  created_at: "2026-01-01T00:00:00.000Z",
+  deleted_at: null,
+};
+
 const renderGrid = () =>
   render(
     <TestMemoryRouter>
@@ -125,6 +137,26 @@ describe("ShadchanCardGrid — gates on the shidduchim count query, not just the
         screen.getByRole("button", { name: "Open note for Rivka Stern" }),
       )
       .not.toBeInTheDocument();
+  });
+
+  it("passes the visible note through to the matching card", async () => {
+    useShadchanNotesMock.mockReturnValue({
+      notesByShadchanId: new Map([["1", NOTE]]),
+      isPending: false,
+      error: null,
+    });
+    useGetListMock.mockReturnValue({
+      data: [{ id: 100, shadchan_id: 1, pipeline_state: "new" }],
+      isPending: false,
+    });
+
+    const screen = await renderGrid();
+
+    await expect
+      .element(
+        screen.getByRole("button", { name: "Open note for Rivka Stern" }),
+      )
+      .toBeInTheDocument();
   });
 
   it("renders the skeleton, not a card claiming '0 shidduchim', while the count query is pending", async () => {

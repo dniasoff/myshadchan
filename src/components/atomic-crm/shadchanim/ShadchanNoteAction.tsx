@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 import type { Shadchan } from "../types";
+import { buildTabPath } from "../entity360/entityPaths";
 import { formatTimelineDate } from "../entity360/tabs/interactionLabels";
 import type { ShadchanNote } from "./useShadchanNotes";
 
@@ -92,9 +93,15 @@ export const ShadchanNoteAction = ({
               _: "%{name} — note",
             })}
           </DialogTitle>
-          {metadata.length > 0 ? (
-            <DialogDescription>{metadata.join(" · ")}</DialogDescription>
-          ) : null}
+          <DialogDescription
+            className={metadata.length > 0 ? undefined : "sr-only"}
+          >
+            {metadata.length > 0
+              ? metadata.join(" · ")
+              : translate("crm.shadchanim.notes.noMetadata", {
+                  _: "Note details unavailable.",
+                })}
+          </DialogDescription>
         </DialogHeader>
         <div
           dir="auto"
@@ -105,7 +112,7 @@ export const ShadchanNoteAction = ({
         </div>
         <DialogFooter>
           <Button asChild variant="link">
-            <Link to={`/shadchanim/${shadchan.id}/notes`}>
+            <Link to={buildTabPath("shadchanim", shadchan.id, "notes")}>
               {translate("crm.shadchanim.notes.viewAll", {
                 _: "View all notes",
               })}

@@ -55,7 +55,7 @@ const renderProbe = async (
 
   await expect.poll(() => result?.isPending).toBe(false);
   if (!result) throw new Error("useShadchanNotes never rendered a result");
-  return { getList, result };
+  return { getList, getResult: () => result!, queryClient, result };
 };
 
 describe("useShadchanNotes", () => {
@@ -106,6 +106,7 @@ describe("useShadchanNotes", () => {
           id: 14,
           target_id: 8,
           body: "deleted",
+          created_at: "2026-04-01",
           deleted_at: "2026-04-01",
         }),
         note({ id: 15, target_id: 99, body: "out of page" }),
@@ -146,6 +147,101 @@ describe("useShadchanNotes", () => {
 
     setIds([8]);
     await expect.poll(() => getList.mock.calls.length).toBe(2);
+  });
+
+  it("keeps the existing indicator during a background refetch", async () => {
+    let resolveSecond!: (value: { data: NoteFixture[]; total: number }) => void;
+    const secondPage = new Promise<{ data: NoteFixture[]; total: number }>(
+      (resolve) => {
+        resolveSecond = resolve;
+      },
+    );
+    const getList = vi
+      .fn()
+      .mockResolvedValueOnce({ data: [note({ target_id: 7 })], total: 1 })
+      .mockImplementationOnce(() => secondPage);
+    const {
+      getList: calls,
+      getResult,
+      queryClient,
+    } = await renderProbe([7], [], getList);
+
+    void queryClient.invalidateQueries({
+      queryKey: ["shadchanim", "live-note-indicators"],
+    });
+    await expect.poll(() => calls.mock.calls.length).toBe(2);
+    expect(getResult().notesByShadchanId.has("7")).toBe(true);
+
+    resolveSecond({ data: [note({ target_id: 7 })], total: 1 });
+    await expect.poll(() => getResult().isPending).toBe(false);
+  });
+
+  it("does not show the previous ID set while a changed visible set is loading", async () => {
+    let setIds: (ids: number[]) => void = () => undefined;
+    let resolveSecond!: (value: { data: NoteFixture[]; total: number }) => void;
+    const secondPage = new Promise<{ data: NoteFixture[]; total: number }>(
+      (resolve) => {
+        resolveSecond = resolve;
+      },
+    );
+    const getList = vi
+      .fn()
+      .mockResolvedValueOnce({ data: [note({ target_id: 7 })], total: 1 })
+      .mockImplementationOnce(() => secondPage);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    let result: ReturnType<typeof useShadchanNotes> | undefined;
+
+    function Probe() {
+      const [ids, updateIds] = useState([7]);
+      setIds = updateIds;
+      result = useShadchanNotes(ids);
+      return null;
+    }
+
+    await render(
+      createElement(
+        CoreAdminContext,
+        {
+          dataProvider: { getList } as unknown as CrmDataProvider,
+          i18nProvider: testI18nProvider,
+          queryClient,
+        },
+        createElement(Probe),
+      ),
+    );
+    await expect.poll(() => getList.mock.calls.length).toBe(1);
+    await expect.poll(() => result?.isPending).toBe(false);
+    expect(result?.notesByShadchanId.has("7")).toBe(true);
+
+    setIds([8]);
+    await expect.poll(() => getList.mock.calls.length).toBe(2);
+    expect(result?.notesByShadchanId.size).toBe(0);
+
+    resolveSecond({ data: [note({ target_id: 8 })], total: 1 });
+    await expect.poll(() => result?.notesByShadchanId.has("8")).toBe(true);
+  });
+
+  it("pages past the provider cap when total exceeds one batch", async () => {
+    const firstPage = Array.from({ length: 500 }, (_, index) =>
+      note({ id: index + 1, target_id: 7, created_at: "2026-01-01" }),
+    );
+    const getList = vi
+      .fn()
+      .mockResolvedValueOnce({ data: firstPage, total: 501 })
+      .mockResolvedValueOnce({
+        data: [note({ id: 501, target_id: 8, body: "after cap" })],
+        total: 501,
+      });
+    const { getList: calls, result } = await renderProbe([7, 8], [], getList);
+
+    expect(calls).toHaveBeenCalledTimes(2);
+    expect(calls.mock.calls[1]?.[1].pagination).toEqual({
+      page: 2,
+      perPage: 500,
+    });
+    expect(result.notesByShadchanId.get("8")?.body).toBe("after cap");
   });
 
   it("fails closed with no indicators when the batch request errors", async () => {

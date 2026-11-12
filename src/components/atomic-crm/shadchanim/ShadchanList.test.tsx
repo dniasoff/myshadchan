@@ -32,6 +32,18 @@ const SHADCHANIM = [
   },
 ];
 
+const NOTE = {
+  id: 22,
+  account_id: 1,
+  target_type: "shadchan" as const,
+  target_id: 1,
+  scope: "account" as const,
+  kind: "note" as const,
+  body: "Private body",
+  created_at: "2026-01-01T00:00:00.000Z",
+  deleted_at: null,
+};
+
 const SEARCH_PLACEHOLDER = "Search by name, location, or phone number";
 
 const LocationProbe = () => {
@@ -183,6 +195,33 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     expect(screen.container.querySelector(".grid.grid-cols-1")).toBeNull();
     expect(screen.container.querySelector(".flex-col.gap-2")).not.toBeNull();
     await expect.element(screen.getByText("1 shidduch")).toBeInTheDocument();
+  });
+
+  it("passes the batched note through to the row renderer", async () => {
+    const dataProvider = fakeDataProvider({
+      shadchanim: SHADCHANIM,
+      shidduchim: [],
+    });
+    const baseGetList = dataProvider.getList.bind(dataProvider);
+    vi.spyOn(dataProvider, "getList").mockImplementation(
+      async (resource, params) => {
+        if (resource === "interactions_summary") {
+          return { data: [NOTE], total: 1 };
+        }
+        return baseGetList(resource, params);
+      },
+    );
+
+    const screen = await renderShadchanList(memoryStore(), [], {
+      dataProvider,
+    });
+    await screen.getByRole("button", { name: "List view" }).click();
+
+    await expect
+      .element(
+        screen.getByRole("button", { name: "Open note for Rivka Stern" }),
+      )
+      .toBeInTheDocument();
   });
 
   // Adversarial-review fix (Story 4.2, AC 2): the toggle's position relative

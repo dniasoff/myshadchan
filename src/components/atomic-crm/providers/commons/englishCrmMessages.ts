@@ -961,6 +961,7 @@ export const englishCrmMessages = {
         checking: "Checking for notes…",
         error: "Could not load note indicators.",
         noText: "This note has no text.",
+        noMetadata: "Note details unavailable.",
         viewAll: "View all notes",
         close: "Close",
       },

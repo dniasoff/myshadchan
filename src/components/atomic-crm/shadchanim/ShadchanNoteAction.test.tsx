@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+import { QueryClient } from "@tanstack/react-query";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
+import type { CrmDataProvider } from "../providers/types";
 import type { Interaction } from "../types";
+import "./entityDescriptor";
 import { ShadchanNoteAction } from "./ShadchanNoteAction";
+import { useShadchanNotes } from "./useShadchanNotes";
 
 const NOTE: Interaction & {
   author_name: string | null;
@@ -32,6 +36,53 @@ const renderAction = async () =>
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
+
+const renderActionWithLookup = async () => {
+  let resolveSecond!: (value: {
+    data: Array<typeof NOTE>;
+    total: number;
+  }) => void;
+  const secondFetch = new Promise<{
+    data: Array<typeof NOTE>;
+    total: number;
+  }>((resolve) => {
+    resolveSecond = resolve;
+  });
+  const getList = vi
+    .fn()
+    .mockResolvedValueOnce({ data: [NOTE], total: 1 })
+    .mockImplementationOnce(() => secondFetch);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
+  const LookupAction = () => {
+    const { notesByShadchanId } = useShadchanNotes([7]);
+    const note = notesByShadchanId.get("7");
+    return note ? (
+      <ShadchanNoteAction
+        shadchan={{ id: 7, name: "Rivka Stern" }}
+        note={note}
+      />
+    ) : null;
+  };
+
+  const screen = await render(
+    <TestMemoryRouter initialEntries={["/shadchanim"]}>
+      <CoreAdminContext
+        dataProvider={{ getList } as unknown as CrmDataProvider}
+        i18nProvider={testI18nProvider}
+        queryClient={queryClient}
+      >
+        <LookupAction />
+      </CoreAdminContext>
+    </TestMemoryRouter>,
+  );
+  await expect
+    .element(screen.getByRole("button", { name: "Open note for Rivka Stern" }))
+    .toBeInTheDocument();
+  return { getList, queryClient, resolveSecond, screen };
+};
 
 describe("ShadchanNoteAction", () => {
   it("keeps private note text out of the trigger until the dialog opens", async () => {
@@ -88,5 +139,27 @@ describe("ShadchanNoteAction", () => {
     await expect
       .element(screen.getByText("This note has no text."))
       .toBeVisible();
+  });
+
+  it("keeps an open dialog mounted during a background indicator refetch", async () => {
+    const { getList, queryClient, resolveSecond, screen } =
+      await renderActionWithLookup();
+
+    await screen
+      .getByRole("button", { name: "Open note for Rivka Stern" })
+      .click();
+    await expect
+      .element(screen.getByRole("dialog", { name: "Rivka Stern — note" }))
+      .toBeVisible();
+
+    void queryClient.invalidateQueries({
+      queryKey: ["shadchanim", "live-note-indicators"],
+    });
+    await expect.poll(() => getList.mock.calls.length).toBe(2);
+    await expect
+      .element(screen.getByRole("dialog", { name: "Rivka Stern — note" }))
+      .toBeVisible();
+
+    resolveSecond({ data: [NOTE], total: 1 });
   });
 });
