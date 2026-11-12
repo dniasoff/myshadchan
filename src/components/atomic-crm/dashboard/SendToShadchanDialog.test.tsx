@@ -700,6 +700,52 @@ describe("SendToShadchanDialog", () => {
     expect(dataProvider.signResumePhotoUrl).toHaveBeenCalledTimes(1);
   });
 
+  it("ignores a duplicate prepare click while files are preparing", async () => {
+    useViewerRoleMock.mockReturnValue({
+      role: "parent_admin",
+      isPending: false,
+    });
+    const canShare = vi.fn().mockReturnValue(true);
+    let releaseShare: (() => void) | undefined;
+    const share = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseShare = resolve;
+        }),
+    );
+    Object.defineProperty(navigator, "canShare", {
+      value: canShare,
+      configurable: true,
+    });
+    Object.defineProperty(navigator, "share", {
+      value: share,
+      configurable: true,
+    });
+    const { dataProvider } = buildDataProvider();
+    const screen = await renderDialog(dataProvider);
+    await chooseRecipientAndChannel(screen);
+
+    const button = screen
+      .getByRole("button", { name: "Share resume and photo" })
+      .element() as HTMLButtonElement;
+    button.click();
+    button.click();
+
+    await expect.poll(() => share.mock.calls.length).toBe(1);
+    expect(dataProvider.signResumeFileUrl).toHaveBeenCalledTimes(1);
+    expect(dataProvider.signResumePhotoUrl).toHaveBeenCalledTimes(1);
+    releaseShare?.();
+    await expect
+      .element(
+        screen
+          .getByText(
+            "Share sheet opened. MyShadchan can’t see whether the message was sent.",
+          )
+          .first(),
+      )
+      .toBeVisible();
+  });
+
   it("shows the manual recovery copy when opening the composer throws", async () => {
     useViewerRoleMock.mockReturnValue({
       role: "parent_admin",
