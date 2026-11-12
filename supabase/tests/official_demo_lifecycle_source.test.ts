@@ -524,6 +524,7 @@ describe("official demo lifecycle SQL source", () => {
     expect(seedSource).toContain('.select("id")');
     expect(seedSource).toContain("analyticsRows.length !== 3");
     expect(seedSource).toContain('"trusted_senders"');
+    expect(seedSource).toContain('"outbound_share_history"');
     expect(seedSource).toContain("mrs.feldman@demo.invalid");
     expect(seedSource).toContain("goldenmatches@demo.invalid");
     expect(seedSource).toContain("trustedSenderRows.length !== 2");
@@ -532,8 +533,14 @@ describe("official demo lifecycle SQL source", () => {
     expect(seedSource).toMatch(
       /const accountScopedTables = \[[\s\S]*"trusted_senders"/,
     );
+    expect(seedSource).toMatch(
+      /const accountScopedTables = \[[\s\S]*"outbound_share_history"/,
+    );
     expect(clearSource).toMatch(
       /const deleteByAccount = \[[\s\S]*"trusted_senders"/,
+    );
+    expect(clearSource).toMatch(
+      /const deleteByAccount = \[[\s\S]*"outbound_share_history"/,
     );
     expect(clearSource).toContain('"trusted_senders"');
   });

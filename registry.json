@@ -428,6 +428,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shadchanim/outboundShare.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shadchanim/index.ts",
           "type": "registry:component"
         },
@@ -1733,6 +1737,10 @@
         },
         {
           "path": "src/components/atomic-crm/dashboard/ShadchanDashboard.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/dashboard/SendToShadchanDialog.tsx",
           "type": "registry:component"
         },
         {

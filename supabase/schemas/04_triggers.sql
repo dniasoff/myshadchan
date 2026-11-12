@@ -78,6 +78,16 @@ create or replace trigger set_shadchanim_account_id
     before insert on public.shadchanim
     for each row execute function public.set_account_id_default();
 
+-- Story 0n5: server-set scope and actor for the append-only handoff record.
+-- The browser may never choose either ownership value.
+create or replace trigger set_outbound_share_history_account_id
+    before insert on public.outbound_share_history
+    for each row execute function public.set_account_id_default();
+
+create or replace trigger set_outbound_share_history_actor_member_id
+    before insert on public.outbound_share_history
+    for each row execute function public.set_interaction_actor_member_id();
+
 create or replace trigger set_references_account_id
     before insert on public."references"
     for each row execute function public.set_account_id_default();
@@ -448,6 +458,10 @@ create or replace trigger validate_trusted_senders_household_scope
     before insert or update of account_id on public.trusted_senders
     for each row execute function public.enforce_household_scope();
 
+create or replace trigger validate_outbound_share_history_household_scope
+    before insert or update of account_id on public.outbound_share_history
+    for each row execute function public.enforce_household_scope();
+
 -- Official demo lifecycle write barrier. The trigger is deliberately named
 -- with a late sort key so all account_id/default and parent-copy triggers
 -- have populated the row before the generic ownership check runs. Service
@@ -551,6 +565,9 @@ create or replace trigger z_enforce_demo_write_barrier_share_access_log
     for each row execute function public.enforce_demo_write_barrier();
 create or replace trigger z_enforce_demo_write_barrier_trusted_senders
     before insert or update or delete on public.trusted_senders
+    for each row execute function public.enforce_demo_write_barrier();
+create or replace trigger z_enforce_demo_write_barrier_outbound_share_history
+    before insert or update or delete on public.outbound_share_history
     for each row execute function public.enforce_demo_write_barrier();
 create or replace trigger z_enforce_demo_write_barrier_listing_locks
     before insert or update or delete on public.listing_withdrawal_locks

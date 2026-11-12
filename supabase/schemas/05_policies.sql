@@ -2685,6 +2685,40 @@ create policy "Analytics events insertable by account" on public.analytics_event
     with check (account_id = public.current_context_id());
 
 -- =====================================================================
+-- Outbound share history (Story 0n5) — manager-only, append-only
+-- =====================================================================
+
+alter table public.outbound_share_history enable row level security;
+alter table public.outbound_share_history force row level security;
+
+create policy "Outbound share history selectable by managers"
+    on public.outbound_share_history
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() in ('parent_admin', 'self_manager')
+    );
+
+create policy "Outbound share history insertable by managers"
+    on public.outbound_share_history
+    for insert to authenticated
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() in ('parent_admin', 'self_manager')
+        and actor_member_id = public.current_member_id()
+        and exists (
+            select 1
+            from public.singles s
+            where s.account_id = public.current_context_id()
+              and s.id = single_id
+              and (
+                  public.current_member_role() = 'parent_admin'
+                  or s.member_id = public.current_member_id()
+              )
+        )
+    );
+
+-- =====================================================================
 -- Official onboarding demo manifest (service-only)
 -- =====================================================================
 alter table public.demo_runs enable row level security;

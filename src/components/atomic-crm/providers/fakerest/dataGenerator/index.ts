@@ -72,6 +72,7 @@ export default (): Db => {
   // Story 11 — no address is trusted by default; `dataProvider.trustSender()`
   // is the only writer (see `dataGenerator/types.ts`'s own comment).
   db.trusted_senders = [];
+  db.outbound_share_history = [];
   // Story 12.2 (AC-9) — a fresh heartbeat, unlike every table above: there
   // is no cron Worker to run against a FakeRest build, so this is the one
   // row the demo has no in-app action that ever writes. Seeded fresh (not

@@ -120,6 +120,7 @@ const ACCOUNT_SCOPED_TABLES = [
   "analytics_events",
   "share_links",
   "trusted_senders",
+  "outbound_share_history",
 ];
 // Physical account children outside the demo bundle inventory. These are
 // included in the pre-lifecycle deletion proof so a future billing, AI, or

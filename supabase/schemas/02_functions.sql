@@ -261,7 +261,7 @@ CREATE OR REPLACE FUNCTION public.delete_demo_cleanup_rows(p_run_id bigint, p_le
 AS $function$
 declare v_run public.demo_runs%rowtype; v_accounts bigint[]; v_deleted bigint;
 begin
-  if coalesce(auth.role(), '') <> 'service_role' or p_operation <> 'seed' or p_table_name not in ('inbox_items','message_notifications','task_notifications','tasks','reference_links','redts','shidduch_education','resume_photos','resumes','entity_files','medical_notes','shidduchim_external_links','date_records','listing_withdrawal_locks','shidduchim','references','shadchanim','single_preferences','single_notes','singles','invites','listings','share_links','analytics_events','trusted_senders') then
+  if coalesce(auth.role(), '') <> 'service_role' or p_operation <> 'seed' or p_table_name not in ('inbox_items','message_notifications','task_notifications','tasks','reference_links','redts','shidduch_education','resume_photos','resumes','entity_files','medical_notes','shidduchim_external_links','date_records','listing_withdrawal_locks','shidduchim','references','shadchanim','single_preferences','single_notes','singles','invites','listings','share_links','analytics_events','trusted_senders','outbound_share_history') then
     raise exception 'invalid or unauthorized demo cleanup table' using errcode = 'insufficient_privilege';
   end if;
   select array_agg(account_id order by account_id) into v_accounts from public.demo_run_accounts where run_id = p_run_id;
@@ -893,7 +893,8 @@ CREATE OR REPLACE FUNCTION "public"."account_has_domain_data"("p_account_id" big
     or exists (select 1 from public.interactions where account_id = p_account_id)
     or exists (select 1 from public.identity_signals where account_id = p_account_id)
     or exists (select 1 from public.inbox_items where account_id = p_account_id)
-    or exists (select 1 from public.tasks where account_id = p_account_id);
+    or exists (select 1 from public.tasks where account_id = p_account_id)
+    or exists (select 1 from public.outbound_share_history where account_id = p_account_id);
 $$;
 
 CREATE OR REPLACE FUNCTION "public"."activate_context_for"("p_user_id" "uuid", "p_account_id" bigint) RETURNS "void"
@@ -4173,6 +4174,10 @@ begin
 
   SELECT jsonb_set(v_result, '{share_links}', coalesce(jsonb_agg(to_jsonb(sl)), '[]'))
   FROM public.share_links sl WHERE sl.account_id = v_account_id
+  INTO v_result;
+
+  SELECT jsonb_set(v_result, '{outbound_share_history}', coalesce(jsonb_agg(to_jsonb(osh)), '[]'))
+  FROM public.outbound_share_history osh WHERE osh.account_id = v_account_id
   INTO v_result;
 
   SELECT jsonb_set(v_result, '{account_members}', coalesce(jsonb_agg(to_jsonb(am)), '[]'))

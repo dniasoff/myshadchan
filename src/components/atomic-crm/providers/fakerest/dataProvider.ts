@@ -1476,6 +1476,16 @@ export const createDataProvider = ({
       if (resource === "shadchanim") {
         return getVisibleAccountRows("shadchanim", params);
       }
+      if (resource === "outbound_share_history") {
+        const caller = await resolveCallerMembership();
+        if (
+          caller?.membership?.role !== "parent_admin" &&
+          caller?.membership?.role !== "self_manager"
+        ) {
+          return { data: [], total: 0 };
+        }
+        return getVisibleAccountRows(resource, params);
+      }
       // Per-shadchan productivity counts (E5). "shadchan_stats" does not end in
       // "_summary", so the adapter leaves it intact and it arrives here as-is.
       if (resource === "shadchan_stats") {
@@ -1748,6 +1758,53 @@ export const createDataProvider = ({
           data: {
             ...params.data,
             actor_member_id: caller?.membership?.id ?? null,
+          },
+        });
+      }
+      if (resource === "outbound_share_history") {
+        const caller = await resolveCallerMembership();
+        const membership = caller?.membership;
+        if (
+          !membership ||
+          (membership.role !== "parent_admin" &&
+            membership.role !== "self_manager")
+        ) {
+          throw new Error("only a manager may record an outbound share");
+        }
+        const { data: singles } = await baseDataProvider.getList("singles", {
+          filter: { id: params.data?.single_id },
+          pagination: { page: 1, perPage: 1 },
+        });
+        const targetSingle = singles[0] as any;
+        if (
+          !targetSingle ||
+          String(targetSingle.account_id) !== String(membership.account_id) ||
+          (membership.role === "self_manager" &&
+            String(targetSingle.member_id) !== String(membership.id))
+        ) {
+          throw new Error("manager may only record an owned single handoff");
+        }
+        const { data: shadchanim } = await baseDataProvider.getList(
+          "shadchanim",
+          {
+            filter: { id: params.data?.shadchan_id },
+            pagination: { page: 1, perPage: 1 },
+          },
+        );
+        const targetShadchan = shadchanim[0] as any;
+        if (
+          !targetShadchan ||
+          String(targetShadchan.account_id) !== String(membership.account_id)
+        ) {
+          throw new Error("outbound share recipient is outside the account");
+        }
+        return baseDataProvider.create(resource, {
+          ...params,
+          data: {
+            ...params.data,
+            account_id: membership.account_id,
+            actor_member_id: membership.id,
+            created_at: new Date().toISOString(),
           },
         });
       }

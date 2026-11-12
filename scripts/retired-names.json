@@ -68,6 +68,14 @@
         {
           "file": "supabase/functions/_shared/demoDataset.ts",
           "term": "contacts"
+        },
+        {
+          "file": "src/components/atomic-crm/dashboard/SendToShadchanDialog.tsx",
+          "term": "contacts"
+        },
+        {
+          "file": "src/components/atomic-crm/dashboard/SendToShadchanDialog.test.tsx",
+          "term": "contacts"
         }
       ],
       "exemptReasons": {
