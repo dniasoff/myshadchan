@@ -44,6 +44,7 @@ import {
   photoMimeType,
   validatePhotoUpload,
 } from "../resumes/photoUpload";
+import { EnlargePhotoIcon, PhotoLightbox } from "../resumes/PhotoLightbox";
 import { createShadchanInline } from "./createShadchanInline";
 import { INITIAL_PIPELINE_STATES } from "./pipelineStates";
 import { ShidduchInputs } from "./ShidduchInputs";
@@ -186,10 +187,17 @@ const PhotoUploadPanel = ({
   onVisibilityChange: (visibility: ResumePhotoVisibility) => void;
 }) => {
   const [previewFailed, setPreviewFailed] = useState(false);
+  const [previewLoaded, setPreviewLoaded] = useState(false);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
+  const viewerOpenerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setPreviewFailed(false);
-  }, [file]);
+    setPreviewLoaded(false);
+    setIsViewerOpen(false);
+  }, [file, previewUrl]);
+
+  const canEnlarge = Boolean(previewUrl && previewLoaded && !previewFailed);
 
   return (
     <section className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-secondary/30 p-4 sm:p-5">
@@ -225,12 +233,33 @@ const PhotoUploadPanel = ({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
           <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-background">
             {previewUrl && !previewFailed ? (
-              <img
-                src={previewUrl}
-                alt="Selected photo preview"
-                className="size-full object-contain"
-                onError={() => setPreviewFailed(true)}
-              />
+              canEnlarge ? (
+                <button
+                  type="button"
+                  aria-label="View enlarged photo"
+                  className="size-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={(event) => {
+                    viewerOpenerRef.current = event.currentTarget;
+                    setIsViewerOpen(true);
+                  }}
+                >
+                  <img
+                    src={previewUrl}
+                    alt="Selected photo preview"
+                    className="size-full object-contain"
+                    onLoad={() => setPreviewLoaded(true)}
+                    onError={() => setPreviewFailed(true)}
+                  />
+                </button>
+              ) : (
+                <img
+                  src={previewUrl}
+                  alt="Selected photo preview"
+                  className="size-full object-contain"
+                  onLoad={() => setPreviewLoaded(true)}
+                  onError={() => setPreviewFailed(true)}
+                />
+              )
             ) : (
               <div
                 className="flex size-full flex-col items-center justify-center gap-1 p-2 text-center text-xs text-muted-foreground"
@@ -253,6 +282,21 @@ const PhotoUploadPanel = ({
               {file.name} · {formatPhotoSize(file.size)}
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
+              {canEnlarge ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 gap-1.5"
+                  aria-label="Enlarge photo"
+                  onClick={(event) => {
+                    viewerOpenerRef.current = event.currentTarget;
+                    setIsViewerOpen(true);
+                  }}
+                >
+                  <EnlargePhotoIcon />
+                  Enlarge
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"
@@ -265,6 +309,15 @@ const PhotoUploadPanel = ({
           </div>
         </div>
       )}
+      {canEnlarge && previewUrl && file ? (
+        <PhotoLightbox
+          open={isViewerOpen}
+          onOpenChange={setIsViewerOpen}
+          url={previewUrl}
+          caption={file.name}
+          openerRef={viewerOpenerRef}
+        />
+      ) : null}
       {file && (
         <fieldset>
           <legend className="text-sm font-medium">Visibility</legend>

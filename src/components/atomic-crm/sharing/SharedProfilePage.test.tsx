@@ -91,6 +91,9 @@ describe("SharedProfilePage", () => {
     await expect
       .element(screen.getByRole("heading", { level: 1 }))
       .toHaveTextContent("This link is no longer active");
+    expect(
+      screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+    ).toBeNull();
   });
 
   it("shows the inactive notice when no token is present, without calling the loader", async () => {
@@ -128,6 +131,9 @@ describe("SharedProfilePage", () => {
   });
 
   it("renders the photo inline (never as a downloadable resume row) when include_photo produced one", async () => {
+    const workerUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E#";
+    vi.stubEnv("VITE_SHARE_WORKER_URL", workerUrl);
     // Arrange
     const withPhoto: SharedProfileData = {
       single: { first_name_en: "Rivky", first_name_he: null },
@@ -155,5 +161,68 @@ describe("SharedProfilePage", () => {
     // renders as its own separate download row (not merged/hidden).
     await expect.element(screen.getByRole("img")).toBeVisible();
     await expect.element(screen.getByText("resume.pdf")).toBeVisible();
+  });
+
+  it("enlarges the active shared photo using its existing manifest URL", async () => {
+    const workerUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E#";
+    vi.stubEnv("VITE_SHARE_WORKER_URL", workerUrl);
+    const withPhoto: SharedProfileData = {
+      single: { first_name_en: "Rivky", first_name_he: null },
+      files: [
+        {
+          fileKey: "photo",
+          filename: "profile.jpg",
+          mimeType: "image/jpeg",
+          size: 1234,
+          downloadUrl: "/r/tok/file/photo",
+        },
+      ],
+    };
+    const originalSetAttribute = HTMLImageElement.prototype.setAttribute;
+    const setImageProperty = vi
+      .spyOn(HTMLImageElement.prototype, "src", "set")
+      .mockImplementation(() => undefined);
+    const setImageSrc = vi
+      .spyOn(HTMLImageElement.prototype, "setAttribute")
+      .mockImplementation(function (
+        this: HTMLImageElement,
+        name: string,
+        value: string,
+      ) {
+        if (name === "src") return;
+        originalSetAttribute.call(this, name, value);
+      });
+    try {
+      const screen = await render(
+        <SharedProfilePage
+          url={shareUrl()}
+          loadProfile={() => Promise.resolve(withPhoto)}
+        />,
+      );
+
+      const image = screen.getByRole("img");
+      await expect.element(image).toBeVisible();
+      expect(
+        screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+      ).toBeNull();
+      setImageSrc.mockRestore();
+      setImageProperty.mockRestore();
+      image.element().dispatchEvent(new Event("load"));
+      await expect
+        .element(screen.getByRole("button", { name: "Enlarge photo" }))
+        .toBeInTheDocument();
+      await screen.getByRole("button", { name: "Enlarge photo" }).click();
+
+      await expect
+        .element(screen.getByRole("heading", { name: "Enlarged photo" }))
+        .toBeInTheDocument();
+      await expect
+        .element(screen.getByRole("dialog").getByRole("img", { name: /Rivky/ }))
+        .toHaveAttribute("src", `${workerUrl}/r/tok/file/photo`);
+    } finally {
+      setImageProperty.mockRestore();
+      setImageSrc.mockRestore();
+    }
   });
 });

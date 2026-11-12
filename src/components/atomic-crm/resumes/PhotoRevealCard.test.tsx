@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { userEvent } from "vitest/browser";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 
 import { Notification } from "@/components/admin/notification";
@@ -98,9 +99,9 @@ describe("PhotoRevealCard — reveal click (AC 1)", () => {
   it("signs the photo's own path and shows the image", async () => {
     // Arrange
     const photo = buildPhoto({ path: "1/photos/shared/7/xyz.jpg" });
-    const signResumePhotoUrl = vi
-      .fn()
-      .mockResolvedValue("https://signed.example/xyz.jpg");
+    const photoUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E";
+    const signResumePhotoUrl = vi.fn().mockResolvedValue(photoUrl);
 
     // Act
     const { screen } = await renderCard(photo, { signResumePhotoUrl });
@@ -112,7 +113,7 @@ describe("PhotoRevealCard — reveal click (AC 1)", () => {
     });
     await expect
       .poll(() => screen.container.querySelector("img")?.getAttribute("src"))
-      .toBe("https://signed.example/xyz.jpg");
+      .toBe(photoUrl);
   });
 
   it("shows a translated error and stays revealable when signing rejects", async () => {
@@ -129,6 +130,83 @@ describe("PhotoRevealCard — reveal click (AC 1)", () => {
       .element(screen.getByRole("button", { name: "Reveal" }))
       .toBeInTheDocument();
     expect(screen.container.querySelector("img")).toBeNull();
+  });
+
+  it("does not offer Enlarge until the revealed image has loaded, then opens that photo", async () => {
+    const photoUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E";
+    const signResumePhotoUrl = vi.fn().mockResolvedValue(photoUrl);
+    const originalSetAttribute = HTMLImageElement.prototype.setAttribute;
+    const setImageProperty = vi
+      .spyOn(HTMLImageElement.prototype, "src", "set")
+      .mockImplementation(() => undefined);
+    const setImageSrc = vi
+      .spyOn(HTMLImageElement.prototype, "setAttribute")
+      .mockImplementation(function (
+        this: HTMLImageElement,
+        name: string,
+        value: string,
+      ) {
+        if (name === "src") return;
+        originalSetAttribute.call(this, name, value);
+      });
+    try {
+      const { screen } = await renderCard(buildPhoto(), { signResumePhotoUrl });
+
+      await screen.getByRole("button", { name: "Reveal" }).click();
+      const image = screen.container.querySelector("img");
+      expect(image).not.toBeNull();
+      expect(
+        screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+      ).toBeNull();
+      setImageProperty.mockRestore();
+      setImageSrc.mockRestore();
+      image?.dispatchEvent(new Event("load"));
+
+      await expect
+        .element(screen.getByRole("button", { name: "Enlarge photo" }))
+        .toBeInTheDocument();
+      await screen.getByRole("button", { name: "Enlarge photo" }).click();
+
+      await expect
+        .element(screen.getByRole("heading", { name: "Enlarged photo" }))
+        .toBeInTheDocument();
+      await expect
+        .element(screen.getByRole("dialog").getByRole("img", { name: "Photo" }))
+        .toHaveAttribute("src", photoUrl);
+      await expect
+        .element(screen.getByRole("dialog"))
+        .toHaveClass("sm:max-w-[min(90vw,60rem)]");
+      expect(signResumePhotoUrl).toHaveBeenCalledTimes(1);
+
+      await screen.getByRole("button", { name: "Close photo viewer" }).click();
+      await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+    } finally {
+      setImageProperty.mockRestore();
+      setImageSrc.mockRestore();
+    }
+  });
+
+  it("removes Enlarge and keeps the retry path when the revealed image fails", async () => {
+    const { screen } = await renderCard(buildPhoto(), {
+      signResumePhotoUrl: vi
+        .fn()
+        .mockResolvedValue("https://signed.example/unrenderable.heic"),
+    });
+    await screen.getByRole("button", { name: "Reveal" }).click();
+    const image = screen.container.querySelector("img");
+    expect(image).not.toBeNull();
+    image?.dispatchEvent(new Event("error"));
+
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("This photo couldn’t be displayed.");
+    await expect
+      .element(screen.getByRole("button", { name: "Reveal" }))
+      .toBeInTheDocument();
+    expect(
+      screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+    ).toBeNull();
   });
 });
 
@@ -150,6 +228,122 @@ describe("PhotoRevealCard — immediate display", () => {
       .poll(() => screen.container.querySelector("img"))
       .not.toBeNull();
     expect(signResumePhotoUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the enlarged photo with Escape and returns focus to Enlarge", async () => {
+    const photoUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E";
+    const { screen } = await renderCard(
+      buildPhoto(),
+      {
+        signResumePhotoUrl: vi.fn().mockResolvedValue(photoUrl),
+      },
+      false,
+    );
+    await expect
+      .poll(() => screen.container.querySelector("img"))
+      .not.toBeNull();
+    screen.container.querySelector("img")?.dispatchEvent(new Event("load"));
+    await screen.getByRole("button", { name: "Enlarge photo" }).click();
+    await userEvent.keyboard("{Escape}");
+
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Enlarge photo" }))
+      .toHaveFocus();
+  });
+
+  it("returns focus to the image when the image opened the viewer", async () => {
+    const photoUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E";
+    const { screen } = await renderCard(
+      buildPhoto(),
+      { signResumePhotoUrl: vi.fn().mockResolvedValue(photoUrl) },
+      false,
+    );
+    await expect
+      .poll(() => screen.container.querySelector("img"))
+      .not.toBeNull();
+    const imageTrigger = screen.getByRole("button", {
+      name: "View enlarged photo",
+    });
+    imageTrigger
+      .element()
+      .querySelector("img")
+      ?.dispatchEvent(new Event("load"));
+    await imageTrigger.click();
+    await userEvent.keyboard("{Escape}");
+
+    await expect.element(imageTrigger).toHaveFocus();
+  });
+
+  it("opens the second photo's URL when multiple cards are rendered", async () => {
+    const firstUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E#first";
+    const secondUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3'%3E%3C/svg%3E#second";
+    const originalSetAttribute = HTMLImageElement.prototype.setAttribute;
+    const setImageProperty = vi
+      .spyOn(HTMLImageElement.prototype, "src", "set")
+      .mockImplementation(() => undefined);
+    const setImageSrc = vi
+      .spyOn(HTMLImageElement.prototype, "setAttribute")
+      .mockImplementation(function (
+        this: HTMLImageElement,
+        name: string,
+        value: string,
+      ) {
+        if (name === "src") return;
+        originalSetAttribute.call(this, name, value);
+      });
+    try {
+      const dataProvider = buildDataProvider({
+        signResumePhotoUrl: vi.fn(({ storagePath }: { storagePath: string }) =>
+          Promise.resolve(
+            storagePath.includes("second") ? secondUrl : firstUrl,
+          ),
+        ),
+      });
+      const screen = await render(
+        <TestMemoryRouter>
+          <CoreAdminContext
+            dataProvider={dataProvider}
+            i18nProvider={testI18nProvider}
+          >
+            <PhotoRevealCard
+              photo={buildPhoto({ id: 1, path: "first.jpg" })}
+              onHidden={vi.fn()}
+              revealOnClick={false}
+            />
+            <PhotoRevealCard
+              photo={buildPhoto({ id: 2, path: "second.jpg" })}
+              onHidden={vi.fn()}
+              revealOnClick={false}
+            />
+            <Notification />
+          </CoreAdminContext>
+        </TestMemoryRouter>,
+      );
+      await expect
+        .poll(() => screen.container.querySelectorAll("img").length)
+        .toBe(2);
+      screen.container
+        .querySelectorAll("img")[1]
+        ?.dispatchEvent(new Event("load"));
+      await expect
+        .element(screen.getByRole("button", { name: "Enlarge photo" }))
+        .toBeInTheDocument();
+      setImageSrc.mockRestore();
+      setImageProperty.mockRestore();
+      await screen.getByRole("button", { name: "Enlarge photo" }).click();
+
+      await expect
+        .element(screen.getByRole("dialog").getByRole("img", { name: "Photo" }))
+        .toHaveAttribute("src", secondUrl);
+    } finally {
+      setImageProperty.mockRestore();
+      setImageSrc.mockRestore();
+    }
   });
 
   it("discards an in-flight automatic URL when reveal-on-click is enabled", async () => {

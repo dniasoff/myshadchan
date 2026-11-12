@@ -660,6 +660,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/resumes/PhotoLightbox.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/reminders/useReminders.ts",
           "type": "registry:component"
         },

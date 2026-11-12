@@ -248,6 +248,85 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     expect(dataProvider.uploadResumePhoto).not.toHaveBeenCalled();
   });
 
+  it("offers Enlarge only after the local preview has loaded", async () => {
+    const originalSetAttribute = HTMLImageElement.prototype.setAttribute;
+    const setImageProperty = vi
+      .spyOn(HTMLImageElement.prototype, "src", "set")
+      .mockImplementation(() => undefined);
+    const setImageSrc = vi
+      .spyOn(HTMLImageElement.prototype, "setAttribute")
+      .mockImplementation(function (
+        this: HTMLImageElement,
+        name: string,
+        value: string,
+      ) {
+        if (name === "src") return;
+        originalSetAttribute.call(this, name, value);
+      });
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+    const pngBytes = Uint8Array.from(
+      atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      ),
+      (character) => character.charCodeAt(0),
+    );
+    try {
+      await screen
+        .getByLabelText("Upload a photo")
+        .upload(new File([pngBytes], "ronit-photo.png", { type: "image/png" }));
+
+      await expect
+        .element(screen.getByText("Photo ready to add."))
+        .toBeInTheDocument();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(
+        screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+      ).toBeNull();
+      const image = screen.container.querySelector("img");
+      expect(image).not.toBeNull();
+      image?.dispatchEvent(new Event("load", { bubbles: true }));
+      setImageSrc.mockRestore();
+      setImageProperty.mockRestore();
+      await expect
+        .element(screen.getByRole("button", { name: "Enlarge photo" }))
+        .toBeInTheDocument();
+      await screen.getByRole("button", { name: "Enlarge photo" }).click();
+      await expect
+        .element(screen.getByRole("heading", { name: "Enlarged photo" }))
+        .toBeInTheDocument();
+    } finally {
+      setImageProperty.mockRestore();
+      setImageSrc.mockRestore();
+    }
+  });
+
+  it("revokes the local preview URL when the staged photo is removed", async () => {
+    const createObjectURL = vi
+      .spyOn(URL, "createObjectURL")
+      .mockReturnValue("blob:test-photo");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL");
+    try {
+      const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+      await screen
+        .getByLabelText("Upload a photo")
+        .upload(
+          new File(["photo bytes"], "ronit-photo.jpg", { type: "image/jpeg" }),
+        );
+      await screen.getByRole("button", { name: "Remove photo" }).click();
+
+      await expect
+        .element(screen.getByText("Upload a photo", { exact: true }))
+        .toBeInTheDocument();
+      expect(createObjectURL).toHaveBeenCalledOnce();
+      expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith(
+        "blob:test-photo",
+      );
+    } finally {
+      createObjectURL.mockRestore();
+      revokeObjectURL.mockRestore();
+    }
+  });
+
   it("falls back to a text file chip when the local preview cannot render", async () => {
     const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
     await screen
@@ -267,6 +346,9 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       .element(screen.getByText("ronit-photo.heic", { exact: true }))
       .toBeInTheDocument();
     await expect.element(screen.getByText("image/heic")).toBeInTheDocument();
+    expect(
+      screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+    ).toBeNull();
   });
 
   it("keeps the suggestion saveable when a photo is rejected", async () => {

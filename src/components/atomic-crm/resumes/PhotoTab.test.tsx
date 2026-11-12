@@ -14,6 +14,9 @@ import generateData from "../providers/fakerest/dataGenerator";
 import type { Resume, ResumePhoto } from "../types";
 import { PhotoTab } from "./PhotoTab";
 
+const VALID_PHOTO_URL =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E";
+
 /**
  * Story 5.4's AD-10 mirror check: `PhotoTab` composes an upload control and
  * a grid of `PhotoRevealCard`s that only talk to each other through
@@ -32,6 +35,7 @@ const renderTab = async (
   db.resume_photos = [] as ResumePhoto[];
   db.accounts[0].photo_reveal_on_click = photoRevealOnClick;
   const dataProvider = createDataProvider({ db, latency: 0, silent: true });
+  dataProvider.signResumePhotoUrl = vi.fn().mockResolvedValue(VALID_PHOTO_URL);
   if (failure === "account") {
     dataProvider.getOne = vi.fn(async (resource: string) => {
       if (resource === "accounts") throw new Error("account lookup failed");
@@ -211,6 +215,9 @@ describe("PhotoTab — hide removes a photo from the grid (AC 2)", () => {
     await expect
       .element(screen.getByText("No photos uploaded yet."))
       .toBeInTheDocument();
+    expect(
+      screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+    ).toBeNull();
 
     // ...but the row itself still exists, hidden_at set (soft-hide, AC 2).
     const { data } = await dataProvider.getList<ResumePhoto>("resume_photos", {
