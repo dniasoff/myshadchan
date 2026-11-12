@@ -15,6 +15,11 @@ describe("isCleanSchemaDiff", () => {
         }),
       ),
     ).toBe(true);
+    expect(
+      isCleanSchemaDiff(
+        "Creating shadow database...\nDiffing schemas...\nNo schema changes found\n",
+      ),
+    ).toBe(true);
   });
 
   test("rejects a migration-shaped diff", () => {
@@ -40,6 +45,11 @@ describe("isCleanSchemaDiff", () => {
     expect(
       isCleanSchemaDiff(
         'alter table "public"."members" drop column "legacy_name";\nNo schema changes found',
+      ),
+    ).toBe(false);
+    expect(
+      isCleanSchemaDiff(
+        'Diffing schemas...\nalter table "public"."members" drop column "legacy_name";\nNo schema changes found',
       ),
     ).toBe(false);
   });
