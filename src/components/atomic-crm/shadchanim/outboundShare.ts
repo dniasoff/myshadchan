@@ -4,8 +4,9 @@ export type OutboundShareChannel = "whatsapp" | "sms" | "email";
 
 export interface OutboundShareChannelOption {
   channel: OutboundShareChannel;
-  contact: string;
+  contact?: string;
   label: string;
+  missingReason: string;
 }
 
 /** The only contact values used by the manual handoff links. */
@@ -13,18 +14,26 @@ export function getOutboundShareChannels(
   contactData: unknown,
 ): OutboundShareChannelOption[] {
   const parsed = parseContactInfo(contactData);
-  const options: OutboundShareChannelOption[] = [];
-  const whatsapp = parsed.whatsapp ?? parsed.phone;
-  if (whatsapp) {
-    options.push({ channel: "whatsapp", contact: whatsapp, label: "WhatsApp" });
-  }
-  if (parsed.phone) {
-    options.push({ channel: "sms", contact: parsed.phone, label: "SMS" });
-  }
-  if (parsed.email) {
-    options.push({ channel: "email", contact: parsed.email, label: "Email" });
-  }
-  return options;
+  return [
+    {
+      channel: "whatsapp",
+      contact: parsed.whatsapp,
+      label: "WhatsApp",
+      missingReason: "No WhatsApp number saved for this shadchan.",
+    },
+    {
+      channel: "sms",
+      contact: parsed.phone,
+      label: "Text message",
+      missingReason: "No phone number saved for this shadchan.",
+    },
+    {
+      channel: "email",
+      contact: parsed.email,
+      label: "Email",
+      missingReason: "No email saved for this shadchan.",
+    },
+  ];
 }
 
 export function buildOutboundShareMessage(
@@ -33,7 +42,19 @@ export function buildOutboundShareMessage(
   includesPhoto: boolean,
 ): string {
   const files = includesPhoto ? "resume and photo" : "resume";
-  return `Hi ${shadchanName}, attaching ${singleName}'s ${files}.`;
+  const photoNote = includesPhoto ? "" : " A photo was not included.";
+  return `Hi ${shadchanName}, here is ${singleName}'s ${files}.${photoNote}`;
+}
+
+export function buildManualHandoffMessage(
+  singleName: string,
+  shadchanName: string,
+  includesPhoto: boolean,
+): string {
+  const files = includesPhoto ? "resume and photo" : "resume";
+  const attachment = includesPhoto ? "downloaded files" : "downloaded resume";
+  const photoNote = includesPhoto ? "" : " A photo was not included.";
+  return `Hi ${shadchanName}, I’m sending ${singleName}'s ${files}.${photoNote} Please attach the ${attachment} before sending.`;
 }
 
 export function buildManualHandoffUrl(
@@ -48,9 +69,10 @@ export function buildManualHandoffUrl(
     )}&body=${encodedMessage}`;
   }
   if (channel === "sms") {
-    return `sms:${encodeURIComponent(contact)}?body=${encodedMessage}`;
+    return `sms:${contact.replace(/[^0-9+]/g, "")}?body=${encodedMessage}`;
   }
   const phoneDigits = contact.replace(/[^0-9]/g, "");
+  if (!phoneDigits) return "";
   return `https://wa.me/${phoneDigits}?text=${encodedMessage}`;
 }
 
