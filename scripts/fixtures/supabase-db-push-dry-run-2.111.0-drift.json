@@ -1,0 +1,8 @@
+{
+  "upToDate": false,
+  "dryRun": true,
+  "migrations": ["20261112000000_ci_transcript_probe.sql"],
+  "seeds": [],
+  "roles": [],
+  "message": "Finished supabase db push."
+}
