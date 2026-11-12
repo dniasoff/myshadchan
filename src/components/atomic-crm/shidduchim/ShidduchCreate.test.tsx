@@ -873,7 +873,7 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     resolveSubmit({ id: 99 });
   });
 
-  it("retries a failed save with the same capture and keeps it removable", async () => {
+  it("retries a failed save with the same capture while keeping the file controls locked", async () => {
     resolveAsNewShidduch
       .mockRejectedValueOnce(new Error("copy failed"))
       .mockResolvedValueOnce({ id: 99 });
@@ -896,10 +896,10 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       .toBeInTheDocument();
     await expect
       .element(screen.getByRole("button", { name: "Remove file" }))
-      .not.toBeDisabled();
+      .toBeDisabled();
     await expect
-      .element(screen.getByRole("button", { name: "Add a suggestion" }))
-      .not.toBeDisabled();
+      .element(screen.getByRole("button", { name: "Replace file" }))
+      .toBeDisabled();
 
     // The shared notification layer briefly overlays the sticky toolbar after
     // the first failed save; dispatch the same button click after confirming
@@ -1034,6 +1034,44 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     await expect
       .element(screen.getByLabelText("Shul (English)"))
       .toHaveValue("Typed After Fill");
+    await expect
+      .element(screen.getByRole("button", { name: "Undo auto-fill" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps edits over auto-filled values and removes the stale Undo action", async () => {
+    callAiWorker.mockResolvedValue(parsedResume);
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 0,
+        resumes_limit: 50,
+      }),
+    });
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["%PDF-1.4"], "resume.pdf", { type: "application/pdf" }),
+      );
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Rivky");
+    await screen.getByLabelText("Name (English)").fill("Edited after fill");
+    await screen.getByRole("button", { name: "Remove file" }).click();
+
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Edited after fill");
+    await expect
+      .element(screen.getByRole("button", { name: "Undo auto-fill" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText("The original file is still attached and unchanged."),
+      )
+      .not.toBeInTheDocument();
   });
 
   it("calls the parser again when Try again is clicked on Add a suggestion", async () => {

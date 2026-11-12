@@ -9,6 +9,10 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type { InboxAttachment, InboxItem, Shadchan } from "../types";
 import { InboxResolveDialog } from "./InboxResolveDialog";
+// The production route builder deliberately requires the real descriptor;
+// register it just as the app boot does so the legacy-file action test follows
+// the actual navigation path instead of mocking buildNewPath.
+import "../shidduchim/entityDescriptor";
 
 /**
  * Story 10.3 review fix (F-B, BLOCKING): `signInboxAttachmentUrl` is called
@@ -142,9 +146,14 @@ const renderDialog = async (
     defaultOptions: { queries: { retry: false } },
   });
   const onClose = vi.fn();
+  let pathname: string | undefined;
 
   const screen = await render(
-    <TestMemoryRouter>
+    <TestMemoryRouter
+      locationCallback={(location) => {
+        pathname = location.pathname;
+      }}
+    >
       <CoreAdminContext
         dataProvider={dataProvider}
         queryClient={queryClient}
@@ -156,7 +165,13 @@ const renderDialog = async (
     </TestMemoryRouter>,
   );
 
-  return { screen, dataProvider, onClose, queryClient };
+  return {
+    screen,
+    dataProvider,
+    onClose,
+    queryClient,
+    getPathname: () => pathname,
+  };
 };
 
 const buildAttachment = (
@@ -548,6 +563,19 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
     await expect
       .element(screen.getByRole("button", { name: "Upload a .docx or PDF" }))
       .toBeInTheDocument();
+  });
+
+  it("opens a blank Add a suggestion route from the legacy .doc action", async () => {
+    const item = buildItem({
+      attachments: [
+        buildAttachment({ title: "resume.doc", type: "application/msword" }),
+      ],
+    });
+    const { screen, getPathname } = await renderDialog(item);
+
+    await screen.getByRole("button", { name: "Upload a .docx or PDF" }).click();
+
+    await expect.poll(getPathname).toBe("/shidduchim/new");
   });
 
   it("fills the form from the parsed draft and keeps the raw capture unchanged", async () => {

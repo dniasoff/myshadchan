@@ -881,7 +881,6 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
       refresh();
       redirect(buildListPath("shidduchim"));
     } catch (error) {
-      setIsSubmitStarted(false);
       notify(friendlySuggestionSubmitError(error), { type: "error" });
     }
   };
@@ -938,6 +937,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
             }
             submittedCaptureId.current = null;
             revertAutoFilledFieldsRef.current?.();
+            setDraftSnapshot(null);
             setResumeFile(null);
             setResumeCapture(null);
             setParsedDraft(null);
