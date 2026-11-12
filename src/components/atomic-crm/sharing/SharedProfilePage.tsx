@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import { EnlargePhotoIcon, PhotoLightbox } from "../resumes/PhotoLightbox";
+import { Button } from "@/components/ui/button";
 
 import {
   loadSharedProfile,
@@ -130,6 +133,18 @@ const ProfileContent = ({ data }: { data: SharedProfileData }) => {
 
   const photo = data.files.find(isPhoto);
   const resumeFiles = data.files.filter((file) => !isPhoto(file));
+  const photoUrl = photo ? resolveShareFileUrl(photo.downloadUrl) : null;
+  const [photoLoaded, setPhotoLoaded] = useState(false);
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
+  const enlargeButtonRef = useRef<HTMLButtonElement>(null);
+  const canEnlarge = Boolean(photoUrl && photoLoaded && !photoFailed);
+
+  useEffect(() => {
+    setPhotoLoaded(false);
+    setPhotoFailed(false);
+    setIsViewerOpen(false);
+  }, [photoUrl]);
 
   return (
     <ShareShell>
@@ -142,12 +157,60 @@ const ProfileContent = ({ data }: { data: SharedProfileData }) => {
         </h1>
       </header>
 
-      {photo ? (
-        <img
-          src={resolveShareFileUrl(photo.downloadUrl)}
-          alt={heading}
-          className="mb-6 aspect-square w-full max-w-xs rounded-2xl object-cover"
-        />
+      {photoUrl ? (
+        <div className="mb-6 flex max-w-xs flex-col gap-3">
+          {photoFailed ? (
+            <p role="alert" className="text-sm text-muted-foreground">
+              This photo couldn’t be displayed.
+            </p>
+          ) : canEnlarge ? (
+            <button
+              type="button"
+              aria-label="View enlarged photo"
+              className="aspect-square w-full cursor-zoom-in rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => setIsViewerOpen(true)}
+            >
+              <img
+                src={photoUrl}
+                alt={heading}
+                className="size-full rounded-2xl object-cover"
+                onLoad={() => setPhotoLoaded(true)}
+                onError={() => setPhotoFailed(true)}
+              />
+            </button>
+          ) : (
+            <img
+              src={photoUrl}
+              alt={heading}
+              className="aspect-square w-full rounded-2xl object-cover"
+              onLoad={() => setPhotoLoaded(true)}
+              onError={() => setPhotoFailed(true)}
+            />
+          )}
+          {canEnlarge ? (
+            <Button
+              ref={enlargeButtonRef}
+              type="button"
+              variant="outline"
+              className="min-h-11 w-fit gap-1.5"
+              aria-label="Enlarge photo"
+              onClick={() => setIsViewerOpen(true)}
+            >
+              <EnlargePhotoIcon />
+              Enlarge
+            </Button>
+          ) : null}
+          {canEnlarge && photo ? (
+            <PhotoLightbox
+              open={isViewerOpen}
+              onOpenChange={setIsViewerOpen}
+              url={photoUrl}
+              caption={photo.filename ?? undefined}
+              alt={heading}
+              openerRef={enlargeButtonRef}
+            />
+          ) : null}
+        </div>
       ) : null}
 
       {resumeFiles.length === 0 ? (

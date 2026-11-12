@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { userEvent } from "vitest/browser";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 
 import { Notification } from "@/components/admin/notification";
@@ -130,6 +131,59 @@ describe("PhotoRevealCard — reveal click (AC 1)", () => {
       .toBeInTheDocument();
     expect(screen.container.querySelector("img")).toBeNull();
   });
+
+  it("does not offer Enlarge until the revealed image has loaded, then opens that photo", async () => {
+    const photoUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E";
+    const signResumePhotoUrl = vi.fn().mockResolvedValue(photoUrl);
+    const { screen } = await renderCard(buildPhoto(), { signResumePhotoUrl });
+
+    expect(
+      screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+    ).toBeNull();
+    await screen.getByRole("button", { name: "Reveal" }).click();
+    const image = screen.container.querySelector("img");
+    expect(image).not.toBeNull();
+    image?.dispatchEvent(new Event("load"));
+
+    await expect
+      .element(screen.getByRole("button", { name: "Enlarge photo" }))
+      .toBeInTheDocument();
+    await screen.getByRole("button", { name: "Enlarge photo" }).click();
+
+    await expect
+      .element(screen.getByRole("heading", { name: "Enlarged photo" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("dialog").getByRole("img", { name: "Photo" }))
+      .toHaveAttribute("src", photoUrl);
+    expect(signResumePhotoUrl).toHaveBeenCalledTimes(1);
+
+    await screen.getByRole("button", { name: "Close photo viewer" }).click();
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("removes Enlarge and keeps the retry path when the revealed image fails", async () => {
+    const { screen } = await renderCard(buildPhoto(), {
+      signResumePhotoUrl: vi
+        .fn()
+        .mockResolvedValue("https://signed.example/unrenderable.heic"),
+    });
+    await screen.getByRole("button", { name: "Reveal" }).click();
+    const image = screen.container.querySelector("img");
+    expect(image).not.toBeNull();
+    image?.dispatchEvent(new Event("error"));
+
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("This photo couldn’t be displayed.");
+    await expect
+      .element(screen.getByRole("button", { name: "Reveal" }))
+      .toBeInTheDocument();
+    expect(
+      screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+    ).toBeNull();
+  });
 });
 
 describe("PhotoRevealCard — immediate display", () => {
@@ -150,6 +204,29 @@ describe("PhotoRevealCard — immediate display", () => {
       .poll(() => screen.container.querySelector("img"))
       .not.toBeNull();
     expect(signResumePhotoUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the enlarged photo with Escape and returns focus to Enlarge", async () => {
+    const photoUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E";
+    const { screen } = await renderCard(
+      buildPhoto(),
+      {
+        signResumePhotoUrl: vi.fn().mockResolvedValue(photoUrl),
+      },
+      false,
+    );
+    await expect
+      .poll(() => screen.container.querySelector("img"))
+      .not.toBeNull();
+    screen.container.querySelector("img")?.dispatchEvent(new Event("load"));
+    await screen.getByRole("button", { name: "Enlarge photo" }).click();
+    await userEvent.keyboard("{Escape}");
+
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Enlarge photo" }))
+      .toHaveFocus();
   });
 
   it("discards an in-flight automatic URL when reveal-on-click is enabled", async () => {

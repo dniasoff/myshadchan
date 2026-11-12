@@ -248,6 +248,31 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     expect(dataProvider.uploadResumePhoto).not.toHaveBeenCalled();
   });
 
+  it("offers Enlarge only after the local preview has loaded", async () => {
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+    const pngBytes = Uint8Array.from(
+      atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      ),
+      (character) => character.charCodeAt(0),
+    );
+    await screen
+      .getByLabelText("Upload a photo")
+      .upload(new File([pngBytes], "ronit-photo.png", { type: "image/png" }));
+
+    expect(
+      screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+    ).toBeNull();
+    screen.container.querySelector("img")?.dispatchEvent(new Event("load"));
+    await expect
+      .element(screen.getByRole("button", { name: "Enlarge photo" }))
+      .toBeInTheDocument();
+    await screen.getByRole("button", { name: "Enlarge photo" }).click();
+    await expect
+      .element(screen.getByRole("heading", { name: "Enlarged photo" }))
+      .toBeInTheDocument();
+  });
+
   it("falls back to a text file chip when the local preview cannot render", async () => {
     const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
     await screen
@@ -267,6 +292,9 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       .element(screen.getByText("ronit-photo.heic", { exact: true }))
       .toBeInTheDocument();
     await expect.element(screen.getByText("image/heic")).toBeInTheDocument();
+    expect(
+      screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+    ).toBeNull();
   });
 
   it("keeps the suggestion saveable when a photo is rejected", async () => {

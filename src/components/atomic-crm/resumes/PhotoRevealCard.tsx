@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import type { CrmDataProvider } from "../providers/types";
 import type { ResumePhoto } from "../types";
+import { EnlargePhotoIcon, PhotoLightbox } from "./PhotoLightbox";
 
 /**
  * One photo that can either be hidden behind an explicit "Reveal"
@@ -36,6 +37,9 @@ export function PhotoRevealCard({
   const notify = useNotify();
   const translate = useTranslate();
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [imageReady, setImageReady] = useState(false);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
   const [isRevealing, setIsRevealing] = useState(false);
   const [autoRevealFailed, setAutoRevealFailed] = useState(false);
   const [isHiding, setIsHiding] = useState(false);
@@ -45,7 +49,14 @@ export function PhotoRevealCard({
   const mounted = useRef(true);
   const revealOnClickRef = useRef(revealOnClick);
   const previousRevealOnClick = useRef(revealOnClick);
+  const enlargeButtonRef = useRef<HTMLButtonElement>(null);
   revealOnClickRef.current = revealOnClick;
+
+  useEffect(() => {
+    if (!signedUrl) return;
+    setImageReady(false);
+    setImageLoadFailed(false);
+  }, [signedUrl]);
 
   useEffect(() => {
     mounted.current = true;
@@ -105,6 +116,7 @@ export function PhotoRevealCard({
       // may have produced; only a new explicit click may reveal this photo.
       requestGeneration.current += 1;
       setSignedUrl(null);
+      setIsViewerOpen(false);
       autoRevealAttempted.current = false;
       setIsRevealing(false);
       previousRevealOnClick.current = revealOnClick;
@@ -149,32 +161,75 @@ export function PhotoRevealCard({
     { _: photo.visibility },
   );
 
+  const canEnlarge = Boolean(signedUrl && imageReady && !imageLoadFailed);
+  const handleImageError = () => {
+    setImageReady(false);
+    setImageLoadFailed(true);
+    setIsViewerOpen(false);
+    setSignedUrl(null);
+  };
+
   return (
     <div className="flex flex-col overflow-hidden rounded-md border border-border">
       <div className="flex aspect-square items-center justify-center bg-muted">
-        {signedUrl ? (
-          <img
-            src={signedUrl}
-            alt={translate("crm.entity360.photo.alt", { _: "Photo" })}
-            className="h-full w-full object-cover"
-          />
-        ) : revealOnClick || autoRevealFailed ? (
-          <Button
+        {signedUrl && !imageLoadFailed ? (
+          <button
             type="button"
-            variant="secondary"
-            disabled={isRevealing}
-            onClick={() => handleReveal()}
+            aria-label="View enlarged photo"
+            disabled={!canEnlarge}
+            className="h-full w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+            onClick={() => setIsViewerOpen(true)}
           >
-            {revealOnClick
-              ? translate("crm.entity360.photo.reveal", { _: "Reveal" })
-              : translate("crm.entity360.photo.retry", { _: "Retry" })}
-          </Button>
+            <img
+              src={signedUrl}
+              alt={translate("crm.entity360.photo.alt", { _: "Photo" })}
+              className="h-full w-full object-cover"
+              onLoad={() => setImageReady(true)}
+              onError={handleImageError}
+            />
+          </button>
+        ) : revealOnClick || autoRevealFailed || imageLoadFailed ? (
+          <div className="flex flex-col items-center gap-2 p-3 text-center">
+            {imageLoadFailed ? (
+              <p role="alert" className="text-sm text-destructive">
+                This photo couldn’t be displayed.
+              </p>
+            ) : null}
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isRevealing}
+              onClick={() => handleReveal()}
+            >
+              {revealOnClick
+                ? translate("crm.entity360.photo.reveal", { _: "Reveal" })
+                : translate("crm.entity360.photo.retry", { _: "Retry" })}
+            </Button>
+          </div>
         ) : (
           <Skeleton className="size-full" aria-label="Loading photo" />
         )}
       </div>
       <div className="flex items-center justify-between gap-2 p-2">
-        <span className="text-xs text-muted-foreground">{visibilityLabel}</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {visibilityLabel}
+          </span>
+          {canEnlarge ? (
+            <Button
+              ref={enlargeButtonRef}
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label="Enlarge photo"
+              className="gap-1.5"
+              onClick={() => setIsViewerOpen(true)}
+            >
+              <EnlargePhotoIcon />
+              Enlarge
+            </Button>
+          ) : null}
+        </div>
         <Button
           type="button"
           variant="ghost"
@@ -186,6 +241,14 @@ export function PhotoRevealCard({
           {translate("crm.entity360.photo.hide", { _: "Hide" })}
         </Button>
       </div>
+      {signedUrl && canEnlarge ? (
+        <PhotoLightbox
+          open={isViewerOpen}
+          onOpenChange={setIsViewerOpen}
+          url={signedUrl}
+          openerRef={enlargeButtonRef}
+        />
+      ) : null}
       {/* The same `@/components/admin/confirm` primitive `FilesTab.tsx` gates
        * its delete on, so the two irreversible actions in this area ask the
        * question the same way. */}

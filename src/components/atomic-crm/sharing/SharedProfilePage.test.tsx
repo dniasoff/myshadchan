@@ -128,6 +128,9 @@ describe("SharedProfilePage", () => {
   });
 
   it("renders the photo inline (never as a downloadable resume row) when include_photo produced one", async () => {
+    const workerUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E#";
+    vi.stubEnv("VITE_SHARE_WORKER_URL", workerUrl);
     // Arrange
     const withPhoto: SharedProfileData = {
       single: { first_name_en: "Rivky", first_name_he: null },
@@ -155,5 +158,44 @@ describe("SharedProfilePage", () => {
     // renders as its own separate download row (not merged/hidden).
     await expect.element(screen.getByRole("img")).toBeVisible();
     await expect.element(screen.getByText("resume.pdf")).toBeVisible();
+  });
+
+  it("enlarges the active shared photo using its existing manifest URL", async () => {
+    const workerUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E#";
+    vi.stubEnv("VITE_SHARE_WORKER_URL", workerUrl);
+    const withPhoto: SharedProfileData = {
+      single: { first_name_en: "Rivky", first_name_he: null },
+      files: [
+        {
+          fileKey: "photo",
+          filename: "profile.jpg",
+          mimeType: "image/jpeg",
+          size: 1234,
+          downloadUrl: "/r/tok/file/photo",
+        },
+      ],
+    };
+    const screen = await render(
+      <SharedProfilePage
+        url={shareUrl()}
+        loadProfile={() => Promise.resolve(withPhoto)}
+      />,
+    );
+
+    const image = screen.getByRole("img");
+    await expect.element(image).toBeVisible();
+    image.element().dispatchEvent(new Event("load"));
+    await expect
+      .element(screen.getByRole("button", { name: "Enlarge photo" }))
+      .toBeInTheDocument();
+    await screen.getByRole("button", { name: "Enlarge photo" }).click();
+
+    await expect
+      .element(screen.getByRole("heading", { name: "Enlarged photo" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("dialog").getByRole("img", { name: /Rivky/ }))
+      .toHaveAttribute("src", `${workerUrl}/r/tok/file/photo`);
   });
 });
