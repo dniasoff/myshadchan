@@ -42,10 +42,13 @@ const LocationProbe = () => {
 const waitForFilterDebounce = () =>
   new Promise((resolve) => setTimeout(resolve, 650));
 
-const hasPersistedQuery = (query: string) =>
-  Array.from({ length: localStorage.length }, (_, index) =>
+const getStorageSnapshot = () =>
+  Array.from({ length: localStorage.length }, (_, index) => [
     localStorage.key(index),
-  ).some((key) => key && localStorage.getItem(key)?.includes(query));
+    localStorage.key(index)
+      ? localStorage.getItem(localStorage.key(index) as string)
+      : null,
+  ]);
 
 /**
  * `CoreAdminContext`'s own `store` prop defaults to a module-level
@@ -350,15 +353,7 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     });
     const search = screen.getByPlaceholder(SEARCH_PLACEHOLDER);
     const initialHistoryLength = window.history.length;
-    const initialStorage = Array.from(
-      { length: localStorage.length },
-      (_, index) => [
-        localStorage.key(index),
-        localStorage.key(index)
-          ? localStorage.getItem(localStorage.key(index) as string)
-          : null,
-      ],
-    );
+    const initialStorage = getStorageSnapshot();
 
     for (const query of ["7", "718", "718-555-0102", "Klein 718-555-0102"]) {
       await search.fill(query);
@@ -376,7 +371,7 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
         ),
       ).toBe(false);
       expect(window.history.length).toBe(initialHistoryLength);
-      expect(hasPersistedQuery(query)).toBe(false);
+      expect(getStorageSnapshot()).toEqual(initialStorage);
     }
 
     // A pending ordinary-text write must be cancelled when phone mode starts.
@@ -386,15 +381,7 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     expect(
       screen.getByTestId("list-location").element().textContent,
     ).not.toContain("Klein");
-    expect(hasPersistedQuery("Klein")).toBe(false);
-    expect(initialStorage).toEqual(
-      Array.from({ length: localStorage.length }, (_, index) => [
-        localStorage.key(index),
-        localStorage.key(index)
-          ? localStorage.getItem(localStorage.key(index) as string)
-          : null,
-      ]),
-    );
+    expect(getStorageSnapshot()).toEqual(initialStorage);
   });
 
   it("debounces ordinary text into URL filters and provider calls", async () => {
@@ -449,6 +436,7 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     });
     const getList = vi.spyOn(dataProvider, "getList");
     const initialHistoryLength = window.history.length;
+    const initialStorage = getStorageSnapshot();
     const screen = await renderShadchanList(memoryStore(), [], {
       initialEntries: [`/shadchanim?filter=${legacyFilter}`],
       dataProvider,
@@ -466,7 +454,7 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
       screen.getByTestId("list-location").element().textContent,
     ).not.toContain("Klein");
     expect(window.history.length).toBe(initialHistoryLength);
-    expect(hasPersistedQuery("Klein")).toBe(false);
+    expect(getStorageSnapshot()).toEqual(initialStorage);
     expect(
       getList.mock.calls.some(
         ([resource, params]) =>
