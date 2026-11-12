@@ -8,7 +8,11 @@ import { Separator } from "@/components/ui/separator";
  * Form inputs for a single (the person being matched). account_id is
  * set server-side by a trigger — never a form input.
  */
-export const SingleInputs = () => (
+export type SingleInputsProps = {
+  mode: "create" | "edit";
+};
+
+export const SingleInputs = ({ mode }: SingleInputsProps) => (
   <div className="flex flex-col gap-6">
     <div className="flex flex-col gap-4">
       <h3 className="text-sm font-semibold text-muted-foreground">Name</h3>
@@ -38,41 +42,33 @@ export const SingleInputs = () => (
           defaultValue="unknown"
           helperText={false}
         />
-        <TextInput source="community" helperText={false} />
         <DateInput source="dob" label="Date of birth" helperText={false} />
-        <SelectInput
-          source="kohen_status"
-          label="Kohen status"
-          choices={[
-            { id: "unknown", name: "Unknown" },
-            { id: "yes", name: "Yes" },
-            { id: "no", name: "No" },
-          ]}
-          defaultValue="unknown"
-          helperText="Optional — record only when explicitly known"
-        />
-        <TextInput
-          source="marital_status"
-          label="Marital status"
-          helperText="Optional — record only when explicitly known"
-        />
-        <SelectInput
-          source="status"
-          choices={[
-            { id: "active", name: "Active" },
-            { id: "paused", name: "Paused" },
-            // 2.5 AC-8: read-only — the only writer of 'archived' is
-            // remove_persona() (a persona-removal side effect, never a
-            // direct edit). Listed so an archived single's edit form has a
-            // matching choice instead of rendering blank and silently
-            // resetting to "active" on save; disabled so it can never be
-            // chosen going the other way.
-            { id: "archived", name: "Archived", disabled: true },
-          ]}
-          defaultValue="active"
-          helperText={false}
-        />
+        {mode === "edit" && (
+          <SelectInput
+            className="sm:col-span-2"
+            source="status"
+            choices={[
+              { id: "active", name: "Active" },
+              { id: "paused", name: "Paused" },
+              // 2.5 AC-8: read-only — the only writer of 'archived' is
+              // remove_persona() (a persona-removal side effect, never a
+              // direct edit). Listed so an archived single's edit form has a
+              // matching choice instead of rendering blank and silently
+              // resetting to "active" on save; disabled so it can never be
+              // chosen going the other way.
+              { id: "archived", name: "Archived", disabled: true },
+            ]}
+            defaultValue="active"
+            helperText={false}
+          />
+        )}
       </div>
+      {mode === "create" && (
+        <p className="text-sm text-muted-foreground">
+          You can update the name, gender, or date of birth later from Edit
+          single.
+        </p>
+      )}
     </div>
   </div>
 );
