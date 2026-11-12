@@ -56,6 +56,13 @@ export function resolveRemoteMigrations(remoteJson, localFilenames) {
       `the linked Supabase project has migration(s) absent locally: ${remoteOnly.join(", ")}`,
     );
   }
+  const outOfOrder = pending.filter((version) => version < baseline);
+  if (outOfOrder.length > 0) {
+    throw new Error(
+      `pending migration(s) ${outOfOrder.join(", ")} are timestamped before the last remotely applied ` +
+        `migration (${baseline}); refusing to run a partial safety check`,
+    );
+  }
 
   return { baseline, pending };
 }

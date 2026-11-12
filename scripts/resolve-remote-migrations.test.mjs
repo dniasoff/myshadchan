@@ -37,6 +37,18 @@ describe("resolveRemoteMigrations", () => {
     ).toThrow(/absent locally/);
   });
 
+  test("rejects a missing older migration instead of hiding it behind the latest baseline", () => {
+    expect(() =>
+      resolveRemoteMigrations(
+        { migrations: [{ version: "20260823177000" }] },
+        [
+          "20260823176000_pending-out-of-order.sql",
+          "20260823177000_second.sql",
+        ],
+      ),
+    ).toThrow(/timestamped before the last remotely applied/);
+  });
+
   test("rejects an empty or malformed hosted history", () => {
     expect(() => resolveRemoteMigrations({}, [])).toThrow(
       /no applied migration/,
