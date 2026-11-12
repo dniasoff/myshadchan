@@ -4,6 +4,8 @@ import { useGetList } from "ra-core";
 import type { Shadchan, ShidduchSummary } from "../types";
 import { ShadchanCard } from "./ShadchanCard";
 import { countSuggestionsByShadchan } from "./shadchanUtils";
+import { ShadchanNotesLookupStatus } from "./ShadchanNoteAction";
+import { useShadchanNotes } from "./useShadchanNotes";
 
 /**
  * Review fix (F6): extracted out of `ShadchanList.tsx`, mirroring
@@ -56,6 +58,9 @@ export const ShadchanCardGrid = ({
   phoneSearchQuery,
 }: ShadchanCardGridProps) => {
   const shadchanim = data as Shadchan[];
+  const noteLookup = useShadchanNotes(
+    shadchanim.map((shadchan) => shadchan.id),
+  );
   const { data: shidduchim, isPending: shidduchimPending } =
     useGetList<ShidduchSummary>("shidduchim", {
       pagination: { page: 1, perPage: 500 },
@@ -63,22 +68,31 @@ export const ShadchanCardGrid = ({
     });
 
   if (shidduchimPending) {
-    return <ShadchanCardGridSkeleton />;
+    return (
+      <>
+        <ShadchanNotesLookupStatus {...noteLookup} />
+        <ShadchanCardGridSkeleton />
+      </>
+    );
   }
 
   const counts = countSuggestionsByShadchan(shidduchim ?? []);
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {shadchanim.map((shadchan, index) => (
-        <ShadchanCard
-          key={shadchan.id}
-          shadchan={shadchan}
-          suggestionCount={counts.get(shadchan.id) ?? 0}
-          index={index}
-          phoneSearchQuery={phoneSearchQuery}
-        />
-      ))}
-    </div>
+    <>
+      <ShadchanNotesLookupStatus {...noteLookup} />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {shadchanim.map((shadchan, index) => (
+          <ShadchanCard
+            key={shadchan.id}
+            shadchan={shadchan}
+            suggestionCount={counts.get(shadchan.id) ?? 0}
+            index={index}
+            phoneSearchQuery={phoneSearchQuery}
+            note={noteLookup.notesByShadchanId.get(String(shadchan.id))}
+          />
+        ))}
+      </div>
+    </>
   );
 };

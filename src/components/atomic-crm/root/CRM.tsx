@@ -43,6 +43,7 @@ import {
   renderResources,
   shouldPrefetchConfigOnLogin,
 } from "./adminRouteBuilders";
+import { mobilePersistOptions } from "./queryPersistence";
 
 const defaultStore = createCrmStore();
 
@@ -248,7 +249,10 @@ const MobileAdmin = (
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{ persister: asyncStoragePersister }}
+      persistOptions={{
+        ...mobilePersistOptions,
+        persister: asyncStoragePersister,
+      }}
     >
       <Admin
         queryClient={queryClient}

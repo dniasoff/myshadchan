@@ -953,6 +953,18 @@ export const englishCrmMessages = {
         shidduchimCount:
           "%{smart_count} shidduch |||| %{smart_count} shidduchim",
       },
+      notes: {
+        label: "Note",
+        open: "Open note for %{name}",
+        title: "%{name} — note",
+        writtenBy: "Written by %{author}",
+        checking: "Checking for notes…",
+        error: "Could not load note indicators.",
+        noText: "This note has no text.",
+        noMetadata: "Note details unavailable.",
+        viewAll: "View all notes",
+        close: "Close",
+      },
     },
     // Story 4.3, AC 1 — ShidduchimViewSwitch's three-position control, the
     // segmented-toggle counterpart to `entity_list.view_list`/`view_cards`

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import type * as RaCore from "ra-core";
@@ -21,12 +21,29 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
  * "suggestion(s)" — this file's own two assertions below are updated in the
  * same diff.
  */
-const { useGetListMock } = vi.hoisted(() => ({ useGetListMock: vi.fn() }));
+const { useGetListMock, useShadchanNotesMock } = vi.hoisted(() => ({
+  useGetListMock: vi.fn(),
+  useShadchanNotesMock: vi.fn<
+    () => {
+      notesByShadchanId: Map<string, unknown>;
+      isPending: boolean;
+      error: unknown;
+    }
+  >(() => ({
+    notesByShadchanId: new Map(),
+    isPending: false,
+    error: null,
+  })),
+}));
 
 vi.mock("ra-core", async (importOriginal) => {
   const actual = await importOriginal<typeof RaCore>();
   return { ...actual, useGetList: useGetListMock };
 });
+
+vi.mock("./useShadchanNotes", () => ({
+  useShadchanNotes: useShadchanNotesMock,
+}));
 
 // Side-effect import — registers the real `shadchanim` descriptor so
 // `ShadchanCard`'s `RecordLink` resolves a real href instead of degrading to
@@ -40,6 +57,18 @@ const SHADCHANIM = [
   { id: 2, name: "Moshe Adler" },
 ];
 
+const NOTE = {
+  id: 22,
+  account_id: 1,
+  target_type: "shadchan" as const,
+  target_id: 1,
+  scope: "account" as const,
+  kind: "note" as const,
+  body: "Private body",
+  created_at: "2026-01-01T00:00:00.000Z",
+  deleted_at: null,
+};
+
 const renderGrid = () =>
   render(
     <TestMemoryRouter>
@@ -50,6 +79,86 @@ const renderGrid = () =>
   );
 
 describe("ShadchanCardGrid — gates on the shidduchim count query, not just the shadchanim list (F5)", () => {
+  beforeEach(() => {
+    useShadchanNotesMock.mockImplementation(() => ({
+      notesByShadchanId: new Map(),
+      isPending: false,
+      error: null,
+    }));
+  });
+
+  it("shows one quiet pending status and no Note action while indicators load", async () => {
+    // Arrange
+    useShadchanNotesMock.mockReturnValue({
+      notesByShadchanId: new Map(),
+      isPending: true,
+      error: null,
+    });
+    useGetListMock.mockReturnValue({
+      data: [{ id: 100, shadchan_id: 1, pipeline_state: "new" }],
+      isPending: false,
+    });
+
+    // Act
+    const screen = await renderGrid();
+
+    // Assert
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Checking for notes…");
+    await expect
+      .element(
+        screen.getByRole("button", { name: "Open note for Rivka Stern" }),
+      )
+      .not.toBeInTheDocument();
+  });
+
+  it("shows one error status and no Note action when indicators fail", async () => {
+    // Arrange
+    useShadchanNotesMock.mockReturnValue({
+      notesByShadchanId: new Map(),
+      isPending: false,
+      error: new Error("private read failed"),
+    });
+    useGetListMock.mockReturnValue({
+      data: [{ id: 100, shadchan_id: 1, pipeline_state: "new" }],
+      isPending: false,
+    });
+
+    // Act
+    const screen = await renderGrid();
+
+    // Assert
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Could not load note indicators.");
+    await expect
+      .element(
+        screen.getByRole("button", { name: "Open note for Rivka Stern" }),
+      )
+      .not.toBeInTheDocument();
+  });
+
+  it("passes the visible note through to the matching card", async () => {
+    useShadchanNotesMock.mockReturnValue({
+      notesByShadchanId: new Map([["1", NOTE]]),
+      isPending: false,
+      error: null,
+    });
+    useGetListMock.mockReturnValue({
+      data: [{ id: 100, shadchan_id: 1, pipeline_state: "new" }],
+      isPending: false,
+    });
+
+    const screen = await renderGrid();
+
+    await expect
+      .element(
+        screen.getByRole("button", { name: "Open note for Rivka Stern" }),
+      )
+      .toBeInTheDocument();
+  });
+
   it("renders the skeleton, not a card claiming '0 shidduchim', while the count query is pending", async () => {
     // Arrange
     useGetListMock.mockReturnValue({ data: undefined, isPending: true });
