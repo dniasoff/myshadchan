@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import { CoreAdminContext, memoryStore, TestMemoryRouter } from "ra-core";
+import {
+  CoreAdminContext,
+  memoryStore,
+  TestMemoryRouter,
+  useLocation,
+} from "ra-core";
 import type { Store } from "ra-core";
 import fakeDataProvider from "ra-data-fakerest";
 
@@ -29,6 +34,11 @@ const SHADCHANIM = [
 
 const SEARCH_PLACEHOLDER = "Search by name, location, or phone number";
 
+const LocationProbe = () => {
+  const location = useLocation();
+  return <output data-testid="list-location">{location.search}</output>;
+};
+
 /**
  * `CoreAdminContext`'s own `store` prop defaults to a module-level
  * `memoryStore()` singleton (`ra-core/src/core/CoreAdminContext.tsx`) shared
@@ -41,18 +51,26 @@ const SEARCH_PLACEHOLDER = "Search by name, location, or phone number";
 const renderShadchanList = (
   store: Store = memoryStore(),
   shidduchim: { id: number; shadchan_id: number }[] = [],
+  options: {
+    initialEntries?: string[];
+    dataProvider?: ReturnType<typeof fakeDataProvider>;
+  } = {},
 ) =>
   render(
-    <TestMemoryRouter>
+    <TestMemoryRouter initialEntries={options.initialEntries}>
       <CoreAdminContext
         store={store}
-        dataProvider={fakeDataProvider({
-          shadchanim: SHADCHANIM,
-          shidduchim,
-        })}
+        dataProvider={
+          options.dataProvider ??
+          fakeDataProvider({
+            shadchanim: SHADCHANIM,
+            shidduchim,
+          })
+        }
         i18nProvider={testI18nProvider}
       >
         <ShadchanList />
+        <LocationProbe />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -258,5 +276,47 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     await expect
       .element(screen.getByText("Phone search active"))
       .not.toBeInTheDocument();
+  });
+
+  it("keeps number-like keystrokes out of URL filters and provider calls", async () => {
+    const dataProvider = fakeDataProvider({
+      shadchanim: SHADCHANIM,
+      shidduchim: [],
+    });
+    const getList = vi.spyOn(dataProvider, "getList");
+    const screen = await renderShadchanList(memoryStore(), [], {
+      dataProvider,
+    });
+
+    const search = screen.getByPlaceholder(SEARCH_PLACEHOLDER);
+    await search.fill("7");
+    await search.fill("71");
+    await search.fill("718");
+
+    expect(
+      screen.getByTestId("list-location").element().textContent,
+    ).not.toContain('"q"');
+    expect(
+      getList.mock.calls.some(
+        ([resource, params]) =>
+          resource === "shadchanim" &&
+          typeof params.filter?.q === "string" &&
+          params.filter.q.length > 0,
+      ),
+    ).toBe(false);
+  });
+
+  it("clears a legacy short numeric q before displaying or reusing it", async () => {
+    const legacyFilter = encodeURIComponent(JSON.stringify({ q: "718" }));
+    const screen = await renderShadchanList(memoryStore(), [], {
+      initialEntries: [`/shadchanim?filter=${legacyFilter}`],
+    });
+
+    await expect
+      .element(screen.getByPlaceholder(SEARCH_PLACEHOLDER))
+      .toHaveValue("");
+    expect(
+      screen.getByTestId("list-location").element().textContent,
+    ).not.toContain("718");
   });
 });

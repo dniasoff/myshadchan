@@ -5,7 +5,11 @@ import { useListContext } from "ra-core";
 
 import { Input } from "@/components/ui/input";
 
-import { isNumberLikeSearchQuery, isPhoneSearchQuery } from "./shadchanUtils";
+import {
+  isNumberLikeSearchQuery,
+  isPhoneInputQuery,
+  isPhoneSearchQuery,
+} from "./shadchanUtils";
 
 export const SHADCHAN_SEARCH_PLACEHOLDER =
   "Search by name, location, or phone number";
@@ -28,7 +32,7 @@ export const ShadchanSearchInput = ({
   const initialQuery = typeof filterValues.q === "string" ? filterValues.q : "";
   const initialQueryRef = useRef(initialQuery);
   const [value, setValue] = useState(() =>
-    isPhoneSearchQuery(initialQuery) ? "" : initialQuery,
+    isPhoneInputQuery(initialQuery) ? "" : initialQuery,
   );
   const initializedRef = useRef(false);
 
@@ -37,7 +41,7 @@ export const ShadchanSearchInput = ({
     initializedRef.current = true;
 
     const persistedQuery = initialQueryRef.current;
-    if (isPhoneSearchQuery(persistedQuery)) {
+    if (isPhoneInputQuery(persistedQuery)) {
       setFilters(removeQueryFilter(filterValues));
       onQueryChange("");
       return;
@@ -47,19 +51,19 @@ export const ShadchanSearchInput = ({
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const nextQuery = event.currentTarget.value;
-    const phoneMode = isPhoneSearchQuery(nextQuery);
+    const phoneInput = isPhoneInputQuery(nextQuery);
 
     setValue(nextQuery);
     onQueryChange(nextQuery);
 
-    if (phoneMode) {
+    if (phoneInput) {
       if ("q" in filterValues) {
         setFilters(removeQueryFilter(filterValues));
       }
       return;
     }
 
-    setFilters({ ...filterValues, q: nextQuery });
+    setFilters({ ...filterValues, q: nextQuery }, undefined, true);
   };
 
   const handleClear = () => {

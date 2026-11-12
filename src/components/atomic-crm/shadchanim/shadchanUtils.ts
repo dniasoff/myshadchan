@@ -97,6 +97,16 @@ const getPhoneSearchDigits = (query: string): string | null => {
 export const isPhoneSearchQuery = (query: string): boolean =>
   getPhoneSearchDigits(query) !== null;
 
+/** Phone-shaped input stays ephemeral even before it reaches the 4-digit floor. */
+export const isPhoneInputQuery = (query: string): boolean => {
+  const trimmed = query.trim();
+  return (
+    trimmed.length > 0 &&
+    !/\p{L}/u.test(trimmed) &&
+    /^[0-9\s()+.\-\x5B\x5D]+$/u.test(trimmed)
+  );
+};
+
 export const isNumberLikeSearchQuery = (query: string): boolean => {
   const trimmed = query.trim();
   return (
