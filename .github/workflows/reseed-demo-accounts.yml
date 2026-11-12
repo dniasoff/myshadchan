@@ -12,6 +12,9 @@ on:
         options:
           - production
 
+permissions:
+  contents: read
+
 jobs:
   reseed:
     name: Clear and re-seed demo-flagged accounts

@@ -103,7 +103,9 @@ that cannot see your schema looks exactly like a converged one.
 
 #### The pinned-CLI trap (a deploy that re-applies live migrations)
 
-`.github/workflows/deploy.yml` pins the Supabase CLI via `supabase/setup-cli`
+`.github/workflows/deploy.yml` and `backup.yml` pin the Supabase CLI via
+`supabase/setup-cli@689adcfb80d947100a1eab127289b97d1fb07b13` (the verified
+v3.2.0 commit)
 because **2.112.0 and later misread the hosted migration history** during
 `supabase link`. That pin is only real if the steps call the binary setup-cli
 installed. They used to call `npx supabase`, which ignores `PATH` and installs
@@ -119,8 +121,12 @@ Two consequences worth keeping:
 
 - **Never `npx supabase` for linked/remote history operations** (`link`,
   `db push`, `migration list --linked`) in CI or by hand. Use the pinned
-  binary. The deploy workflow now prints `supabase --version` so a future
-  drift is visible in the log rather than inferred from a failure.
+  binary. Deploy preflight links first, reads the hosted migration list and
+  runs `db push --dry-run` before deciding whether the populated-table guard
+  and private-R2 backup are required. It uses the last remotely applied
+  version as the guard baseline; it never treats a missing or all-zero push
+  base as a green skip. The deploy workflow prints `supabase --version` so a
+  future drift is visible in the log rather than inferred from a failure.
 - **Two migration versions have invalid minute fields** —
   `20260823176000` (17:**60**) and `20260823177000` (17:**70**). They are
   already applied remotely under exactly those names, so they must **not** be

@@ -15,8 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
-  checks: write
+  contents: read
 
 jobs:
   lint:
@@ -27,6 +26,9 @@ jobs:
     steps:
       - name: 📥 Checkout repo
         uses: actions/checkout@v7
+
+      - name: 🔎 actionlint
+        run: docker run --rm -v "$GITHUB_WORKSPACE:/repo" -w /repo rhysd/actionlint@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9
 
       - name: ⚙️ Setup node
         uses: actions/setup-node@v7
@@ -118,6 +120,12 @@ jobs:
       - name: 🔎 Unit Tests on the database (RLS / SECURITY DEFINER suite)
         run: CI=1 SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54342/postgres npm run test:unit:db -- --run
 
+      - name: 🧭 Declarative schema drift (migrations converge)
+        run: make check-schema-drift
+
+      - name: 🧪 Prove schema drift gate rejects injected drift
+        run: node scripts/check-schema-drift-negative.mjs
+
       - name: 🛑 Stop local Supabase stack
         if: always()
         run: make stop-supabase-e2e
@@ -133,8 +141,8 @@ jobs:
   # The baseline is "what production had before this change": the merge base
   # on a pull request, `github.event.before` on a push (this repo deploys
   # every push to main, so that commit IS the deployed schema). When neither
-  # yields a usable ref, or nothing is pending, the script says so and
-  # passes — see scripts/check-migration-data-safety.mjs.
+  # yields a usable ref, the guard fails closed; when no migrations are pending
+  # against a usable baseline, it reports that no work is needed.
   migration-data-safety:
     name: 🧬 Migration data-safety (non-empty table)
     runs-on: ubuntu-latest
@@ -163,7 +171,7 @@ jobs:
       - name: 🧬 Do the pending migrations destroy existing data?
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_REF="origin/${{ github.base_ref }}"
+            BASE_REF="$(git merge-base HEAD "origin/${{ github.base_ref }}")"
           else
             BASE_REF="${{ github.event.before }}"
           fi

@@ -227,6 +227,9 @@ override BASE_REF := $(value BASE_REF)
 check-migration-safety: ## verify the pending migrations do not destroy production data (honours STACK_ID)
 	@$(STACK_ENV); node scripts/check-migration-data-safety.mjs $(if $(BASE_REF),--base-ref '$(BASE_REF)',)
 
+check-schema-drift: ## verify migrations converge to the declarative Supabase schemas (honours STACK_ID)
+	@$(STACK_ENV); node scripts/check-schema-drift.mjs
+
 test-e2e: start-e2e ## run the e2e suite with the Playwright UI (honours STACK_ID)
 	npx playwright test --ui
 

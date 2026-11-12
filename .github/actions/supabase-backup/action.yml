@@ -1,0 +1,58 @@
+name: Supabase private R2 backup
+description: Dump roles, schema and data and upload the complete set to the private R2 backup bucket.
+inputs:
+  supabase-access-token:
+    description: Access token for the linked Supabase project.
+    required: true
+  supabase-db-password:
+    description: Password for the linked Supabase database.
+    required: true
+  r2-account-id:
+    description: Cloudflare account id owning the R2 bucket.
+    required: true
+  r2-access-key-id:
+    description: R2 S3-compatible access key.
+    required: true
+  r2-secret-access-key:
+    description: R2 S3-compatible secret key.
+    required: true
+  r2-bucket:
+    description: Private R2 bucket receiving the backup.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Dump and upload roles, schema and data
+      shell: bash
+      env:
+        SUPABASE_ACCESS_TOKEN: ${{ inputs.supabase-access-token }}
+        SUPABASE_DB_PASSWORD: ${{ inputs.supabase-db-password }}
+        AWS_ACCESS_KEY_ID: ${{ inputs.r2-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.r2-secret-access-key }}
+        AWS_DEFAULT_REGION: auto
+        R2_ACCOUNT_ID: ${{ inputs.r2-account-id }}
+        R2_BUCKET: ${{ inputs.r2-bucket }}
+      run: |
+        set -euo pipefail
+        dump_dir="$RUNNER_TEMP/myshadchan-db-dump"
+        rm -rf "$dump_dir"
+        mkdir -p "$dump_dir"
+
+        # Keep the three files together: Supabase's restore order is roles,
+        # schema, data. A data-only dump is not a recoverable backup.
+        supabase db dump --linked -f "$dump_dir/roles.sql" --role-only
+        supabase db dump --linked -f "$dump_dir/schema.sql"
+        supabase db dump --linked -f "$dump_dir/data.sql" --data-only
+        for file in roles schema data; do
+          test -s "$dump_dir/$file.sql" || {
+            echo "::error::$dump_dir/$file.sql is empty - refusing to upload a useless backup"
+            exit 1
+          }
+        done
+        gzip "$dump_dir"/*.sql
+
+        stamp="$(date -u +%Y-%m-%dT%H-%M-%SZ)-${GITHUB_RUN_ID}"
+        endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+        aws s3 cp "$dump_dir/" "s3://${R2_BUCKET}/$stamp/" \
+          --recursive --endpoint-url "$endpoint"
+        echo "✅ Uploaded roles, schema and data to the private R2 prefix $stamp (30-day retention policy)." >> "$GITHUB_STEP_SUMMARY"

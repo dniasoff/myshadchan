@@ -30,7 +30,7 @@ A failure in ANY phase leaves production in a mixed state. The workflow's `needs
 | 2 | `deploy-workers` (any leg) | `🔑 Push base secrets` | Worker deployed but missing `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`. |
 | 3 | `trigger-frontend` | `🚀 Trigger the Vercel production build` | Backend is live; frontend still on previous build. |
 
-> **VERIFIED:** The workflow's failure message at `deploy.yml:655` documents the exact path: **Vercel → Project → Settings → Git → Deploy Hooks**, branch `main`, stored as the `VERCEL_DEPLOY_HOOK_URL` repo secret. `vercel.json` sets `git.deploymentEnabled.main = false` — **pushing to main does NOT build anything**. The CI deploy hook is the only trigger for a production build. If the secret is missing, the workflow warns (not fails) and production silently keeps serving the previous build (`deploy.yml:652-656`). A dashboard "Redeploy" re-runs an **existing** deployment; it does NOT pick up a new commit because git builds are disabled. It is useful only for retrying a failed build of the same commit, and useless for shipping new code.
+> **VERIFIED:** The workflow's failure message documents the exact path: **Vercel → Project → Settings → Git → Deploy Hooks**, branch `main`, stored as the `VERCEL_DEPLOY_HOOK_URL` repo secret. `vercel.json` sets `git.deploymentEnabled.main = false` — **pushing to main does NOT build anything**. The CI deploy hook is the only trigger for a production build. The workflow fails before any hosted mutation if the hook is missing or its POST fails, so production cannot silently keep serving the previous build. A dashboard "Redeploy" re-runs an **existing** deployment; it does NOT pick up a new commit because git builds are disabled. It is useful only for retrying a failed build of the same commit, and useless for shipping new code.
 
 ---
 
@@ -166,7 +166,7 @@ make check-migration-safety BASE_REF=<last-known-good-deploy-sha>
 - If a deploy fails on a missing R2 binding, it means someone re-introduced an `[[r2_buckets]]` block against the ruling. Remove it.
 
 ### Verification
-- All 7 `deploy-workers` legs show green (or skipped with warning)
+- All 7 `deploy-workers` legs show green; a failed or skipped leg blocks the smoke job and must be investigated.
 - Cloudflare Dashboard → each worker shows recent deployment with correct version
 - `cron` worker: next scheduled tick fires (check `cron_heartbeat.last_run_at` in Supabase)
 - `billing` worker: Stripe webhook endpoint responds 200 (test in Stripe Dashboard → Webhooks → Send test)
@@ -178,7 +178,7 @@ make check-migration-safety BASE_REF=<last-known-good-deploy-sha>
 ### Symptoms
 - `trigger-frontend` job red
 - Error: `Vercel deploy hook failed — production was NOT rebuilt`
-- OR warning: `VERCEL_DEPLOY_HOOK_URL secret is missing`
+- OR error: `VERCEL_DEPLOY_HOOK_URL secret is missing` (the workflow fails closed)
 
 ### Immediate Triage
 
