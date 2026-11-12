@@ -13,6 +13,7 @@ import { TextInput } from "@/components/admin/text-input";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
+import { buildNewPath } from "../entity360/entityPaths";
 import { SingleCreate } from "./SingleCreate";
 import { SingleInputs } from "./SingleInputs";
 import "./entityDescriptor";
@@ -190,7 +191,7 @@ describe("SingleInputs", () => {
   it("keeps the Add caller's persisted defaults when its fields are hidden", async () => {
     const create = vi.fn().mockResolvedValue({ data: { id: 1 } });
     const screen = await render(
-      <TestMemoryRouter initialEntries={["/singles/create"]}>
+      <TestMemoryRouter initialEntries={[buildNewPath("singles")]}>
         <CoreAdminContext
           dataProvider={{ create } as unknown as CrmDataProvider}
           i18nProvider={testI18nProvider}
