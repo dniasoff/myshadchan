@@ -137,7 +137,7 @@ const ProfileContent = ({ data }: { data: SharedProfileData }) => {
   const [photoLoaded, setPhotoLoaded] = useState(false);
   const [photoFailed, setPhotoFailed] = useState(false);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
-  const enlargeButtonRef = useRef<HTMLButtonElement>(null);
+  const viewerOpenerRef = useRef<HTMLElement | null>(null);
   const canEnlarge = Boolean(photoUrl && photoLoaded && !photoFailed);
 
   useEffect(() => {
@@ -168,7 +168,10 @@ const ProfileContent = ({ data }: { data: SharedProfileData }) => {
               type="button"
               aria-label="View enlarged photo"
               className="aspect-square w-full cursor-zoom-in rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => setIsViewerOpen(true)}
+              onClick={(event) => {
+                viewerOpenerRef.current = event.currentTarget;
+                setIsViewerOpen(true);
+              }}
             >
               <img
                 src={photoUrl}
@@ -189,12 +192,14 @@ const ProfileContent = ({ data }: { data: SharedProfileData }) => {
           )}
           {canEnlarge ? (
             <Button
-              ref={enlargeButtonRef}
               type="button"
               variant="outline"
               className="min-h-11 w-fit gap-1.5"
               aria-label="Enlarge photo"
-              onClick={() => setIsViewerOpen(true)}
+              onClick={(event) => {
+                viewerOpenerRef.current = event.currentTarget;
+                setIsViewerOpen(true);
+              }}
             >
               <EnlargePhotoIcon />
               Enlarge
@@ -207,7 +212,7 @@ const ProfileContent = ({ data }: { data: SharedProfileData }) => {
               url={photoUrl}
               caption={photo.filename ?? undefined}
               alt={heading}
-              openerRef={enlargeButtonRef}
+              openerRef={viewerOpenerRef}
             />
           ) : null}
         </div>

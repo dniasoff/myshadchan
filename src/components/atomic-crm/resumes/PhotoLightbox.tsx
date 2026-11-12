@@ -51,7 +51,8 @@ export function PhotoLightbox({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex h-[min(90dvh,60rem)] max-h-[90dvh] w-[min(90vw,60rem)] max-w-[min(90vw,60rem)] flex-col gap-3 overflow-hidden border-slate-800 bg-slate-950 p-4 text-slate-50 sm:p-6"
+        className="flex h-[min(90dvh,60rem)] max-h-[90dvh] w-[min(90vw,60rem)] max-w-[min(90vw,60rem)] flex-col gap-3 overflow-hidden border-slate-800 bg-slate-950 p-4 text-slate-50 sm:max-w-[min(90vw,60rem)] sm:p-6"
+        hideClose
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           closeButtonRef.current?.focus();

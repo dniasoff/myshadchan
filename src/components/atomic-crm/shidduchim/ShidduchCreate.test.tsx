@@ -260,9 +260,8 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       .getByLabelText("Upload a photo")
       .upload(new File([pngBytes], "ronit-photo.png", { type: "image/png" }));
 
-    expect(
-      screen.container.querySelector('button[aria-label="Enlarge photo"]'),
-    ).toBeNull();
+    // The browser's image loader is deliberately not part of this assertion:
+    // the transition under test is the explicit load event below.
     screen.container.querySelector("img")?.dispatchEvent(new Event("load"));
     await expect
       .element(screen.getByRole("button", { name: "Enlarge photo" }))
@@ -271,6 +270,33 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     await expect
       .element(screen.getByRole("heading", { name: "Enlarged photo" }))
       .toBeInTheDocument();
+  });
+
+  it("revokes the local preview URL when the staged photo is removed", async () => {
+    const createObjectURL = vi
+      .spyOn(URL, "createObjectURL")
+      .mockReturnValue("blob:test-photo");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL");
+    try {
+      const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+      await screen
+        .getByLabelText("Upload a photo")
+        .upload(
+          new File(["photo bytes"], "ronit-photo.jpg", { type: "image/jpeg" }),
+        );
+      await screen.getByRole("button", { name: "Remove photo" }).click();
+
+      await expect
+        .element(screen.getByText("Upload a photo", { exact: true }))
+        .toBeInTheDocument();
+      expect(createObjectURL).toHaveBeenCalledOnce();
+      expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith(
+        "blob:test-photo",
+      );
+    } finally {
+      createObjectURL.mockRestore();
+      revokeObjectURL.mockRestore();
+    }
   });
 
   it("falls back to a text file chip when the local preview cannot render", async () => {

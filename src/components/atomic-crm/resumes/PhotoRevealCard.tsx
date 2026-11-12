@@ -49,7 +49,7 @@ export function PhotoRevealCard({
   const mounted = useRef(true);
   const revealOnClickRef = useRef(revealOnClick);
   const previousRevealOnClick = useRef(revealOnClick);
-  const enlargeButtonRef = useRef<HTMLButtonElement>(null);
+  const viewerOpenerRef = useRef<HTMLElement | null>(null);
   revealOnClickRef.current = revealOnClick;
 
   useEffect(() => {
@@ -178,7 +178,10 @@ export function PhotoRevealCard({
             aria-label="View enlarged photo"
             disabled={!canEnlarge}
             className="h-full w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
-            onClick={() => setIsViewerOpen(true)}
+            onClick={(event) => {
+              viewerOpenerRef.current = event.currentTarget;
+              setIsViewerOpen(true);
+            }}
           >
             <img
               src={signedUrl}
@@ -217,13 +220,15 @@ export function PhotoRevealCard({
           </span>
           {canEnlarge ? (
             <Button
-              ref={enlargeButtonRef}
               type="button"
               variant="ghost"
               size="sm"
               aria-label="Enlarge photo"
               className="gap-1.5"
-              onClick={() => setIsViewerOpen(true)}
+              onClick={(event) => {
+                viewerOpenerRef.current = event.currentTarget;
+                setIsViewerOpen(true);
+              }}
             >
               <EnlargePhotoIcon />
               Enlarge
@@ -246,7 +251,7 @@ export function PhotoRevealCard({
           open={isViewerOpen}
           onOpenChange={setIsViewerOpen}
           url={signedUrl}
-          openerRef={enlargeButtonRef}
+          openerRef={viewerOpenerRef}
         />
       ) : null}
       {/* The same `@/components/admin/confirm` primitive `FilesTab.tsx` gates

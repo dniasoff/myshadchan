@@ -189,7 +189,7 @@ const PhotoUploadPanel = ({
   const [previewFailed, setPreviewFailed] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
-  const enlargeButtonRef = useRef<HTMLButtonElement>(null);
+  const viewerOpenerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setPreviewFailed(false);
@@ -238,7 +238,10 @@ const PhotoUploadPanel = ({
                   type="button"
                   aria-label="View enlarged photo"
                   className="size-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => setIsViewerOpen(true)}
+                  onClick={(event) => {
+                    viewerOpenerRef.current = event.currentTarget;
+                    setIsViewerOpen(true);
+                  }}
                 >
                   <img
                     src={previewUrl}
@@ -281,12 +284,14 @@ const PhotoUploadPanel = ({
             <div className="mt-2 flex flex-wrap gap-2">
               {canEnlarge ? (
                 <Button
-                  ref={enlargeButtonRef}
                   type="button"
                   variant="outline"
                   className="h-11 gap-1.5"
                   aria-label="Enlarge photo"
-                  onClick={() => setIsViewerOpen(true)}
+                  onClick={(event) => {
+                    viewerOpenerRef.current = event.currentTarget;
+                    setIsViewerOpen(true);
+                  }}
                 >
                   <EnlargePhotoIcon />
                   Enlarge
@@ -310,7 +315,7 @@ const PhotoUploadPanel = ({
           onOpenChange={setIsViewerOpen}
           url={previewUrl}
           caption={file.name}
-          openerRef={enlargeButtonRef}
+          openerRef={viewerOpenerRef}
         />
       ) : null}
       {file && (
