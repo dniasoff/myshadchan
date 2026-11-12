@@ -125,6 +125,31 @@ describe("DOCX extraction safety", () => {
     });
   });
 
+  it("maps a password-protected Word OLE2 container to the password copy", async () => {
+    const encryptedPackage = new TextEncoder().encode("EncryptedPackage");
+    const utf16 = new Uint8Array(encryptedPackage.length * 2);
+    encryptedPackage.forEach((byte, index) => {
+      utf16[index * 2] = byte;
+    });
+    const bytes = new Uint8Array(8 + utf16.length);
+    bytes.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    bytes.set(utf16, 8);
+
+    await expect(extractDocxText(bytes.buffer)).rejects.toMatchObject({
+      failure: "password_protected",
+      message: "DOCX extraction failed",
+    });
+  });
+
+  it("does not treat a legacy OLE2 Word file as a readable DOCX", async () => {
+    const bytes = new Uint8Array([
+      0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1,
+    ]);
+    await expect(extractDocxText(bytes.buffer)).rejects.toMatchObject({
+      failure: "malformed",
+    });
+  });
+
   it("rejects encrypted entries before Mammoth can decompress them", async () => {
     const buffer = await makeBilingualDocx();
     const view = new DataView(buffer);
@@ -173,6 +198,11 @@ describe("DOCX extraction safety", () => {
     const buffer = await makeArchive([{ name: "bomb.bin", data: actual }]);
     const view = new DataView(buffer);
     view.setUint32(centralRecordFor(buffer, "bomb.bin") + 24, 1, true);
+    const localOffset = view.getUint32(
+      centralRecordFor(buffer, "bomb.bin") + 42,
+      true,
+    );
+    view.setUint32(localOffset + 22, 1, true);
 
     await expect(extractDocxText(buffer)).rejects.toMatchObject({
       failure: "too_large",
@@ -188,6 +218,11 @@ describe("DOCX extraction safety", () => {
       4 * 1024 * 1024,
       true,
     );
+    const localOffset = view.getUint32(
+      centralRecordFor(buffer, "ratio.bin") + 42,
+      true,
+    );
+    view.setUint32(localOffset + 22, 4 * 1024 * 1024, true);
 
     await expect(extractDocxText(buffer)).rejects.toMatchObject({
       failure: "too_large",
@@ -204,6 +239,38 @@ describe("DOCX extraction safety", () => {
     await expect(extractDocxText(buffer)).rejects.toMatchObject({
       failure: "malformed",
     });
+  });
+
+  it("rejects a central-directory CRC mismatch", async () => {
+    const buffer = await makeArchive([
+      { name: "word/document.xml", data: "resume" },
+    ]);
+    const view = new DataView(buffer);
+    const record = centralRecordFor(buffer, "word/document.xml");
+    view.setUint32(record + 16, 0, true);
+    await expect(extractDocxText(buffer)).rejects.toMatchObject({
+      failure: "malformed",
+    });
+  });
+
+  it("rejects local-header size or CRC mismatches", async () => {
+    const buffer = await makeArchive([
+      { name: "word/document.xml", data: "resume" },
+    ]);
+    const view = new DataView(buffer);
+    const record = centralRecordFor(buffer, "word/document.xml");
+    const local = view.getUint32(record + 42, true);
+    view.setUint32(local + 14, 0, true);
+    await expect(extractDocxText(buffer)).rejects.toMatchObject({
+      failure: "malformed",
+    });
+  });
+
+  it("caps ZIP entry names before reading payloads", async () => {
+    const buffer = await makeArchive([
+      { name: "x".repeat(513), data: "resume" },
+    ]);
+    expect(() => inspectDocxZip(buffer)).toThrowError(DocxExtractionError);
   });
 
   it("rejects a truncated deflate stream", async () => {

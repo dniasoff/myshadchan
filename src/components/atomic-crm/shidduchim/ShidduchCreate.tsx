@@ -33,6 +33,7 @@ import { useResolveInboxItem } from "../inbox/useResolveInboxItem";
 import {
   isAutoFillResumeMimeType,
   friendlyResumeReadError,
+  friendlyResumeMimeType,
   friendlyResumeUploadError,
   friendlySuggestionSubmitError,
   RESUME_UPLOAD_ACCEPT,
@@ -68,16 +69,37 @@ function readNumberField(value: unknown): number | null {
 const DraftResetter = ({
   draft,
   onSnapshot,
+  restoreSnapshot,
+  onRestored,
 }: {
   draft: ParsedResumeResponse | null;
   onSnapshot: (snapshot: Record<string, unknown>) => void;
+  restoreSnapshot?: Record<string, unknown> | null;
+  onRestored?: () => void;
 }) => {
   const { formState, getValues, setValue } =
     useFormContext<Record<string, unknown>>();
+  const dirtyFieldsRef = useRef(formState.dirtyFields);
+  const snapshottedDraftRef = useRef<ParsedResumeResponse | null>(null);
+  dirtyFieldsRef.current = formState.dirtyFields;
 
   useEffect(() => {
+    if (restoreSnapshot) {
+      for (const [field, value] of Object.entries(restoreSnapshot)) {
+        setValue(field, value, {
+          shouldDirty: false,
+          shouldTouch: false,
+          shouldValidate: false,
+        });
+      }
+      onRestored?.();
+      return;
+    }
     if (!draft) return;
-    onSnapshot(getValues());
+    if (snapshottedDraftRef.current !== draft) {
+      onSnapshot(getValues());
+      snapshottedDraftRef.current = draft;
+    }
     for (const [field, value] of Object.entries(draft.fields)) {
       const currentValue = getValues(field);
       const isEmpty =
@@ -85,7 +107,7 @@ const DraftResetter = ({
         currentValue === undefined ||
         currentValue === "";
       if (
-        formState.dirtyFields[field] ||
+        dirtyFieldsRef.current[field] ||
         !isEmpty ||
         value === null ||
         value === ""
@@ -98,7 +120,7 @@ const DraftResetter = ({
         shouldValidate: false,
       });
     }
-  }, [draft, formState.dirtyFields, getValues, onSnapshot, setValue]);
+  }, [draft, getValues, onRestored, onSnapshot, restoreSnapshot, setValue]);
 
   return null;
 };
@@ -141,6 +163,10 @@ const ResumeUploadPanel = ({
   messageIsError,
   onChange,
   onRemove,
+  onTryAgain,
+  onEnterDetails,
+  selectionError,
+  onChooseAnother,
 }: {
   file: File | null;
   disabled: boolean;
@@ -149,86 +175,142 @@ const ResumeUploadPanel = ({
   messageIsError: boolean;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onRemove: () => void;
-}) => (
-  <section className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-secondary/30 p-4 sm:p-5">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-          Resume (optional)
-        </h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          PDF, Word (.docx or .doc), JPG, PNG, HEIC or WebP · up to 8 MB. We
-          keep the original file.
-        </p>
-      </div>
-      <Button
-        type="button"
-        variant="outline"
-        className="h-11 gap-2"
-        disabled={disabled}
-        onClick={() => document.getElementById("suggestion-resume")?.click()}
-      >
-        <Paperclip className="size-4" aria-hidden="true" />
-        {file ? "Replace file" : "Attach a resume"}
-      </Button>
-      <input
-        id="suggestion-resume"
-        type="file"
-        className="hidden"
-        accept={RESUME_UPLOAD_ACCEPT}
-        aria-label="Attach resume"
-        disabled={disabled}
-        onChange={onChange}
-      />
-    </div>
-    {file && (
-      <div
-        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-foreground"
-        role="status"
-        aria-live="polite"
-      >
-        <span
-          className="min-w-0 truncate font-medium"
-          dir="auto"
-          title={file.name}
-        >
-          {file.name}
-        </span>
-        <span className="text-muted-foreground">
-          {resumeMimeType(file)} · {formatResumeSize(file.size)}
-        </span>
+  onTryAgain: () => void;
+  onEnterDetails: () => void;
+  selectionError: string | null;
+  onChooseAnother: () => void;
+}) => {
+  const messageRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (
+      message &&
+      !messageIsError &&
+      message.startsWith("We found") &&
+      !["INPUT", "TEXTAREA", "SELECT"].includes(
+        document.activeElement?.tagName ?? "",
+      )
+    ) {
+      messageRef.current?.focus();
+    }
+  }, [message, messageIsError]);
+
+  return (
+    <section
+      className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-secondary/30 p-4 sm:p-5"
+      aria-busy={isParsing}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+            Resume (optional)
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            PDF, Word (.docx or .doc), JPG, PNG, HEIC or WebP · up to 8 MB. We
+            keep the original file.
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Older Word files (.doc) can be attached, but cannot be read for
+            auto-fill yet.
+          </p>
+        </div>
         <Button
           type="button"
-          variant="ghost"
-          className="h-11"
-          onClick={onRemove}
+          variant="outline"
+          className="h-11 gap-2"
+          disabled={disabled}
+          onClick={() => document.getElementById("suggestion-resume")?.click()}
         >
-          Remove file
+          <Paperclip className="size-4" aria-hidden="true" />
+          {file ? "Replace file" : "Attach a resume"}
         </Button>
+        <input
+          id="suggestion-resume"
+          type="file"
+          className="hidden"
+          accept={RESUME_UPLOAD_ACCEPT}
+          aria-label="Attach resume"
+          disabled={disabled}
+          onChange={onChange}
+        />
       </div>
-    )}
-    {isParsing && (
-      <p
-        className="flex items-center gap-2 text-sm text-muted-foreground"
-        role="status"
-        aria-live="polite"
-      >
-        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-        Reading your resume…
-      </p>
-    )}
-    {message && (
-      <p
-        className="flex items-center gap-2 text-sm text-muted-foreground"
-        role={messageIsError ? "alert" : "status"}
-        aria-live="polite"
-      >
-        <Sparkles className="size-4" aria-hidden="true" />
-        {message}
-      </p>
-    )}
-  </section>
-);
+      {file && (
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          <span
+            className="min-w-0 break-words font-medium"
+            dir="auto"
+            style={{ unicodeBidi: "plaintext" }}
+            title={file.name}
+          >
+            {file.name}
+          </span>
+          <span className="text-muted-foreground">
+            {friendlyResumeMimeType(resumeMimeType(file))} ·{" "}
+            {formatResumeSize(file.size)}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-11"
+            disabled={disabled}
+            onClick={onRemove}
+          >
+            Remove file
+          </Button>
+        </div>
+      )}
+      {isParsing && (
+        <p
+          className="flex items-center gap-2 text-sm text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          Reading your resume… We’re looking for details to save you typing. You
+          can still fill in the form yourself.
+        </p>
+      )}
+      {message && (
+        <div
+          ref={messageRef}
+          tabIndex={-1}
+          className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+          role={messageIsError ? "alert" : "status"}
+          aria-live={messageIsError ? undefined : "polite"}
+        >
+          <Sparkles className="size-4" aria-hidden="true" />
+          <span>{message}</span>
+          {messageIsError && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onTryAgain}
+                disabled={disabled}
+              >
+                Try again
+              </Button>
+              <Button type="button" variant="ghost" onClick={onEnterDetails}>
+                Enter details myself
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+      {selectionError && (
+        <div className="flex flex-wrap items-center gap-2 text-sm" role="alert">
+          <span>{selectionError}</span>
+          <Button type="button" variant="outline" onClick={onChooseAnother}>
+            Choose another file
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+};
 
 const formatResumeSize = (bytes: number): string =>
   bytes < 1024 * 1024
@@ -463,8 +545,16 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
     string,
     unknown
   > | null>(null);
+  const [isSubmitStarted, setIsSubmitStarted] = useState(false);
+  const [restoreSnapshot, setRestoreSnapshot] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [resumeMessage, setResumeMessage] = useState<string | null>(null);
   const [resumeMessageIsError, setResumeMessageIsError] = useState(false);
+  const [resumeSelectionError, setResumeSelectionError] = useState<
+    string | null
+  >(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [photoVisibility, setPhotoVisibility] =
@@ -534,9 +624,11 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
 
     const validationError = validateResumeUpload(selected);
     if (validationError) {
+      setResumeSelectionError(validationError);
       notify(validationError, { type: "error" });
       return;
     }
+    setResumeSelectionError(null);
 
     const mimeType = resumeMimeType(selected);
     const file =
@@ -638,15 +730,21 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
 
     setResumeMessageIsError(false);
     setResumeMessage(null);
+    let active = true;
     void parse(resumeCapture)
       .then((draft) => {
+        if (!active) return;
         setParsedDraft(draft);
         setResumeMessage(resumeReadSuccessMessage(draft.fields));
       })
       .catch((error: unknown) => {
+        if (!active) return;
         setResumeMessage(friendlyResumeReadError(error));
         setResumeMessageIsError(true);
       });
+    return () => {
+      active = false;
+    };
   }, [isEntitled, isEntitlementLoading, parse, resumeCapture, resumeFile]);
 
   const onSubmit = async (values: Record<string, unknown>) => {
@@ -690,6 +788,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
       };
       let created;
       if (resumeCapture?.attachments?.[0]) {
+        setIsSubmitStarted(true);
         submittedCaptureId.current = resumeCapture.id;
         created = await resolveAsNewShidduch(resumeCapture, input, {
           attachment: resumeCapture.attachments[0],
@@ -740,17 +839,37 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
       >
         <ResumeUploadPanel
           file={resumeFile}
-          disabled={isUploading || isParsing}
+          disabled={isUploading || isParsing || isSubmitStarted}
           isParsing={isParsing}
           message={resumeMessage}
           messageIsError={resumeMessageIsError}
           onChange={handleResumeChange}
+          selectionError={resumeSelectionError}
+          onChooseAnother={() =>
+            document.getElementById("suggestion-resume")?.click()
+          }
+          onTryAgain={() => {
+            attemptedCaptureId.current = null;
+            setResumeMessage(null);
+            setResumeMessageIsError(false);
+          }}
+          onEnterDetails={() => {
+            setResumeMessage(null);
+            setResumeMessageIsError(false);
+          }}
           onRemove={() => {
-            if (resumeCapture) void discardResumeCapture(resumeCapture);
+            if (
+              isUploading ||
+              isParsing ||
+              isSubmitStarted ||
+              submittedCaptureId.current === resumeCapture?.id
+            ) {
+              return;
+            }
+            if (draftSnapshot) setRestoreSnapshot(draftSnapshot);
             setResumeFile(null);
             setResumeCapture(null);
             setParsedDraft(null);
-            setDraftSnapshot(null);
             setResumeMessage(null);
             setResumeMessageIsError(false);
           }}
@@ -760,6 +879,17 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
             The original file is still attached and unchanged.
           </p>
         )}
+        <AutoFillUndo
+          snapshot={draftSnapshot}
+          onUndo={() => {
+            setParsedDraft(null);
+            setDraftSnapshot(null);
+            setResumeMessage(
+              "Auto-fill undone. The original file is still attached and unchanged.",
+            );
+            setResumeMessageIsError(false);
+          }}
+        />
         <PhotoUploadPanel
           file={photoFile}
           previewUrl={photoPreviewUrl}
@@ -772,16 +902,13 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
           }}
           onVisibilityChange={setPhotoVisibility}
         />
-        <DraftResetter draft={parsedDraft} onSnapshot={setDraftSnapshot} />
-        <AutoFillUndo
-          snapshot={draftSnapshot}
-          onUndo={() => {
-            setParsedDraft(null);
+        <DraftResetter
+          draft={parsedDraft}
+          onSnapshot={setDraftSnapshot}
+          restoreSnapshot={restoreSnapshot}
+          onRestored={() => {
+            setRestoreSnapshot(null);
             setDraftSnapshot(null);
-            setResumeMessage(
-              "Auto-fill undone. The original file is still attached and unchanged.",
-            );
-            setResumeMessageIsError(false);
           }}
         />
         <ShidduchInputs

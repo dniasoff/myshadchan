@@ -152,7 +152,7 @@ describe("Findings 6/7 — quota enforcement via the atomic claim", () => {
     arrangeEntitledItemWithAttachment();
     list.mockResolvedValue({ data: [], error: null });
     download.mockResolvedValue({
-      data: new Blob(["pdf bytes"]),
+      data: new Blob(["%PDF-1.7"]),
       error: null,
     });
     claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
@@ -204,7 +204,7 @@ describe("Findings 6/7 — quota enforcement via the atomic claim", () => {
     arrangeEntitledItemWithAttachment();
     list.mockResolvedValue({ data: [], error: null });
     download.mockResolvedValue({
-      data: new Blob(["pdf bytes"]),
+      data: new Blob(["%PDF-1.7"]),
       error: null,
     });
     claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
@@ -231,7 +231,7 @@ describe("Findings 6/7 — quota enforcement via the atomic claim", () => {
     arrangeEntitledItemWithAttachment();
     list.mockResolvedValue({ data: [], error: null });
     download.mockResolvedValue({
-      data: new Blob(["pdf bytes"]),
+      data: new Blob(["%PDF-1.7"]),
       error: null,
     });
     claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
@@ -264,7 +264,7 @@ describe("Findings 6/7 — quota enforcement via the atomic claim", () => {
     arrangeEntitledItemWithAttachment();
     list.mockResolvedValue({ data: [], error: null });
     download.mockResolvedValue({
-      data: new Blob(["pdf bytes"]),
+      data: new Blob(["%PDF-1.7"]),
       error: null,
     });
     claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);

@@ -98,6 +98,12 @@ describe("resumeUpload", () => {
     );
   });
 
+  it("does not call an all-null extraction a successful partial read", () => {
+    expect(resumeReadSuccessMessage({ name_en: null, age: null })).toMatch(
+      /couldn’t read the resume right now/i,
+    );
+  });
+
   it("maps worker and network failures to fixed plain-English messages", () => {
     expect(friendlyResumeReadError(new Error("resume appears empty"))).toMatch(
       /appears to be empty/i,
@@ -114,16 +120,16 @@ describe("resumeUpload", () => {
     expect(
       friendlyResumeReadError(new Error("monthly resume limit reached")),
     ).toBe(
-      "You’ve reached your monthly resume-reading limit. Your file is still attached.",
+      "We couldn’t read the resume right now. Your file is still attached, and you can enter the details yourself.",
     );
     expect(friendlyResumeReadError(new Error("Failed to fetch"))).toMatch(
-      /couldn’t reach the resume reader/i,
+      /couldn’t read the resume right now/i,
     );
     expect(friendlyResumeReadError(new Error("429 rate limit"))).toMatch(
-      /resume reader is busy/i,
+      /couldn’t read the resume right now/i,
     );
     expect(friendlyResumeReadError(new Error("invalid request body"))).toMatch(
-      /couldn’t read that resume/i,
+      /couldn’t read the resume right now/i,
     );
     expect(friendlyResumeUploadError()).not.toMatch(/invalid|fetch|Error/i);
     expect(

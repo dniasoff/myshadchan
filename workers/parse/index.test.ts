@@ -161,7 +161,7 @@ describe("parse worker", () => {
     arrangeEntitledItemWithAttachment();
     list.mockResolvedValue({ data: [], error: null });
     download.mockResolvedValue({
-      data: new Blob(["pdf bytes"]),
+      data: new Blob(["%PDF-1.7"]),
       error: null,
     });
     claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
@@ -207,7 +207,7 @@ describe("parse worker", () => {
     arrangeEntitledItemWithAttachment();
     list.mockResolvedValue({ data: [], error: null });
     download.mockResolvedValue({
-      data: new Blob(["pdf bytes"]),
+      data: new Blob(["%PDF-1.7"]),
       error: null,
     });
     claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
@@ -221,6 +221,64 @@ describe("parse worker", () => {
       "parse.request",
       expect.objectContaining({ outcome: "fresh_parse" }),
     );
+  });
+
+  it.each(["list", "download", "arrayBuffer"] as const)(
+    "releases the reservation when storage %s fails after the claim",
+    async (failurePoint) => {
+      const app = createParseApp({ extract: async () => makeExtract() });
+      arrangeEntitledItemWithAttachment();
+      claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
+      if (failurePoint === "list") {
+        list.mockRejectedValue(new Error("storage unavailable"));
+      } else {
+        list.mockResolvedValue({ data: [], error: null });
+        if (failurePoint === "download") {
+          download.mockRejectedValue(new Error("download unavailable"));
+        } else {
+          download.mockResolvedValue({
+            data: {
+              arrayBuffer: vi
+                .fn()
+                .mockRejectedValue(new Error("body unavailable")),
+            },
+            error: null,
+          });
+        }
+      }
+
+      const res = await postParse(app);
+
+      expect(res.status).toBe(422);
+      expect(await res.json()).toEqual({
+        success: false,
+        error:
+          failurePoint === "list"
+            ? "could not read attachment"
+            : "could not download attachment",
+      });
+      expect(releaseParseAttempt).toHaveBeenCalledWith(
+        expect.anything(),
+        10,
+        CLAIMED_ATTEMPT.outcome.attempt_id,
+        CLAIMED_ATTEMPT.outcome.generation,
+      );
+    },
+  );
+
+  it("rejects a PDF whose bytes are actually HTML before inference", async () => {
+    const extract = vi.fn().mockResolvedValue(makeExtract());
+    const app = createParseApp({ extract });
+    arrangeEntitledItemWithAttachment();
+    list.mockResolvedValue({ data: [], error: null });
+    download.mockResolvedValue({ data: new Blob(["<html>"]), error: null });
+    claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
+
+    const res = await postParse(app);
+
+    expect(res.status).toBe(422);
+    expect(extract).not.toHaveBeenCalled();
+    expect(releaseParseAttempt).toHaveBeenCalled();
   });
 
   it("returns 404 when the inbox item is not found", async () => {
@@ -437,7 +495,10 @@ describe("parse worker", () => {
       const app = createParseApp({ extract });
       arrangeEntitledItemWithAttachment(DOCX_MIME_TYPE, "10/resume.docx");
       list.mockResolvedValue({ data: [], error: null });
-      download.mockResolvedValue({ data: new Blob(["docx"]), error: null });
+      download.mockResolvedValue({
+        data: new Blob([new Uint8Array([80, 75, 3, 4])]),
+        error: null,
+      });
       claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
 
       // Act

@@ -73,6 +73,28 @@ export function isAutoFillResumeMimeType(mimeType: string): boolean {
   return AUTO_FILL_MIME_TYPES.has(mimeType);
 }
 
+export function friendlyResumeMimeType(mimeType: string): string {
+  switch (mimeType) {
+    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      return "Word document (.docx)";
+    case "application/msword":
+      return "Word document (.doc)";
+    case "application/pdf":
+      return "PDF";
+    case "image/jpeg":
+      return "Photo (JPG)";
+    case "image/png":
+      return "Photo (PNG)";
+    case "image/heic":
+    case "image/heif":
+      return "Photo (HEIC)";
+    case "image/webp":
+      return "Photo (WebP)";
+    default:
+      return "File";
+  }
+}
+
 export function validateResumeUpload(
   file: Pick<File, "name" | "type" | "size">,
 ): string | null {
@@ -114,31 +136,19 @@ export function friendlyResumeReadError(error: unknown): string {
   if (/not entitled|auto-fill isn.t available|no entitlement/.test(message)) {
     return "Auto-fill isn’t available on this account right now. Your file is still attached; you can enter the details yourself.";
   }
-  if (/monthly|quota|limit reached|too many/.test(message)) {
-    return "You’ve reached your monthly resume-reading limit. Your file is still attached.";
-  }
-  if (/failed to fetch|network|offline|timeout|connection/.test(message)) {
-    return "We couldn’t reach the resume reader. Check your connection and try again. Your file is still attached.";
-  }
-  if (
-    /not authenticated|unauthorized|forbidden|entitlement|plan/.test(message)
-  ) {
-    return "Resume reading isn’t available right now, but your file is still attached.";
-  }
-  if (
-    /429|rate limit|temporarily unavailable|service unavailable|\b(?:status|status_code|code)\s*[:=]?\s*5\d{2}\b/.test(
-      message,
-    )
-  ) {
-    return "The resume reader is busy. Please try again shortly. Your file is still attached.";
-  }
-  return "We couldn’t read that resume, but your file is still attached.";
+  return "We couldn’t read the resume right now. Your file is still attached, and you can enter the details yourself.";
 }
 
 export function resumeReadSuccessMessage(
   fields: Record<string, unknown>,
 ): string {
   const values = Object.values(fields);
+  const hasAnyField = values.some(
+    (value) => value !== null && value !== undefined && value !== "",
+  );
+  if (!hasAnyField) {
+    return "We couldn’t read the resume right now. Your file is still attached, and you can enter the details yourself.";
+  }
   const hasMissingField = values.some(
     (value) => value === null || value === undefined || value === "",
   );

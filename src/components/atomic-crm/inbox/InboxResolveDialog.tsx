@@ -175,7 +175,7 @@ export const InboxResolveDialog = ({
   const notify = useNotify();
   const refresh = useRefresh();
   const translate = useTranslate();
-  const { isEntitled } = useAiEntitlement();
+  const { isEntitled, isLoading: isEntitlementLoading } = useAiEntitlement();
   const { parse, isParsing } = useParseResume();
 
   const [parsedDraft, setParsedDraft] = useState<ParsedResumeResponse | null>(
@@ -362,6 +362,7 @@ export const InboxResolveDialog = ({
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent
+        aria-busy={isParsing}
         className={
           "top-1/20 max-h-9/10 translate-y-0 overflow-y-auto lg:max-w-4xl " +
           "bg-popover border-border shadow-lg " +
@@ -418,20 +419,42 @@ export const InboxResolveDialog = ({
             details yourself.
           </p>
         )}
-        {hasResume && !isEntitled && (
+        {hasResume && !isEntitlementLoading && !isEntitled && (
           <p className="text-sm text-muted-foreground" role="status">
             Auto-fill isn’t available on this account right now. Your file is
             still attached; you can enter the details yourself.
           </p>
         )}
         {resumeMessage && (
-          <p
-            className="text-sm text-muted-foreground"
+          <div
+            className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
             role={resumeMessageIsError ? "alert" : "status"}
-            aria-live="polite"
+            aria-live={resumeMessageIsError ? undefined : "polite"}
           >
-            {resumeMessage}
-          </p>
+            <span>{resumeMessage}</span>
+            {resumeMessageIsError && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleAutoFill}
+                  disabled={isBusy || isParsing}
+                >
+                  Try again
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setResumeMessage(null);
+                    setResumeMessageIsError(false);
+                  }}
+                >
+                  Enter details myself
+                </Button>
+              </>
+            )}
+          </div>
         )}
         {parsedDraft && (
           <p className="text-sm text-muted-foreground" role="status">

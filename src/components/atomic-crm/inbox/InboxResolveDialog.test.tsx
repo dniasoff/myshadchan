@@ -474,6 +474,42 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
       .toBeInTheDocument();
   });
 
+  it("renders auto-fill for the official DOCX MIME type", async () => {
+    const item = buildItem({
+      attachments: [
+        buildAttachment({
+          title: "resume.docx",
+          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }),
+      ],
+    });
+    const { screen } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+    await expect
+      .element(screen.getByRole("button", { name: "Auto-fill from resume" }))
+      .toBeInTheDocument();
+  });
+
+  it("keeps a legacy .doc attach-only in Inbox", async () => {
+    const item = buildItem({
+      attachments: [
+        buildAttachment({ title: "resume.doc", type: "application/msword" }),
+      ],
+    });
+    const { screen } = await renderDialog(item);
+    await expect
+      .element(
+        screen.getByText(/This older Word file \(\.doc\) cannot be read/),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Auto-fill from resume" }))
+      .not.toBeInTheDocument();
+  });
+
   it("fills the form from the parsed draft and keeps the raw capture unchanged", async () => {
     // Arrange
     vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
