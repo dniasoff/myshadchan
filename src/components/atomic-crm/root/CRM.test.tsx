@@ -372,6 +372,18 @@ describe("buildDashboardRoute (Story 8.1 review F3, AC-5)", () => {
       .not.toBeInTheDocument();
   });
 
+  it("keeps the existing singles create route reachable in shadchanus context", async () => {
+    const { screen, getPathname } = await renderRoutes(
+      [shadchanus],
+      routesFor("desktop", "shell"),
+      resourcesFor("desktop"),
+      ["/singles/new"],
+    );
+
+    await expect.element(screen.getByText("Add a single")).toBeInTheDocument();
+    expect(getPathname()).toBe("/singles/new");
+  });
+
   it("renders the household dashboard when the active context is household", async () => {
     // Act
     const screen = await renderDashboard([household]);

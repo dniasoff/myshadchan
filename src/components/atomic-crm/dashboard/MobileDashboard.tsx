@@ -12,6 +12,7 @@ import { DueRemindersCard } from "./DueRemindersCard";
 import { ParentFocusCards } from "./ParentFocusCards";
 import { PipelineSnapshot } from "./PipelineSnapshot";
 import { RecentSuggestions } from "./RecentSuggestions";
+import { useCanAddSingle } from "./useCanAddSingle";
 import { useDashboardData } from "./useDashboardData";
 
 /**
@@ -58,6 +59,7 @@ export const MobileDashboard = () => {
     hasSuggestions,
     totalShadchanim,
   } = useDashboardData();
+  const canAddSingle = useCanAddSingle();
 
   if (isPending) return null;
 
@@ -67,8 +69,8 @@ export const MobileDashboard = () => {
         <EmptyState
           title="Add your first single"
           description="A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions."
-          actionLabel="Add a single"
-          actionTo={buildNewPath("singles")}
+          actionLabel={canAddSingle ? "Add a single" : undefined}
+          actionTo={canAddSingle ? buildNewPath("singles") : undefined}
         />
       </Wrapper>
     );

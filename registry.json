@@ -1688,6 +1688,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/dashboard/useCanAddSingle.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/dashboard/parentFocus.ts",
           "type": "registry:component"
         },
@@ -1737,6 +1741,10 @@
         },
         {
           "path": "src/components/atomic-crm/dashboard/AttentionSection.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/dashboard/AddSingleLink.tsx",
           "type": "registry:component"
         },
         {

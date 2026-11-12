@@ -10,6 +10,7 @@ import { EmptyState } from "../misc/EmptyState";
 import { computeUnreadThreadIds } from "../threads/computeUnreadThreadIds";
 import { useCurrentMemberId } from "../threads/useCurrentMemberId";
 import type { Connection, Message, Thread, ThreadParticipant } from "../types";
+import { AddSingleLink } from "./AddSingleLink";
 import { DashboardStat } from "./DashboardStat";
 
 const RECENT_LIMIT = 5;
@@ -166,15 +167,18 @@ export const ShadchanDashboard = () => {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-          {translate("crm.shadchanus_context.eyebrow", { _: "Shadchanus" })}
-        </p>
-        <h1 className="font-display text-[2rem] font-bold leading-[1.1] tracking-[-0.02em]">
-          {translate("crm.shadchan_dashboard.title", {
-            _: "Your shadchanus workspace",
-          })}
-        </h1>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+            {translate("crm.shadchanus_context.eyebrow", { _: "Shadchanus" })}
+          </p>
+          <h1 className="font-display text-[2rem] font-bold leading-[1.1] tracking-[-0.02em]">
+            {translate("crm.shadchan_dashboard.title", {
+              _: "Your shadchanus workspace",
+            })}
+          </h1>
+        </div>
+        <AddSingleLink />
       </div>
 
       {acceptedConnections.length === 0 ? (
