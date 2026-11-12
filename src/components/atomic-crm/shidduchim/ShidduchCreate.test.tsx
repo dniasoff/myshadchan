@@ -284,13 +284,49 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     resolveParse(parsedResume);
 
     await expect
+      .element(screen.getByLabelText("Seminary (English)"))
+      .toHaveValue("Bais Yaakov");
+    await expect
       .element(screen.getByLabelText("Name (English)"))
       .toHaveValue("Typed by Ronit");
+    await expect.element(screen.getByText("Please check")).toBeInTheDocument();
+    expect(resolveAsNewShidduch).not.toHaveBeenCalled();
+  });
+
+  it("does not blank a typed field when the parser returns null for it", async () => {
+    let resolveParse!: (value: typeof parsedResume) => void;
+    callAiWorker.mockReturnValue(
+      new Promise((resolve) => {
+        resolveParse = resolve;
+      }),
+    );
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 0,
+        resumes_limit: 50,
+      }),
+    });
+
+    await screen.getByLabelText("Attach resume").upload(
+      new File(["%PDF-1.4 test"], "resume.pdf", {
+        type: "application/pdf",
+      }),
+    );
+    await screen.getByLabelText("Name (English)").fill("Typed by Ronit");
+    resolveParse({
+      ...parsedResume,
+      fields: { ...parsedResume.fields, name_en: null },
+    });
+
     await expect
       .element(screen.getByLabelText("Seminary (English)"))
       .toHaveValue("Bais Yaakov");
-    await expect.element(screen.getByText("Please check")).toBeInTheDocument();
-    expect(resolveAsNewShidduch).not.toHaveBeenCalled();
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Typed by Ronit");
   });
 
   it("keeps the attachment and uses a fixed message for parse failures", async () => {
@@ -397,5 +433,82 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
         ),
       )
       .toBeInTheDocument();
+  });
+
+  it("discards the previous capture when Ronit replaces the file", async () => {
+    const { screen, dataProvider } = await renderShidduchCreate([
+      "/shidduchim/new",
+    ]);
+    const picker = screen.getByLabelText("Attach resume");
+    await picker.upload(
+      new File(["first"], "first.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
+    await expect
+      .element(screen.getByText("Attached: first.docx"))
+      .toBeInTheDocument();
+
+    await picker.upload(
+      new File(["second"], "second.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
+
+    await expect
+      .poll(() => dataProvider.removeInboxAttachment.mock.calls.length)
+      .toBe(1);
+    expect(dataProvider.removeInboxAttachment).toHaveBeenCalledWith(
+      "1/inbox/700/resume.pdf",
+    );
+  });
+
+  it("discards the capture when Cancel leaves the form", async () => {
+    const { screen, dataProvider, getPathname } = await renderShidduchCreate([
+      "/shidduchim",
+      "/shidduchim/new",
+    ]);
+    await screen.getByLabelText("Attach resume").upload(
+      new File(["resume"], "resume.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
+    await screen.getByRole("button", { name: "Cancel" }).click();
+
+    await expect.poll(() => getPathname()).toBe("/shidduchim");
+    // TestMemoryRouter keeps the page mounted across the history change;
+    // leaving the route in the real app unmounts it and runs the cleanup.
+    screen.unmount();
+    await expect
+      .poll(() => dataProvider.removeInboxAttachment.mock.calls.length)
+      .toBe(1);
+  });
+
+  it("keeps the capture after submit starts if a later persistence step fails", async () => {
+    const { screen, dataProvider } = await renderShidduchCreate([
+      "/shidduchim/new",
+    ]);
+    resolveAsNewShidduch.mockImplementation(async () => {
+      // Model the real resolver sequence: the suggestion insert succeeds,
+      // then copying the attachment into the documents bucket fails.
+      await dataProvider.createShidduch({} as never);
+      throw new Error("copy failed");
+    });
+    await screen.getByLabelText("Attach resume").upload(
+      new File(["resume"], "resume.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
+    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen.getByRole("button", { name: "Add a suggestion" }).click();
+    await expect
+      .element(
+        screen.getByText("We couldn’t add that suggestion. Please try again."),
+      )
+      .toBeInTheDocument();
+    expect(dataProvider.createShidduch).toHaveBeenCalledTimes(1);
+
+    screen.unmount();
+    expect(dataProvider.removeInboxAttachment).not.toHaveBeenCalled();
   });
 });

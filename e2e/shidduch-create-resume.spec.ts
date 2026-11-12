@@ -97,14 +97,14 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   });
   await expect(page.getByText("Reading your resume…")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Attach resume" }),
+    page.getByRole("button", { name: "Replace resume" }),
   ).toBeDisabled();
   await page.getByLabel("Name (English)").fill("Leah Edited");
   releaseParse();
-  await expect(page.getByLabel("Name (English)")).toHaveValue("Leah Edited");
   await expect(page.getByLabel("Seminary (English)")).toHaveValue(
     "Bais Yaakov",
   );
+  await expect(page.getByLabel("Name (English)")).toHaveValue("Leah Edited");
 
   const createResponse = page.waitForResponse(
     (response) =>

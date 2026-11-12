@@ -123,6 +123,7 @@ const ResumeUploadPanel = ({
         className="hidden"
         accept={RESUME_UPLOAD_ACCEPT}
         aria-label="Attach resume"
+        disabled={disabled}
         onChange={onChange}
       />
     </div>
@@ -177,7 +178,10 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
   const [resumeMessage, setResumeMessage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const attemptedCaptureId = useRef<Identifier | null>(null);
-  const committedCaptureId = useRef<Identifier | null>(null);
+  // Once resolution starts, keep the capture even if a later persistence step
+  // fails. The suggestion may already exist, and the uploaded resume is the
+  // only copy available for a retry.
+  const submittedCaptureId = useRef<Identifier | null>(null);
 
   const stateParam = searchParams.get("state") as PipelineState | null;
   const initialState =
@@ -213,7 +217,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
     const capture = resumeCapture;
     if (!capture) return;
     return () => {
-      if (committedCaptureId.current === capture.id) return;
+      if (submittedCaptureId.current === capture.id) return;
       void discardResumeCapture(capture);
     };
   }, [discardResumeCapture, resumeCapture]);
@@ -355,6 +359,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
         redt_date: (values.redt_date as string) ?? null,
       };
       if (resumeCapture?.attachments?.[0]) {
+        submittedCaptureId.current = resumeCapture.id;
         await resolveAsNewShidduch(resumeCapture, input, {
           attachment: resumeCapture.attachments[0],
           rawDraft: parsedDraft?.rawDraft ?? null,
@@ -363,7 +368,6 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
       } else {
         await dataProvider.createShidduch(input);
       }
-      if (resumeCapture) committedCaptureId.current = resumeCapture.id;
       notify("Shidduch added", { type: "info" });
       refresh();
       redirect(buildListPath("shidduchim"));

@@ -110,7 +110,7 @@ export function friendlyResumeReadError(error: unknown): string {
     return "Resume reading isn’t available right now, but your file is still attached.";
   }
   if (
-    /429|rate limit|temporarily unavailable|service unavailable|5\d\d/.test(
+    /429|rate limit|temporarily unavailable|service unavailable|\b(?:status|status_code|code)\s*[:=]?\s*5\d{2}\b/.test(
       message,
     )
   ) {
