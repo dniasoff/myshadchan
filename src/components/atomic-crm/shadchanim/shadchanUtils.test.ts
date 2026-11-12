@@ -23,6 +23,53 @@ describe("phone search matching", () => {
     expect(normalizePhoneDigits("00 44.7700.900.123")).toBe("447700900123");
   });
 
+  it("drops extension markers from stored values and typed queries", () => {
+    expect(normalizePhoneDigits("555-1234 x12")).toBe("5551234");
+    expect(normalizePhoneDigits("(212) 555-1234 EXT 12")).toBe("2125551234");
+    expect(normalizePhoneDigits("(212) 555-1234 ext. 12")).toBe("2125551234");
+    expect(normalizePhoneDigits("(212) 555-1234 extn 12")).toBe("2125551234");
+    expect(normalizePhoneDigits("(212) 555-1234 extension 12")).toBe(
+      "2125551234",
+    );
+    expect(normalizePhoneDigits("212-555-1234 #5")).toBe("2125551234");
+
+    expect(
+      getShadchanPhoneMatch(
+        shadchan(1, { phone: "555-1234 x12" }),
+        "5551234 ext 99",
+      ),
+    ).toEqual({
+      channels: ["phone"],
+      suffix: "1234",
+    });
+    expect(
+      getShadchanPhoneMatch(shadchan(2, { phone: "555-1234 x12" }), "3412"),
+    ).toBeNull();
+    expect(
+      getShadchanPhoneMatch(shadchan(3, { phone: "call after 5" }), "5"),
+    ).toBeNull();
+  });
+
+  it("matches each number in slash, comma, semicolon, or word-separated values", () => {
+    const candidate = shadchan(1, {
+      phone:
+        "0501234567 / 0527654321, 0531234567; 0547654321 or 0551234567 and 0567654321",
+    });
+
+    for (const query of [
+      "1234567",
+      "7654321",
+      "0547654321",
+      "0551234567",
+      "0567654321",
+    ]) {
+      expect(getShadchanPhoneMatch(candidate, query)).toEqual({
+        channels: ["phone"],
+        suffix: query.slice(-4),
+      });
+    }
+  });
+
   it("matches international and local formats by trailing digits", () => {
     const candidate = shadchan(1, { phone: "+44 7700 900123" });
 

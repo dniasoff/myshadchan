@@ -68,12 +68,22 @@ export const parseContactInfo = (contacts: unknown): ShadchanContactInfo => {
   };
 };
 
-/** Keep only digits and discard one leading international `00` prefix. */
+const PHONE_EXTENSION_PATTERN = /(?:extension|extn|ext\.?|x|#)\s*\d+/iu;
+const PHONE_VALUE_SEPARATOR_PATTERN = /\s*(?:[/,;]|\b(?:or|and)\b)\s*/iu;
+
+/** Keep the base number before an extension, then discard one leading `00`. */
 export const normalizePhoneDigits = (value: unknown): string => {
   if (typeof value !== "string") return "";
-  const digits = value.replace(/[^0-9]/g, "");
+  const baseNumber = value.split(PHONE_EXTENSION_PATTERN, 1)[0];
+  const digits = baseNumber.replace(/[^0-9]/g, "");
   return digits.startsWith("00") ? digits.slice(2) : digits;
 };
+
+const getPhoneDigitCandidates = (value: string): string[] =>
+  value
+    .split(PHONE_VALUE_SEPARATOR_PATTERN)
+    .map(normalizePhoneDigits)
+    .filter(Boolean);
 
 /** Return the query suffix used for phone mode, or null below the 4-digit floor. */
 const getPhoneSearchDigits = (query: string): string | null => {
@@ -157,13 +167,15 @@ export const getShadchanPhoneMatch = (
   for (const { channel, value } of getPhoneLikeContactValues(
     shadchan.contacts,
   )) {
-    const candidateDigits = normalizePhoneDigits(value);
-    if (
-      candidateDigits.length >= PHONE_SEARCH_MIN_DIGITS &&
-      candidateDigits.endsWith(queryDigits) &&
-      !matchingValues.has(channel)
-    ) {
-      matchingValues.set(channel, candidateDigits);
+    for (const candidateDigits of getPhoneDigitCandidates(value)) {
+      if (
+        candidateDigits.length >= PHONE_SEARCH_MIN_DIGITS &&
+        candidateDigits.endsWith(queryDigits) &&
+        !matchingValues.has(channel)
+      ) {
+        matchingValues.set(channel, candidateDigits);
+        break;
+      }
     }
   }
 
