@@ -68,14 +68,22 @@ export const parseContactInfo = (contacts: unknown): ShadchanContactInfo => {
   };
 };
 
-const PHONE_EXTENSION_PATTERN =
-  /(?:extension|extn|ext\.?|(?<!\p{L})x|#)\s*:?\s*\d+/iu;
+const PHONE_EXTENSION_PATTERN = /(?:extension|extn|ext\.?|#)\s*:?\s*\d+/iu;
+const PHONE_X_EXTENSION_PATTERN = /(^|[^\p{L}])x\s*:?\s*\d+/iu;
 const PHONE_VALUE_SEPARATOR_PATTERN = /\s*(?:[/,;]|\b(?:or|and)\b)\s*/iu;
 
 /** Keep the base number before an extension, then discard one leading `00`. */
 export const normalizePhoneDigits = (value: unknown): string => {
   if (typeof value !== "string") return "";
-  const baseNumber = value.split(PHONE_EXTENSION_PATTERN, 1)[0];
+  const extensionMatch = PHONE_EXTENSION_PATTERN.exec(value);
+  const xExtensionMatch = PHONE_X_EXTENSION_PATTERN.exec(value);
+  const extensionStart = Math.min(
+    extensionMatch?.index ?? value.length,
+    xExtensionMatch
+      ? xExtensionMatch.index + xExtensionMatch[1].length
+      : value.length,
+  );
+  const baseNumber = value.slice(0, extensionStart);
   const digits = baseNumber.replace(/[^0-9]/g, "");
   const withoutLeading00 = digits.slice(2);
   return digits.startsWith("00") &&

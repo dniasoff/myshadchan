@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { Search, X } from "lucide-react";
 import { useListContext } from "ra-core";
@@ -20,6 +20,8 @@ type ShadchanSearchInputProps = {
   alwaysOn?: boolean;
 };
 
+const SEARCH_FILTER_DEBOUNCE_MS = 500;
+
 const removeQueryFilter = (filterValues: Record<string, unknown>) => {
   const { q: _query, ...filters } = filterValues;
   return filters;
@@ -31,42 +33,66 @@ export const ShadchanSearchInput = ({
   const { filterValues, setFilters } = useListContext();
   const initialQuery = typeof filterValues.q === "string" ? filterValues.q : "";
   const initialQueryRef = useRef(initialQuery);
+  const pendingFilterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [value, setValue] = useState(() =>
-    isPhoneInputQuery(initialQuery) ? "" : initialQuery,
+    isPhoneInputQuery(initialQuery) || isPhoneSearchQuery(initialQuery)
+      ? ""
+      : initialQuery,
   );
   const initializedRef = useRef(false);
+
+  const cancelPendingFilter = useCallback(() => {
+    if (pendingFilterTimerRef.current === null) return;
+    clearTimeout(pendingFilterTimerRef.current);
+    pendingFilterTimerRef.current = null;
+  }, []);
+
+  useEffect(() => cancelPendingFilter, [cancelPendingFilter]);
 
   useEffect(() => {
     if (initializedRef.current) return;
     initializedRef.current = true;
 
     const persistedQuery = initialQueryRef.current;
-    if (isPhoneInputQuery(persistedQuery)) {
+    if (
+      isPhoneInputQuery(persistedQuery) ||
+      isPhoneSearchQuery(persistedQuery)
+    ) {
+      cancelPendingFilter();
       setFilters(removeQueryFilter(filterValues));
       onQueryChange("");
       return;
     }
     onQueryChange(persistedQuery);
-  }, [filterValues, onQueryChange, setFilters]);
+  }, [cancelPendingFilter, filterValues, onQueryChange, setFilters]);
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const nextQuery = event.currentTarget.value;
-    const phoneInput = isPhoneInputQuery(nextQuery);
+    const phoneInput =
+      isPhoneInputQuery(nextQuery) || isPhoneSearchQuery(nextQuery);
 
     setValue(nextQuery);
     onQueryChange(nextQuery);
 
     if (phoneInput) {
+      cancelPendingFilter();
       if ("q" in filterValues) {
         setFilters(removeQueryFilter(filterValues));
       }
       return;
     }
 
-    setFilters({ ...filterValues, q: nextQuery }, undefined, true);
+    cancelPendingFilter();
+    pendingFilterTimerRef.current = setTimeout(() => {
+      pendingFilterTimerRef.current = null;
+      setFilters({ ...filterValues, q: nextQuery });
+    }, SEARCH_FILTER_DEBOUNCE_MS);
   };
 
   const handleClear = () => {
+    cancelPendingFilter();
     setValue("");
     onQueryChange("");
     setFilters(removeQueryFilter(filterValues));

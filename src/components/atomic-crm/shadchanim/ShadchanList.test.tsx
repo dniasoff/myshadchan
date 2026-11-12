@@ -39,6 +39,14 @@ const LocationProbe = () => {
   return <output data-testid="list-location">{location.search}</output>;
 };
 
+const waitForFilterDebounce = () =>
+  new Promise((resolve) => setTimeout(resolve, 650));
+
+const hasPersistedQuery = (query: string) =>
+  Array.from({ length: localStorage.length }, (_, index) =>
+    localStorage.key(index),
+  ).some((key) => key && localStorage.getItem(key)?.includes(query));
+
 /**
  * `CoreAdminContext`'s own `store` prop defaults to a module-level
  * `memoryStore()` singleton (`ra-core/src/core/CoreAdminContext.tsx`) shared
@@ -293,6 +301,8 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     await search.fill("71");
     await search.fill("718");
 
+    await waitForFilterDebounce();
+
     expect(
       screen.getByTestId("list-location").element().textContent,
     ).not.toContain('"q"');
@@ -304,6 +314,92 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
           params.filter.q.length > 0,
       ),
     ).toBe(false);
+  });
+
+  it("keeps pure and mixed phone queries ephemeral after the debounce", async () => {
+    const dataProvider = fakeDataProvider({
+      shadchanim: SHADCHANIM,
+      shidduchim: [],
+    });
+    const getList = vi.spyOn(dataProvider, "getList");
+    const screen = await renderShadchanList(memoryStore(), [], {
+      dataProvider,
+    });
+    const search = screen.getByPlaceholder(SEARCH_PLACEHOLDER);
+    const initialHistoryLength = window.history.length;
+    const initialStorage = Array.from(
+      { length: localStorage.length },
+      (_, index) => [
+        localStorage.key(index),
+        localStorage.key(index)
+          ? localStorage.getItem(localStorage.key(index) as string)
+          : null,
+      ],
+    );
+
+    for (const query of ["7", "718", "718-555-0102", "Klein 718-555-0102"]) {
+      await search.fill(query);
+      await waitForFilterDebounce();
+
+      expect(
+        screen.getByTestId("list-location").element().textContent,
+      ).not.toContain('"q"');
+      expect(
+        getList.mock.calls.some(
+          ([resource, params]) =>
+            resource === "shadchanim" &&
+            typeof params.filter?.q === "string" &&
+            params.filter.q.length > 0,
+        ),
+      ).toBe(false);
+      expect(window.history.length).toBe(initialHistoryLength);
+      expect(hasPersistedQuery(query)).toBe(false);
+    }
+
+    // A pending ordinary-text write must be cancelled when phone mode starts.
+    await search.fill("Klein");
+    await search.fill("7185550102");
+    await waitForFilterDebounce();
+    expect(
+      screen.getByTestId("list-location").element().textContent,
+    ).not.toContain("Klein");
+    expect(hasPersistedQuery("Klein")).toBe(false);
+    expect(initialStorage).toEqual(
+      Array.from({ length: localStorage.length }, (_, index) => [
+        localStorage.key(index),
+        localStorage.key(index)
+          ? localStorage.getItem(localStorage.key(index) as string)
+          : null,
+      ]),
+    );
+  });
+
+  it("debounces ordinary text into URL filters and provider calls", async () => {
+    const dataProvider = fakeDataProvider({
+      shadchanim: SHADCHANIM,
+      shidduchim: [],
+    });
+    const getList = vi.spyOn(dataProvider, "getList");
+    const screen = await renderShadchanList(memoryStore(), [], {
+      dataProvider,
+    });
+
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("Rivka");
+    expect(
+      screen.getByTestId("list-location").element().textContent,
+    ).not.toContain("Rivka");
+
+    await waitForFilterDebounce();
+
+    expect(screen.getByTestId("list-location").element().textContent).toContain(
+      "Rivka",
+    );
+    expect(
+      getList.mock.calls.some(
+        ([resource, params]) =>
+          resource === "shadchanim" && params.filter?.q === "Rivka",
+      ),
+    ).toBe(true);
   });
 
   it("clears a legacy short numeric q before displaying or reusing it", async () => {
@@ -318,5 +414,43 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     expect(
       screen.getByTestId("list-location").element().textContent,
     ).not.toContain("718");
+  });
+
+  it("clears legacy mixed phone queries before displaying or reusing them", async () => {
+    const legacyFilter = encodeURIComponent(
+      JSON.stringify({ q: "Klein 718-555-0102" }),
+    );
+    const dataProvider = fakeDataProvider({
+      shadchanim: SHADCHANIM,
+      shidduchim: [],
+    });
+    const getList = vi.spyOn(dataProvider, "getList");
+    const initialHistoryLength = window.history.length;
+    const screen = await renderShadchanList(memoryStore(), [], {
+      initialEntries: [`/shadchanim?filter=${legacyFilter}`],
+      dataProvider,
+    });
+
+    await expect
+      .element(screen.getByPlaceholder(SEARCH_PLACEHOLDER))
+      .toHaveValue("");
+    // The initial List controller may observe the legacy URL before the
+    // search controller's first effect removes it. Assertions below cover all
+    // calls made after that cleanup boundary.
+    getList.mockClear();
+    await waitForFilterDebounce();
+    expect(
+      screen.getByTestId("list-location").element().textContent,
+    ).not.toContain("Klein");
+    expect(window.history.length).toBe(initialHistoryLength);
+    expect(hasPersistedQuery("Klein")).toBe(false);
+    expect(
+      getList.mock.calls.some(
+        ([resource, params]) =>
+          resource === "shadchanim" &&
+          typeof params.filter?.q === "string" &&
+          params.filter.q.length > 0,
+      ),
+    ).toBe(false);
   });
 });

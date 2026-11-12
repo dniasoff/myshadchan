@@ -209,8 +209,8 @@ describe("phone search matching", () => {
 
   it("sorts the locally filtered book in the active list order", () => {
     const rows = [
-      shadchan(1, {}, "Ariella Katz"),
-      shadchan(2, {}, "Zev Adler"),
+      { ...shadchan(1, {}, "Ariella Katz"), location: "Brooklyn" },
+      { ...shadchan(2, {}, "Zev Adler"), location: "Lakewood" },
     ];
 
     expect(
@@ -218,6 +218,16 @@ describe("phone search matching", () => {
         (row) => row.name,
       ),
     ).toEqual(["Zev Adler", "Ariella Katz"]);
+    expect(
+      sortShadchanim(rows, { field: "location", order: "ASC" }).map(
+        (row) => row.location,
+      ),
+    ).toEqual(["Brooklyn", "Lakewood"]);
+    expect(
+      sortShadchanim(rows, { field: "location", order: "DESC" }).map(
+        (row) => row.location,
+      ),
+    ).toEqual(["Lakewood", "Brooklyn"]);
   });
 });
 
