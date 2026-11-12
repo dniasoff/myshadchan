@@ -526,7 +526,47 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
     await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
 
     // Assert
-    await expect.element(screen.getByText("Please check")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Please check", { exact: true }))
+      .toBeInTheDocument();
+  });
+
+  it("preserves typed values and can undo only the auto-filled draft", async () => {
+    // Arrange
+    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
+    callAiWorker.mockResolvedValue(parseResponse);
+    const item = buildItem({ attachments: [buildAttachment()] });
+    const { screen } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+    await screen.getByLabelText("Name (English)").fill("Typed first");
+
+    // Act
+    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
+
+    // Assert — a human's non-empty value wins over the model's suggestion.
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Typed first");
+    await expect.element(screen.getByLabelText("Age")).toHaveValue(24);
+
+    // Act — undo restores the snapshot and removes the model-only value.
+    await screen.getByRole("button", { name: "Undo auto-fill" }).click();
+
+    // Assert
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Typed first");
+    await expect.element(screen.getByLabelText("Age")).toHaveValue(null);
+    await expect
+      .element(
+        screen.getByText(
+          "Auto-fill undone. The original file is still attached and unchanged.",
+        ),
+      )
+      .toBeInTheDocument();
   });
 
   it("leaves the manual form usable when auto-fill fails", async () => {

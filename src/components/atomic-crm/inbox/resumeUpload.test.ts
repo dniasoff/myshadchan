@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   friendlyResumeReadError,
+  resumeReadSuccessMessage,
   friendlyResumeUploadError,
   friendlySuggestionSubmitError,
   isAutoFillResumeMimeType,
@@ -70,7 +71,7 @@ describe("resumeUpload", () => {
     ).toBeNull();
   });
 
-  it("limits auto-fill to the parse Worker's allowlist", () => {
+  it("allows modern Word auto-fill while keeping legacy Word attach-only", () => {
     expect(
       isAutoFillResumeMimeType(
         resumeMimeType({ name: "resume.pdf", type: "" }),
@@ -80,10 +81,36 @@ describe("resumeUpload", () => {
       isAutoFillResumeMimeType(
         resumeMimeType({ name: "resume.docx", type: "" }),
       ),
+    ).toBe(true);
+    expect(
+      isAutoFillResumeMimeType(
+        resumeMimeType({ name: "resume.doc", type: "" }),
+      ),
     ).toBe(false);
   });
 
+  it("uses the partial-read copy when the worker leaves fields blank", () => {
+    expect(resumeReadSuccessMessage({ name_en: "Rivky", age: null })).toMatch(
+      /not everything/i,
+    );
+    expect(resumeReadSuccessMessage({ name_en: "Rivky", age: 24 })).toMatch(
+      /review them before saving/i,
+    );
+  });
+
   it("maps worker and network failures to fixed plain-English messages", () => {
+    expect(friendlyResumeReadError(new Error("resume appears empty"))).toMatch(
+      /appears to be empty/i,
+    );
+    expect(
+      friendlyResumeReadError(new Error("resume is password-protected")),
+    ).toMatch(/password-protected/i);
+    expect(friendlyResumeReadError(new Error("could not open resume"))).toMatch(
+      /couldn’t open this Word file/i,
+    );
+    expect(friendlyResumeReadError(new Error("resume too long"))).toMatch(
+      /too long/i,
+    );
     expect(
       friendlyResumeReadError(new Error("monthly resume limit reached")),
     ).toBe(

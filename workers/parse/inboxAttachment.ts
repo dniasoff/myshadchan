@@ -29,6 +29,7 @@ export const ATTACHMENTS_BUCKET = "attachments";
  */
 export const ALLOWED_ATTACHMENT_MIME_TYPES = [
   "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "image/jpeg",
   "image/png",
   "image/webp",
@@ -80,8 +81,8 @@ export function splitStoragePath(path: string): {
 
 /**
  * Defensively parse `inbox_items.attachments` and return the first entry that
- * looks like a resume (PDF or image). Returns `null` on any unexpected shape
- * so the route can return a clean 422 instead of crashing.
+ * looks like a resume (PDF, DOCX, or supported image). Returns `null` on any
+ * unexpected shape so the route can return a clean 422 instead of crashing.
  */
 export function findResumeAttachment(
   attachments: unknown,

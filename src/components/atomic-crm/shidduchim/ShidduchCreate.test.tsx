@@ -458,17 +458,27 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     await expect
       .element(
         screen.getByText(
-          "Please choose a PDF, Word document, JPG, PNG, HEIC, HEIF, or WebP file.",
+          "This file type is not supported here. Choose a .docx, PDF, JPG, PNG, HEIC or WebP file.",
         ),
       )
       .toBeInTheDocument();
     expect(dataProvider.uploadInboxAttachment).not.toHaveBeenCalled();
   });
 
-  it("accepts Word as an attachment and explains that auto-fill is not available yet", async () => {
-    const { screen, dataProvider } = await renderShidduchCreate([
-      "/shidduchim/new",
-    ]);
+  it("reads a modern Word attachment through the existing auto-fill path", async () => {
+    callAiWorker.mockResolvedValue(parsedResume);
+    const { screen, dataProvider } = await renderShidduchCreate(
+      ["/shidduchim/new"],
+      {
+        aiEntitlement: vi.fn().mockResolvedValue({
+          is_entitled: true,
+          plan: "ai",
+          status: "active",
+          resumes_used: 0,
+          resumes_limit: 50,
+        }),
+      },
+    );
 
     await screen
       .getByLabelText("Attach resume")
@@ -477,7 +487,7 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     await expect
       .element(
         screen.getByText(
-          "Word auto-fill isn’t available yet, but your file is attached.",
+          "We found a few details, but not everything. Please check the filled fields and add anything missing.",
         ),
       )
       .toBeInTheDocument();
@@ -538,7 +548,9 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     await expect
       .element(screen.getByLabelText("Name (English)"))
       .toHaveValue("Typed by Ronit");
-    await expect.element(screen.getByText("Please check")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Please check", { exact: true }))
+      .toBeInTheDocument();
     expect(resolveAsNewShidduch).not.toHaveBeenCalled();
   });
 
@@ -602,7 +614,7 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       )
       .toBeInTheDocument();
     await expect
-      .element(screen.getByText("Attached: resume.pdf"))
+      .element(screen.getByText("resume.pdf", { exact: true }))
       .toBeInTheDocument();
   });
 
@@ -624,7 +636,7 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     await expect
       .element(
         screen.getByText(
-          "Your resume is attached. AI auto-fill isn’t available on this plan.",
+          "Auto-fill isn’t available on this account right now. Your file is still attached; you can enter the details yourself.",
         ),
       )
       .toBeInTheDocument();
@@ -632,15 +644,15 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
 
   it("submits the attached file through the existing resume resolver", async () => {
     const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
-    await screen
-      .getByLabelText("Attach resume")
-      .upload(
-        new File(["word bytes"], "resume.docx", { type: "application/msword" }),
-      );
+    await screen.getByLabelText("Attach resume").upload(
+      new File(["word bytes"], "resume.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
     await expect
       .element(
         screen.getByText(
-          "Word auto-fill isn’t available yet, but your file is attached.",
+          "Auto-fill isn’t available on this account right now. Your file is still attached; you can enter the details yourself.",
         ),
       )
       .toBeInTheDocument();
@@ -661,15 +673,15 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       ),
     );
     const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
-    await screen
-      .getByLabelText("Attach resume")
-      .upload(
-        new File(["word bytes"], "resume.docx", { type: "application/msword" }),
-      );
+    await screen.getByLabelText("Attach resume").upload(
+      new File(["word bytes"], "resume.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
     await expect
       .element(
         screen.getByText(
-          "Word auto-fill isn’t available yet, but your file is attached.",
+          "Auto-fill isn’t available on this account right now. Your file is still attached; you can enter the details yourself.",
         ),
       )
       .toBeInTheDocument();
@@ -697,7 +709,7 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       }),
     );
     await expect
-      .element(screen.getByText("Attached: first.docx"))
+      .element(screen.getByText("first.docx", { exact: true }))
       .toBeInTheDocument();
 
     await picker.upload(

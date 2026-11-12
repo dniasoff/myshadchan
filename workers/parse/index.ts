@@ -17,6 +17,7 @@ import { releaseParseAttempt } from "./parseQuotaRecovery";
 import { resolveParseClaim } from "./resolveParseClaim";
 import { resolveConfirmOutcome } from "./resolveConfirmOutcome";
 import { registerParseMiddleware } from "./registerParseMiddleware";
+import { DocxExtractionError } from "./docxExtractor";
 import type { ParseApp, ParseContext } from "./parseAppTypes";
 import {
   CURRENT_PARSE_RESULT_SCHEMA_VERSION,
@@ -329,6 +330,39 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
       raw = await activeExtractor.extract(fileBytes, attachment.type);
     } catch (error) {
       console.error("parse.extract.error", summarizeErrorForLog(error));
+      if (error instanceof DocxExtractionError) {
+        const docxFailure = {
+          empty: {
+            message: "resume appears empty",
+            status: 422 as const,
+            trace: "docx_empty",
+          },
+          password_protected: {
+            message: "resume is password-protected",
+            status: 422 as const,
+            trace: "docx_password_protected",
+          },
+          malformed: {
+            message: "could not open resume",
+            status: 422 as const,
+            trace: "docx_malformed",
+          },
+          too_large: {
+            message: "resume too long",
+            status: 413 as const,
+            trace: "docx_too_large",
+          },
+        }[error.failure];
+        return releaseAndFail(
+          c,
+          accountId,
+          attemptId,
+          generation,
+          docxFailure.message,
+          docxFailure.status,
+          docxFailure.trace,
+        );
+      }
       // Finding 7: distinguish a timeout from any other extractor failure
       // in the trace log — both release the reservation identically, but
       // an operator sizing `GEMINI_EXTRACT_TIMEOUT_MS` needs to see timeout

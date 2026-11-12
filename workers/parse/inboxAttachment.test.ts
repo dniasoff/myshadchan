@@ -80,6 +80,7 @@ describe("findResumeAttachment", () => {
     // Arrange
     const allowed = [
       "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "image/jpeg",
       "image/png",
       "image/webp",

@@ -36,6 +36,7 @@ import {
   friendlyResumeUploadError,
   friendlySuggestionSubmitError,
   RESUME_UPLOAD_ACCEPT,
+  resumeReadSuccessMessage,
   resumeMimeType,
   validateResumeUpload,
 } from "../inbox/resumeUpload";
@@ -64,12 +65,19 @@ function readNumberField(value: unknown): number | null {
   return null;
 }
 
-const DraftResetter = ({ draft }: { draft: ParsedResumeResponse | null }) => {
+const DraftResetter = ({
+  draft,
+  onSnapshot,
+}: {
+  draft: ParsedResumeResponse | null;
+  onSnapshot: (snapshot: Record<string, unknown>) => void;
+}) => {
   const { formState, getValues, setValue } =
     useFormContext<Record<string, unknown>>();
 
   useEffect(() => {
     if (!draft) return;
+    onSnapshot(getValues());
     for (const [field, value] of Object.entries(draft.fields)) {
       const currentValue = getValues(field);
       const isEmpty =
@@ -90,9 +98,39 @@ const DraftResetter = ({ draft }: { draft: ParsedResumeResponse | null }) => {
         shouldValidate: false,
       });
     }
-  }, [draft, formState.dirtyFields, getValues, setValue]);
+  }, [draft, formState.dirtyFields, getValues, onSnapshot, setValue]);
 
   return null;
+};
+
+const AutoFillUndo = ({
+  snapshot,
+  onUndo,
+}: {
+  snapshot: Record<string, unknown> | null;
+  onUndo: () => void;
+}) => {
+  const { setValue } = useFormContext<Record<string, unknown>>();
+  if (!snapshot) return null;
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      className="h-11 self-start"
+      onClick={() => {
+        for (const [field, value] of Object.entries(snapshot)) {
+          setValue(field, value, {
+            shouldDirty: false,
+            shouldTouch: false,
+            shouldValidate: false,
+          });
+        }
+        onUndo();
+      }}
+    >
+      Undo auto-fill
+    </Button>
+  );
 };
 
 const ResumeUploadPanel = ({
@@ -100,22 +138,27 @@ const ResumeUploadPanel = ({
   disabled,
   isParsing,
   message,
+  messageIsError,
   onChange,
+  onRemove,
 }: {
   file: File | null;
   disabled: boolean;
   isParsing: boolean;
   message: string | null;
+  messageIsError: boolean;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onRemove: () => void;
 }) => (
   <section className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-secondary/30 p-4 sm:p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-          Resume
+          Resume (optional)
         </h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          PDF, Word, JPG, PNG, HEIC, HEIF, or WebP · 8 MB maximum
+          PDF, Word (.docx or .doc), JPG, PNG, HEIC or WebP · up to 8 MB. We
+          keep the original file.
         </p>
       </div>
       <Button
@@ -126,7 +169,7 @@ const ResumeUploadPanel = ({
         onClick={() => document.getElementById("suggestion-resume")?.click()}
       >
         <Paperclip className="size-4" aria-hidden="true" />
-        {file ? "Replace resume" : "Attach resume"}
+        {file ? "Replace file" : "Attach a resume"}
       </Button>
       <input
         id="suggestion-resume"
@@ -139,14 +182,36 @@ const ResumeUploadPanel = ({
       />
     </div>
     {file && (
-      <p className="text-sm text-foreground" role="status">
-        Attached: <span className="font-medium">{file.name}</span>
-      </p>
+      <div
+        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-foreground"
+        role="status"
+        aria-live="polite"
+      >
+        <span
+          className="min-w-0 truncate font-medium"
+          dir="auto"
+          title={file.name}
+        >
+          {file.name}
+        </span>
+        <span className="text-muted-foreground">
+          {resumeMimeType(file)} · {formatResumeSize(file.size)}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-11"
+          onClick={onRemove}
+        >
+          Remove file
+        </Button>
+      </div>
     )}
     {isParsing && (
       <p
         className="flex items-center gap-2 text-sm text-muted-foreground"
         role="status"
+        aria-live="polite"
       >
         <Loader2 className="size-4 animate-spin" aria-hidden="true" />
         Reading your resume…
@@ -155,7 +220,8 @@ const ResumeUploadPanel = ({
     {message && (
       <p
         className="flex items-center gap-2 text-sm text-muted-foreground"
-        role="status"
+        role={messageIsError ? "alert" : "status"}
+        aria-live="polite"
       >
         <Sparkles className="size-4" aria-hidden="true" />
         {message}
@@ -163,6 +229,11 @@ const ResumeUploadPanel = ({
     )}
   </section>
 );
+
+const formatResumeSize = (bytes: number): string =>
+  bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 
 const formatPhotoSize = (bytes: number): string =>
   bytes < 1024 * 1024
@@ -388,7 +459,12 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
   const [parsedDraft, setParsedDraft] = useState<ParsedResumeResponse | null>(
     null,
   );
+  const [draftSnapshot, setDraftSnapshot] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [resumeMessage, setResumeMessage] = useState<string | null>(null);
+  const [resumeMessageIsError, setResumeMessageIsError] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [photoVisibility, setPhotoVisibility] =
@@ -470,6 +546,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
 
     setIsUploading(true);
     try {
+      setResumeMessageIsError(false);
       setResumeMessage("Saving your resume…");
       const { data: item } = await dataProvider.create<InboxItem>(
         "inbox_items",
@@ -498,11 +575,14 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
       attemptedCaptureId.current = null;
       setResumeCapture(updatedItem ?? { ...item, attachments: [attachment] });
       setParsedDraft(null);
+      setDraftSnapshot(null);
       setResumeMessage(null);
+      setResumeMessageIsError(false);
     } catch {
       setResumeFile(null);
       setResumeCapture(null);
       setResumeMessage(null);
+      setResumeMessageIsError(false);
       notify(friendlyResumeUploadError(), { type: "error" });
     } finally {
       setIsUploading(false);
@@ -543,27 +623,29 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
     const mimeType = resumeMimeType(resumeFile);
     if (!isAutoFillResumeMimeType(mimeType)) {
       setResumeMessage(
-        "Word auto-fill isn’t available yet, but your file is attached.",
+        "This older Word file (.doc) cannot be read for auto-fill yet. Save it as .docx or PDF, then upload it again. You can still enter the details yourself.",
       );
+      setResumeMessageIsError(false);
       return;
     }
     if (!isEntitled) {
       setResumeMessage(
-        "Your resume is attached. AI auto-fill isn’t available on this plan.",
+        "Auto-fill isn’t available on this account right now. Your file is still attached; you can enter the details yourself.",
       );
+      setResumeMessageIsError(false);
       return;
     }
 
+    setResumeMessageIsError(false);
     setResumeMessage(null);
     void parse(resumeCapture)
       .then((draft) => {
         setParsedDraft(draft);
-        setResumeMessage(
-          "Resume read. Please review the highlighted fields before saving.",
-        );
+        setResumeMessage(resumeReadSuccessMessage(draft.fields));
       })
       .catch((error: unknown) => {
         setResumeMessage(friendlyResumeReadError(error));
+        setResumeMessageIsError(true);
       });
   }, [isEntitled, isEntitlementLoading, parse, resumeCapture, resumeFile]);
 
@@ -661,8 +743,23 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
           disabled={isUploading || isParsing}
           isParsing={isParsing}
           message={resumeMessage}
+          messageIsError={resumeMessageIsError}
           onChange={handleResumeChange}
+          onRemove={() => {
+            if (resumeCapture) void discardResumeCapture(resumeCapture);
+            setResumeFile(null);
+            setResumeCapture(null);
+            setParsedDraft(null);
+            setDraftSnapshot(null);
+            setResumeMessage(null);
+            setResumeMessageIsError(false);
+          }}
         />
+        {parsedDraft && (
+          <p className="text-sm text-muted-foreground" role="status">
+            The original file is still attached and unchanged.
+          </p>
+        )}
         <PhotoUploadPanel
           file={photoFile}
           previewUrl={photoPreviewUrl}
@@ -675,7 +772,18 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
           }}
           onVisibilityChange={setPhotoVisibility}
         />
-        <DraftResetter draft={parsedDraft} />
+        <DraftResetter draft={parsedDraft} onSnapshot={setDraftSnapshot} />
+        <AutoFillUndo
+          snapshot={draftSnapshot}
+          onUndo={() => {
+            setParsedDraft(null);
+            setDraftSnapshot(null);
+            setResumeMessage(
+              "Auto-fill undone. The original file is still attached and unchanged.",
+            );
+            setResumeMessageIsError(false);
+          }}
+        />
         <ShidduchInputs
           onCreateShadchan={handleCreateShadchan}
           lowConfidenceFields={parsedDraft?.lowConfidenceFields ?? []}

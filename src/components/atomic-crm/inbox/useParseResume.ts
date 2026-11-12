@@ -64,6 +64,7 @@ export type ParsedResumeResponse = {
  */
 const RESUME_SHAPED_MIME_TYPES: readonly string[] = [
   "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "image/jpeg",
   "image/png",
   "image/webp",
@@ -73,6 +74,14 @@ const RESUME_SHAPED_MIME_TYPES: readonly string[] = [
 
 function isResumeShapedAttachment(attachment: InboxAttachment): boolean {
   return RESUME_SHAPED_MIME_TYPES.includes(attachment.type);
+}
+
+export function hasLegacyWordAttachment(item: InboxItem): boolean {
+  return (
+    item.attachments?.some(
+      (attachment) => attachment.type === "application/msword",
+    ) ?? false
+  );
 }
 
 /**

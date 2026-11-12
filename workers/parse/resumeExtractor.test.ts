@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import JSZip from "jszip";
 import {
   ExtractorProviderError,
   ExtractorTimeoutError,
@@ -7,6 +8,23 @@ import {
 } from "./resumeExtractor";
 import { GEMINI_RESUME_RESPONSE_SCHEMA } from "./geminiResponseSchema";
 import { TEST_ENV } from "./parseTestFixtures";
+
+async function makeDocxFixture(): Promise<ArrayBuffer> {
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+  );
+  zip.file(
+    "_rels/.rels",
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+  );
+  zip.file(
+    "word/document.xml",
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Ari Rosenberg</w:t></w:r></w:p></w:body></w:document>',
+  );
+  return zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
+}
 
 describe("geminiExtractor", () => {
   afterEach(() => {
@@ -31,6 +49,32 @@ describe("geminiExtractor", () => {
       `https://gateway.ai.cloudflare.com/v1/${TEST_ENV.AI_GATEWAY_ACCOUNT_ID}/${TEST_ENV.AI_GATEWAY_ID}/google-ai-studio/v1beta/models/gemini-flash-latest:generateContent`,
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("sends bounded DOCX prose as text instead of forwarding the ZIP to Gemini", async () => {
+    // Arrange
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ candidates: [] }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const extractor = geminiExtractor(TEST_ENV);
+
+    // Act
+    await extractor.extract(
+      await makeDocxFixture(),
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+
+    // Assert
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as {
+      contents: Array<{ parts: Array<Record<string, unknown>> }>;
+    };
+    const contentPart = body.contents[0].parts[1];
+    expect(contentPart).toEqual({ text: "Ari Rosenberg" });
+    expect(contentPart).not.toHaveProperty("inline_data");
   });
 
   // Finding 14: an explicit structured-output schema, not prose alone.
