@@ -2738,24 +2738,22 @@ export const createDataProvider = ({
         src,
       };
     },
+    removeInboxAttachment: async (path: string): Promise<void> => {
+      const src = inboxAttachmentBlobUrls.get(path);
+      if (src?.startsWith("blob:")) URL.revokeObjectURL(src);
+      inboxAttachmentBlobUrls.delete(path);
+    },
     copyInboxAttachmentToResumeFile: async (params: {
       shidduchimId?: Identifier;
       singleId?: Identifier;
-      attachment?: InboxAttachment;
-      attachmentPath?: string;
-      fileName?: string;
+      attachment: InboxAttachment;
     }) => {
       const accountId = await resolveCurrentAccountId();
       const ownerSegment =
         params.singleId != null
           ? `single-${params.singleId}`
           : `${params.shidduchimId}`;
-      const attachment = params.attachment ?? {
-        title: params.fileName ?? "resume",
-        type: "application/octet-stream",
-        path: params.attachmentPath ?? "",
-        src: "",
-      };
+      const attachment = params.attachment;
       const storagePath = `${accountId}/resumes/${ownerSegment}/${crypto.randomUUID()}-${attachment.title}`;
       const response = await fetch(attachment.src);
       if (!response.ok) {

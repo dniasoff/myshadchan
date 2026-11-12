@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 
@@ -6,6 +6,41 @@ import { Notification } from "@/components/admin/notification";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
+
+const { callAiWorker, resolveAsNewShidduch } = vi.hoisted(() => ({
+  callAiWorker: vi.fn(),
+  resolveAsNewShidduch: vi.fn().mockResolvedValue({ id: 99 }),
+}));
+
+vi.mock("../providers/commons/aiWorkerClient", () => ({ callAiWorker }));
+vi.mock("../inbox/useResolveInboxItem", () => ({
+  useResolveInboxItem: () => ({ resolveAsNewShidduch }),
+}));
+
+const parsedResume = {
+  fields: {
+    name_en: "Rivky",
+    name_he: null,
+    father_en: null,
+    father_he: null,
+    mother_en: null,
+    mother_he: null,
+    seminary_en: "Bais Yaakov",
+    seminary_he: null,
+    shul_en: null,
+    shul_he: null,
+    location_en: "Lakewood",
+    location_he: null,
+    age: 24,
+    height: "5'6\"",
+    person_gender: null,
+    kohen_status: null,
+    marital_status: null,
+  },
+  lowConfidenceFields: ["age"],
+  sections: { learningHistory: [], references: [] },
+  rawDraft: { name_en: { value: "Rivky", confidence: 0.95 } },
+};
 
 // Side-effect import — registers the "shidduchim" entity descriptor, exactly
 // as `shidduchim/index.ts` does at boot. `buildListPath("shidduchim")`
@@ -55,6 +90,7 @@ const buildDataProvider = (
       path: "1/inbox/700/resume.pdf",
       src: "https://signed.example/resume.pdf",
     }),
+    removeInboxAttachment: vi.fn().mockResolvedValue(undefined),
     aiEntitlement: vi.fn().mockResolvedValue({
       is_entitled: false,
       plan: "free",
@@ -92,6 +128,12 @@ const renderShidduchCreate = async (
 
   return { screen, dataProvider, getPathname: () => pathname };
 };
+
+afterEach(() => {
+  callAiWorker.mockReset();
+  resolveAsNewShidduch.mockReset();
+  resolveAsNewShidduch.mockResolvedValue({ id: 99 });
+});
 
 describe("ShidduchCreate — a page, not a dialog (AC 1)", () => {
   it("renders the heading and no role=dialog element", async () => {
@@ -195,5 +237,165 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       "inbox_items",
       expect.objectContaining({ data: { attachments: [expect.anything()] } }),
     );
+  });
+
+  it("retypes accepted octet-stream files from their extension", async () => {
+    const { screen, dataProvider } = await renderShidduchCreate([
+      "/shidduchim/new",
+    ]);
+    await screen.getByLabelText("Attach resume").upload(
+      new File(["%PDF-1.4 test"], "resume.pdf", {
+        type: "application/octet-stream",
+      }),
+    );
+    expect(dataProvider.uploadInboxAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file: expect.objectContaining({ type: "application/pdf" }),
+      }),
+    );
+  });
+
+  it("reads a PDF, fills only untouched fields, and keeps the fields editable", async () => {
+    let resolveParse!: (value: typeof parsedResume) => void;
+    callAiWorker.mockReturnValue(
+      new Promise((resolve) => {
+        resolveParse = resolve;
+      }),
+    );
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 0,
+        resumes_limit: 50,
+      }),
+    });
+
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["%PDF-1.4 test"], "resume.pdf", { type: "application/pdf" }),
+      );
+    await expect
+      .element(screen.getByText("Reading your resume…"))
+      .toBeInTheDocument();
+    await screen.getByLabelText("Name (English)").fill("Typed by Ronit");
+    resolveParse(parsedResume);
+
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Typed by Ronit");
+    await expect
+      .element(screen.getByLabelText("Seminary (English)"))
+      .toHaveValue("Bais Yaakov");
+    await expect.element(screen.getByText("Please check")).toBeInTheDocument();
+    expect(resolveAsNewShidduch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the attachment and uses a fixed message for parse failures", async () => {
+    callAiWorker.mockRejectedValue(new Error("monthly resume limit reached"));
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 50,
+        resumes_limit: 50,
+      }),
+    });
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["%PDF-1.4 test"], "resume.pdf", { type: "application/pdf" }),
+      );
+    await expect
+      .element(
+        screen.getByText(
+          "You’ve reached your monthly resume-reading limit. Your file is still attached.",
+        ),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Attached: resume.pdf"))
+      .toBeInTheDocument();
+  });
+
+  it("keeps a PDF attached when the account has no AI entitlement", async () => {
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: false,
+        plan: "free",
+        status: "none",
+        resumes_used: 0,
+        resumes_limit: 0,
+      }),
+    });
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["%PDF-1.4 test"], "resume.pdf", { type: "application/pdf" }),
+      );
+    await expect
+      .element(
+        screen.getByText(
+          "Your resume is attached. AI auto-fill isn’t available on this plan.",
+        ),
+      )
+      .toBeInTheDocument();
+  });
+
+  it("submits the attached file through the existing resume resolver", async () => {
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["word bytes"], "resume.docx", { type: "application/msword" }),
+      );
+    await expect
+      .element(
+        screen.getByText(
+          "Word auto-fill isn’t available yet, but your file is attached.",
+        ),
+      )
+      .toBeInTheDocument();
+    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen.getByRole("button", { name: "Add a suggestion" }).click();
+    await expect.poll(() => resolveAsNewShidduch.mock.calls.length).toBe(1);
+    expect(resolveAsNewShidduch).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ name_en: "Chaya" }),
+      expect.objectContaining({ rawDraft: null, sections: null }),
+    );
+  });
+
+  it("turns a conflicting retry into a plain-English notification", async () => {
+    resolveAsNewShidduch.mockRejectedValue(
+      new Error(
+        "Another resolution is already in progress for inbox item 700.",
+      ),
+    );
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["word bytes"], "resume.docx", { type: "application/msword" }),
+      );
+    await expect
+      .element(
+        screen.getByText(
+          "Word auto-fill isn’t available yet, but your file is attached.",
+        ),
+      )
+      .toBeInTheDocument();
+    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen.getByRole("button", { name: "Add a suggestion" }).click();
+    await expect
+      .element(
+        screen.getByText(
+          "This suggestion was already started. Please save again without changing it, or open it from the list.",
+        ),
+      )
+      .toBeInTheDocument();
   });
 });

@@ -1290,6 +1290,12 @@ export const getDataProviderWithCustomMethods = () => {
     ): Promise<InboxAttachment> {
       return uploadInboxAttachment(params);
     },
+    async removeInboxAttachment(path: string): Promise<void> {
+      const { error } = await getSupabaseClient()
+        .storage.from(ATTACHMENTS_BUCKET)
+        .remove([path]);
+      if (error) throw new Error("Failed to remove the captured resume");
+    },
     async copyInboxAttachmentToResumeFile(
       params: CopyInboxAttachmentToResumeFileParams,
     ) {

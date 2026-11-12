@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DataProvider, GetListParams, ResourceCallbacks } from "ra-core";
 
-import { applyFullTextSearch, lifeCycleCallbacks } from "./dataProvider";
+import {
+  applyFullTextSearch,
+  getDataProviderWithCustomMethods,
+  lifeCycleCallbacks,
+} from "./dataProvider";
 
 /**
  * Review fix, story 4-1 (F1 + F2): Task 4's search wiring — the two
@@ -180,6 +184,23 @@ describe("lifeCycleCallbacks wiring (AC 4, Dev Notes 'the dead-hook trap')", () 
         },
       );
     });
+  });
+});
+
+describe("resume capture provider methods", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("exposes the shared upload, copy, and cleanup methods", () => {
+    vi.stubEnv("VITE_SUPABASE_URL", "http://localhost:54321");
+    vi.stubEnv("VITE_SB_PUBLISHABLE_KEY", "test-key");
+    const dataProvider = getDataProviderWithCustomMethods();
+
+    expect(dataProvider.uploadInboxAttachment).toEqual(expect.any(Function));
+    expect(dataProvider.copyInboxAttachmentToResumeFile).toEqual(
+      expect.any(Function),
+    );
+    expect(dataProvider.removeInboxAttachment).toEqual(expect.any(Function));
+    expect(dataProvider.removeResumeFileObjects).toEqual(expect.any(Function));
   });
 });
 

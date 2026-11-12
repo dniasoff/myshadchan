@@ -1,6 +1,6 @@
 import type { Identifier } from "ra-core";
 import { Loader2, Paperclip, Sparkles } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import {
   Form,
@@ -27,6 +27,9 @@ import {
 import { useResolveInboxItem } from "../inbox/useResolveInboxItem";
 import {
   isAutoFillResumeMimeType,
+  friendlyResumeReadError,
+  friendlyResumeUploadError,
+  friendlySuggestionSubmitError,
   RESUME_UPLOAD_ACCEPT,
   resumeMimeType,
   validateResumeUpload,
@@ -51,30 +54,45 @@ function readNumberField(value: unknown): number | null {
 }
 
 const DraftResetter = ({ draft }: { draft: ParsedResumeResponse | null }) => {
-  const { reset } = useFormContext();
+  const { formState, getValues, setValue } =
+    useFormContext<Record<string, unknown>>();
 
   useEffect(() => {
     if (!draft) return;
-    reset((current) => ({
-      ...current,
-      ...draft.fields,
-      single_id: current.single_id,
-      shadchan_id: current.shadchan_id,
-      initial_state: current.initial_state ?? "new",
-      redt_date: current.redt_date,
-    }));
-  }, [draft, reset]);
+    for (const [field, value] of Object.entries(draft.fields)) {
+      const currentValue = getValues(field);
+      const isEmpty =
+        currentValue === null ||
+        currentValue === undefined ||
+        currentValue === "";
+      if (
+        formState.dirtyFields[field] ||
+        !isEmpty ||
+        value === null ||
+        value === ""
+      ) {
+        continue;
+      }
+      setValue(field, value, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    }
+  }, [draft, formState.dirtyFields, getValues, setValue]);
 
   return null;
 };
 
 const ResumeUploadPanel = ({
   file,
+  disabled,
   isParsing,
   message,
   onChange,
 }: {
   file: File | null;
+  disabled: boolean;
   isParsing: boolean;
   message: string | null;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -93,7 +111,7 @@ const ResumeUploadPanel = ({
         type="button"
         variant="outline"
         className="h-11 gap-2"
-        disabled={isParsing}
+        disabled={disabled}
         onClick={() => document.getElementById("suggestion-resume")?.click()}
       >
         <Paperclip className="size-4" aria-hidden="true" />
@@ -157,7 +175,9 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
     null,
   );
   const [resumeMessage, setResumeMessage] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const attemptedCaptureId = useRef<Identifier | null>(null);
+  const committedCaptureId = useRef<Identifier | null>(null);
 
   const stateParam = searchParams.get("state") as PipelineState | null;
   const initialState =
@@ -172,7 +192,34 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
   // InboxResolveDialog.tsx.
   const handleCreateShadchan = createShadchanInline(dataProvider);
 
+  const discardResumeCapture = useCallback(
+    async (capture: InboxItem) => {
+      const attachmentPath = capture.attachments?.[0]?.path;
+      await Promise.allSettled([
+        dataProvider.update<InboxItem>("inbox_items", {
+          id: capture.id,
+          data: { status: "dismissed", attachments: null },
+          previousData: capture,
+        }),
+        attachmentPath
+          ? dataProvider.removeInboxAttachment(attachmentPath)
+          : Promise.resolve(),
+      ]);
+    },
+    [dataProvider],
+  );
+
+  useEffect(() => {
+    const capture = resumeCapture;
+    if (!capture) return;
+    return () => {
+      if (committedCaptureId.current === capture.id) return;
+      void discardResumeCapture(capture);
+    };
+  }, [discardResumeCapture, resumeCapture]);
+
   const handleResumeChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (isUploading || isParsing) return;
     const selected = event.target.files?.[0];
     event.target.value = "";
     if (!selected) return;
@@ -184,10 +231,12 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
     }
 
     const mimeType = resumeMimeType(selected);
-    const file = selected.type
-      ? selected
-      : new File([selected], selected.name, { type: mimeType });
+    const file =
+      selected.type === mimeType
+        ? selected
+        : new File([selected], selected.name, { type: mimeType });
 
+    setIsUploading(true);
     try {
       setResumeMessage("Saving your resume…");
       const { data: item } = await dataProvider.create<InboxItem>(
@@ -214,17 +263,17 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
         },
       );
       setResumeFile(file);
+      attemptedCaptureId.current = null;
       setResumeCapture(updatedItem ?? { ...item, attachments: [attachment] });
       setParsedDraft(null);
       setResumeMessage(null);
-    } catch (error) {
+    } catch {
       setResumeFile(null);
       setResumeCapture(null);
       setResumeMessage(null);
-      notify(
-        error instanceof Error ? error.message : "Couldn’t attach that resume",
-        { type: "error" },
-      );
+      notify(friendlyResumeUploadError(), { type: "error" });
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -262,15 +311,20 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
         );
       })
       .catch((error: unknown) => {
-        setResumeMessage(
-          error instanceof Error
-            ? `${error.message}. Your file is still attached.`
-            : "Couldn’t read the resume, but your file is still attached.",
-        );
+        setResumeMessage(friendlyResumeReadError(error));
       });
   }, [isEntitled, isEntitlementLoading, parse, resumeCapture, resumeFile]);
 
   const onSubmit = async (values: Record<string, unknown>) => {
+    if (isUploading || isParsing) {
+      notify(
+        "Please wait while your resume is being read. Your changes are safe.",
+        {
+          type: "info",
+        },
+      );
+      return;
+    }
     try {
       const input: CreateShidduchInput = {
         single_id: values.single_id as Identifier,
@@ -309,16 +363,12 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
       } else {
         await dataProvider.createShidduch(input);
       }
+      if (resumeCapture) committedCaptureId.current = resumeCapture.id;
       notify("Shidduch added", { type: "info" });
       refresh();
       redirect(buildListPath("shidduchim"));
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Failed to add shidduch",
-        {
-          type: "error",
-        },
-      );
+      notify(friendlySuggestionSubmitError(error), { type: "error" });
     }
   };
 
@@ -339,6 +389,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
       >
         <ResumeUploadPanel
           file={resumeFile}
+          disabled={isUploading || isParsing}
           isParsing={isParsing}
           message={resumeMessage}
           onChange={handleResumeChange}

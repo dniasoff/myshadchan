@@ -45,8 +45,12 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     // Act
     const result = await copyInboxAttachmentToResumeFile({
       shidduchimId: 42,
-      attachmentPath: "7/inbox-abc.pdf",
-      fileName: "resume.pdf",
+      attachment: {
+        path: "7/inbox-abc.pdf",
+        title: "resume.pdf",
+        type: "application/pdf",
+        src: "https://example.test/resume.pdf",
+      },
     });
 
     // Assert: read from the exact bucket + path the inbox capture landed at.
@@ -77,8 +81,12 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     // Act
     const result = await copyInboxAttachmentToResumeFile({
       shidduchimId: 42,
-      attachmentPath: "7/inbox-abc.pdf",
-      fileName: "resume.pdf",
+      attachment: {
+        path: "7/inbox-abc.pdf",
+        title: "resume.pdf",
+        type: "application/pdf",
+        src: "https://example.test/resume.pdf",
+      },
     });
 
     // Assert
@@ -93,8 +101,12 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     // Act
     await copyInboxAttachmentToResumeFile({
       singleId: 15,
-      attachmentPath: "7/inbox-abc.pdf",
-      fileName: "resume.pdf",
+      attachment: {
+        path: "7/inbox-abc.pdf",
+        title: "resume.pdf",
+        type: "application/pdf",
+        src: "https://example.test/resume.pdf",
+      },
     });
 
     // Assert
@@ -113,8 +125,12 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     await expect(
       copyInboxAttachmentToResumeFile({
         shidduchimId: 42,
-        attachmentPath: "7/missing.pdf",
-        fileName: "resume.pdf",
+        attachment: {
+          path: "7/missing.pdf",
+          title: "resume.pdf",
+          type: "application/pdf",
+          src: "https://example.test/resume.pdf",
+        },
       }),
     ).rejects.toThrow("Failed to read the captured resume attachment");
     expect(upload).not.toHaveBeenCalled();
@@ -129,8 +145,12 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     await expect(
       copyInboxAttachmentToResumeFile({
         shidduchimId: 42,
-        attachmentPath: "7/inbox-abc.pdf",
-        fileName: "resume.pdf",
+        attachment: {
+          path: "7/inbox-abc.pdf",
+          title: "resume.pdf",
+          type: "application/pdf",
+          src: "https://example.test/resume.pdf",
+        },
       }),
     ).rejects.toThrow("Failed to save the captured resume");
   });

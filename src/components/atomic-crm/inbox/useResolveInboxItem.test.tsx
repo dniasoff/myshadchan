@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter, type Identifier } from "ra-core";
 
@@ -13,25 +13,6 @@ import type {
   Shidduch,
 } from "../types";
 import { useResolveInboxItem, type ResumeDraft } from "./useResolveInboxItem";
-
-/**
- * `useResolveInboxItem.ts` calls these two directly (the
- * `signInboxAttachmentUrl` idiom `InboxResolveDialog.tsx` already uses,
- * not a `CrmDataProvider` custom method — see the Finding 2 review-fix
- * comment on `resolveAsNewShidduch`), so they are mocked at the module
- * level rather than through the `dataProvider` mock below.
- */
-const { copyInboxAttachmentToResumeFile, removeResumeFileObjects } = vi.hoisted(
-  () => ({
-    copyInboxAttachmentToResumeFile: vi.fn(),
-    removeResumeFileObjects: vi.fn(),
-  }),
-);
-
-vi.mock("../providers/supabase/resumes", () => ({
-  copyInboxAttachmentToResumeFile,
-  removeResumeFileObjects,
-}));
 
 /**
  * Story 10.1 (Task 5, AC 5/6/7) + Story 10.5 idempotency:
@@ -153,6 +134,12 @@ const buildDataProvider = (
     create,
     getList,
     copyInboxAttachmentsToEntityFiles,
+    copyInboxAttachmentToResumeFile: vi.fn().mockResolvedValue({
+      storagePath: "7/resumes/99/generated-uuid-resume.pdf",
+      size: 245678,
+    }),
+    removeResumeFileObjects: vi.fn().mockResolvedValue(undefined),
+    removeInboxAttachment: vi.fn().mockResolvedValue(undefined),
     getOne,
     update,
     ...overrides,
@@ -324,20 +311,13 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
 });
 
 describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 review fix, Finding 2 + also-fixes)", () => {
-  beforeEach(() => {
-    copyInboxAttachmentToResumeFile.mockReset();
-    removeResumeFileObjects.mockReset();
-  });
-
   it("persists the copied documents-bucket path and the real byte size on the new resumes row — the regression test for Finding 2", async () => {
     // Arrange
-    copyInboxAttachmentToResumeFile.mockResolvedValue({
-      storagePath: "7/resumes/99/generated-uuid-resume.pdf",
-      size: 245678,
-    });
-    const item = buildItem();
+    const item = buildItem({ source: "upload" });
     const draft = buildResumeDraft();
     const { screen, dataProvider } = await renderProbe(item, {}, draft);
+    const copyInboxAttachmentToResumeFile =
+      dataProvider.copyInboxAttachmentToResumeFile as ReturnType<typeof vi.fn>;
 
     // Act
     await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
@@ -348,8 +328,7 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     // path saved as if it were a `documents`-bucket one).
     expect(copyInboxAttachmentToResumeFile).toHaveBeenCalledWith({
       shidduchimId: 99,
-      attachmentPath: "1/inbox-resume.pdf",
-      fileName: "resume.pdf",
+      attachment: draft.attachment,
     });
 
     // Assert: the persisted file version uses the COPIED path (the bucket
@@ -373,6 +352,9 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
         }),
       }),
     );
+    expect(dataProvider.removeInboxAttachment).toHaveBeenCalledWith(
+      draft.attachment.path,
+    );
   });
 
   it("does not attempt a resumes row when no draft was used", async () => {
@@ -385,7 +367,7 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
 
     // Assert
-    expect(copyInboxAttachmentToResumeFile).not.toHaveBeenCalled();
+    expect(dataProvider.copyInboxAttachmentToResumeFile).not.toHaveBeenCalled();
     expect(dataProvider.create).not.toHaveBeenCalled();
   });
 
@@ -414,7 +396,7 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     // Assert: the retry completes (finalizes) without redoing any of the
     // already-stashed work.
     expect(dataProvider.createShidduch).not.toHaveBeenCalled();
-    expect(copyInboxAttachmentToResumeFile).not.toHaveBeenCalled();
+    expect(dataProvider.copyInboxAttachmentToResumeFile).not.toHaveBeenCalled();
     expect(dataProvider.create).not.toHaveBeenCalled();
   });
 
@@ -426,10 +408,6 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     // exactly as a dropped connection or a closed tab would. `stashShouldFail`
     // makes the injected failure fire on that ONE call only, so the retry's
     // own stash succeeds.
-    copyInboxAttachmentToResumeFile.mockResolvedValue({
-      storagePath: "7/resumes/99/generated-uuid-resume.pdf",
-      size: 245678,
-    });
     let stashShouldFail = true;
     const hooks: DataProviderHooks = {
       beforeUpdate: (resource, params) => {
@@ -451,6 +429,8 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
 
     // Act: first attempt crashes in the stash window described above.
     const { screen, dataProvider } = await renderProbe(item, {}, draft, hooks);
+    const copyInboxAttachmentToResumeFile =
+      dataProvider.copyInboxAttachmentToResumeFile as ReturnType<typeof vi.fn>;
     await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
     await expect
       .element(screen.getByText("error:connection dropped"))
@@ -473,19 +453,16 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
 
   it("removes the copied object and rethrows when the resumes row write fails, rather than leaving an orphaned object", async () => {
     // Arrange
-    copyInboxAttachmentToResumeFile.mockResolvedValue({
-      storagePath: "7/resumes/99/generated-uuid-resume.pdf",
-      size: 245678,
-    });
-    const create = vi.fn(async (resource: string) => {
-      if (resource === "resumes") {
-        throw new Error("insert failed");
-      }
-      return { data: { id: 100 } };
-    }) as unknown as CrmDataProvider["create"];
+    const create = vi.fn((resource: string) =>
+      resource === "resumes"
+        ? Promise.reject(new Error("insert failed"))
+        : Promise.resolve({ data: { id: 100 } }),
+    ) as unknown as CrmDataProvider["create"];
     const item = buildItem();
     const draft = buildResumeDraft();
-    const { screen } = await renderProbe(item, { create }, draft);
+    const { screen, dataProvider } = await renderProbe(item, { create }, draft);
+    const removeResumeFileObjects =
+      dataProvider.removeResumeFileObjects as ReturnType<typeof vi.fn>;
 
     // Act
     await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();

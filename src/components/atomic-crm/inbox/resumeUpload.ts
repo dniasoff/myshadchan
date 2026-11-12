@@ -75,6 +75,10 @@ export function isAutoFillResumeMimeType(mimeType: string): boolean {
 export function validateResumeUpload(
   file: Pick<File, "name" | "type" | "size">,
 ): string | null {
+  if (file.size === 0) {
+    return "That file is empty. Please choose a resume with some content.";
+  }
+
   if (file.size > MAX_RESUME_UPLOAD_BYTES) {
     return "That file is too large. Resumes must be 8 MB or smaller.";
   }
@@ -85,4 +89,44 @@ export function validateResumeUpload(
   }
 
   return null;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message.toLowerCase() : "";
+}
+
+/** Keep worker, entitlement, quota, and network details out of the form. */
+export function friendlyResumeReadError(error: unknown): string {
+  const message = errorText(error);
+  if (/monthly|quota|limit reached|too many/.test(message)) {
+    return "You’ve reached your monthly resume-reading limit. Your file is still attached.";
+  }
+  if (/failed to fetch|network|offline|timeout|connection/.test(message)) {
+    return "We couldn’t reach the resume reader. Check your connection and try again. Your file is still attached.";
+  }
+  if (
+    /not authenticated|unauthorized|forbidden|entitlement|plan/.test(message)
+  ) {
+    return "Resume reading isn’t available right now, but your file is still attached.";
+  }
+  if (
+    /429|rate limit|temporarily unavailable|service unavailable|5\d\d/.test(
+      message,
+    )
+  ) {
+    return "The resume reader is busy. Please try again shortly. Your file is still attached.";
+  }
+  return "We couldn’t read that resume, but your file is still attached.";
+}
+
+export function friendlyResumeUploadError(): string {
+  return "We couldn’t attach that resume. Please try again.";
+}
+
+export function friendlySuggestionSubmitError(error: unknown): string {
+  const message = errorText(error);
+  if (/another resolution is already in progress/.test(message)) {
+    return "This suggestion was already started. Please save again without changing it, or open it from the list.";
+  }
+  return "We couldn’t add that suggestion. Please try again.";
 }

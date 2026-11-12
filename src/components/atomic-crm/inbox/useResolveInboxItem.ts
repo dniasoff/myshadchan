@@ -3,11 +3,7 @@ import { useDataProvider } from "ra-core";
 
 import { insertNoteInteraction } from "../entity360/tabs/insertNoteInteraction";
 import type { CrmDataProvider } from "../providers/types";
-import {
-  copyInboxAttachmentToResumeFile,
-  removeResumeFileObjects,
-  type CopiedResumeFile,
-} from "../providers/supabase/resumes";
+import type { CopiedResumeFile } from "../providers/supabase/resumes";
 import type {
   CreateShidduchInput,
   InboxAttachment,
@@ -168,22 +164,10 @@ export function useResolveInboxItem() {
       if (existingResumes.length === 0) {
         let copiedFile: CopiedResumeFile | undefined;
         try {
-          const hasProviderCopy = Object.prototype.hasOwnProperty.call(
-            dataProvider,
-            "copyInboxAttachmentToResumeFile",
-          );
-          if (hasProviderCopy) {
-            copiedFile = await dataProvider.copyInboxAttachmentToResumeFile({
-              shidduchimId: created.id,
-              attachment: savedDraft.attachment,
-            });
-          } else {
-            copiedFile = await copyInboxAttachmentToResumeFile({
-              shidduchimId: created.id,
-              attachmentPath: savedDraft.attachment.path,
-              fileName: savedDraft.attachment.title,
-            });
-          }
+          copiedFile = await dataProvider.copyInboxAttachmentToResumeFile({
+            shidduchimId: created.id,
+            attachment: savedDraft.attachment,
+          });
           await dataProvider.create<Resume>("resumes", {
             data: {
               shidduchim_id: created.id,
@@ -207,17 +191,9 @@ export function useResolveInboxItem() {
           // so remove it rather than leaving an orphaned, never-referenced
           // object behind.
           if (copiedFile) {
-            const hasProviderRemove = Object.prototype.hasOwnProperty.call(
-              dataProvider,
-              "removeResumeFileObjects",
-            );
-            if (hasProviderRemove) {
-              await dataProvider.removeResumeFileObjects([
-                copiedFile.storagePath,
-              ]);
-            } else {
-              await removeResumeFileObjects([copiedFile.storagePath]);
-            }
+            await dataProvider.removeResumeFileObjects([
+              copiedFile.storagePath,
+            ]);
           }
           throw creationError;
         }
@@ -234,6 +210,11 @@ export function useResolveInboxItem() {
         },
         previousData: lockedItem,
       });
+      if (item.source === "upload") {
+        await dataProvider
+          .removeInboxAttachment(savedDraft.attachment.path)
+          .catch(() => undefined);
+      }
     }
 
     await dataProvider.update<InboxItem>("inbox_items", {

@@ -115,11 +115,9 @@ export async function uploadResumeFile(
   return row as Resume;
 }
 
-export type CopyInboxAttachmentToResumeFileParams = ResumeSubject &
-  (
-    | { attachment: InboxAttachment }
-    | { attachmentPath: string; fileName: string }
-  );
+export type CopyInboxAttachmentToResumeFileParams = ResumeSubject & {
+  attachment: InboxAttachment;
+};
 
 export type CopiedResumeFile = {
   storagePath: string;
@@ -153,11 +151,9 @@ export type CopiedResumeFile = {
 export async function copyInboxAttachmentToResumeFile(
   params: CopyInboxAttachmentToResumeFileParams,
 ): Promise<CopiedResumeFile> {
-  const subject = params as ResumeSubject;
-  const attachmentPath =
-    "attachment" in params ? params.attachment.path : params.attachmentPath;
-  const fileName =
-    "attachment" in params ? params.attachment.title : params.fileName;
+  const { attachment, ...subject } = params;
+  const attachmentPath = attachment.path;
+  const fileName = attachment.title;
   const accountId = await getCurrentAccountId();
   const ownerSegment = isSingleSubject(subject)
     ? `single-${subject.singleId}`
