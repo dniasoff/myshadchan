@@ -118,6 +118,9 @@ jobs:
       - name: 🔎 Unit Tests on the database (RLS / SECURITY DEFINER suite)
         run: CI=1 SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54342/postgres npm run test:unit:db -- --run
 
+      - name: 🧭 Declarative schema drift (migrations converge)
+        run: make check-schema-drift
+
       - name: 🛑 Stop local Supabase stack
         if: always()
         run: make stop-supabase-e2e

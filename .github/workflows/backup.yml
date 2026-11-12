@@ -59,12 +59,25 @@ jobs:
         uses: actions/checkout@v4
 
       - if: steps.cfg.outputs.ready == 'true'
+        name: ⚙️ Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - if: steps.cfg.outputs.ready == 'true'
+        name: 🏷️ Read pinned Supabase CLI version
+        id: supabase_cli_version
+        run: |
+          version="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("package.json", "utf8")).devDependencies.supabase)')"
+          test -n "$version" || { echo "::error::package.json does not pin Supabase CLI"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - if: steps.cfg.outputs.ready == 'true'
         name: ⚙️ Setup supabase
         uses: supabase/setup-cli@v3
         with:
-          # Pinned to match deploy.yml: 2.112.0 rejects the hosted Management
-          # API's inserted_at shape during `supabase link`.
-          version: 2.111.0
+          # Reads the same package.json pin as deploy.yml.
+          version: ${{ steps.supabase_cli_version.outputs.version }}
 
       - if: steps.cfg.outputs.ready == 'true'
         name: 🔗 Link project
