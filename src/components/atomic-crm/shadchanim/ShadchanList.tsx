@@ -9,7 +9,11 @@ import { ShadchanCardGrid, ShadchanCardGridSkeleton } from "./ShadchanCardGrid";
 import { ShadchanRow } from "./ShadchanRow";
 import { ShadchanSearchInput } from "./ShadchanSearchInput";
 import { countSuggestionsByShadchan } from "./shadchanUtils";
-import { filterShadchanimBySearch, isPhoneSearchQuery } from "./shadchanUtils";
+import {
+  filterShadchanimBySearch,
+  isPhoneSearchQuery,
+  sortShadchanim,
+} from "./shadchanUtils";
 import { useAllShadchanim } from "./useAllShadchanim";
 
 /**
@@ -149,8 +153,11 @@ export const ShadchanList = () => {
           ? "Try the last 4 or more digits, or check the number you entered."
           : undefined
       }
-      filterData={(data) =>
-        filterShadchanimBySearch(data as Shadchan[], searchQuery)
+      filterData={(data, sort) =>
+        sortShadchanim(
+          filterShadchanimBySearch(data as Shadchan[], searchQuery),
+          sort,
+        )
       }
       listStatusOverrides={{
         data: allShadchanim.data?.data ?? [],

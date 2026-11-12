@@ -7,6 +7,7 @@ import {
   normalizeShadchanName,
   normalizePhoneDigits,
   parseContactInfo,
+  sortShadchanim,
 } from "./shadchanUtils";
 
 const shadchan = (id: number, contacts: unknown, name = `Shadchan ${id}`) => ({
@@ -121,6 +122,19 @@ describe("phone search matching", () => {
     expect(
       filterShadchanimBySearch(rows, "Stern, Rivka").map((row) => row.id),
     ).toEqual([1]);
+  });
+
+  it("sorts the locally filtered book in the active list order", () => {
+    const rows = [
+      shadchan(1, {}, "Ariella Katz"),
+      shadchan(2, {}, "Zev Adler"),
+    ];
+
+    expect(
+      sortShadchanim(rows, { field: "name", order: "DESC" }).map(
+        (row) => row.name,
+      ),
+    ).toEqual(["Zev Adler", "Ariella Katz"]);
   });
 });
 

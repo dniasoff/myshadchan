@@ -33,7 +33,7 @@ export interface EntityListProps extends Pick<
   /** Optional resource-specific search control, rendered in the shared filter form. */
   searchInput?: ReactElement;
   /** Optional local transform for resources whose search must stay in component state. */
-  filterData?: (data: RaRecord[]) => RaRecord[];
+  filterData?: (data: RaRecord[], sort: SortPayload) => RaRecord[];
   listStatusOverrides?: EntityListViewProps["listStatusOverrides"];
   extraFilters?: ReactElement[];
   sortFields?: string[];

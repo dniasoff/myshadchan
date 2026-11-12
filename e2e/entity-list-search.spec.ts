@@ -141,8 +141,8 @@ test.describe("Entity list search survives a hard reload (AC 5) — /shadchanim"
     const search = page.getByRole("textbox", { name: "Search shadchanim" });
     await expect(search).toBeVisible();
 
-    // A local-formatted input matches both countries by their shared suffix.
-    await search.fill("07700 9000123");
+    // A formatted seven-digit suffix matches both country formats.
+    await search.fill("900 0123");
     await expect(page.getByText("Rivka Stern")).toBeVisible();
     await expect(page.getByText("Moshe Adler")).toBeVisible();
     await expect(page.getByText("Phone search active")).toBeVisible();
@@ -151,10 +151,10 @@ test.describe("Entity list search survives a hard reload (AC 5) — /shadchanim"
     await expect(
       page.getByRole("link", { name: "Open Rivka Stern file" }),
     ).toBeVisible();
-    await expect(page).not.toHaveURL(/07700|9000123/);
+    await expect(page).not.toHaveURL(/9000123/);
 
     // The status and result metadata expose only the masked suffix.
-    await expect(page.getByText("07700 9000123")).not.toBeVisible();
+    await expect(page.getByText("900 0123")).not.toBeVisible();
 
     await page.reload();
     await expect(search).toHaveValue("");

@@ -235,6 +235,20 @@ export const filterShadchanimBySearch = <T extends Shadchan>(
   });
 };
 
+export const sortShadchanim = <T extends Shadchan>(
+  shadchanim: T[],
+  sort: { field: string; order: "ASC" | "DESC" },
+): T[] => {
+  const sorted = [...shadchanim].sort((left, right) => {
+    const leftValue = sort.field === "location" ? left.location : left.name;
+    const rightValue = sort.field === "location" ? right.location : right.name;
+    return (leftValue ?? "").localeCompare(rightValue ?? "", undefined, {
+      sensitivity: "base",
+    });
+  });
+  return sort.order === "DESC" ? sorted.reverse() : sorted;
+};
+
 /**
  * Count suggestions per shadchan_id from a flat list of shidduchim summaries.
  * Callers fetch that list once, account-wide, and pass it in — this stays a

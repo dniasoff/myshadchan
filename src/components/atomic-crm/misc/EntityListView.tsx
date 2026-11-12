@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import type { RaRecord } from "ra-core";
-import { useTranslate } from "ra-core";
+import type { RaRecord, SortPayload } from "ra-core";
+import { useListContext, useTranslate } from "ra-core";
 
 import { Button } from "@/components/ui/button";
 
@@ -23,7 +23,7 @@ export interface EntityListViewProps {
   emptyState: EmptyStateProps;
   noMatchesMessage: string;
   noMatchesDescription?: string;
-  filterData?: (data: RaRecord[]) => RaRecord[];
+  filterData?: (data: RaRecord[], sort: SortPayload) => RaRecord[];
   listStatusOverrides?: EntityListStatusOverrides;
   renderList: (data: RaRecord[]) => ReactNode;
   renderCards: (data: RaRecord[]) => ReactNode;
@@ -67,6 +67,7 @@ export const EntityListView = ({
   filterDefaultValues,
 }: EntityListViewProps) => {
   const translate = useTranslate();
+  const { sort } = useListContext();
   const status = useEntityListStatus(filterDefaultValues, listStatusOverrides);
 
   if (status.status === "loading") {
@@ -100,7 +101,7 @@ export const EntityListView = ({
     );
   }
 
-  const filteredData = filterData ? filterData(status.data) : status.data;
+  const filteredData = filterData ? filterData(status.data, sort) : status.data;
   if (filteredData.length === 0) {
     return (
       <div className="flex flex-col items-center gap-2 py-10 text-center">
