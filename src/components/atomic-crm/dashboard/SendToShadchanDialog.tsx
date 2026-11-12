@@ -195,6 +195,7 @@ export function SendToShadchanDialog({
   const [manualMessage, setManualMessage] = useState("");
   const [manualStatus, setManualStatus] = useState("");
   const preparingRef = useRef(false);
+  const wasPreparingRef = useRef(false);
   const runIdRef = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
   const finalButtonRef = useRef<HTMLButtonElement>(null);
@@ -345,6 +346,13 @@ export function SendToShadchanDialog({
   }, [open]);
 
   useEffect(() => {
+    if (open && wasPreparingRef.current && !isPreparing && canSubmit) {
+      finalButtonRef.current?.focus();
+    }
+    wasPreparingRef.current = isPreparing;
+  }, [canSubmit, isPreparing, open]);
+
+  useEffect(() => {
     setResumeSelected(Boolean(latestFile));
     setPhotoSelected(Boolean(newestEligiblePhoto));
     setResumeOnlyConfirmed(false);
@@ -443,7 +451,7 @@ export function SendToShadchanDialog({
       message,
     );
     const opened = openManualComposer(url);
-    await recordOutcome(opened ? "download_prepared" : "failed", hasPhoto);
+    await recordOutcome("download_prepared", hasPhoto);
     if (!isCurrentRun(runId)) return;
     setManualFiles(files);
     setManualMessage(message);
@@ -551,7 +559,6 @@ export function SendToShadchanDialog({
           await recordOutcome("cancelled", hasPhoto);
           setLiveStatus("Share cancelled. Nothing was sent.");
           notify("Share cancelled. Nothing was sent.", { type: "info" });
-          window.setTimeout(() => finalButtonRef.current?.focus(), 0);
         } else if (isUnsupportedShareError(error)) {
           await setManualFallback(files, manualMessage, hasPhoto, runId);
         } else {

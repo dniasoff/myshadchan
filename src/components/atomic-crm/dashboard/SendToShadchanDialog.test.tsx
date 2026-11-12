@@ -398,6 +398,9 @@ describe("SendToShadchanDialog", () => {
     await expect
       .element(screen.getByText("Share cancelled. Nothing was sent."))
       .toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: "Share resume and photo" }))
+      .toHaveFocus();
     expect(create).toHaveBeenCalledWith(
       "outbound_share_history",
       expect.objectContaining({
@@ -796,7 +799,20 @@ describe("SendToShadchanDialog", () => {
       () => undefined,
     );
     vi.spyOn(window, "open").mockReturnValue(null);
-    const { dataProvider } = buildDataProvider();
+    const history: OutboundShareHistory[] = [
+      {
+        id: 100,
+        account_id: 1,
+        single_id: single.id,
+        shadchan_id: shadchan.id,
+        actor_member_id: 1,
+        channel: "whatsapp",
+        file_kinds: ["resume", "photo"],
+        outcome: "download_prepared",
+        created_at: "2026-01-04T12:00:00Z",
+      },
+    ];
+    const { dataProvider, create } = buildDataProvider({ history });
     const screen = await renderDialog(dataProvider);
     await chooseRecipientAndChannel(screen);
     await screen
@@ -814,6 +830,14 @@ describe("SendToShadchanDialog", () => {
     await expect
       .element(screen.getByRole("button", { name: "Copy message" }))
       .toBeVisible();
+    expect(create).toHaveBeenCalledWith(
+      "outbound_share_history",
+      expect.objectContaining({
+        data: expect.objectContaining({ outcome: "download_prepared" }),
+      }),
+    );
+    await screen.getByRole("button", { name: "View send history" }).click();
+    await expect.element(screen.getByText("Files downloaded")).toBeVisible();
   });
 
   it("clears the manual panel when the selected recipient changes", async () => {
