@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 
+import { Notification } from "@/components/admin/notification";
+
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 
@@ -27,7 +29,39 @@ const buildDataProvider = (
     // getMany — both stubbed empty/absent since no test asserts on them.
     getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
     getMany: vi.fn().mockResolvedValue({ data: [] }),
-    create: vi.fn(),
+    create: vi.fn().mockImplementation(async (resource: string) =>
+      resource === "inbox_items"
+        ? {
+            data: {
+              id: 700,
+              created_at: "2026-11-11T00:00:00Z",
+              source: "upload",
+              status: "unresolved",
+              sender_needs_confirmation: false,
+              attachments: null,
+            },
+          }
+        : { data: {} },
+    ),
+    update: vi.fn().mockImplementation(async (_resource, params) => ({
+      data: {
+        ...params.previousData,
+        ...params.data,
+      },
+    })),
+    uploadInboxAttachment: vi.fn().mockResolvedValue({
+      title: "resume.pdf",
+      type: "application/pdf",
+      path: "1/inbox/700/resume.pdf",
+      src: "https://signed.example/resume.pdf",
+    }),
+    aiEntitlement: vi.fn().mockResolvedValue({
+      is_entitled: false,
+      plan: "free",
+      status: "none",
+      resumes_used: 0,
+      resumes_limit: 0,
+    }),
     createShidduch: vi.fn().mockResolvedValue({ data: { id: 99 } }),
     ...overrides,
   }) as unknown as CrmDataProvider;
@@ -51,6 +85,7 @@ const renderShidduchCreate = async (
         i18nProvider={testI18nProvider}
       >
         <ShidduchCreate singleId={1} />
+        <Notification />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -116,5 +151,49 @@ describe("ShidduchCreate — create behaviour preserved exactly (AC 2)", () => {
       expect.objectContaining({ origin: "manual", single_id: 1 }),
     );
     expect(dataProvider.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
+  it("rejects unsupported files before creating an inbox capture", async () => {
+    const { screen, dataProvider } = await renderShidduchCreate([
+      "/shidduchim/new",
+    ]);
+
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(new File(["plain text"], "resume.txt", { type: "text/plain" }));
+
+    await expect
+      .element(
+        screen.getByText(
+          "Please choose a PDF, Word document, JPG, PNG, HEIC, HEIF, or WebP file.",
+        ),
+      )
+      .toBeInTheDocument();
+    expect(dataProvider.uploadInboxAttachment).not.toHaveBeenCalled();
+  });
+
+  it("accepts Word as an attachment and explains that auto-fill is not available yet", async () => {
+    const { screen, dataProvider } = await renderShidduchCreate([
+      "/shidduchim/new",
+    ]);
+
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(new File(["word bytes"], "resume.docx", { type: "" }));
+
+    await expect
+      .element(
+        screen.getByText(
+          "Word auto-fill isn’t available yet, but your file is attached.",
+        ),
+      )
+      .toBeInTheDocument();
+    expect(dataProvider.uploadInboxAttachment).toHaveBeenCalledTimes(1);
+    expect(dataProvider.update).toHaveBeenCalledWith(
+      "inbox_items",
+      expect.objectContaining({ data: { attachments: [expect.anything()] } }),
+    );
   });
 });

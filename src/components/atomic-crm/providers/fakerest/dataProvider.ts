@@ -24,6 +24,7 @@ import type {
   CreateThreadInput,
   EntityFile,
   EntityTargetType,
+  InboxAttachment,
   InboxItem,
   Invite,
   InvitableRole,
@@ -343,6 +344,10 @@ export const createDataProvider = ({
   // a fresh demo/test session never sees a previous one's blob URLs.
   const entityFileBlobUrls: EntityFileBlobUrls = new Map();
 
+  // Inbox captures use the private `attachments` bucket in production. The
+  // demo keeps the same metadata shape and holds the bytes in object URLs.
+  const inboxAttachmentBlobUrls = new Map<string, string>();
+
   // Resume tab (Story 5.3): the same in-memory "bytes" idea, kept in its own
   // map (a different bucket, `documents`, in the real backend) — see
   // ./internal/resumes.ts.
@@ -384,6 +389,13 @@ export const createDataProvider = ({
     nextBlobs?.[key]?.forEach((url: string, path: string) =>
       map.set(path, url),
     );
+  };
+
+  const resetInboxAttachmentBlobUrls = () => {
+    for (const url of inboxAttachmentBlobUrls.values()) {
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    }
+    inboxAttachmentBlobUrls.clear();
   };
 
   const restoreBlobMap = (
@@ -478,6 +490,7 @@ export const createDataProvider = ({
     // part of an atomic lifecycle rollback too.
     const previousDb = await snapshotFakeRestGraph();
     const previousEntityFiles = new Map(entityFileBlobUrls);
+    const previousInboxAttachments = new Map(inboxAttachmentBlobUrls);
     const previousResumeFiles = new Map(resumeFileBlobUrls);
     const previousResumePhotos = new Map(resumePhotoBlobUrls);
     const previousActiveAccountId = activeAccountId;
@@ -487,6 +500,7 @@ export const createDataProvider = ({
       // restored before the error reaches the caller.
       const stagedDb = cloneDbCollections(nextDb);
       await applyFakeRestGraph(stagedDb);
+      resetInboxAttachmentBlobUrls();
       resetBlobMap(entityFileBlobUrls, stagedDb, "entityFiles");
       resetBlobMap(resumeFileBlobUrls, stagedDb, "resumeFiles");
       resetBlobMap(resumePhotoBlobUrls, stagedDb, "resumePhotos");
@@ -505,6 +519,7 @@ export const createDataProvider = ({
         ).map(cloneFakeRestValue);
       }
       restoreBlobMap(entityFileBlobUrls, previousEntityFiles);
+      restoreBlobMap(inboxAttachmentBlobUrls, previousInboxAttachments);
       restoreBlobMap(resumeFileBlobUrls, previousResumeFiles);
       restoreBlobMap(resumePhotoBlobUrls, previousResumePhotos);
       activeAccountId = previousActiveAccountId;
@@ -2707,6 +2722,56 @@ export const createDataProvider = ({
         caller?.membership?.id ?? null,
         params,
       );
+    },
+    uploadInboxAttachment: async (params: {
+      file: File;
+      inboxItemId: Identifier;
+    }): Promise<InboxAttachment> => {
+      const accountId = await resolveCurrentAccountId();
+      const path = `${accountId}/inbox/${params.inboxItemId}/${crypto.randomUUID()}-${params.file.name}`;
+      const src = URL.createObjectURL(params.file);
+      inboxAttachmentBlobUrls.set(path, src);
+      return {
+        title: params.file.name,
+        type: params.file.type || "application/octet-stream",
+        path,
+        src,
+      };
+    },
+    copyInboxAttachmentToResumeFile: async (params: {
+      shidduchimId?: Identifier;
+      singleId?: Identifier;
+      attachment?: InboxAttachment;
+      attachmentPath?: string;
+      fileName?: string;
+    }) => {
+      const accountId = await resolveCurrentAccountId();
+      const ownerSegment =
+        params.singleId != null
+          ? `single-${params.singleId}`
+          : `${params.shidduchimId}`;
+      const attachment = params.attachment ?? {
+        title: params.fileName ?? "resume",
+        type: "application/octet-stream",
+        path: params.attachmentPath ?? "",
+        src: "",
+      };
+      const storagePath = `${accountId}/resumes/${ownerSegment}/${crypto.randomUUID()}-${attachment.title}`;
+      const response = await fetch(attachment.src);
+      if (!response.ok) {
+        throw new Error("Failed to read the captured resume attachment");
+      }
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      resumeFileBlobUrls.set(storagePath, blobUrl);
+      return { storagePath, size: blob.size };
+    },
+    removeResumeFileObjects: async (paths: string[]): Promise<void> => {
+      for (const path of paths) {
+        const blobUrl = resumeFileBlobUrls.get(path);
+        if (blobUrl?.startsWith("blob:")) URL.revokeObjectURL(blobUrl);
+        resumeFileBlobUrls.delete(path);
+      }
     },
     signResumeFileUrl: (params: {
       storagePath: string;

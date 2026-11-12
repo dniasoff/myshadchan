@@ -168,11 +168,22 @@ export function useResolveInboxItem() {
       if (existingResumes.length === 0) {
         let copiedFile: CopiedResumeFile | undefined;
         try {
-          copiedFile = await copyInboxAttachmentToResumeFile({
-            shidduchimId: created.id,
-            attachmentPath: savedDraft.attachment.path,
-            fileName: savedDraft.attachment.title,
-          });
+          const hasProviderCopy = Object.prototype.hasOwnProperty.call(
+            dataProvider,
+            "copyInboxAttachmentToResumeFile",
+          );
+          if (hasProviderCopy) {
+            copiedFile = await dataProvider.copyInboxAttachmentToResumeFile({
+              shidduchimId: created.id,
+              attachment: savedDraft.attachment,
+            });
+          } else {
+            copiedFile = await copyInboxAttachmentToResumeFile({
+              shidduchimId: created.id,
+              attachmentPath: savedDraft.attachment.path,
+              fileName: savedDraft.attachment.title,
+            });
+          }
           await dataProvider.create<Resume>("resumes", {
             data: {
               shidduchim_id: created.id,
@@ -196,7 +207,17 @@ export function useResolveInboxItem() {
           // so remove it rather than leaving an orphaned, never-referenced
           // object behind.
           if (copiedFile) {
-            await removeResumeFileObjects([copiedFile.storagePath]);
+            const hasProviderRemove = Object.prototype.hasOwnProperty.call(
+              dataProvider,
+              "removeResumeFileObjects",
+            );
+            if (hasProviderRemove) {
+              await dataProvider.removeResumeFileObjects([
+                copiedFile.storagePath,
+              ]);
+            } else {
+              await removeResumeFileObjects([copiedFile.storagePath]);
+            }
           }
           throw creationError;
         }

@@ -1484,6 +1484,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/inbox/resumeUpload.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/inbox/resolveInboxItemLock.ts",
           "type": "registry:component"
         },
