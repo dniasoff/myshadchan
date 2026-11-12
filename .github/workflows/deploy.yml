@@ -7,7 +7,10 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A cancelled run can stop after migrations or a worker promotion but before
+  # the dependent frontend and smoke steps. Queue a rerun instead of leaving
+  # production in an unreported half-applied state.
+  cancel-in-progress: false
 
 jobs:
   deploy-supabase:
@@ -28,6 +31,9 @@ jobs:
     steps:
       - name: 📥 Checkout repo
         uses: actions/checkout@v7
+        with:
+          # The deploy preflight compares this push with the deployed commit.
+          fetch-depth: 0
 
       - name: ⚙️ Setup node
         uses: actions/setup-node@v7
@@ -53,6 +59,34 @@ jobs:
       - name: 📥 Download deps
         run: npm ci
 
+      - name: 🧭 Decide whether the migration preflight is needed
+        id: migration_scope
+        run: |
+          set -euo pipefail
+          base="${{ github.event.before }}"
+          if [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "heavy=true" >> "$GITHUB_OUTPUT"
+            echo "Migration preflight enabled: push base is unavailable." >> "$GITHUB_STEP_SUMMARY"
+          elif git diff --quiet "$base" "$GITHUB_SHA" -- supabase/migrations supabase/schemas; then
+            echo "heavy=false" >> "$GITHUB_OUTPUT"
+            echo "Migration preflight skipped: no migration or declarative-schema changes in this push." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "heavy=true" >> "$GITHUB_OUTPUT"
+            echo "Migration preflight enabled: migrations or declarative schemas changed." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Run the same non-empty-table migration guard as pull requests, against
+      # the previous deployed commit, before touching the hosted project. This
+      # uses only the runner's disposable local Supabase stack.
+      - if: ${{ env.IS_SUPABASE_CONFIGURED && steps.migration_scope.outputs.heavy == 'true' }}
+        name: 🧬 Preflight migration data-safety (local, non-empty table)
+        run: |
+          set -euo pipefail
+          status=0
+          trap 'stop_status=$?; make stop-supabase-e2e || stop_status=$?; exit "$((status || stop_status))"' EXIT
+          make start-supabase-e2e
+          node scripts/check-migration-data-safety.mjs --base-ref "${{ github.event.before }}"
+
       # The `version:` pin on setup-cli above is only real if these steps call
       # the binary it installed. They used to call `npx supabase`, which
       # ignores PATH and installs supabase@latest from npm — on 2026-08-23
@@ -69,6 +103,19 @@ jobs:
       - if: ${{ env.IS_SUPABASE_CONFIGURED }}
         name: 🔗 Supabase Link
         run: supabase link --project-ref $SUPABASE_PROJECT_ID
+
+      # Capture a recoverable SQL dump in the same private R2 bucket and
+      # restore shape as backup.yml. A dump/upload failure stops this job
+      # before the Auth Hook PATCH or db push.
+      - if: ${{ env.IS_SUPABASE_CONFIGURED && steps.migration_scope.outputs.heavy == 'true' }}
+        name: 💾 Back up linked Supabase database to private R2
+        uses: ./.github/actions/supabase-backup
+        with:
+          supabase-db-password: ${{ env.SUPABASE_DB_PASSWORD }}
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET }}
 
       # The before_user_created Auth Hook is RETIRED. It ran check_signup_age()
       # to 403 a signup that had not affirmed 18+; the affirmation is now made
@@ -682,3 +729,99 @@ jobs:
         run: |
           echo '::warning::VERCEL_DEPLOY_HOOK_URL secret is missing — the frontend was NOT deployed.'
           echo ':rotating_light: **The frontend was NOT deployed.** `vercel.json` sets `git.deploymentEnabled.main = false`, so Vercel no longer builds on push; this job is what replaces it, and it needs the `VERCEL_DEPLOY_HOOK_URL` repo secret. Recreate the hook (Vercel → Project → Settings → Git → Deploy Hooks, branch `main`) and store its URL as that secret. Production is still serving the last successful build.' >> $GITHUB_STEP_SUMMARY
+
+  # Keep the existing provider jobs independent, but make their combined
+  # outcome explicit. This job never writes to a provider: it checks the job
+  # results, the seven workers in the deploy matrix, the Supabase health
+  # endpoint and the application's own entry point. Any partial deployment is
+  # therefore a failed workflow with a summary of what did and did not land.
+  post-deploy-smoke:
+    name: 🚦 Post-deploy smoke and completeness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [deploy-supabase, deploy-workers, trigger-frontend]
+    if: ${{ always() }}
+
+    env:
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
+      SUPABASE_RESULT: ${{ needs.deploy-supabase.result }}
+      WORKERS_RESULT: ${{ needs.deploy-workers.result }}
+      FRONTEND_RESULT: ${{ needs.trigger-frontend.result }}
+
+    steps:
+      - name: 📋 Report deployment results
+        run: |
+          set -u
+          {
+            echo '## Deployment completeness'
+            echo "- Supabase job: `$SUPABASE_RESULT`"
+            echo "- Workers job: `$WORKERS_RESULT`"
+            echo "- Frontend job: `$FRONTEND_RESULT`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          failed=0
+          for result in "$SUPABASE_RESULT" "$WORKERS_RESULT" "$FRONTEND_RESULT"; do
+            if [ "$result" != success ]; then
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::deployment incomplete; see the summary for the provider job results"
+            exit 1
+          fi
+
+      - name: 🔎 Smoke Supabase, workers and app
+        if: ${{ success() }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_PROJECT_ID" || { echo "::error::SUPABASE_PROJECT_ID is missing; cannot smoke-test Supabase"; exit 1; }
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::CLOUDFLARE_API_TOKEN is missing; cannot verify the deployed worker list"; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::CLOUDFLARE_ACCOUNT_ID is missing; cannot verify the deployed worker list"; exit 1; }
+          test -n "$APP_ORIGIN" || { echo "::error::APP_ORIGIN is missing; cannot smoke-test the application entry point"; exit 1; }
+
+          curl --fail-with-body --retry 3 --retry-all-errors --max-time 20 \
+            "https://${SUPABASE_PROJECT_ID}.supabase.co/auth/v1/health" \
+            -o /tmp/supabase-health.json
+          echo '✅ Supabase auth health returned 200.' >> "$GITHUB_STEP_SUMMARY"
+
+          scripts_json="$(curl --fail-with-body --retry 3 --retry-all-errors --max-time 20 \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts")"
+          workers=(
+            myshadchan-ingest
+            myshadchan-parse
+            myshadchan-match
+            myshadchan-ai
+            myshadchan-cron
+            myshadchan-share
+            myshadchan-billing
+          )
+          for worker in "${workers[@]}"; do
+            if ! jq -e --arg worker "$worker" \
+              'any(.result[]?; ((.id // .name) == $worker))' <<<"$scripts_json" >/dev/null; then
+              echo "::error::deployed worker list is missing $worker"
+              exit 1
+            fi
+            curl --fail-with-body --retry 3 --retry-all-errors --max-time 20 \
+              "https://${worker}.myshadchan.workers.dev/health" \
+              -o "/tmp/${worker}-health.json"
+            echo "✅ $worker is present and its /health endpoint returned 200." >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          status="$(curl --silent --show-error --retry 3 --retry-all-errors --max-time 20 \
+            -o /tmp/app-entry.html -w '%{http_code}' "$APP_ORIGIN")"
+          test "$status" = 200 || { echo "::error::application entry point returned HTTP $status"; exit 1; }
+          echo "✅ Application entry point $APP_ORIGIN returned 200." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 🚨 Deployment failure summary
+        if: ${{ failure() }}
+        run: |
+          {
+            echo ''
+            echo '## 🚨 Deployment failed or was incomplete'
+            echo 'No automatic rollback is attempted. Keep production writes paused and follow [failed-deploy.md](https://github.com/${{ github.repository }}/blob/main/docs/runbooks/failed-deploy.md) and [database-restore.md](https://github.com/${{ github.repository }}/blob/main/docs/runbooks/database-restore.md).'
+            echo "Observed job results: Supabase=$SUPABASE_RESULT, workers=$WORKERS_RESULT, frontend=$FRONTEND_RESULT."
+          } >> "$GITHUB_STEP_SUMMARY"

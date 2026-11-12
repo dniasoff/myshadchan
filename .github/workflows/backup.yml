@@ -87,38 +87,14 @@ jobs:
         run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID }}"
 
       - if: steps.cfg.outputs.ready == 'true'
-        name: 🗄️ Dump roles, schema and data
-        env:
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-          mkdir -p dump
-          # Three files, per Supabase's own documented restore procedure. A
-          # data-only dump cannot be restored without the roles and schema
-          # that precede it, so all three or none.
-          supabase db dump --linked -f dump/roles.sql --role-only
-          supabase db dump --linked -f dump/schema.sql
-          supabase db dump --linked -f dump/data.sql --data-only
-          for f in roles schema data; do
-            test -s "dump/$f.sql" || { echo "::error::dump/$f.sql is empty - refusing to upload a useless backup"; exit 1; }
-          done
-          gzip dump/*.sql
-          ls -la dump/
-
-      - if: steps.cfg.outputs.ready == 'true'
-        name: ☁️ Upload to R2
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-        run: |
-          set -euo pipefail
-          stamp="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
-          endpoint="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-          aws s3 cp dump/ "s3://${{ secrets.R2_BUCKET }}/$stamp/" \
-            --recursive --endpoint-url "$endpoint"
-          echo "Uploaded to s3://${{ secrets.R2_BUCKET }}/$stamp/"
+        name: 🗄️ Dump and upload roles, schema and data to private R2
+        uses: ./.github/actions/supabase-backup
+        with:
+          supabase-db-password: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET }}
 
       - if: steps.cfg.outputs.ready == 'true'
         name: 🧹 Prune backups older than 30 days
