@@ -11,6 +11,8 @@ import {
   getShadchanPhoneMatch,
   getShadchanPhoneMatchLabel,
 } from "./shadchanUtils";
+import { ShadchanNoteAction } from "./ShadchanNoteAction";
+import type { ShadchanNote } from "./useShadchanNotes";
 
 export interface ShadchanCardProps {
   shadchan: Shadchan;
@@ -18,6 +20,7 @@ export interface ShadchanCardProps {
   phoneSearchQuery?: string;
   /** Position in the grid, drives the `.ql-enter` stagger delay. */
   index: number;
+  note?: ShadchanNote;
 }
 
 /**
@@ -38,6 +41,7 @@ export const ShadchanCard = ({
   suggestionCount,
   index,
   phoneSearchQuery,
+  note,
 }: ShadchanCardProps) => {
   const translate = useTranslate();
   const countLabel = translate("crm.shadchanim.row.shidduchimCount", {
@@ -51,19 +55,19 @@ export const ShadchanCard = ({
     : null;
 
   return (
-    <RecordLink
-      resource="shadchanim"
-      id={shadchan.id}
-      aria-label={`Open ${shadchan.name} file`}
-      className="ql-enter block rounded-2xl outline-none transition-transform
-        duration-[160ms] ease-[var(--ease-spring)] active:scale-[0.97]
-        focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
-        focus-visible:ring-offset-background"
+    <Card
+      className="ql-enter gap-0 p-4 shadow-sm transition-[box-shadow,transform] duration-[160ms]
+        ease-[var(--ease-out)] hover:-translate-y-0.5 hover:shadow-md"
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
     >
-      <Card
-        className="gap-0 p-4 shadow-sm transition-[box-shadow,transform] duration-[160ms]
-          ease-[var(--ease-out)] hover:-translate-y-0.5 hover:shadow-md"
+      <RecordLink
+        resource="shadchanim"
+        id={shadchan.id}
+        aria-label={`Open ${shadchan.name} file`}
+        className="block rounded-2xl outline-none transition-transform
+          duration-[160ms] ease-[var(--ease-spring)] active:scale-[0.97]
+          focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
+          focus-visible:ring-offset-background"
       >
         <div className="flex items-start gap-3">
           {/* aria-hidden: the monogram is a decorative restatement of the
@@ -109,7 +113,12 @@ export const ShadchanCard = ({
             Open file
           </span>
         </div>
-      </Card>
-    </RecordLink>
+      </RecordLink>
+      {note ? (
+        <div className="mt-1 flex justify-end">
+          <ShadchanNoteAction shadchan={shadchan} note={note} />
+        </div>
+      ) : null}
+    </Card>
   );
 };

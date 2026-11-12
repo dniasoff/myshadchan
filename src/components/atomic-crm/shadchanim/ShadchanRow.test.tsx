@@ -11,6 +11,19 @@ import "./entityDescriptor";
 
 import { ShadchanRow } from "./ShadchanRow";
 
+const NOTE = {
+  id: 22,
+  account_id: 1,
+  target_type: "shadchan" as const,
+  target_id: 1,
+  scope: "account" as const,
+  kind: "note" as const,
+  body: "Private body",
+  created_at: "2026-01-01T00:00:00.000Z",
+  deleted_at: null,
+  author_name: null,
+};
+
 const buildShadchan = (overrides: Partial<Shadchan> = {}): Shadchan => ({
   id: 1,
   account_id: 1,
@@ -20,7 +33,11 @@ const buildShadchan = (overrides: Partial<Shadchan> = {}): Shadchan => ({
   ...overrides,
 });
 
-const renderRow = (shadchan: Shadchan, suggestionCount: number) =>
+const renderRow = (
+  shadchan: Shadchan,
+  suggestionCount: number,
+  note?: typeof NOTE,
+) =>
   render(
     <TestMemoryRouter>
       <CoreAdminContext i18nProvider={testI18nProvider}>
@@ -28,6 +45,7 @@ const renderRow = (shadchan: Shadchan, suggestionCount: number) =>
           shadchan={shadchan}
           suggestionCount={suggestionCount}
           index={0}
+          note={note}
         />
       </CoreAdminContext>
     </TestMemoryRouter>,
@@ -64,5 +82,16 @@ describe("ShadchanRow — the List-mode counterpart to ShadchanCard (Story 4.2, 
     await expect
       .element(screen.getByText(/suggestion/i))
       .not.toBeInTheDocument();
+  });
+
+  it("keeps the Note sibling outside the row RecordLink", async () => {
+    const screen = await renderRow(buildShadchan(), 0, NOTE);
+    const link = screen.getByRole("link", { name: "Open Rivka Stern file" });
+    const button = screen.getByRole("button", {
+      name: "Open note for Rivka Stern",
+    });
+
+    expect(link.element().querySelector("button")).toBeNull();
+    expect(button.element().closest("a")).toBeNull();
   });
 });

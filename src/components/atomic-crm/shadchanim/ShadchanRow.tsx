@@ -10,6 +10,8 @@ import {
   getShadchanPhoneMatch,
   getShadchanPhoneMatchLabel,
 } from "./shadchanUtils";
+import { ShadchanNoteAction } from "./ShadchanNoteAction";
+import type { ShadchanNote } from "./useShadchanNotes";
 
 export interface ShadchanRowProps {
   shadchan: Shadchan;
@@ -17,6 +19,7 @@ export interface ShadchanRowProps {
   phoneSearchQuery?: string;
   /** Position in the list, drives the `.ql-enter` stagger delay. */
   index: number;
+  note?: ShadchanNote;
 }
 
 /**
@@ -40,6 +43,7 @@ export const ShadchanRow = ({
   suggestionCount,
   index,
   phoneSearchQuery,
+  note,
 }: ShadchanRowProps) => {
   const translate = useTranslate();
   const monogram = getMonogram(shadchan.name);
@@ -53,20 +57,20 @@ export const ShadchanRow = ({
     : null;
 
   return (
-    <RecordLink
-      resource="shadchanim"
-      id={shadchan.id}
-      aria-label={`Open ${shadchan.name} file`}
-      className="ql-enter block rounded-xl outline-none transition-transform
-        duration-[160ms] ease-[var(--ease-spring)] active:scale-[0.97]
-        focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
-        focus-visible:ring-offset-background"
+    <Card
+      className="ql-enter flex-row items-center gap-3 rounded-xl p-3 shadow-sm
+        transition-[box-shadow,transform] duration-[160ms]
+        ease-[var(--ease-out)] hover:-translate-y-0.5 hover:shadow-md"
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
     >
-      <Card
-        className="flex-row items-center gap-3 rounded-xl p-3 shadow-sm
-          transition-[box-shadow,transform] duration-[160ms]
-          ease-[var(--ease-out)] hover:-translate-y-0.5 hover:shadow-md"
+      <RecordLink
+        resource="shadchanim"
+        id={shadchan.id}
+        aria-label={`Open ${shadchan.name} file`}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl outline-none
+          transition-transform duration-[160ms] ease-[var(--ease-spring)]
+          active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-ring
+          focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
         <div
           className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] text-[13px] font-bold"
@@ -101,7 +105,8 @@ export const ShadchanRow = ({
         <span className="shrink-0 text-[11.5px] font-medium text-muted-foreground">
           Open file
         </span>
-      </Card>
-    </RecordLink>
+      </RecordLink>
+      {note ? <ShadchanNoteAction shadchan={shadchan} note={note} /> : null}
+    </Card>
   );
 };

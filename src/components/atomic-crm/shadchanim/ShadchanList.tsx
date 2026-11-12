@@ -15,6 +15,8 @@ import {
   sortShadchanim,
 } from "./shadchanUtils";
 import { useAllShadchanim } from "./useAllShadchanim";
+import { ShadchanNotesLookupStatus } from "./ShadchanNoteAction";
+import { useShadchanNotes } from "./useShadchanNotes";
 
 /**
  * `EntityList`'s `renderList` for the shadchan book (Story 4.2, Task 4): the
@@ -32,6 +34,9 @@ const ShadchanRowList = ({
   phoneSearchQuery?: string;
 }) => {
   const shadchanim = data as Shadchan[];
+  const noteLookup = useShadchanNotes(
+    shadchanim.map((shadchan) => shadchan.id),
+  );
   const { data: shidduchim, isPending: shidduchimPending } =
     useGetList<ShidduchSummary>("shidduchim", {
       pagination: { page: 1, perPage: 500 },
@@ -40,31 +45,38 @@ const ShadchanRowList = ({
 
   if (shidduchimPending) {
     return (
-      <div className="flex flex-col gap-2">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <div
-            key={index}
-            className="h-[63px] animate-pulse rounded-xl bg-muted"
-          />
-        ))}
-      </div>
+      <>
+        <ShadchanNotesLookupStatus {...noteLookup} />
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div
+              key={index}
+              className="h-[63px] animate-pulse rounded-xl bg-muted"
+            />
+          ))}
+        </div>
+      </>
     );
   }
 
   const counts = countSuggestionsByShadchan(shidduchim ?? []);
 
   return (
-    <div className="flex flex-col gap-2">
-      {shadchanim.map((shadchan, index) => (
-        <ShadchanRow
-          key={shadchan.id}
-          shadchan={shadchan}
-          suggestionCount={counts.get(shadchan.id) ?? 0}
-          index={index}
-          phoneSearchQuery={phoneSearchQuery}
-        />
-      ))}
-    </div>
+    <>
+      <ShadchanNotesLookupStatus {...noteLookup} />
+      <div className="flex flex-col gap-2">
+        {shadchanim.map((shadchan, index) => (
+          <ShadchanRow
+            key={shadchan.id}
+            shadchan={shadchan}
+            suggestionCount={counts.get(shadchan.id) ?? 0}
+            index={index}
+            phoneSearchQuery={phoneSearchQuery}
+            note={noteLookup.notesByShadchanId.get(String(shadchan.id))}
+          />
+        ))}
+      </div>
+    </>
   );
 };
 
