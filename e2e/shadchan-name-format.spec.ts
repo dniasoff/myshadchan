@@ -21,7 +21,10 @@ test("creates a formatted shadchan name from the focused field", async ({
 
   await signIn(page, member.email!);
   await page.getByRole("link", { name: "Shadchanim" }).click();
-  await page.getByRole("link", { name: "Add a shadchan" }).click();
+  await page
+    .getByRole("toolbar", { name: "Entity list actions" })
+    .getByRole("link", { name: "Add a shadchan" })
+    .click();
 
   const nameInput = page.getByLabel("Name");
   await expect(nameInput).toBeFocused();

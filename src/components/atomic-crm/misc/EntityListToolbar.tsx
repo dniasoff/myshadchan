@@ -78,7 +78,11 @@ export const EntityListToolbar = ({
   // the controls that do not fit drop to a second line, right-aligned, with
   // no page-level horizontal scroll at any width (carried by
   // `e2e/entity-list-view-toggle.spec.ts`'s "no horizontal scroll" checks).
-  <TopToolbar className="flex-wrap justify-end gap-y-2">
+  <TopToolbar
+    aria-label="Entity list actions"
+    className="flex-wrap justify-end gap-y-2"
+    role="toolbar"
+  >
     {extraFilters}
     {sortFields && sortFields.length > 0 ? (
       <SortButton fields={sortFields} />
