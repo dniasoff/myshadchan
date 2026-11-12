@@ -33,7 +33,7 @@ export const SingleEdit = () => (
       description="Update this single's details."
     >
       <SimpleForm toolbar={<FormToolbar />}>
-        <SingleInputs />
+        <SingleInputs mode="edit" />
       </SimpleForm>
     </FormPageFrame>
   </Edit>
