@@ -35,13 +35,20 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: 🏷️ Read pinned Supabase CLI version
+        id: supabase_cli_version
+        run: |
+          version="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("package.json", "utf8")).devDependencies.supabase)')"
+          test -n "$version" || { echo "::error::package.json does not pin Supabase CLI"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: ⚙️ Setup supabase
         uses: supabase/setup-cli@v3
         with:
           # 2.112.0 rejects the hosted Management API's current inserted_at
           # timestamp shape during `supabase link`; 2.111.0 is the last
           # known-good deploy version until that upstream regression lands.
-          version: 2.111.0
+          version: ${{ steps.supabase_cli_version.outputs.version }}
 
       - name: 📥 Download deps
         run: npm ci

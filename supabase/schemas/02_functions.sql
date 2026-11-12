@@ -1262,9 +1262,6 @@ begin
     v_export := public.export_full_account_bundle();
   end if;
 
-  -- Storage objects must be removed through the Storage API, not by deleting
-  -- storage.objects directly (the storage schema blocks that operation). Fail
-  -- closed rather than deleting database rows while leaving bytes behind.
   if exists (
     select 1
     from storage.objects
@@ -1275,10 +1272,6 @@ begin
       using errcode = 'check_violation';
   end if;
 
-  -- These edges intentionally do not cascade from accounts because they can
-  -- point across two account contexts. Removing the departing side's edges
-  -- leaves the other account's own records intact and lets the account row
-  -- delete complete without a dangling reference.
   delete from public.child_grants
   where proposer_account_id = p_account_id
      or grantee_account_id = p_account_id;
