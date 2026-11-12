@@ -166,7 +166,7 @@ jobs:
       - name: 🧬 Do the pending migrations destroy existing data?
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_REF="origin/${{ github.base_ref }}"
+            BASE_REF="$(git merge-base HEAD "origin/${{ github.base_ref }}")"
           else
             BASE_REF="${{ github.event.before }}"
           fi
