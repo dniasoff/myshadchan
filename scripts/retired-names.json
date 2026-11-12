@@ -42,6 +42,18 @@
       "exempt": [
         "location, contacts, responsiveness",
         {
+          "file": "src/components/atomic-crm/shadchanim/ShadchanList.test.tsx",
+          "term": "contacts"
+        },
+        {
+          "file": "e2e/entity-list-search.spec.ts",
+          "term": "contacts"
+        },
+        {
+          "file": "e2e/fixtures.ts",
+          "term": "contacts"
+        },
+        {
           "file": "src/components/atomic-crm/providers/fakerest/dataGenerator/shidduchim.ts",
           "term": "contacts"
         },
@@ -59,7 +71,8 @@
         }
       ],
       "exemptReasons": {
-        "location, contacts, responsiveness": "public.shadchanim.contacts is a genuine MyShadchan column (a shadchan's own phone/email, jsonb, 01_tables.sql — that file carries the same word and is already in exactFileAllowlist above) — not the fork's retired contacts table. Story 8.2's column-list grant on 06_grants.sql has to spell the column by name; the phrase is specific to that grant's own column list so it cannot mask an unrelated fossil sharing a line with it."
+        "location, contacts, responsiveness": "public.shadchanim.contacts is a genuine MyShadchan column (a shadchan's own phone/email, jsonb, 01_tables.sql — that file carries the same word and is already in exactFileAllowlist above) — not the fork's retired contacts table. Story 8.2's column-list grant on 06_grants.sql has to spell the column by name; the phrase is specific to that grant's own column list so it cannot mask an unrelated fossil sharing a line with it.",
+        "contacts": "The shadchan phone-search fixtures write the genuine public.shadchanim.contacts jsonb column; these file-scoped exemptions leave every other retired fossil pattern active in the test and fixture files."
       },
       "exampleFragments": ["compan", "ies"]
     },

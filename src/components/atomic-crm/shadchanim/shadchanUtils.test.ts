@@ -1,10 +1,81 @@
 import {
   capitalizeName,
   countSuggestionsByShadchan,
+  filterShadchanimBySearch,
+  getShadchanPhoneMatch,
   isResponsivenessLevel,
   normalizeShadchanName,
+  normalizePhoneDigits,
   parseContactInfo,
 } from "./shadchanUtils";
+
+const shadchan = (id: number, contacts: unknown, name = `Shadchan ${id}`) => ({
+  id,
+  account_id: 1,
+  name,
+  contacts,
+  created_at: "2026-01-01T00:00:00Z",
+});
+
+describe("phone search matching", () => {
+  it("normalizes punctuation and one leading international 00 prefix", () => {
+    expect(normalizePhoneDigits("+44 (7700) 900-123")).toBe("447700900123");
+    expect(normalizePhoneDigits("00 44.7700.900.123")).toBe("447700900123");
+  });
+
+  it("matches international and local formats by trailing digits", () => {
+    const candidate = shadchan(1, { phone: "+44 7700 900123" });
+
+    expect(getShadchanPhoneMatch(candidate, "07700 900123")).toEqual({
+      channels: ["phone"],
+      suffix: "0123",
+    });
+    expect(getShadchanPhoneMatch(candidate, "7700900123")).toEqual({
+      channels: ["phone"],
+      suffix: "0123",
+    });
+    expect(getShadchanPhoneMatch(candidate, "0123")).toEqual({
+      channels: ["phone"],
+      suffix: "0123",
+    });
+    expect(getShadchanPhoneMatch(candidate, "900")).toBeNull();
+  });
+
+  it("searches WhatsApp and numbered phone-like contact keys without reading email", () => {
+    const candidate = shadchan(1, {
+      email: "900123@example.com",
+      mobile_2: "+1 555 900 0123",
+      mobile_3: "+1 555 900 1234",
+      whatsapp: "044 7700 9000123",
+      notes: "7700900123",
+    });
+
+    expect(getShadchanPhoneMatch(candidate, "9000123")).toEqual({
+      channels: ["phone", "whatsapp"],
+      suffix: "0123",
+    });
+    expect(getShadchanPhoneMatch(candidate, "1234")).toEqual({
+      channels: ["phone"],
+      suffix: "1234",
+    });
+    expect(getShadchanPhoneMatch(candidate, "0000")).toBeNull();
+  });
+
+  it("lists every suffix collision and preserves text search", () => {
+    const rows = [
+      shadchan(1, { phone: "+1 555 900 0123" }, "Rivka Stern"),
+      shadchan(2, { whatsapp: "+44 7700 9000123" }, "Moshe Adler"),
+      shadchan(3, { phone: "+972 50 700 9999" }, "Leah Cohen"),
+    ];
+
+    expect(
+      filterShadchanimBySearch(rows, "9000123").map((row) => row.id),
+    ).toEqual([1, 2]);
+    expect(
+      filterShadchanimBySearch(rows, "Stern, Rivka").map((row) => row.id),
+    ).toEqual([1]);
+  });
+});
 
 describe("capitalizeName", () => {
   it("capitalizes the first letter of each lower-case word without lower-casing the rest", () => {

@@ -13,9 +13,21 @@ import "./entityDescriptor";
 import { ShadchanList } from "./ShadchanList";
 
 const SHADCHANIM = [
-  { id: 1, name: "Rivka Stern", responsiveness: "high" },
-  { id: 2, name: "Moshe Adler", responsiveness: "medium" },
+  {
+    id: 1,
+    name: "Rivka Stern",
+    responsiveness: "high",
+    contacts: { phone: "+44 7700 900123" },
+  },
+  {
+    id: 2,
+    name: "Moshe Adler",
+    responsiveness: "medium",
+    contacts: { whatsapp: "+1 555 9001234" },
+  },
 ];
+
+const SEARCH_PLACEHOLDER = "Search by name, location, or phone number";
 
 /**
  * `CoreAdminContext`'s own `store` prop defaults to a module-level
@@ -53,7 +65,7 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     await expect.element(screen.getByText("Moshe Adler")).toBeInTheDocument();
 
     // Act
-    await screen.getByPlaceholder("Search by name").fill("Rivka");
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("Rivka");
 
     // Assert
     await expect.element(screen.getByText("Rivka Stern")).toBeInTheDocument();
@@ -68,7 +80,7 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
   it("never shows an 'Add filter' control — ShadchanList has no extraFilters (AC 1, F8)", async () => {
     // Arrange
     const screen = await renderShadchanList();
-    await screen.getByPlaceholder("Search by name").fill("Rivka");
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("Rivka");
     await expect.element(screen.getByText("Rivka Stern")).toBeInTheDocument();
 
     // Assert
@@ -86,7 +98,7 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     const heading = screen
       .getByRole("heading", { name: "Shadchanim" })
       .element();
-    const searchInput = screen.getByPlaceholder("Search by name").element();
+    const searchInput = screen.getByPlaceholder(SEARCH_PLACEHOLDER).element();
     const createLink = screen
       .getByRole("link", { name: "Add a shadchan" })
       .element();
@@ -181,5 +193,70 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     await expect
       .element(screen.getByRole("button", { name: "List view" }))
       .toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("finds a formatted phone number locally and exposes the masked ending", async () => {
+    // Arrange
+    const screen = await renderShadchanList();
+
+    // Act
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("07700-900-123");
+
+    // Assert
+    await expect.element(screen.getByText("Rivka Stern")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Phone ending 0123"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Moshe Adler"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Phone search active"))
+      .toBeInTheDocument();
+  });
+
+  it("lists WhatsApp matches and shows the exact phone empty state", async () => {
+    // Arrange
+    const screen = await renderShadchanList();
+
+    // Act
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("9001234");
+
+    // Assert
+    await expect.element(screen.getByText("Moshe Adler")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("WhatsApp ending 1234"))
+      .toBeInTheDocument();
+
+    // Act — use a phone-shaped query with no saved match.
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("9999");
+
+    // Assert
+    await expect
+      .element(screen.getByText("No shadchan with that number"))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "Try the last 4 or more digits, or check the number you entered.",
+        ),
+      )
+      .toBeInTheDocument();
+  });
+
+  it("keeps one-to-three-digit input out of phone mode", async () => {
+    // Arrange / Act
+    const screen = await renderShadchanList();
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("123");
+
+    // Assert
+    await expect
+      .element(
+        screen.getByText("Enter at least 4 digits to search by phone number."),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Phone search active"))
+      .not.toBeInTheDocument();
   });
 });

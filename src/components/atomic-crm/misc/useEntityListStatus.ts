@@ -31,6 +31,13 @@ export type EntityListStatus =
   | { status: "no-matches" }
   | { status: "ready"; data: RaRecord[] };
 
+export type EntityListStatusOverrides = {
+  data?: RaRecord[];
+  isPending?: boolean;
+  error?: unknown;
+  refetch?: () => void;
+};
+
 function hasFilterBeyondDefaults(
   filterValues: Record<string, unknown> | undefined,
   filterDefaultValues: Record<string, unknown> | undefined,
@@ -48,8 +55,13 @@ function hasFilterBeyondDefaults(
 
 export function useEntityListStatus(
   filterDefaultValues?: Record<string, unknown>,
+  overrides?: EntityListStatusOverrides,
 ): EntityListStatus {
-  const { data, isPending, error, filterValues, refetch } = useListContext();
+  const context = useListContext();
+  const data = overrides ? overrides.data : context.data;
+  const isPending = overrides ? overrides.isPending : context.isPending;
+  const error = overrides ? overrides.error : context.error;
+  const refetch = overrides?.refetch ?? context.refetch;
 
   if (isPending) {
     return { status: "loading" };
@@ -74,7 +86,7 @@ export function useEntityListStatus(
   }
 
   const hasActiveFilter = hasFilterBeyondDefaults(
-    filterValues,
+    context.filterValues,
     filterDefaultValues,
   );
   return hasActiveFilter ? { status: "no-matches" } : { status: "empty" };

@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button";
 
 import type { EmptyStateProps } from "./EmptyState";
 import { EmptyState } from "./EmptyState";
-import { useEntityListStatus } from "./useEntityListStatus";
+import {
+  useEntityListStatus,
+  type EntityListStatusOverrides,
+} from "./useEntityListStatus";
 
 export interface EntityListViewProps {
   /**
@@ -19,6 +22,9 @@ export interface EntityListViewProps {
   skeleton: ReactNode;
   emptyState: EmptyStateProps;
   noMatchesMessage: string;
+  noMatchesDescription?: string;
+  filterData?: (data: RaRecord[]) => RaRecord[];
+  listStatusOverrides?: EntityListStatusOverrides;
   renderList: (data: RaRecord[]) => ReactNode;
   renderCards: (data: RaRecord[]) => ReactNode;
   /**
@@ -52,13 +58,16 @@ export const EntityListView = ({
   skeleton,
   emptyState,
   noMatchesMessage,
+  noMatchesDescription,
+  filterData,
+  listStatusOverrides,
   renderList,
   renderCards,
   viewMode,
   filterDefaultValues,
 }: EntityListViewProps) => {
   const translate = useTranslate();
-  const status = useEntityListStatus(filterDefaultValues);
+  const status = useEntityListStatus(filterDefaultValues, listStatusOverrides);
 
   if (status.status === "loading") {
     return <>{skeleton}</>;
@@ -91,9 +100,25 @@ export const EntityListView = ({
     );
   }
 
+  const filteredData = filterData ? filterData(status.data) : status.data;
+  if (filteredData.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-10 text-center">
+        <p className="text-sm text-muted-foreground">{noMatchesMessage}</p>
+        {noMatchesDescription ? (
+          <p className="max-w-sm text-xs text-muted-foreground">
+            {noMatchesDescription}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <>
-      {viewMode === "list" ? renderList(status.data) : renderCards(status.data)}
+      {viewMode === "list"
+        ? renderList(filteredData)
+        : renderCards(filteredData)}
     </>
   );
 };

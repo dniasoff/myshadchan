@@ -6,10 +6,15 @@ import { Card } from "@/components/ui/card";
 import { getAvatarIndex, getMonogram } from "../entity360/avatar";
 import { RecordLink } from "../entity360/RecordLink";
 import type { Shadchan } from "../types";
+import {
+  getShadchanPhoneMatch,
+  getShadchanPhoneMatchLabel,
+} from "./shadchanUtils";
 
 export interface ShadchanRowProps {
   shadchan: Shadchan;
   suggestionCount: number;
+  phoneSearchQuery?: string;
   /** Position in the list, drives the `.ql-enter` stagger delay. */
   index: number;
 }
@@ -34,6 +39,7 @@ export const ShadchanRow = ({
   shadchan,
   suggestionCount,
   index,
+  phoneSearchQuery,
 }: ShadchanRowProps) => {
   const translate = useTranslate();
   const monogram = getMonogram(shadchan.name);
@@ -42,11 +48,15 @@ export const ShadchanRow = ({
     smart_count: suggestionCount,
     _: "%{smart_count} shidduch |||| %{smart_count} shidduchim",
   });
+  const phoneMatch = phoneSearchQuery
+    ? getShadchanPhoneMatch(shadchan, phoneSearchQuery)
+    : null;
 
   return (
     <RecordLink
       resource="shadchanim"
       id={shadchan.id}
+      aria-label={`Open ${shadchan.name} file`}
       className="ql-enter block rounded-xl outline-none transition-transform
         duration-[160ms] ease-[var(--ease-spring)] active:scale-[0.97]
         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
@@ -79,9 +89,17 @@ export const ShadchanRow = ({
             </div>
           ) : null}
         </div>
+        {phoneMatch ? (
+          <span className="shrink-0 text-[11.5px] tabular-nums text-muted-foreground">
+            {getShadchanPhoneMatchLabel(phoneMatch)}
+          </span>
+        ) : null}
         <span className="inline-flex shrink-0 items-center gap-1 text-[11.5px] tabular-nums text-muted-foreground">
           <Send className="size-3 shrink-0" aria-hidden="true" />
           {countLabel}
+        </span>
+        <span className="shrink-0 text-[11.5px] font-medium text-muted-foreground">
+          Open file
         </span>
       </Card>
     </RecordLink>

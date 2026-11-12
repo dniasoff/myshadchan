@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
-import type { SortPayload } from "ra-core";
+import type { RaRecord, SortPayload } from "ra-core";
 import { useTranslate } from "ra-core";
 
 import { List } from "@/components/admin/list";
@@ -21,6 +21,7 @@ export interface EntityListProps extends Pick<
   | "skeleton"
   | "emptyState"
   | "noMatchesMessage"
+  | "noMatchesDescription"
   | "renderList"
   | "renderCards"
 > {
@@ -29,6 +30,11 @@ export interface EntityListProps extends Pick<
   createTo?: string;
   createLabel?: string;
   searchPlaceholder?: string;
+  /** Optional resource-specific search control, rendered in the shared filter form. */
+  searchInput?: ReactElement;
+  /** Optional local transform for resources whose search must stay in component state. */
+  filterData?: (data: RaRecord[]) => RaRecord[];
+  listStatusOverrides?: EntityListViewProps["listStatusOverrides"];
   extraFilters?: ReactElement[];
   sortFields?: string[];
   sort?: SortPayload;
@@ -67,6 +73,9 @@ export const EntityList = ({
   createTo,
   createLabel,
   searchPlaceholder,
+  searchInput,
+  filterData,
+  listStatusOverrides,
   extraFilters,
   sortFields,
   sort,
@@ -76,6 +85,7 @@ export const EntityList = ({
   skeleton,
   emptyState,
   noMatchesMessage,
+  noMatchesDescription,
   renderList,
   renderCards,
   defaultViewMode,
@@ -120,12 +130,14 @@ export const EntityList = ({
         filterDefaultValues={filterDefaultValues}
         pagination={pagination === undefined ? <ListPagination /> : pagination}
         filters={[
-          <SearchInput
-            source="q"
-            alwaysOn
-            key="q"
-            placeholder={searchPlaceholder}
-          />,
+          searchInput ?? (
+            <SearchInput
+              source="q"
+              alwaysOn
+              key="q"
+              placeholder={searchPlaceholder}
+            />
+          ),
           ...(extraFilters ?? []),
         ]}
         actions={
@@ -145,10 +157,13 @@ export const EntityList = ({
           skeleton={skeleton}
           emptyState={emptyState}
           noMatchesMessage={noMatchesMessage}
+          noMatchesDescription={noMatchesDescription}
           renderList={renderList}
           renderCards={renderCards}
           viewMode={viewMode}
           filterDefaultValues={filterDefaultValues}
+          filterData={filterData}
+          listStatusOverrides={listStatusOverrides}
         />
       </List>
     </>

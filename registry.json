@@ -420,6 +420,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shadchanim/useAllShadchanim.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shadchanim/shadchanUtils.ts",
           "type": "registry:component"
         },
@@ -441,6 +445,10 @@
         },
         {
           "path": "src/components/atomic-crm/shadchanim/ShadchanStatsRow.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shadchanim/ShadchanSearchInput.tsx",
           "type": "registry:component"
         },
         {

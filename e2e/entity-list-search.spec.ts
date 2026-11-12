@@ -39,7 +39,9 @@ test.describe("Entity list search survives a hard reload (AC 5) — /shadchanim"
     await expect(page.getByText("Moshe Adler")).toBeVisible();
 
     // Act — search narrows the roster server-side against Supabase (AC 4).
-    await page.getByPlaceholder("Search by name").fill("Rivka");
+    await page
+      .getByPlaceholder("Search by name, location, or phone number")
+      .fill("Rivka");
 
     // Assert — the filtered result, and the URL now holds the search term
     // (AC 5's "filter param is absent" failure mode).
@@ -52,7 +54,9 @@ test.describe("Entity list search survives a hard reload (AC 5) — /shadchanim"
     await page.reload();
 
     // Assert
-    await expect(page.getByPlaceholder("Search by name")).toHaveValue("Rivka");
+    await expect(
+      page.getByPlaceholder("Search by name, location, or phone number"),
+    ).toHaveValue("Rivka");
     await expect(page.getByText("Rivka Stern")).toBeVisible();
     await expect(page.getByText("Moshe Adler")).not.toBeVisible();
   });
@@ -94,7 +98,9 @@ test.describe("Entity list search survives a hard reload (AC 5) — /shadchanim"
     await expect(page.getByText("Moshe Adler")).toBeVisible();
 
     // Act
-    await page.getByPlaceholder("Search by name").fill("Stern, Rivka");
+    await page
+      .getByPlaceholder("Search by name, location, or phone number")
+      .fill("Stern, Rivka");
 
     // Assert — the matching shadchan is found (the request survived), never
     // EntityListView's generic error block.
@@ -103,6 +109,57 @@ test.describe("Entity list search survives a hard reload (AC 5) — /shadchanim"
     await expect(
       page.getByText("Something went wrong loading this list."),
     ).not.toBeVisible();
+  });
+
+  test("phone search finds formatted and colliding suffixes without persisting the number", async ({
+    page,
+    createMember,
+    createSingle,
+    createShadchan,
+    signIn,
+  }) => {
+    const member = await createMember({
+      first_name: "Ada",
+      last_name: "Phone",
+      email: `e2e-entity-list-phone-${Date.now()}@example.com`,
+    });
+    const single = await createSingle({ member, first_name_en: "Chaya" });
+    await createShadchan({
+      accountId: single.account_id as number,
+      name: "Rivka Stern",
+      contacts: { phone: "+1 555 900 0123" },
+    });
+    await createShadchan({
+      accountId: single.account_id as number,
+      name: "Moshe Adler",
+      contacts: { whatsapp: "+44 7700 9000123" },
+    });
+
+    await signIn(page, member.email!);
+    await page.getByRole("link", { name: "Shadchanim" }).click();
+
+    const search = page.getByRole("textbox", { name: "Search shadchanim" });
+    await expect(search).toBeVisible();
+
+    // A local-formatted input matches both countries by their shared suffix.
+    await search.fill("07700 9000123");
+    await expect(page.getByText("Rivka Stern")).toBeVisible();
+    await expect(page.getByText("Moshe Adler")).toBeVisible();
+    await expect(page.getByText("Phone search active")).toBeVisible();
+    await expect(page.getByText("Phone ending 0123")).toBeVisible();
+    await expect(page.getByText("WhatsApp ending 0123")).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Open Rivka Stern file" }),
+    ).toBeVisible();
+    await expect(page).not.toHaveURL(/07700|9000123/);
+
+    // The status and result metadata expose only the masked suffix.
+    await expect(page.getByText("07700 9000123")).not.toBeVisible();
+
+    await page.reload();
+    await expect(search).toHaveValue("");
+    await expect(page.getByText("Rivka Stern")).toBeVisible();
+    await expect(page.getByText("Moshe Adler")).toBeVisible();
   });
 });
 

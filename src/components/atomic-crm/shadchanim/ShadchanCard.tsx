@@ -7,10 +7,15 @@ import { getAvatarIndex, getMonogram } from "../entity360/avatar";
 import { RecordLink } from "../entity360/RecordLink";
 import type { Shadchan } from "../types";
 import { ResponsivenessChip } from "./ResponsivenessChip";
+import {
+  getShadchanPhoneMatch,
+  getShadchanPhoneMatchLabel,
+} from "./shadchanUtils";
 
 export interface ShadchanCardProps {
   shadchan: Shadchan;
   suggestionCount: number;
+  phoneSearchQuery?: string;
   /** Position in the grid, drives the `.ql-enter` stagger delay. */
   index: number;
 }
@@ -32,6 +37,7 @@ export const ShadchanCard = ({
   shadchan,
   suggestionCount,
   index,
+  phoneSearchQuery,
 }: ShadchanCardProps) => {
   const translate = useTranslate();
   const countLabel = translate("crm.shadchanim.row.shidduchimCount", {
@@ -40,11 +46,15 @@ export const ShadchanCard = ({
   });
   const monogram = getMonogram(shadchan.name);
   const avatarIndex = getAvatarIndex(shadchan.name ?? String(shadchan.id));
+  const phoneMatch = phoneSearchQuery
+    ? getShadchanPhoneMatch(shadchan, phoneSearchQuery)
+    : null;
 
   return (
     <RecordLink
       resource="shadchanim"
       id={shadchan.id}
+      aria-label={`Open ${shadchan.name} file`}
       className="ql-enter block rounded-2xl outline-none transition-transform
         duration-[160ms] ease-[var(--ease-spring)] active:scale-[0.97]
         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
@@ -84,11 +94,19 @@ export const ShadchanCard = ({
           </div>
         </div>
 
-        <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-2.5">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-border pt-2.5">
           <ResponsivenessChip value={shadchan.responsiveness} />
+          {phoneMatch ? (
+            <span className="text-[11.5px] tabular-nums text-muted-foreground">
+              {getShadchanPhoneMatchLabel(phoneMatch)}
+            </span>
+          ) : null}
           <span className="inline-flex items-center gap-1 text-[11.5px] tabular-nums text-muted-foreground">
             <Send className="size-3 shrink-0" aria-hidden="true" />
             {countLabel}
+          </span>
+          <span className="text-[11.5px] font-medium text-muted-foreground">
+            Open file
           </span>
         </div>
       </Card>
