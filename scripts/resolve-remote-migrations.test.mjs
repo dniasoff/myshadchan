@@ -22,7 +22,10 @@ const capturedCliOutput = JSON.parse(
 );
 const capturedDryRunOutput = JSON.parse(
   readFileSync(
-    new URL("./fixtures/supabase-db-push-dry-run-2.111.0.json", import.meta.url),
+    new URL(
+      "./fixtures/supabase-db-push-dry-run-2.111.0.json",
+      import.meta.url,
+    ),
     "utf8",
   ),
 );
@@ -155,16 +158,18 @@ describe("resolveRemoteMigrations", () => {
   });
 
   test("rejects empty and malformed migration-list shapes", () => {
-    expect(() => resolveRemoteMigrations({}, localFiles)).toThrow(/non-empty migrations/);
+    expect(() => resolveRemoteMigrations({}, localFiles)).toThrow(
+      /non-empty migrations/,
+    );
     expect(() =>
       resolveRemoteMigrations(
         { migrations: [{ version: "20260823176000" }] },
         localFiles,
       ),
     ).toThrow(/exactly local, remote, and time/);
-    expect(() => remoteMigrationVersions({ migrations: [row("", "")] })).toThrow(
-      /both local and remote empty/,
-    );
+    expect(() =>
+      remoteMigrationVersions({ migrations: [row("", "")] }),
+    ).toThrow(/both local and remote empty/);
   });
 
   test("rejects an unusable db push dry-run shape", () => {
@@ -181,16 +186,16 @@ describe("resolveRemoteMigrations", () => {
     expect(() =>
       resolveRemoteMigrations(
         {
-          migrations: [
-            row("20260823176000", ""),
-            row("20260823177000"),
-          ],
+          migrations: [row("20260823176000", ""), row("20260823177000")],
         },
         [
           "20260823176000_pending-out-of-order.sql",
           "20260823177000_second.sql",
         ],
-        { upToDate: false, migrations: ["20260823176000_pending-out-of-order.sql"] },
+        {
+          upToDate: false,
+          migrations: ["20260823176000_pending-out-of-order.sql"],
+        },
       ),
     ).toThrow(/timestamped before the last remotely applied/);
   });

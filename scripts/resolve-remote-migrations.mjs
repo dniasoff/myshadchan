@@ -13,17 +13,28 @@ export function migrationVersion(filename) {
 
 function version(value, label) {
   if (typeof value !== "string" || (value !== "" && !VERSION_RE.test(value))) {
-    throw new Error(`${label} must be an empty string or a 14-digit migration version`);
+    throw new Error(
+      `${label} must be an empty string or a 14-digit migration version`,
+    );
   }
   return value;
 }
 
 function migrationRows(remoteJson) {
-  if (!remoteJson || typeof remoteJson !== "object" || Array.isArray(remoteJson)) {
+  if (
+    !remoteJson ||
+    typeof remoteJson !== "object" ||
+    Array.isArray(remoteJson)
+  ) {
     throw new Error("migration list JSON must be an object");
   }
-  if (!Array.isArray(remoteJson.migrations) || remoteJson.migrations.length === 0) {
-    throw new Error("migration list JSON must contain a non-empty migrations array");
+  if (
+    !Array.isArray(remoteJson.migrations) ||
+    remoteJson.migrations.length === 0
+  ) {
+    throw new Error(
+      "migration list JSON must contain a non-empty migrations array",
+    );
   }
 
   return remoteJson.migrations.map((row, index) => {
@@ -42,7 +53,9 @@ function migrationRows(remoteJson) {
       throw new Error(`migration row ${index}.time must be a non-empty string`);
     }
     if (local === "" && remote === "") {
-      throw new Error(`migration row ${index} cannot have both local and remote empty`);
+      throw new Error(
+        `migration row ${index} cannot have both local and remote empty`,
+      );
     }
     return { local, remote, time: row.time };
   });
@@ -65,10 +78,17 @@ function localMigrationVersions(remoteJson) {
 }
 
 function dryRunVersions(dryRunJson) {
-  if (!dryRunJson || typeof dryRunJson !== "object" || Array.isArray(dryRunJson)) {
+  if (
+    !dryRunJson ||
+    typeof dryRunJson !== "object" ||
+    Array.isArray(dryRunJson)
+  ) {
     throw new Error("db push dry-run JSON must be an object");
   }
-  if (typeof dryRunJson.upToDate !== "boolean" || !Array.isArray(dryRunJson.migrations)) {
+  if (
+    typeof dryRunJson.upToDate !== "boolean" ||
+    !Array.isArray(dryRunJson.migrations)
+  ) {
     throw new Error(
       "db push dry-run JSON must contain boolean upToDate and migrations array",
     );
@@ -79,20 +99,30 @@ function dryRunVersions(dryRunJson) {
     }
     const parsed = migrationVersion(filename);
     if (!parsed) {
-      throw new Error(`db push dry-run migration ${index} has no migration version`);
+      throw new Error(
+        `db push dry-run migration ${index} has no migration version`,
+      );
     }
     return parsed;
   });
   if (new Set(versions).size !== versions.length) {
-    throw new Error("db push dry-run JSON contains duplicate migration versions");
+    throw new Error(
+      "db push dry-run JSON contains duplicate migration versions",
+    );
   }
   if (dryRunJson.upToDate !== (versions.length === 0)) {
-    throw new Error("db push dry-run upToDate disagrees with its migrations array");
+    throw new Error(
+      "db push dry-run upToDate disagrees with its migrations array",
+    );
   }
   return versions.sort();
 }
 
-export function resolveRemoteMigrations(remoteJson, localFilenames, dryRunJson) {
+export function resolveRemoteMigrations(
+  remoteJson,
+  localFilenames,
+  dryRunJson,
+) {
   const rows = migrationRows(remoteJson);
   const remote = remoteMigrationVersions(remoteJson);
   const baseline = remote.at(-1) ?? null;
@@ -106,7 +136,9 @@ export function resolveRemoteMigrations(remoteJson, localFilenames, dryRunJson) 
     .map((row) => row.local)
     .filter((local) => local && !remoteSet.has(local))
     .sort();
-  const remoteOnly = remote.filter((migration) => !localFiles.includes(migration));
+  const remoteOnly = remote.filter(
+    (migration) => !localFiles.includes(migration),
+  );
 
   if (!baseline) {
     throw new Error(
@@ -120,7 +152,9 @@ export function resolveRemoteMigrations(remoteJson, localFilenames, dryRunJson) 
   }
   const localFromRows = localMigrationVersions(remoteJson);
   if (localFromRows.join(",") !== [...new Set(localFiles)].join(",")) {
-    throw new Error("migration list local rows do not match supabase/migrations");
+    throw new Error(
+      "migration list local rows do not match supabase/migrations",
+    );
   }
   const outOfOrder = pending.filter((migration) => migration < baseline);
   if (outOfOrder.length > 0) {
@@ -150,7 +184,9 @@ function main() {
     : undefined;
   const localFilenames = readdirSync(path.resolve("supabase/migrations"));
   console.log(
-    JSON.stringify(resolveRemoteMigrations(remoteJson, localFilenames, dryRunJson)),
+    JSON.stringify(
+      resolveRemoteMigrations(remoteJson, localFilenames, dryRunJson),
+    ),
   );
 }
 
