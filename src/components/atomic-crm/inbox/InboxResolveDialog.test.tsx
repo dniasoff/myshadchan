@@ -9,6 +9,10 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type { InboxAttachment, InboxItem, Shadchan } from "../types";
 import { InboxResolveDialog } from "./InboxResolveDialog";
+// The production route builder deliberately requires the real descriptor;
+// register it just as the app boot does so the legacy-file action test follows
+// the actual navigation path instead of mocking buildNewPath.
+import "../shidduchim/entityDescriptor";
 
 /**
  * Story 10.3 review fix (F-B, BLOCKING): `signInboxAttachmentUrl` is called
@@ -142,9 +146,14 @@ const renderDialog = async (
     defaultOptions: { queries: { retry: false } },
   });
   const onClose = vi.fn();
+  let pathname: string | undefined;
 
   const screen = await render(
-    <TestMemoryRouter>
+    <TestMemoryRouter
+      locationCallback={(location) => {
+        pathname = location.pathname;
+      }}
+    >
       <CoreAdminContext
         dataProvider={dataProvider}
         queryClient={queryClient}
@@ -156,7 +165,13 @@ const renderDialog = async (
     </TestMemoryRouter>,
   );
 
-  return { screen, dataProvider, onClose, queryClient };
+  return {
+    screen,
+    dataProvider,
+    onClose,
+    queryClient,
+    getPathname: () => pathname,
+  };
 };
 
 const buildAttachment = (
@@ -474,6 +489,95 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
       .toBeInTheDocument();
   });
 
+  it("renders auto-fill for the official DOCX MIME type", async () => {
+    const item = buildItem({
+      attachments: [
+        buildAttachment({
+          title: "resume.docx",
+          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }),
+      ],
+    });
+    const { screen } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+    await expect
+      .element(screen.getByRole("button", { name: "Auto-fill from resume" }))
+      .toBeInTheDocument();
+  });
+
+  it("does not show the entitlement warning while entitlement is loading", async () => {
+    const item = buildItem({ attachments: [buildAttachment()] });
+    const { screen } = await renderDialog(item, [], {
+      aiEntitlement: vi.fn().mockReturnValue(new Promise(() => {})),
+    });
+
+    await expect
+      .element(
+        screen.getByText(
+          "Auto-fill isn’t available on this account right now. Your file is still attached; you can enter the details yourself.",
+        ),
+      )
+      .not.toBeInTheDocument();
+  });
+
+  it("marks the Inbox dialog busy while the resume is being read", async () => {
+    let resolveParse!: (value: typeof parseResponse) => void;
+    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
+    callAiWorker.mockReturnValue(
+      new Promise((resolve) => {
+        resolveParse = resolve;
+      }),
+    );
+    const item = buildItem({ attachments: [buildAttachment()] });
+    const { screen } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+
+    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
+    await expect
+      .element(screen.getByRole("dialog"))
+      .toHaveAttribute("aria-busy", "true");
+    resolveParse(parseResponse);
+  });
+
+  it("keeps a legacy .doc attach-only in Inbox", async () => {
+    const item = buildItem({
+      attachments: [
+        buildAttachment({ title: "resume.doc", type: "application/msword" }),
+      ],
+    });
+    const { screen } = await renderDialog(item);
+    await expect
+      .element(
+        screen.getByText(/This older Word file \(\.doc\) cannot be read/),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Auto-fill from resume" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Upload a .docx or PDF" }))
+      .toBeInTheDocument();
+  });
+
+  it("opens a blank Add a suggestion route from the legacy .doc action", async () => {
+    const item = buildItem({
+      attachments: [
+        buildAttachment({ title: "resume.doc", type: "application/msword" }),
+      ],
+    });
+    const { screen, getPathname } = await renderDialog(item);
+
+    await screen.getByRole("button", { name: "Upload a .docx or PDF" }).click();
+
+    await expect.poll(getPathname).toBe("/shidduchim/new");
+  });
+
   it("fills the form from the parsed draft and keeps the raw capture unchanged", async () => {
     // Arrange
     vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
@@ -526,7 +630,47 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
     await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
 
     // Assert
-    await expect.element(screen.getByText("Please check")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Please check", { exact: true }))
+      .toBeInTheDocument();
+  });
+
+  it("preserves typed values and can undo only the auto-filled draft", async () => {
+    // Arrange
+    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
+    callAiWorker.mockResolvedValue(parseResponse);
+    const item = buildItem({ attachments: [buildAttachment()] });
+    const { screen } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+    await screen.getByLabelText("Name (English)").fill("Typed first");
+
+    // Act
+    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
+
+    // Assert — a human's non-empty value wins over the model's suggestion.
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Typed first");
+    await expect.element(screen.getByLabelText("Age")).toHaveValue(24);
+
+    // Act — undo restores the snapshot and removes the model-only value.
+    await screen.getByRole("button", { name: "Undo auto-fill" }).click();
+
+    // Assert
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Typed first");
+    await expect.element(screen.getByLabelText("Age")).toHaveValue(null);
+    await expect
+      .element(
+        screen.getByText(
+          "Auto-fill undone. The original file is still attached and unchanged.",
+        ),
+      )
+      .toBeInTheDocument();
   });
 
   it("leaves the manual form usable when auto-fill fails", async () => {
@@ -556,6 +700,76 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
     expect(dataProvider.createShidduch).toHaveBeenCalledWith(
       expect.objectContaining({ name_en: "Chaya" }),
     );
+  });
+
+  it("calls the parser again when Try again is clicked in Inbox", async () => {
+    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
+    callAiWorker
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValueOnce(parseResponse);
+    const item = buildItem({ attachments: [buildAttachment()] });
+    const { screen } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+
+    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
+    await expect
+      .element(screen.getByRole("alert").getByText(/couldn’t read the resume/))
+      .toBeInTheDocument();
+    await screen.getByRole("button", { name: "Try again" }).click();
+
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Rivky");
+    expect(callAiWorker).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses a generic damaged-file copy for a PDF attachment", async () => {
+    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
+    callAiWorker.mockRejectedValue(new Error("could not open resume"));
+    const item = buildItem({ attachments: [buildAttachment()] });
+    const { screen } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+
+    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
+    await expect
+      .element(
+        screen
+          .getByRole("alert")
+          .getByText(
+            "We couldn’t open this file. It may be damaged. Try saving it again or choose another file. You can still enter the details yourself.",
+          ),
+      )
+      .toBeInTheDocument();
+  });
+
+  it("does not show Undo for an all-null Inbox extraction", async () => {
+    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
+    callAiWorker.mockResolvedValue({
+      ...parseResponse,
+      fields: Object.fromEntries(
+        Object.keys(parseResponse.fields).map((field) => [field, null]),
+      ),
+    });
+    const item = buildItem({ attachments: [buildAttachment()] });
+    const { screen } = await renderDialog(
+      item,
+      [],
+      entitledDataProviderOverrides,
+    );
+
+    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
+    await expect
+      .element(screen.getByText(/couldn’t read the resume right now/))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Undo auto-fill" }))
+      .not.toBeInTheDocument();
   });
 
   it("creates a shidduch and a resumes row when filing with a draft", async () => {

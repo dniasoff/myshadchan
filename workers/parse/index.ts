@@ -7,6 +7,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   findResumeAttachment,
   splitStoragePath,
+  validateAttachmentMagic,
 } from "./inboxAttachment";
 import {
   exceedsMaxImagePixels,
@@ -17,6 +18,7 @@ import { releaseParseAttempt } from "./parseQuotaRecovery";
 import { resolveParseClaim } from "./resolveParseClaim";
 import { resolveConfirmOutcome } from "./resolveConfirmOutcome";
 import { registerParseMiddleware } from "./registerParseMiddleware";
+import { DocxExtractionError } from "./docxExtractor";
 import type { ParseApp, ParseContext } from "./parseAppTypes";
 import {
   CURRENT_PARSE_RESULT_SCHEMA_VERSION,
@@ -231,9 +233,25 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
     // file body, so an oversized attachment is rejected without ever paying
     // for the download.
     const { dirPath, fileName } = splitStoragePath(attachment.path);
-    const { data: listing } = await supabase.storage
-      .from(ATTACHMENTS_BUCKET)
-      .list(dirPath, { search: fileName, limit: 1 });
+    let listing: Array<{ metadata?: { size?: number } | null }> | null = null;
+    try {
+      const listingResult = await supabase.storage
+        .from(ATTACHMENTS_BUCKET)
+        .list(dirPath, { search: fileName, limit: 1 });
+      if (listingResult.error) throw listingResult.error;
+      listing = listingResult.data;
+    } catch (error) {
+      console.error("parse.storage.list.error", summarizeErrorForLog(error));
+      return releaseAndFail(
+        c,
+        accountId,
+        attemptId,
+        generation,
+        "could not read attachment",
+        422,
+        "storage_list_failed",
+      );
+    }
     const knownSize = listing?.[0]?.metadata?.size;
     if (typeof knownSize === "number" && knownSize > MAX_ATTACHMENT_BYTES) {
       return releaseAndFail(
@@ -248,9 +266,17 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
     }
 
     // 6. Download the file bytes from the attachments bucket.
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from(ATTACHMENTS_BUCKET)
-      .download(attachment.path);
+    let fileData: Blob | null = null;
+    let downloadError: unknown = null;
+    try {
+      const downloadResult = await supabase.storage
+        .from(ATTACHMENTS_BUCKET)
+        .download(attachment.path);
+      fileData = downloadResult.data;
+      downloadError = downloadResult.error;
+    } catch (error) {
+      downloadError = error;
+    }
     if (downloadError || !fileData) {
       return releaseAndFail(
         c,
@@ -262,7 +288,21 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
         "download_failed",
       );
     }
-    const fileBytes = await fileData.arrayBuffer();
+    let fileBytes: ArrayBuffer;
+    try {
+      fileBytes = await fileData.arrayBuffer();
+    } catch (error) {
+      console.error("parse.storage.body.error", summarizeErrorForLog(error));
+      return releaseAndFail(
+        c,
+        accountId,
+        attemptId,
+        generation,
+        "could not download attachment",
+        422,
+        "download_failed",
+      );
+    }
 
     // Backstop (Finding 9): the metadata check above is the PRIMARY guard —
     // it is what actually avoids downloading an oversized object. This
@@ -278,6 +318,34 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
         "attachment too large",
         413,
         "attachment_too_large",
+      );
+    }
+
+    const magic = validateAttachmentMagic(fileBytes, attachment.type);
+    if (magic !== "ok") {
+      if (
+        magic === "password_protected" &&
+        attachment.type ===
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      ) {
+        return releaseAndFail(
+          c,
+          accountId,
+          attemptId,
+          generation,
+          "resume is password-protected",
+          422,
+          "docx_password_protected",
+        );
+      }
+      return releaseAndFail(
+        c,
+        accountId,
+        attemptId,
+        generation,
+        "could not open resume",
+        422,
+        "attachment_magic_mismatch",
       );
     }
 
@@ -329,6 +397,39 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
       raw = await activeExtractor.extract(fileBytes, attachment.type);
     } catch (error) {
       console.error("parse.extract.error", summarizeErrorForLog(error));
+      if (error instanceof DocxExtractionError) {
+        const docxFailure = {
+          empty: {
+            message: "resume appears empty",
+            status: 422 as const,
+            trace: "docx_empty",
+          },
+          password_protected: {
+            message: "resume is password-protected",
+            status: 422 as const,
+            trace: "docx_password_protected",
+          },
+          malformed: {
+            message: "could not open resume",
+            status: 422 as const,
+            trace: "docx_malformed",
+          },
+          too_large: {
+            message: "resume too long",
+            status: 413 as const,
+            trace: "docx_too_large",
+          },
+        }[error.failure];
+        return releaseAndFail(
+          c,
+          accountId,
+          attemptId,
+          generation,
+          docxFailure.message,
+          docxFailure.status,
+          docxFailure.trace,
+        );
+      }
       // Finding 7: distinguish a timeout from any other extractor failure
       // in the trace log — both release the reservation identically, but
       // an operator sizing `GEMINI_EXTRACT_TIMEOUT_MS` needs to see timeout

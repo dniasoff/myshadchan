@@ -81,10 +81,12 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
     page.getByRole("heading", { name: "Add a suggestion" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Attach resume" }),
+    page.getByRole("button", { name: "Attach a resume" }),
   ).toBeVisible();
   await expect(
-    page.getByText("PDF, Word, JPG, PNG, HEIC, HEIF, or WebP · 8 MB maximum"),
+    page.getByText(
+      "PDF, Word (.docx or .doc), JPG, PNG, HEIC or WebP · up to 8 MB. We keep the original file.",
+    ),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Photo (optional)" }),
@@ -102,7 +104,7 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   });
   await expect(
     page.getByText(
-      "Please choose a PDF, Word document, JPG, PNG, HEIC, HEIF, or WebP file.",
+      "This file type is not supported here. Choose a .docx, PDF, JPG, PNG, HEIC or WebP file.",
     ),
   ).toBeVisible();
 
@@ -113,13 +115,18 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   });
   await expect(page.getByText("Reading your resume…")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Replace resume" }),
+    page.getByRole("button", { name: "Replace file" }),
   ).toBeDisabled();
   await page.getByLabel("Name (English)").fill("Leah Edited");
   releaseParse();
   await expect(page.getByLabel("Seminary (English)")).toHaveValue(
     "Bais Yaakov",
   );
+  await expect(
+    page.getByText(
+      "We found a few details, but not everything. Please check the filled fields and add anything missing.",
+    ),
+  ).toBeVisible();
   await expect(page.getByLabel("Name (English)")).toHaveValue("Leah Edited");
 
   await page.getByLabel("Upload a photo").setInputFiles({

@@ -6,6 +6,7 @@ import {
   useDataProvider,
   useGetList,
   useNotify,
+  useRedirect,
   useRefresh,
   useTranslate,
 } from "ra-core";
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 
 import type { CrmDataProvider } from "../providers/types";
+import { buildNewPath } from "../entity360/entityPaths";
 import { useAiEntitlement } from "../references/useAiEntitlement";
 import type {
   CreateShidduchInput,
@@ -37,7 +39,12 @@ import { INBOX_PRIMARY_CTA_CLASS } from "./inboxMeta";
 import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
 import { useResolveInboxItem } from "./useResolveInboxItem";
 import {
+  friendlyResumeReadError,
+  resumeReadSuccessMessage,
+} from "./resumeUpload";
+import {
   hasResumeShapedAttachment,
+  hasLegacyWordAttachment,
   useParseResume,
   type ParsedResumeResponse,
 } from "./useParseResume";
@@ -82,22 +89,75 @@ function readNumberField(value: unknown): number | null {
  * Inner component that resets the form when a parsed draft arrives. Lives
  * inside the Form context so `useFormContext()` is valid.
  */
-const DraftResetter = ({ draft }: { draft: ParsedResumeResponse | null }) => {
-  const { reset } = useFormContext();
+const DraftResetter = ({
+  draft,
+  onSnapshot,
+}: {
+  draft: ParsedResumeResponse | null;
+  onSnapshot: (snapshot: Record<string, unknown> | null) => void;
+}) => {
+  const { getValues, setValue } = useFormContext<Record<string, unknown>>();
 
   useEffect(() => {
     if (!draft) return;
-    reset((current) => ({
-      ...current,
-      ...draft.fields,
-      single_id: current.single_id,
-      shadchan_id: current.shadchan_id,
-      initial_state: current.initial_state ?? "new",
-      redt_date: current.redt_date,
-    }));
-  }, [draft, reset]);
+    const snapshot = getValues();
+    const fieldsToFill = Object.entries(draft.fields).filter(
+      ([field, value]) => {
+        const currentValue = snapshot[field];
+        const isEmpty =
+          currentValue === null ||
+          currentValue === undefined ||
+          currentValue === "";
+        return isEmpty && value !== null && value !== "";
+      },
+    );
+    onSnapshot(fieldsToFill.length > 0 ? snapshot : null);
+    for (const [field, value] of Object.entries(draft.fields)) {
+      const currentValue = getValues(field);
+      const isEmpty =
+        currentValue === null ||
+        currentValue === undefined ||
+        currentValue === "";
+      if (!isEmpty || value === null || value === "") continue;
+      setValue(field, value, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    }
+  }, [draft, getValues, onSnapshot, setValue]);
 
   return null;
+};
+
+const AutoFillUndo = ({
+  snapshot,
+  onUndo,
+}: {
+  snapshot: Record<string, unknown> | null;
+  onUndo: () => void;
+}) => {
+  const { setValue } = useFormContext<Record<string, unknown>>();
+  if (!snapshot) return null;
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      className="h-11 self-start"
+      onClick={() => {
+        for (const [field, value] of Object.entries(snapshot)) {
+          setValue(field, value, {
+            shouldDirty: false,
+            shouldTouch: false,
+            shouldValidate: false,
+          });
+        }
+        onUndo();
+      }}
+    >
+      Undo auto-fill
+    </Button>
+  );
 };
 
 /**
@@ -126,14 +186,21 @@ export const InboxResolveDialog = ({
     useResolveInboxItem();
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
+  const redirect = useRedirect();
   const refresh = useRefresh();
   const translate = useTranslate();
-  const { isEntitled } = useAiEntitlement();
+  const { isEntitled, isLoading: isEntitlementLoading } = useAiEntitlement();
   const { parse, isParsing } = useParseResume();
 
   const [parsedDraft, setParsedDraft] = useState<ParsedResumeResponse | null>(
     null,
   );
+  const [draftSnapshot, setDraftSnapshot] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [resumeMessage, setResumeMessage] = useState<string | null>(null);
+  const [resumeMessageIsError, setResumeMessageIsError] = useState(false);
 
   // Review fix (F6, MEDIUM, Story 10.1 — same family as ShareTarget.tsx's
   // fix): "File as a suggestion", every "Link" press, "Dismiss", and now
@@ -172,17 +239,23 @@ export const InboxResolveDialog = ({
     : null;
 
   const canAutoFill = isEntitled && hasResumeShapedAttachment(item);
+  const hasResume = hasResumeShapedAttachment(item);
+  const resumeAttachment = item.attachments?.find((attachment) =>
+    hasResumeShapedAttachment({ ...item, attachments: [attachment] }),
+  );
 
   const handleAutoFill = async () => {
     setIsBusy(true);
+    setResumeMessage(null);
+    setResumeMessageIsError(false);
     try {
       const draft = await parse(item);
       setParsedDraft(draft);
+      setResumeMessage(resumeReadSuccessMessage(draft.fields));
+      setResumeMessageIsError(false);
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Couldn't read the resume",
-        { type: "warning" },
-      );
+      setResumeMessage(friendlyResumeReadError(error, resumeAttachment?.type));
+      setResumeMessageIsError(true);
     } finally {
       setIsBusy(false);
     }
@@ -306,6 +379,7 @@ export const InboxResolveDialog = ({
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent
+        aria-busy={isParsing}
         className={
           "top-1/20 max-h-9/10 translate-y-0 overflow-y-auto lg:max-w-4xl " +
           "bg-popover border-border shadow-lg " +
@@ -345,6 +419,75 @@ export const InboxResolveDialog = ({
           </div>
         )}
 
+        {hasResume && isParsing && (
+          <p
+            className="text-sm text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            Reading your resume… We’re looking for details to save you typing.
+            You can still fill in the form yourself.
+          </p>
+        )}
+        {hasLegacyWordAttachment(item) && (
+          <div
+            className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+            role="status"
+          >
+            <span>
+              This older Word file (.doc) cannot be read for auto-fill yet. Save
+              it as .docx or PDF, then upload it again. You can still enter the
+              details yourself.
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                onClose();
+                redirect(buildNewPath("shidduchim"));
+              }}
+            >
+              Upload a .docx or PDF
+            </Button>
+          </div>
+        )}
+        {hasResume && !isEntitlementLoading && !isEntitled && (
+          <p className="text-sm text-muted-foreground" role="status">
+            Auto-fill isn’t available on this account right now. Your file is
+            still attached; you can enter the details yourself.
+          </p>
+        )}
+        {resumeMessage && (
+          <div
+            className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+            role={resumeMessageIsError ? "alert" : "status"}
+            aria-live={resumeMessageIsError ? undefined : "polite"}
+          >
+            <span>{resumeMessage}</span>
+            {resumeMessageIsError && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleAutoFill}
+                  disabled={isBusy || isParsing}
+                >
+                  Try again
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setResumeMessage(null);
+                    setResumeMessageIsError(false);
+                  }}
+                >
+                  Enter details myself
+                </Button>
+              </>
+            )}
+          </div>
+        )}
         {isShadchanSourced && isLoadingLinkedShadchan ? (
           // Story 8.3 (AC-3): never mount the form with the wrong default —
           // wait for the connection's shadchan to resolve rather than
@@ -363,10 +506,27 @@ export const InboxResolveDialog = ({
               shadchan_id: lockedShadchanId ?? item.shadchan_id ?? undefined,
               initial_state: "new",
               redt_date: item.created_at?.split("T")[0],
-              ...(parsedDraft?.fields ?? {}),
             }}
           >
-            <DraftResetter draft={parsedDraft} />
+            <DraftResetter draft={parsedDraft} onSnapshot={setDraftSnapshot} />
+            {parsedDraft && (
+              <div className="rounded-xl border border-border/70 bg-secondary/30 p-3">
+                <p className="text-sm text-muted-foreground" role="status">
+                  The original file is still attached and unchanged.
+                </p>
+                <AutoFillUndo
+                  snapshot={draftSnapshot}
+                  onUndo={() => {
+                    setParsedDraft(null);
+                    setDraftSnapshot(null);
+                    setResumeMessage(
+                      "Auto-fill undone. The original file is still attached and unchanged.",
+                    );
+                    setResumeMessageIsError(false);
+                  }}
+                />
+              </div>
+            )}
             <ShidduchInputs
               lockedShadchanId={lockedShadchanId}
               isShadchanLocked={isShadchanSourced}

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { findResumeAttachment, splitStoragePath } from "./inboxAttachment";
+import {
+  findResumeAttachment,
+  splitStoragePath,
+  validateAttachmentMagic,
+} from "./inboxAttachment";
 
 describe("findResumeAttachment", () => {
   it("finds a valid PDF entry", () => {
@@ -80,6 +84,7 @@ describe("findResumeAttachment", () => {
     // Arrange
     const allowed = [
       "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "image/jpeg",
       "image/png",
       "image/webp",
@@ -126,4 +131,63 @@ describe("splitStoragePath", () => {
     // Assert
     expect(result).toEqual({ dirPath: "", fileName: "resume.pdf" });
   });
+});
+
+describe("validateAttachmentMagic", () => {
+  it("accepts matching PDF and DOCX signatures", () => {
+    expect(
+      validateAttachmentMagic(
+        new TextEncoder().encode("%PDF-1.7").buffer,
+        "application/pdf",
+      ),
+    ).toBe("ok");
+    expect(
+      validateAttachmentMagic(
+        new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ),
+    ).toBe("ok");
+  });
+
+  it("rejects a mislabeled PDF and classifies encrypted OLE as password protected", () => {
+    expect(
+      validateAttachmentMagic(
+        new TextEncoder().encode("<html>").buffer,
+        "application/pdf",
+      ),
+    ).toBe("malformed");
+    const marker = new Uint8Array(
+      Array.from("EncryptedPackage", (character) => [
+        character.charCodeAt(0),
+        0,
+      ]).flat(),
+    );
+    const cfb = new Uint8Array(8 + marker.length);
+    cfb.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    cfb.set(marker, 8);
+    expect(
+      validateAttachmentMagic(
+        cfb.buffer,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ),
+    ).toBe("password_protected");
+  });
+
+  it("accepts a PDF header anywhere in the first 1024 bytes", () => {
+    const bytes = new Uint8Array(1024);
+    bytes.set(new TextEncoder().encode("\ufeff\n%PDF-1.7"), 0);
+
+    expect(validateAttachmentMagic(bytes.buffer, "application/pdf")).toBe("ok");
+  });
+
+  it.each(["heim", "heis", "hevm", "hevs", "avif"])(
+    "accepts the supported HEIF brand %s",
+    (brand) => {
+      const bytes = new Uint8Array(12);
+      bytes.set([0, 0, 0, 12, 0x66, 0x74, 0x79, 0x70]);
+      bytes.set(new TextEncoder().encode(brand), 8);
+
+      expect(validateAttachmentMagic(bytes.buffer, "image/heic")).toBe("ok");
+    },
+  );
 });

@@ -29,6 +29,7 @@ export const ATTACHMENTS_BUCKET = "attachments";
  */
 export const ALLOWED_ATTACHMENT_MIME_TYPES = [
   "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "image/jpeg",
   "image/png",
   "image/webp",
@@ -53,6 +54,92 @@ export const ALLOWED_ATTACHMENT_MIME_TYPES = [
  * everything else already resident in the isolate.
  */
 export const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+
+const CFB_MAGIC = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+
+function startsWith(bytes: Uint8Array, signature: number[]): boolean {
+  return signature.every((byte, index) => bytes[index] === byte);
+}
+
+function hasSignatureWithin(
+  bytes: Uint8Array,
+  signature: number[],
+  maxOffsetExclusive: number,
+): boolean {
+  const lastOffset = Math.min(
+    maxOffsetExclusive - 1,
+    bytes.length - signature.length,
+  );
+  for (let offset = 0; offset <= lastOffset; offset += 1) {
+    if (signature.every((byte, index) => bytes[offset + index] === byte)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasEncryptedPackage(bytes: Uint8Array): boolean {
+  const marker = new Uint8Array(
+    Array.from("EncryptedPackage", (character) =>
+      character.charCodeAt(0),
+    ).flatMap((code) => [code, 0]),
+  );
+  outer: for (
+    let start = 0;
+    start + marker.length <= bytes.length;
+    start += 1
+  ) {
+    for (let index = 0; index < marker.length; index += 1) {
+      if (bytes[start + index] !== marker[index]) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
+/** Validate claimed MIME against bytes before any parser or model sees them. */
+export function validateAttachmentMagic(
+  bytes: ArrayBuffer,
+  mimeType: string,
+): "ok" | "password_protected" | "malformed" {
+  const data = new Uint8Array(bytes);
+  if (
+    mimeType ===
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    if (startsWith(data, CFB_MAGIC)) {
+      return hasEncryptedPackage(data) ? "password_protected" : "malformed";
+    }
+    return startsWith(data, [0x50, 0x4b, 0x03, 0x04]) ? "ok" : "malformed";
+  }
+  if (mimeType === "application/pdf") {
+    return hasSignatureWithin(data, [0x25, 0x50, 0x44, 0x46, 0x2d], 1024)
+      ? "ok"
+      : "malformed";
+  }
+  if (mimeType === "image/jpeg") {
+    return startsWith(data, [0xff, 0xd8, 0xff]) ? "ok" : "malformed";
+  }
+  if (mimeType === "image/png") {
+    return startsWith(data, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+      ? "ok"
+      : "malformed";
+  }
+  if (mimeType === "image/webp") {
+    return startsWith(data, [0x52, 0x49, 0x46, 0x46]) &&
+      startsWith(data.slice(8), [0x57, 0x45, 0x42, 0x50])
+      ? "ok"
+      : "malformed";
+  }
+  if (mimeType === "image/heic" || mimeType === "image/heif") {
+    const brand = new TextDecoder().decode(data.slice(8, 12));
+    return startsWith(data.slice(4), [0x66, 0x74, 0x79, 0x70]) &&
+      /^(heic|heix|hevc|hevx|heim|heis|hevm|hevs|mif1|msf1|avif)$/.test(brand)
+      ? "ok"
+      : "malformed";
+  }
+  return "malformed";
+}
 
 function isResumeShapedType(type: string): boolean {
   return (ALLOWED_ATTACHMENT_MIME_TYPES as readonly string[]).includes(type);
@@ -80,8 +167,8 @@ export function splitStoragePath(path: string): {
 
 /**
  * Defensively parse `inbox_items.attachments` and return the first entry that
- * looks like a resume (PDF or image). Returns `null` on any unexpected shape
- * so the route can return a clean 422 instead of crashing.
+ * looks like a resume (PDF, DOCX, or supported image). Returns `null` on any
+ * unexpected shape so the route can return a clean 422 instead of crashing.
  */
 export function findResumeAttachment(
   attachments: unknown,

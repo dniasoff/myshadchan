@@ -1,8 +1,8 @@
 /**
  * The manual suggestion flow accepts the same resume formats Ronit receives
  * over email and messaging. The parse Worker intentionally supports only the
- * formats Gemini can read today; Word remains attach-only until that allowlist
- * grows.
+ * formats the parse Worker can read today. Legacy Word remains attach-only;
+ * modern .docx is extracted server-side before it reaches the model.
  */
 export const MAX_RESUME_UPLOAD_BYTES = 8 * 1024 * 1024;
 
@@ -50,6 +50,7 @@ const ATTACHABLE_MIME_TYPES = new Set([
 
 const AUTO_FILL_MIME_TYPES = new Set([
   "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "image/jpeg",
   "image/png",
   "image/heic",
@@ -72,20 +73,42 @@ export function isAutoFillResumeMimeType(mimeType: string): boolean {
   return AUTO_FILL_MIME_TYPES.has(mimeType);
 }
 
+export function friendlyResumeMimeType(mimeType: string): string {
+  switch (mimeType) {
+    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      return "Word document (.docx)";
+    case "application/msword":
+      return "Word document (.doc)";
+    case "application/pdf":
+      return "PDF";
+    case "image/jpeg":
+      return "Photo (JPG)";
+    case "image/png":
+      return "Photo (PNG)";
+    case "image/heic":
+    case "image/heif":
+      return "Photo (HEIC)";
+    case "image/webp":
+      return "Photo (WebP)";
+    default:
+      return "File";
+  }
+}
+
 export function validateResumeUpload(
   file: Pick<File, "name" | "type" | "size">,
 ): string | null {
   if (file.size === 0) {
-    return "That file is empty. Please choose a resume with some content.";
+    return "This file is empty. Choose a resume with some content.";
   }
 
   if (file.size > MAX_RESUME_UPLOAD_BYTES) {
-    return "That file is too large. Resumes must be 8 MB or smaller.";
+    return "This file is too large. Choose a file up to 8 MB.";
   }
 
   const mimeType = resumeMimeType(file);
   if (!ATTACHABLE_MIME_TYPES.has(mimeType)) {
-    return "Please choose a PDF, Word document, JPG, PNG, HEIC, HEIF, or WebP file.";
+    return "This file type is not supported here. Choose a .docx, PDF, JPG, PNG, HEIC or WebP file.";
   }
 
   return null;
@@ -96,27 +119,51 @@ function errorText(error: unknown): string {
 }
 
 /** Keep worker, entitlement, quota, and network details out of the form. */
-export function friendlyResumeReadError(error: unknown): string {
+export function friendlyResumeReadError(
+  error: unknown,
+  mimeType?: string,
+): string {
   const message = errorText(error);
-  if (/monthly|quota|limit reached|too many/.test(message)) {
-    return "You’ve reached your monthly resume-reading limit. Your file is still attached.";
+  if (/resume appears empty/.test(message)) {
+    return "This Word file appears to be empty. You can enter the details yourself or upload a different file.";
   }
-  if (/failed to fetch|network|offline|timeout|connection/.test(message)) {
-    return "We couldn’t reach the resume reader. Check your connection and try again. Your file is still attached.";
+  if (/password-protected/.test(message)) {
+    return "This Word file is password-protected, so we can’t read it. Remove the password or save it as a PDF, then try again. You can still enter the details yourself.";
   }
-  if (
-    /not authenticated|unauthorized|forbidden|entitlement|plan/.test(message)
-  ) {
-    return "Resume reading isn’t available right now, but your file is still attached.";
+  if (/could not open resume/.test(message)) {
+    if (
+      mimeType ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ) {
+      return "We couldn’t open this Word file. It may be damaged. Try saving it again as .docx or PDF. You can still enter the details yourself.";
+    }
+    return "We couldn’t open this file. It may be damaged. Try saving it again or choose another file. You can still enter the details yourself.";
   }
-  if (
-    /429|rate limit|temporarily unavailable|service unavailable|\b(?:status|status_code|code)\s*[:=]?\s*5\d{2}\b/.test(
-      message,
-    )
-  ) {
-    return "The resume reader is busy. Please try again shortly. Your file is still attached.";
+  if (/resume too long/.test(message)) {
+    return "This resume is too long for auto-fill here. It is still attached, and you can enter the details yourself.";
   }
-  return "We couldn’t read that resume, but your file is still attached.";
+  if (/not entitled|auto-fill isn.t available|no entitlement/.test(message)) {
+    return "Auto-fill isn’t available on this account right now. Your file is still attached; you can enter the details yourself.";
+  }
+  return "We couldn’t read the resume right now. Your file is still attached, and you can enter the details yourself.";
+}
+
+export function resumeReadSuccessMessage(
+  fields: Record<string, unknown>,
+): string {
+  const values = Object.values(fields);
+  const hasAnyField = values.some(
+    (value) => value !== null && value !== undefined && value !== "",
+  );
+  if (!hasAnyField) {
+    return "We couldn’t read the resume right now. Your file is still attached, and you can enter the details yourself.";
+  }
+  const hasMissingField = values.some(
+    (value) => value === null || value === undefined || value === "",
+  );
+  return hasMissingField
+    ? "We found a few details, but not everything. Please check the filled fields and add anything missing."
+    : "We found some details. Please review them before saving.";
 }
 
 export function friendlyResumeUploadError(): string {

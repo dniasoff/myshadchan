@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createParseApp } from "./index";
+import { DocxExtractionError } from "./docxExtractor";
+import { DOCX_MIME_TYPE } from "./resumeExtractor";
 import type { RawExtraction } from "./resumeExtractor";
 import { CURRENT_PARSE_RESULT_SCHEMA_VERSION } from "./parseResultPayload";
 import {
@@ -75,7 +77,10 @@ function postParse(app: ReturnType<typeof createParseApp>) {
   );
 }
 
-function arrangeEntitledItemWithAttachment() {
+function arrangeEntitledItemWithAttachment(
+  type = "application/pdf",
+  path = "10/resume.pdf",
+) {
   rpc.mockResolvedValue({ data: ENTITLED_PAYLOAD, error: null });
   single.mockResolvedValue({
     data: {
@@ -83,9 +88,9 @@ function arrangeEntitledItemWithAttachment() {
       account_id: 10,
       attachments: [
         {
-          title: "resume.pdf",
-          type: "application/pdf",
-          path: "10/resume.pdf",
+          title: type === DOCX_MIME_TYPE ? "resume.docx" : "resume.pdf",
+          type,
+          path,
         },
       ],
     },
@@ -156,7 +161,7 @@ describe("parse worker", () => {
     arrangeEntitledItemWithAttachment();
     list.mockResolvedValue({ data: [], error: null });
     download.mockResolvedValue({
-      data: new Blob(["pdf bytes"]),
+      data: new Blob(["%PDF-1.7"]),
       error: null,
     });
     claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
@@ -202,7 +207,7 @@ describe("parse worker", () => {
     arrangeEntitledItemWithAttachment();
     list.mockResolvedValue({ data: [], error: null });
     download.mockResolvedValue({
-      data: new Blob(["pdf bytes"]),
+      data: new Blob(["%PDF-1.7"]),
       error: null,
     });
     claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
@@ -216,6 +221,64 @@ describe("parse worker", () => {
       "parse.request",
       expect.objectContaining({ outcome: "fresh_parse" }),
     );
+  });
+
+  it.each(["list", "download", "arrayBuffer"] as const)(
+    "releases the reservation when storage %s fails after the claim",
+    async (failurePoint) => {
+      const app = createParseApp({ extract: async () => makeExtract() });
+      arrangeEntitledItemWithAttachment();
+      claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
+      if (failurePoint === "list") {
+        list.mockRejectedValue(new Error("storage unavailable"));
+      } else {
+        list.mockResolvedValue({ data: [], error: null });
+        if (failurePoint === "download") {
+          download.mockRejectedValue(new Error("download unavailable"));
+        } else {
+          download.mockResolvedValue({
+            data: {
+              arrayBuffer: vi
+                .fn()
+                .mockRejectedValue(new Error("body unavailable")),
+            },
+            error: null,
+          });
+        }
+      }
+
+      const res = await postParse(app);
+
+      expect(res.status).toBe(422);
+      expect(await res.json()).toEqual({
+        success: false,
+        error:
+          failurePoint === "list"
+            ? "could not read attachment"
+            : "could not download attachment",
+      });
+      expect(releaseParseAttempt).toHaveBeenCalledWith(
+        expect.anything(),
+        10,
+        CLAIMED_ATTEMPT.outcome.attempt_id,
+        CLAIMED_ATTEMPT.outcome.generation,
+      );
+    },
+  );
+
+  it("rejects a PDF whose bytes are actually HTML before inference", async () => {
+    const extract = vi.fn().mockResolvedValue(makeExtract());
+    const app = createParseApp({ extract });
+    arrangeEntitledItemWithAttachment();
+    list.mockResolvedValue({ data: [], error: null });
+    download.mockResolvedValue({ data: new Blob(["<html>"]), error: null });
+    claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
+
+    const res = await postParse(app);
+
+    expect(res.status).toBe(422);
+    expect(extract).not.toHaveBeenCalled();
+    expect(releaseParseAttempt).toHaveBeenCalled();
   });
 
   it("returns 404 when the inbox item is not found", async () => {
@@ -394,4 +457,72 @@ describe("parse worker", () => {
     expect(download).not.toHaveBeenCalled();
     expect(claimParseAttempt).not.toHaveBeenCalled();
   });
+
+  it("passes DOCX bytes to the injected extractor and confirms the result", async () => {
+    // Arrange
+    const extract = vi.fn().mockResolvedValue(makeExtract());
+    const app = createParseApp({ extract });
+    arrangeEntitledItemWithAttachment(DOCX_MIME_TYPE, "10/resume.docx");
+    list.mockResolvedValue({ data: [], error: null });
+    const docxBytes = new Uint8Array([80, 75, 3, 4]).buffer;
+    download.mockResolvedValue({ data: new Blob([docxBytes]), error: null });
+    claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
+
+    // Act
+    const res = await postParse(app);
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(extract).toHaveBeenCalledWith(
+      expect.any(ArrayBuffer),
+      DOCX_MIME_TYPE,
+    );
+    expect(confirmParseAttempt).toHaveBeenCalled();
+  });
+
+  it.each([
+    ["empty", "resume appears empty", 422],
+    ["password_protected", "resume is password-protected", 422],
+    ["malformed", "could not open resume", 422],
+    ["too_large", "resume too long", 413],
+  ] as const)(
+    "maps DOCX %s failures to a fixed response and releases the reservation",
+    async (failure, message, status) => {
+      // Arrange
+      const error = new DocxExtractionError(failure);
+      const extract = vi.fn().mockRejectedValue(error);
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const app = createParseApp({ extract });
+      arrangeEntitledItemWithAttachment(DOCX_MIME_TYPE, "10/resume.docx");
+      list.mockResolvedValue({ data: [], error: null });
+      download.mockResolvedValue({
+        data: new Blob([new Uint8Array([80, 75, 3, 4])]),
+        error: null,
+      });
+      claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
+
+      // Act
+      const res = await postParse(app);
+
+      // Assert
+      expect(res.status).toBe(status);
+      expect(await res.json()).toEqual({ success: false, error: message });
+      expect(releaseParseAttempt).toHaveBeenCalledWith(
+        expect.anything(),
+        10,
+        CLAIMED_ATTEMPT.outcome.attempt_id,
+        CLAIMED_ATTEMPT.outcome.generation,
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        "parse.extract.error",
+        expect.objectContaining({
+          category: "unknown",
+          errorClass: "DocxExtractionError",
+        }),
+      );
+      expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("docx");
+      expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("resume");
+      errorSpy.mockRestore();
+    },
+  );
 });

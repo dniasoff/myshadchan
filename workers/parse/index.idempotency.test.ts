@@ -234,7 +234,7 @@ describe("Finding 8 — idempotency via the atomic claim", () => {
     arrangeEntitledItemWithAttachment();
     claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
     list.mockResolvedValue({ data: [], error: null });
-    download.mockResolvedValue({ data: new Blob(["pdf bytes"]), error: null });
+    download.mockResolvedValue({ data: new Blob(["%PDF-1.7"]), error: null });
     const app = createParseApp({ extract: vi.fn(async () => makeExtract()) });
 
     // Act
@@ -251,7 +251,7 @@ describe("Finding 8 — idempotency via the atomic claim", () => {
     arrangeEntitledItemWithAttachment();
     claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
     list.mockResolvedValue({ data: [], error: null });
-    download.mockResolvedValue({ data: new Blob(["pdf bytes"]), error: null });
+    download.mockResolvedValue({ data: new Blob(["%PDF-1.7"]), error: null });
     const winningPayload = makeParseResultPayload({
       fields: { name_en: "Winner" },
     });
@@ -276,7 +276,7 @@ describe("Finding 8 — idempotency via the atomic claim", () => {
     arrangeEntitledItemWithAttachment();
     claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
     list.mockResolvedValue({ data: [], error: null });
-    download.mockResolvedValue({ data: new Blob(["pdf bytes"]), error: null });
+    download.mockResolvedValue({ data: new Blob(["%PDF-1.7"]), error: null });
     confirmParseAttempt.mockResolvedValue({
       outcome: "superseded",
       status: "in_progress",

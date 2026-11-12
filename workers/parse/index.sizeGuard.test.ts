@@ -137,7 +137,7 @@ describe("Finding 9 — attachment size guard", () => {
       error: null,
     });
     download.mockResolvedValue({
-      data: new Blob(["pdf bytes"]),
+      data: new Blob(["%PDF-1.7"]),
       error: null,
     });
     const app = createParseApp({ extract: async () => makeExtract() });

@@ -457,18 +457,30 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
 
     await expect
       .element(
-        screen.getByText(
-          "Please choose a PDF, Word document, JPG, PNG, HEIC, HEIF, or WebP file.",
-        ),
+        screen
+          .getByRole("alert")
+          .getByText(
+            "This file type is not supported here. Choose a .docx, PDF, JPG, PNG, HEIC or WebP file.",
+          ),
       )
       .toBeInTheDocument();
     expect(dataProvider.uploadInboxAttachment).not.toHaveBeenCalled();
   });
 
-  it("accepts Word as an attachment and explains that auto-fill is not available yet", async () => {
-    const { screen, dataProvider } = await renderShidduchCreate([
-      "/shidduchim/new",
-    ]);
+  it("reads a modern Word attachment through the existing auto-fill path", async () => {
+    callAiWorker.mockResolvedValue(parsedResume);
+    const { screen, dataProvider } = await renderShidduchCreate(
+      ["/shidduchim/new"],
+      {
+        aiEntitlement: vi.fn().mockResolvedValue({
+          is_entitled: true,
+          plan: "ai",
+          status: "active",
+          resumes_used: 0,
+          resumes_limit: 50,
+        }),
+      },
+    );
 
     await screen
       .getByLabelText("Attach resume")
@@ -477,10 +489,18 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     await expect
       .element(
         screen.getByText(
-          "Word auto-fill isn’t available yet, but your file is attached.",
+          "We found a few details, but not everything. Please check the filled fields and add anything missing.",
         ),
       )
       .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText("Word document (.docx) · 1 KB", { exact: true }),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("status", { name: "Resume auto-fill result" }))
+      .toHaveFocus();
     expect(dataProvider.uploadInboxAttachment).toHaveBeenCalledTimes(1);
     expect(dataProvider.update).toHaveBeenCalledWith(
       "inbox_items",
@@ -529,6 +549,9 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     await expect
       .element(screen.getByText("Reading your resume…"))
       .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("region", { name: "Resume upload" }))
+      .toHaveAttribute("aria-busy", "true");
     await screen.getByLabelText("Name (English)").fill("Typed by Ronit");
     resolveParse(parsedResume);
 
@@ -538,7 +561,9 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     await expect
       .element(screen.getByLabelText("Name (English)"))
       .toHaveValue("Typed by Ronit");
-    await expect.element(screen.getByText("Please check")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Please check", { exact: true }))
+      .toBeInTheDocument();
     expect(resolveAsNewShidduch).not.toHaveBeenCalled();
   });
 
@@ -596,13 +621,15 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       );
     await expect
       .element(
-        screen.getByText(
-          "You’ve reached your monthly resume-reading limit. Your file is still attached.",
-        ),
+        screen
+          .getByRole("alert")
+          .getByText(
+            "We couldn’t read the resume right now. Your file is still attached, and you can enter the details yourself.",
+          ),
       )
       .toBeInTheDocument();
     await expect
-      .element(screen.getByText("Attached: resume.pdf"))
+      .element(screen.getByText("resume.pdf", { exact: true }))
       .toBeInTheDocument();
   });
 
@@ -624,23 +651,42 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     await expect
       .element(
         screen.getByText(
-          "Your resume is attached. AI auto-fill isn’t available on this plan.",
+          "Auto-fill isn’t available on this account right now. Your file is still attached; you can enter the details yourself.",
         ),
       )
       .toBeInTheDocument();
   });
 
-  it("submits the attached file through the existing resume resolver", async () => {
-    const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+  it("does not announce unavailable auto-fill while entitlement is loading", async () => {
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockReturnValue(new Promise(() => {})),
+    });
     await screen
       .getByLabelText("Attach resume")
       .upload(
-        new File(["word bytes"], "resume.docx", { type: "application/msword" }),
+        new File(["%PDF-1.4 test"], "resume.pdf", { type: "application/pdf" }),
       );
+
     await expect
       .element(
         screen.getByText(
-          "Word auto-fill isn’t available yet, but your file is attached.",
+          "Auto-fill isn’t available on this account right now. Your file is still attached; you can enter the details yourself.",
+        ),
+      )
+      .not.toBeInTheDocument();
+  });
+
+  it("submits the attached file through the existing resume resolver", async () => {
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+    await screen.getByLabelText("Attach resume").upload(
+      new File(["word bytes"], "resume.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
+    await expect
+      .element(
+        screen.getByText(
+          "Auto-fill isn’t available on this account right now. Your file is still attached; you can enter the details yourself.",
         ),
       )
       .toBeInTheDocument();
@@ -661,15 +707,15 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       ),
     );
     const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
-    await screen
-      .getByLabelText("Attach resume")
-      .upload(
-        new File(["word bytes"], "resume.docx", { type: "application/msword" }),
-      );
+    await screen.getByLabelText("Attach resume").upload(
+      new File(["word bytes"], "resume.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
     await expect
       .element(
         screen.getByText(
-          "Word auto-fill isn’t available yet, but your file is attached.",
+          "Auto-fill isn’t available on this account right now. Your file is still attached; you can enter the details yourself.",
         ),
       )
       .toBeInTheDocument();
@@ -697,7 +743,7 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       }),
     );
     await expect
-      .element(screen.getByText("Attached: first.docx"))
+      .element(screen.getByText("first.docx", { exact: true }))
       .toBeInTheDocument();
 
     await picker.upload(
@@ -710,6 +756,46 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     expect(removeInboxAttachment).toHaveBeenCalledWith(
       "1/inbox/700/resume.pdf",
     );
+  });
+
+  it("reverts the first auto-fill before replacing the resume", async () => {
+    const secondResume = {
+      ...parsedResume,
+      fields: {
+        ...parsedResume.fields,
+        name_en: "Second resume",
+        seminary_en: "Second seminary",
+      },
+    };
+    callAiWorker
+      .mockResolvedValueOnce(parsedResume)
+      .mockResolvedValueOnce(secondResume);
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 0,
+        resumes_limit: 50,
+      }),
+    });
+    const picker = screen.getByLabelText("Attach resume");
+    await picker.upload(
+      new File(["first"], "first.pdf", { type: "application/pdf" }),
+    );
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Rivky");
+
+    await picker.upload(
+      new File(["second"], "second.pdf", { type: "application/pdf" }),
+    );
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Second resume");
+    await expect
+      .element(screen.getByLabelText("Seminary (English)"))
+      .toHaveValue("Second seminary");
   });
 
   it("discards the capture when Cancel leaves the form", async () => {
@@ -759,5 +845,347 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
 
     screen.unmount();
     expect(dataProvider.removeInboxAttachment).not.toHaveBeenCalled();
+  });
+
+  it("disables Remove and Replace while the save is in flight", async () => {
+    let resolveSubmit!: (value: { id: number }) => void;
+    resolveAsNewShidduch.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSubmit = resolve;
+      }),
+    );
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+    await screen.getByLabelText("Attach resume").upload(
+      new File(["resume"], "resume.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
+    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen.getByRole("button", { name: "Add a suggestion" }).click();
+    await expect.poll(() => resolveAsNewShidduch.mock.calls.length).toBe(1);
+
+    await expect
+      .element(screen.getByRole("button", { name: "Remove file" }))
+      .toBeDisabled();
+    await expect
+      .element(screen.getByRole("button", { name: "Replace file" }))
+      .toBeDisabled();
+    resolveSubmit({ id: 99 });
+  });
+
+  it("retries a failed save with the same capture while keeping the file controls locked", async () => {
+    resolveAsNewShidduch
+      .mockRejectedValueOnce(new Error("copy failed"))
+      .mockResolvedValueOnce({ id: 99 });
+    const { screen, dataProvider } = await renderShidduchCreate([
+      "/shidduchim/new",
+    ]);
+    await screen.getByLabelText("Attach resume").upload(
+      new File(["resume"], "resume.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
+    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen
+      .getByRole("button", { name: "Add a suggestion" })
+      .click({ force: true });
+    await expect
+      .element(
+        screen.getByText("We couldn’t add that suggestion. Please try again."),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Remove file" }))
+      .toBeDisabled();
+    await expect
+      .element(screen.getByRole("button", { name: "Replace file" }))
+      .toBeDisabled();
+
+    // The shared notification layer briefly overlays the sticky toolbar after
+    // the first failed save; dispatch the same button click after confirming
+    // the control is enabled.
+    (
+      screen
+        .getByRole("button", { name: "Add a suggestion" })
+        .element() as HTMLButtonElement
+    ).click();
+    await expect.poll(() => resolveAsNewShidduch.mock.calls.length).toBe(2);
+    expect(resolveAsNewShidduch.mock.calls[1][0]).toBe(
+      resolveAsNewShidduch.mock.calls[0][0],
+    );
+    expect(dataProvider.removeInboxAttachment).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy .doc attach-only and never calls the parser", async () => {
+    callAiWorker.mockResolvedValue(parsedResume);
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 0,
+        resumes_limit: 50,
+      }),
+    });
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["legacy"], "resume.doc", { type: "application/msword" }),
+      );
+    await expect
+      .element(
+        screen.getByText(/This older Word file \(\.doc\) cannot be read/),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Upload a .docx or PDF" }))
+      .toBeInTheDocument();
+    expect(callAiWorker).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["resume appears empty", /appears to be empty/],
+    ["resume is password-protected", /password-protected/],
+    ["could not open resume", /couldn’t open this Word file/],
+    ["resume too long", /too long for auto-fill/],
+  ])("shows the safe DOCX error alert for %s", async (workerError, copy) => {
+    callAiWorker.mockRejectedValue(new Error(workerError));
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 0,
+        resumes_limit: 50,
+      }),
+    });
+    await screen.getByLabelText("Attach resume").upload(
+      new File(["word bytes"], "resume.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
+    await expect
+      .element(screen.getByRole("alert").getByText(copy))
+      .toBeInTheDocument();
+  });
+
+  it.each([
+    ["application/pdf", "resume.pdf"],
+    ["image/jpeg", "resume.jpg"],
+  ])(
+    "uses the attached type for a damaged %s error",
+    async (mimeType, name) => {
+      callAiWorker.mockRejectedValue(new Error("could not open resume"));
+      const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+        aiEntitlement: vi.fn().mockResolvedValue({
+          is_entitled: true,
+          plan: "ai",
+          status: "active",
+          resumes_used: 0,
+          resumes_limit: 50,
+        }),
+      });
+      await screen.getByLabelText("Attach resume").upload(
+        new File(
+          [mimeType === "application/pdf" ? "%PDF-1.4" : "photo"],
+          name,
+          {
+            type: mimeType,
+          },
+        ),
+      );
+      await expect
+        .element(
+          screen
+            .getByRole("alert")
+            .getByText(
+              "We couldn’t open this file. It may be damaged. Try saving it again or choose another file. You can still enter the details yourself.",
+            ),
+        )
+        .toBeInTheDocument();
+    },
+  );
+
+  it("keeps text typed after auto-fill when removing the file", async () => {
+    callAiWorker.mockResolvedValue(parsedResume);
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 0,
+        resumes_limit: 50,
+      }),
+    });
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["%PDF-1.4"], "resume.pdf", { type: "application/pdf" }),
+      );
+    await expect
+      .element(screen.getByLabelText("Seminary (English)"))
+      .toHaveValue("Bais Yaakov");
+    await screen.getByLabelText("Shul (English)").fill("Typed After Fill");
+    await screen.getByRole("button", { name: "Remove file" }).click();
+
+    await expect
+      .element(screen.getByLabelText("Seminary (English)"))
+      .toHaveValue("");
+    await expect
+      .element(screen.getByLabelText("Shul (English)"))
+      .toHaveValue("Typed After Fill");
+    await expect
+      .element(screen.getByRole("button", { name: "Undo auto-fill" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps edits over auto-filled values and removes the stale Undo action", async () => {
+    callAiWorker.mockResolvedValue(parsedResume);
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 0,
+        resumes_limit: 50,
+      }),
+    });
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["%PDF-1.4"], "resume.pdf", { type: "application/pdf" }),
+      );
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Rivky");
+    await screen.getByLabelText("Name (English)").fill("Edited after fill");
+    await screen.getByRole("button", { name: "Remove file" }).click();
+
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Edited after fill");
+    await expect
+      .element(screen.getByRole("button", { name: "Undo auto-fill" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText("The original file is still attached and unchanged."),
+      )
+      .not.toBeInTheDocument();
+  });
+
+  it("calls the parser again when Try again is clicked on Add a suggestion", async () => {
+    callAiWorker
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValueOnce(parsedResume);
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 0,
+        resumes_limit: 50,
+      }),
+    });
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["%PDF-1.4"], "resume.pdf", { type: "application/pdf" }),
+      );
+    await expect
+      .element(screen.getByRole("alert").getByText(/couldn’t read the resume/))
+      .toBeInTheDocument();
+    await screen.getByRole("button", { name: "Try again" }).click();
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Rivky");
+    expect(callAiWorker).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not offer Undo when the extraction has no fields", async () => {
+    callAiWorker.mockResolvedValue({
+      ...parsedResume,
+      fields: Object.fromEntries(
+        Object.keys(parsedResume.fields).map((field) => [field, null]),
+      ),
+    });
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 0,
+        resumes_limit: 50,
+      }),
+    });
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["%PDF-1.4"], "resume.pdf", { type: "application/pdf" }),
+      );
+    await expect
+      .element(screen.getByText(/couldn’t read the resume right now/))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Undo auto-fill" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("does not remove a file while reading, so a late parse cannot fill a removed draft", async () => {
+    let resolveParse!: (value: ParsedResumeResponse) => void;
+    callAiWorker.mockReturnValue(
+      new Promise((resolve) => {
+        resolveParse = resolve;
+      }),
+    );
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 0,
+        resumes_limit: 50,
+      }),
+    });
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["%PDF-1.4"], "resume.pdf", { type: "application/pdf" }),
+      );
+    await expect
+      .element(screen.getByText("Reading your resume…"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Remove file" }))
+      .toBeDisabled();
+    resolveParse(parsedResume);
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Rivky");
+  });
+
+  it("undoes Add-a-suggestion auto-fill before save", async () => {
+    callAiWorker.mockResolvedValue(parsedResume);
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"], {
+      aiEntitlement: vi.fn().mockResolvedValue({
+        is_entitled: true,
+        plan: "ai",
+        status: "active",
+        resumes_used: 0,
+        resumes_limit: 50,
+      }),
+    });
+    await screen
+      .getByLabelText("Attach resume")
+      .upload(
+        new File(["%PDF-1.4"], "resume.pdf", { type: "application/pdf" }),
+      );
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("Rivky");
+    await screen.getByRole("button", { name: "Undo auto-fill" }).click();
+    await expect
+      .element(screen.getByLabelText("Name (English)"))
+      .toHaveValue("");
   });
 });
