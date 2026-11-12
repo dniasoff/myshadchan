@@ -249,6 +249,20 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
   });
 
   it("offers Enlarge only after the local preview has loaded", async () => {
+    const originalSetAttribute = HTMLImageElement.prototype.setAttribute;
+    const setImageProperty = vi
+      .spyOn(HTMLImageElement.prototype, "src", "set")
+      .mockImplementation(() => undefined);
+    const setImageSrc = vi
+      .spyOn(HTMLImageElement.prototype, "setAttribute")
+      .mockImplementation(function (
+        this: HTMLImageElement,
+        name: string,
+        value: string,
+      ) {
+        if (name === "src") return;
+        originalSetAttribute.call(this, name, value);
+      });
     const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
     const pngBytes = Uint8Array.from(
       atob(
@@ -256,20 +270,28 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       ),
       (character) => character.charCodeAt(0),
     );
-    await screen
-      .getByLabelText("Upload a photo")
-      .upload(new File([pngBytes], "ronit-photo.png", { type: "image/png" }));
+    try {
+      await screen
+        .getByLabelText("Upload a photo")
+        .upload(new File([pngBytes], "ronit-photo.png", { type: "image/png" }));
 
-    // The browser's image loader is deliberately not part of this assertion:
-    // the transition under test is the explicit load event below.
-    screen.container.querySelector("img")?.dispatchEvent(new Event("load"));
-    await expect
-      .element(screen.getByRole("button", { name: "Enlarge photo" }))
-      .toBeInTheDocument();
-    await screen.getByRole("button", { name: "Enlarge photo" }).click();
-    await expect
-      .element(screen.getByRole("heading", { name: "Enlarged photo" }))
-      .toBeInTheDocument();
+      expect(
+        screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+      ).toBeNull();
+      setImageSrc.mockRestore();
+      setImageProperty.mockRestore();
+      screen.container.querySelector("img")?.dispatchEvent(new Event("load"));
+      await expect
+        .element(screen.getByRole("button", { name: "Enlarge photo" }))
+        .toBeInTheDocument();
+      await screen.getByRole("button", { name: "Enlarge photo" }).click();
+      await expect
+        .element(screen.getByRole("heading", { name: "Enlarged photo" }))
+        .toBeInTheDocument();
+    } finally {
+      setImageProperty.mockRestore();
+      setImageSrc.mockRestore();
+    }
   });
 
   it("revokes the local preview URL when the staged photo is removed", async () => {

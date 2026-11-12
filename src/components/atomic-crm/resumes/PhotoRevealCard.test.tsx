@@ -136,34 +136,55 @@ describe("PhotoRevealCard — reveal click (AC 1)", () => {
     const photoUrl =
       "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E";
     const signResumePhotoUrl = vi.fn().mockResolvedValue(photoUrl);
-    const { screen } = await renderCard(buildPhoto(), { signResumePhotoUrl });
+    const originalSetAttribute = HTMLImageElement.prototype.setAttribute;
+    const setImageProperty = vi
+      .spyOn(HTMLImageElement.prototype, "src", "set")
+      .mockImplementation(() => undefined);
+    const setImageSrc = vi
+      .spyOn(HTMLImageElement.prototype, "setAttribute")
+      .mockImplementation(function (
+        this: HTMLImageElement,
+        name: string,
+        value: string,
+      ) {
+        if (name === "src") return;
+        originalSetAttribute.call(this, name, value);
+      });
+    try {
+      const { screen } = await renderCard(buildPhoto(), { signResumePhotoUrl });
 
-    expect(
-      screen.container.querySelector('button[aria-label="Enlarge photo"]'),
-    ).toBeNull();
-    await screen.getByRole("button", { name: "Reveal" }).click();
-    const image = screen.container.querySelector("img");
-    expect(image).not.toBeNull();
-    image?.dispatchEvent(new Event("load"));
+      await screen.getByRole("button", { name: "Reveal" }).click();
+      const image = screen.container.querySelector("img");
+      expect(image).not.toBeNull();
+      expect(
+        screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+      ).toBeNull();
+      setImageProperty.mockRestore();
+      setImageSrc.mockRestore();
+      image?.dispatchEvent(new Event("load"));
 
-    await expect
-      .element(screen.getByRole("button", { name: "Enlarge photo" }))
-      .toBeInTheDocument();
-    await screen.getByRole("button", { name: "Enlarge photo" }).click();
+      await expect
+        .element(screen.getByRole("button", { name: "Enlarge photo" }))
+        .toBeInTheDocument();
+      await screen.getByRole("button", { name: "Enlarge photo" }).click();
 
-    await expect
-      .element(screen.getByRole("heading", { name: "Enlarged photo" }))
-      .toBeInTheDocument();
-    await expect
-      .element(screen.getByRole("dialog").getByRole("img", { name: "Photo" }))
-      .toHaveAttribute("src", photoUrl);
-    await expect
-      .element(screen.getByRole("dialog"))
-      .toHaveClass("sm:max-w-[min(90vw,60rem)]");
-    expect(signResumePhotoUrl).toHaveBeenCalledTimes(1);
+      await expect
+        .element(screen.getByRole("heading", { name: "Enlarged photo" }))
+        .toBeInTheDocument();
+      await expect
+        .element(screen.getByRole("dialog").getByRole("img", { name: "Photo" }))
+        .toHaveAttribute("src", photoUrl);
+      await expect
+        .element(screen.getByRole("dialog"))
+        .toHaveClass("sm:max-w-[min(90vw,60rem)]");
+      expect(signResumePhotoUrl).toHaveBeenCalledTimes(1);
 
-    await screen.getByRole("button", { name: "Close photo viewer" }).click();
-    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+      await screen.getByRole("button", { name: "Close photo viewer" }).click();
+      await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+    } finally {
+      setImageProperty.mockRestore();
+      setImageSrc.mockRestore();
+    }
   });
 
   it("removes Enlarge and keeps the retry path when the revealed image fails", async () => {
@@ -254,6 +275,75 @@ describe("PhotoRevealCard — immediate display", () => {
     await userEvent.keyboard("{Escape}");
 
     await expect.element(imageTrigger).toHaveFocus();
+  });
+
+  it("opens the second photo's URL when multiple cards are rendered", async () => {
+    const firstUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3C/svg%3E#first";
+    const secondUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3'%3E%3C/svg%3E#second";
+    const originalSetAttribute = HTMLImageElement.prototype.setAttribute;
+    const setImageProperty = vi
+      .spyOn(HTMLImageElement.prototype, "src", "set")
+      .mockImplementation(() => undefined);
+    const setImageSrc = vi
+      .spyOn(HTMLImageElement.prototype, "setAttribute")
+      .mockImplementation(function (
+        this: HTMLImageElement,
+        name: string,
+        value: string,
+      ) {
+        if (name === "src") return;
+        originalSetAttribute.call(this, name, value);
+      });
+    try {
+      const dataProvider = buildDataProvider({
+        signResumePhotoUrl: vi.fn(({ storagePath }: { storagePath: string }) =>
+          Promise.resolve(
+            storagePath.includes("second") ? secondUrl : firstUrl,
+          ),
+        ),
+      });
+      const screen = await render(
+        <TestMemoryRouter>
+          <CoreAdminContext
+            dataProvider={dataProvider}
+            i18nProvider={testI18nProvider}
+          >
+            <PhotoRevealCard
+              photo={buildPhoto({ id: 1, path: "first.jpg" })}
+              onHidden={vi.fn()}
+              revealOnClick={false}
+            />
+            <PhotoRevealCard
+              photo={buildPhoto({ id: 2, path: "second.jpg" })}
+              onHidden={vi.fn()}
+              revealOnClick={false}
+            />
+            <Notification />
+          </CoreAdminContext>
+        </TestMemoryRouter>,
+      );
+      await expect
+        .poll(() => screen.container.querySelectorAll("img").length)
+        .toBe(2);
+      screen.container
+        .querySelectorAll("img")[1]
+        ?.dispatchEvent(new Event("load"));
+      await expect
+        .element(screen.getByRole("button", { name: "Enlarge photo" }))
+        .toBeInTheDocument();
+      setImageSrc.mockRestore();
+      setImageProperty.mockRestore();
+      await screen.getByRole("button", { name: "Enlarge photo" }).click();
+
+      await expect
+        .element(screen.getByRole("dialog").getByRole("img", { name: "Photo" }))
+        .toHaveAttribute("src", secondUrl);
+    } finally {
+      setImageProperty.mockRestore();
+      setImageSrc.mockRestore();
+    }
   });
 
   it("discards an in-flight automatic URL when reveal-on-click is enabled", async () => {

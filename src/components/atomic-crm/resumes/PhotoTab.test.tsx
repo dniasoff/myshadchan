@@ -215,6 +215,9 @@ describe("PhotoTab — hide removes a photo from the grid (AC 2)", () => {
     await expect
       .element(screen.getByText("No photos uploaded yet."))
       .toBeInTheDocument();
+    expect(
+      screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+    ).toBeNull();
 
     // ...but the row itself still exists, hidden_at set (soft-hide, AC 2).
     const { data } = await dataProvider.getList<ResumePhoto>("resume_photos", {

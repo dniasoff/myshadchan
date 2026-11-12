@@ -48,12 +48,14 @@ test("enlarges an already-rendered suggestion preview on desktop and phone", asy
   ).toBeVisible();
   await expect(dialog.getByRole("img", { name: "Photo" })).toBeVisible();
 
-  if (!isMobile) {
-    const imageBox = await dialog
-      .getByRole("img", { name: "Photo" })
-      .boundingBox();
-    expect(imageBox?.width ?? 0).toBeGreaterThan(600);
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox).not.toBeNull();
+  if (isMobile) {
+    expect(dialogBox!.width).toBeGreaterThan(0);
+  } else {
+    expect(dialogBox!.width).toBeGreaterThanOrEqual(900);
   }
+  expect(dialogBox!.width).toBeLessThanOrEqual(isMobile ? 375 : 1440);
 
   const overflow = await page.evaluate(() => ({
     scrollWidth: (

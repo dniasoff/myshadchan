@@ -91,6 +91,9 @@ describe("SharedProfilePage", () => {
     await expect
       .element(screen.getByRole("heading", { level: 1 }))
       .toHaveTextContent("This link is no longer active");
+    expect(
+      screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+    ).toBeNull();
   });
 
   it("shows the inactive notice when no token is present, without calling the loader", async () => {
@@ -176,26 +179,50 @@ describe("SharedProfilePage", () => {
         },
       ],
     };
-    const screen = await render(
-      <SharedProfilePage
-        url={shareUrl()}
-        loadProfile={() => Promise.resolve(withPhoto)}
-      />,
-    );
+    const originalSetAttribute = HTMLImageElement.prototype.setAttribute;
+    const setImageProperty = vi
+      .spyOn(HTMLImageElement.prototype, "src", "set")
+      .mockImplementation(() => undefined);
+    const setImageSrc = vi
+      .spyOn(HTMLImageElement.prototype, "setAttribute")
+      .mockImplementation(function (
+        this: HTMLImageElement,
+        name: string,
+        value: string,
+      ) {
+        if (name === "src") return;
+        originalSetAttribute.call(this, name, value);
+      });
+    try {
+      const screen = await render(
+        <SharedProfilePage
+          url={shareUrl()}
+          loadProfile={() => Promise.resolve(withPhoto)}
+        />,
+      );
 
-    const image = screen.getByRole("img");
-    await expect.element(image).toBeVisible();
-    image.element().dispatchEvent(new Event("load"));
-    await expect
-      .element(screen.getByRole("button", { name: "Enlarge photo" }))
-      .toBeInTheDocument();
-    await screen.getByRole("button", { name: "Enlarge photo" }).click();
+      const image = screen.getByRole("img");
+      await expect.element(image).toBeVisible();
+      expect(
+        screen.container.querySelector('button[aria-label="Enlarge photo"]'),
+      ).toBeNull();
+      setImageSrc.mockRestore();
+      setImageProperty.mockRestore();
+      image.element().dispatchEvent(new Event("load"));
+      await expect
+        .element(screen.getByRole("button", { name: "Enlarge photo" }))
+        .toBeInTheDocument();
+      await screen.getByRole("button", { name: "Enlarge photo" }).click();
 
-    await expect
-      .element(screen.getByRole("heading", { name: "Enlarged photo" }))
-      .toBeInTheDocument();
-    await expect
-      .element(screen.getByRole("dialog").getByRole("img", { name: /Rivky/ }))
-      .toHaveAttribute("src", `${workerUrl}/r/tok/file/photo`);
+      await expect
+        .element(screen.getByRole("heading", { name: "Enlarged photo" }))
+        .toBeInTheDocument();
+      await expect
+        .element(screen.getByRole("dialog").getByRole("img", { name: /Rivky/ }))
+        .toHaveAttribute("src", `${workerUrl}/r/tok/file/photo`);
+    } finally {
+      setImageProperty.mockRestore();
+      setImageSrc.mockRestore();
+    }
   });
 });
