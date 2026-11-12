@@ -24,33 +24,12 @@ const { callAiWorker } = vi.hoisted(() => ({
   callAiWorker: vi.fn(),
 }));
 
-/**
- * Story 11-1 review fix (cross-reconciliation): `useResolveInboxItem.ts`
- * calls `copyInboxAttachmentToResumeFile` directly (Finding 2, not through
- * the mocked `CrmDataProvider` above), so — same idiom as
- * `signInboxAttachmentUrl` above — it needs its own `vi.mock`. Without this,
- * "creates a shidduch and a resumes row when filing with a draft" hit the
- * real, unmocked Supabase client and rejected before `dataProvider.create`
- * was ever called.
- */
-const { copyInboxAttachmentToResumeFile, removeResumeFileObjects } = vi.hoisted(
-  () => ({
-    copyInboxAttachmentToResumeFile: vi.fn(),
-    removeResumeFileObjects: vi.fn(),
-  }),
-);
-
 vi.mock("../providers/supabase/inboxAttachments", () => ({
   signInboxAttachmentUrl,
 }));
 
 vi.mock("../providers/commons/aiWorkerClient", () => ({
   callAiWorker,
-}));
-
-vi.mock("../providers/supabase/resumes", () => ({
-  copyInboxAttachmentToResumeFile,
-  removeResumeFileObjects,
 }));
 
 /**
@@ -140,6 +119,12 @@ const buildDataProvider = (
         Promise.resolve({ data: params.data }),
     ),
     copyInboxAttachmentsToEntityFiles: vi.fn().mockResolvedValue([]),
+    copyInboxAttachmentToResumeFile: vi.fn().mockResolvedValue({
+      storagePath: "1/resumes/99/copied-resume.pdf",
+      size: 54321,
+    }),
+    removeResumeFileObjects: vi.fn(),
+    removeInboxAttachment: vi.fn(),
     ...overrides,
   }) as unknown as CrmDataProvider;
 
@@ -431,8 +416,6 @@ describe("InboxResolveDialog — attachment links are re-signed at click time (r
 describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
   afterEach(() => {
     callAiWorker.mockReset();
-    copyInboxAttachmentToResumeFile.mockReset();
-    removeResumeFileObjects.mockReset();
     vi.unstubAllEnvs();
   });
 
@@ -583,16 +566,14 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
     // lands in the `documents` bucket under a fresh path, with the real
     // downloaded byte size — never the original `attachments`-bucket path
     // and never a hardcoded 0.
-    copyInboxAttachmentToResumeFile.mockResolvedValue({
-      storagePath: "1/resumes/99/copied-resume.pdf",
-      size: 54321,
-    });
     const item = buildItem({ attachments: [buildAttachment()] });
     const { screen, dataProvider } = await renderDialog(
       item,
       [],
       entitledDataProviderOverrides,
     );
+    const copyInboxAttachmentToResumeFile =
+      dataProvider.copyInboxAttachmentToResumeFile as ReturnType<typeof vi.fn>;
 
     // Act
     await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
@@ -611,8 +592,7 @@ describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
       .toBeGreaterThan(0);
     expect(copyInboxAttachmentToResumeFile).toHaveBeenCalledWith({
       shidduchimId: 99,
-      attachmentPath: "1/abc-123.pdf",
-      fileName: "resume.pdf",
+      attachment: buildAttachment(),
     });
     expect(dataProvider.create).toHaveBeenCalledWith("resumes", {
       data: expect.objectContaining({

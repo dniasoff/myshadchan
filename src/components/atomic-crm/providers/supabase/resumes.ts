@@ -2,7 +2,7 @@ import {
   isSingleSubject,
   type ResumeSubject,
 } from "../../resumes/resumeSubject";
-import type { Resume } from "../../types";
+import type { InboxAttachment, Resume } from "../../types";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import { getSupabaseClient } from "./supabase";
 
@@ -116,10 +116,7 @@ export async function uploadResumeFile(
 }
 
 export type CopyInboxAttachmentToResumeFileParams = ResumeSubject & {
-  /** The `attachments`-bucket key an inbox capture already lives at
-   * (`InboxAttachment.path`). */
-  attachmentPath: string;
-  fileName: string;
+  attachment: InboxAttachment;
 };
 
 export type CopiedResumeFile = {
@@ -154,7 +151,9 @@ export type CopiedResumeFile = {
 export async function copyInboxAttachmentToResumeFile(
   params: CopyInboxAttachmentToResumeFileParams,
 ): Promise<CopiedResumeFile> {
-  const { attachmentPath, fileName, ...subject } = params;
+  const { attachment, ...subject } = params;
+  const attachmentPath = attachment.path;
+  const fileName = attachment.title;
   const accountId = await getCurrentAccountId();
   const ownerSegment = isSingleSubject(subject)
     ? `single-${subject.singleId}`

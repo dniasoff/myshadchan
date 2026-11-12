@@ -28,6 +28,7 @@ const ALLOWED = new Set([
   "ResearchAssistantPanel.tsx",
   "BillingPage.tsx",
   "InboxResolveDialog.tsx",
+  "ShidduchCreate.tsx",
   "DiligenceDossierCard.tsx",
 ]);
 

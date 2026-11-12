@@ -20,6 +20,7 @@ import type {
   CreateShidduchInput,
   CreateThreadInput,
   EntityFile,
+  InboxAttachment,
   InboxItem,
   Invite,
   InvitableRole,
@@ -69,10 +70,13 @@ import type { CopyInboxAttachmentsParams } from "./inboxAttachments";
 import { trustSenderAndRelease } from "./trustedSenders";
 import type { TrustSenderParams, TrustSenderResult } from "./trustedSenders";
 import {
+  copyInboxAttachmentToResumeFile as copyInboxAttachmentToResumeFileImpl,
+  removeResumeFileObjects as removeResumeFileObjectsImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
   uploadResumeFile as uploadResumeFileImpl,
 } from "./resumes";
 import type {
+  CopyInboxAttachmentToResumeFileParams,
   SignResumeFileUrlParams,
   UploadResumeFileParams,
 } from "./resumes";
@@ -1281,6 +1285,25 @@ export const getDataProviderWithCustomMethods = () => {
     async uploadResumeFile(params: UploadResumeFileParams): Promise<Resume> {
       return uploadResumeFileImpl(params);
     },
+    async uploadInboxAttachment(
+      params: UploadInboxAttachmentParams,
+    ): Promise<InboxAttachment> {
+      return uploadInboxAttachment(params);
+    },
+    async removeInboxAttachment(path: string): Promise<void> {
+      const { error } = await getSupabaseClient()
+        .storage.from(ATTACHMENTS_BUCKET)
+        .remove([path]);
+      if (error) throw new Error("Failed to remove the captured resume");
+    },
+    async copyInboxAttachmentToResumeFile(
+      params: CopyInboxAttachmentToResumeFileParams,
+    ) {
+      return copyInboxAttachmentToResumeFileImpl(params);
+    },
+    async removeResumeFileObjects(paths: string[]): Promise<void> {
+      return removeResumeFileObjectsImpl(paths);
+    },
     async signResumeFileUrl(params: SignResumeFileUrlParams): Promise<string> {
       return signResumeFileUrlImpl(params);
     },
@@ -1642,4 +1665,38 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
   fi.type = mimeType;
 
   return fi;
+};
+
+export type UploadInboxAttachmentParams = {
+  file: File;
+  inboxItemId: Identifier;
+};
+
+/** The manual resume picker uses the same private attachment primitive as the
+ * share target. The row is created first so the object key remains recoverable
+ * if the follow-up metadata update is interrupted. */
+const uploadInboxAttachment = async ({
+  file,
+  inboxItemId,
+}: UploadInboxAttachmentParams): Promise<InboxAttachment> => {
+  const src = URL.createObjectURL(file);
+  try {
+    const uploaded: RAFile = await uploadToBucket(
+      {
+        src,
+        title: file.name,
+        rawFile: file,
+        type: file.type,
+      },
+      `inbox/${inboxItemId}`,
+    );
+    return {
+      title: uploaded.title,
+      type: uploaded.type ?? file.type,
+      path: uploaded.path ?? "",
+      src: uploaded.src,
+    };
+  } finally {
+    URL.revokeObjectURL(src);
+  }
 };

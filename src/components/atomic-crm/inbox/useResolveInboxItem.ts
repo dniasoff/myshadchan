@@ -3,11 +3,7 @@ import { useDataProvider } from "ra-core";
 
 import { insertNoteInteraction } from "../entity360/tabs/insertNoteInteraction";
 import type { CrmDataProvider } from "../providers/types";
-import {
-  copyInboxAttachmentToResumeFile,
-  removeResumeFileObjects,
-  type CopiedResumeFile,
-} from "../providers/supabase/resumes";
+import type { CopiedResumeFile } from "../providers/supabase/resumes";
 import type {
   CreateShidduchInput,
   InboxAttachment,
@@ -168,10 +164,9 @@ export function useResolveInboxItem() {
       if (existingResumes.length === 0) {
         let copiedFile: CopiedResumeFile | undefined;
         try {
-          copiedFile = await copyInboxAttachmentToResumeFile({
+          copiedFile = await dataProvider.copyInboxAttachmentToResumeFile({
             shidduchimId: created.id,
-            attachmentPath: savedDraft.attachment.path,
-            fileName: savedDraft.attachment.title,
+            attachment: savedDraft.attachment,
           });
           await dataProvider.create<Resume>("resumes", {
             data: {
@@ -196,7 +191,9 @@ export function useResolveInboxItem() {
           // so remove it rather than leaving an orphaned, never-referenced
           // object behind.
           if (copiedFile) {
-            await removeResumeFileObjects([copiedFile.storagePath]);
+            await dataProvider.removeResumeFileObjects([
+              copiedFile.storagePath,
+            ]);
           }
           throw creationError;
         }
@@ -213,6 +210,11 @@ export function useResolveInboxItem() {
         },
         previousData: lockedItem,
       });
+      if (item.source === "upload") {
+        await dataProvider
+          .removeInboxAttachment(savedDraft.attachment.path)
+          .catch(() => undefined);
+      }
     }
 
     await dataProvider.update<InboxItem>("inbox_items", {
