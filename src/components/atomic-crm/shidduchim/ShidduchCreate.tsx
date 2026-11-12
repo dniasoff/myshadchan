@@ -625,7 +625,6 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
     const validationError = validateResumeUpload(selected);
     if (validationError) {
       setResumeSelectionError(validationError);
-      notify(validationError, { type: "error" });
       return;
     }
     setResumeSelectionError(null);
