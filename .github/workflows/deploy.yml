@@ -150,6 +150,25 @@ jobs:
             echo "WORKERS_JSON"
           } >> "$GITHUB_OUTPUT"
 
+      - name: 🔐 Validate required backup secrets
+        if: ${{ steps.remote_migrations.outputs.heavy == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do
+            [ -n "${!name:-}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::deploy is blocked; pending migrations require a complete private R2 backup, missing: ${missing[*]}"
+            echo "The workflow will not partially deploy Supabase, Workers, or Vercel." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
       - name: 🧬 Start preflight Supabase stack
         if: ${{ steps.remote_migrations.outputs.heavy == 'true' }}
         run: make start-supabase-e2e
