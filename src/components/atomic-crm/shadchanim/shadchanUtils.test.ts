@@ -20,6 +20,8 @@ describe("capitalizeName", () => {
 
   it("is safe for empty input", () => {
     expect(capitalizeName("")).toBe("");
+    expect(capitalizeName(null)).toBe("");
+    expect(capitalizeName(undefined)).toBe("");
   });
 });
 

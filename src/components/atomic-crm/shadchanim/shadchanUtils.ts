@@ -5,8 +5,8 @@ import type { Identifier } from "ra-core";
  * separated word while preserving every other character exactly as entered.
  * This intentionally leaves existing casing, punctuation and RTL text alone.
  */
-export const capitalizeName = (value: string): string =>
-  value.replace(
+export const capitalizeName = (value: string | null | undefined): string =>
+  (value ?? "").replace(
     /(^|[\s-])(\p{Ll})/gu,
     (_match, boundary: string, letter: string) =>
       `${boundary}${letter.toUpperCase()}`,

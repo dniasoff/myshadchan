@@ -17,7 +17,11 @@ const SectionLabel = ({ children }: { children: ReactNode }) => (
  * sections (design-language typography scale §2). account_id is set
  * server-side by a trigger — never a form input.
  */
-export const ShadchanInputs = () => (
+export const ShadchanInputs = ({
+  autoFocusName = false,
+}: {
+  autoFocusName?: boolean;
+}) => (
   <>
     <div className="flex flex-col gap-3">
       <SectionLabel>Name</SectionLabel>
@@ -27,7 +31,7 @@ export const ShadchanInputs = () => (
         validate={required()}
         parse={capitalizeName}
         format={capitalizeName}
-        autoFocus
+        autoFocus={autoFocusName}
         helperText={false}
       />
     </div>

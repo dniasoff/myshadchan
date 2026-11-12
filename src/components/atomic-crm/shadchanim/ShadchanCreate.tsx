@@ -7,7 +7,7 @@ import { normalizeShadchanName } from "./shadchanUtils";
 export const ShadchanCreate = () => (
   <Create redirect="list" transform={normalizeShadchanName}>
     <SimpleForm>
-      <ShadchanInputs />
+      <ShadchanInputs autoFocusName />
     </SimpleForm>
   </Create>
 );
