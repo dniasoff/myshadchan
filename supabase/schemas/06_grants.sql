@@ -1603,6 +1603,18 @@ grant usage, select on sequence public.analytics_events_id_seq to authenticated;
 grant all on table public.analytics_events to service_role;
 grant all on sequence public.analytics_events_id_seq to service_role;
 
+-- Story 0n5 — append-only handoff history. Authenticated callers may only
+-- select/insert rows; the RLS policies above narrow both operations to
+-- managers in their active account. No UPDATE or DELETE grant is given.
+revoke all on table public.outbound_share_history from anon, authenticated;
+revoke references on table public.outbound_share_history from authenticated;
+revoke trigger on table public.outbound_share_history from authenticated;
+revoke truncate on table public.outbound_share_history from authenticated;
+grant select, insert on table public.outbound_share_history to authenticated;
+grant all on table public.outbound_share_history to service_role;
+grant usage, select on sequence public.outbound_share_history_id_seq to authenticated;
+grant all on sequence public.outbound_share_history_id_seq to service_role;
+
 -- The summary view: SELECT only, matching the aggregate-view posture used for
 -- singles_summary/interactions_summary above.
 --

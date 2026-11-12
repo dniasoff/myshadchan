@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 
 import type { Single } from "../types";
 import { AddSingleLink } from "./AddSingleLink";
+import { SendToShadchanButton } from "./SendToShadchanDialog";
 
 export interface DashboardHeaderProps {
   singleList: Single[];
@@ -37,6 +38,7 @@ export const DashboardHeader = ({
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <AddSingleLink />
+        {selected ? <SendToShadchanButton single={selected} /> : null}
         {singleList.length > 1 ? (
           // The pills drive the whole dashboard, so they get the 44px touch
           // floor on a phone (`min-h-11 md:min-h-0`, the same shape

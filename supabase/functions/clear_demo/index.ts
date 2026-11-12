@@ -1099,6 +1099,7 @@ async function clearOfficialDemoBundle(
     "date_records",
     "listing_withdrawal_locks",
     "trusted_senders",
+    "outbound_share_history",
     "listings",
     "share_links",
     "single_preferences",

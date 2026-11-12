@@ -30,6 +30,15 @@ values (:'own_acct', 'upload', 'owner inbox'),
 insert into public.singles (account_id, first_name_en, status)
 values (:'own_acct', 'Owner Single', 'active'),
        (:'other_acct', 'Other Single', 'active');
+insert into public.shadchanim (account_id, name)
+values (:'own_acct', 'Owner Shadchan'),
+       (:'other_acct', 'Other Shadchan');
+insert into public.outbound_share_history
+  (account_id, single_id, shadchan_id, channel, file_kinds, outcome)
+select s.account_id, s.id, sh.id, 'whatsapp', array['resume'], 'download_prepared'
+from public.singles s
+join public.shadchanim sh on sh.account_id = s.account_id
+where s.account_id in (:'own_acct', :'other_acct');
 
 set local role authenticated;
 select set_config('request.jwt.claims',
@@ -47,13 +56,15 @@ insert into deletion_checks
 select 'account deletion removes owned rows including inbox_items',
   not exists (select 1 from public.accounts where id = :'own_acct')
   and not exists (select 1 from public.inbox_items where account_id = :'own_acct')
-  and not exists (select 1 from public.singles where account_id = :'own_acct');
+  and not exists (select 1 from public.singles where account_id = :'own_acct')
+  and not exists (select 1 from public.outbound_share_history where account_id = :'own_acct');
 
 insert into deletion_checks
 select 'account deletion leaves another account untouched',
   exists (select 1 from public.accounts where id = :'other_acct')
   and exists (select 1 from public.inbox_items where account_id = :'other_acct')
-  and exists (select 1 from public.singles where account_id = :'other_acct');
+  and exists (select 1 from public.singles where account_id = :'other_acct')
+  and exists (select 1 from public.outbound_share_history where account_id = :'other_acct');
 
 set local role authenticated;
 select set_config('request.jwt.claims',

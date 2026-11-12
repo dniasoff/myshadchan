@@ -95,6 +95,7 @@ const NON_EMPTY_GUARD_TABLES = [
   "invites",
   "analytics_events",
   "share_links",
+  "outbound_share_history",
 ] as const;
 
 /** PostgreSQL bigint values must never be silently rounded by JSON/JS.  The
@@ -1070,6 +1071,7 @@ export async function cleanupPartialBundle(
     "share_links",
     "analytics_events",
     "trusted_senders",
+    "outbound_share_history",
   ];
   const resourceTable: Record<string, string> = {
     connection: "connections",

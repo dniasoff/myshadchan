@@ -448,6 +448,7 @@ describe("seed_demo direct harness", () => {
       "invites",
       "analytics_events",
       "share_links",
+      "outbound_share_history",
     ];
     adminFrom.mockImplementation((table: string) => {
       if (table === "accounts") {

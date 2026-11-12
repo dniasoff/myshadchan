@@ -16,6 +16,7 @@ import type {
   MedicalNote,
   Member,
   Message,
+  OutboundShareHistory,
   PipelineTransition,
   Redt,
   Reference,
@@ -160,6 +161,7 @@ export interface Db {
   // "opt-in, nothing trusted by default" shape as `listings`/`share_links`
   // above.
   trusted_senders: TrustedSender[];
+  outbound_share_history: OutboundShareHistory[];
   // Story 12.2 (AC-9) — seeded with ONE fresh row (`index.ts`) rather than
   // empty like every other table above: email delivery itself is
   // inherently unexercisable in the FakeRest build (there is no backend to

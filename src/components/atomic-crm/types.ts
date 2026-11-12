@@ -360,6 +360,26 @@ export type Shadchan = {
   created_at: string;
 } & Pick<RaRecord, "id">;
 
+export type OutboundShareChannel = "whatsapp" | "sms" | "email";
+export type OutboundShareOutcome =
+  | "share_sheet_opened"
+  | "download_prepared"
+  | "cancelled"
+  | "unsupported"
+  | "failed";
+
+/** Sanitized, append-only local handoff outcome; never contact or file bytes. */
+export type OutboundShareHistory = {
+  account_id: Identifier;
+  single_id: Identifier;
+  shadchan_id: Identifier;
+  actor_member_id?: Identifier | null;
+  channel: OutboundShareChannel;
+  file_kinds: ("resume" | "photo")[];
+  outcome: OutboundShareOutcome;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
 /**
  * shadchan_stats — per-shadchan productivity counts (E5). Keyed on the
  * shadchan's id. Mirrors the "Suggestions from this shadchan" list, which

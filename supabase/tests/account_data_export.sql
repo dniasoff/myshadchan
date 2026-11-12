@@ -34,6 +34,15 @@ on conflict (user_id) do update set active_account_id = excluded.active_account_
 insert into public.singles (account_id, first_name_en, gender, status)
 values (:'own_acct', 'Mine', 'female', 'active'),
        (:'other_acct', 'Theirs', 'female', 'active');
+select id as own_single from public.singles
+where account_id = :'own_acct' and first_name_en = 'Mine' \gset
+insert into public.shadchanim (account_id, name)
+values (:'own_acct', 'Aunty Ronit')
+returning id as own_shadchan \gset
+insert into public.outbound_share_history
+  (account_id, single_id, shadchan_id, channel, file_kinds, outcome)
+values
+  (:'own_acct', :'own_single', :'own_shadchan', 'whatsapp', array['resume'], 'download_prepared');
 -- ...and one row in each of the three tables whose references were broken.
 insert into public.single_notes (account_id, single_id, body)
 select :'own_acct', id, 'own note' from public.singles where account_id = :'own_acct';
@@ -57,7 +66,8 @@ insert into export_checks
 select 'the export emits the three repaired keys',
   (:'bundle'::jsonb -> 'data') ? 'single_notes'
   and (:'bundle'::jsonb -> 'data') ? 'date_records'
-  and (:'bundle'::jsonb -> 'data') ? 'account_deletion_requests';
+  and (:'bundle'::jsonb -> 'data') ? 'account_deletion_requests'
+  and (:'bundle'::jsonb -> 'data') ? 'outbound_share_history';
 
 insert into export_checks
 select 'the keys naming tables that never existed are gone',
@@ -68,7 +78,8 @@ select 'the keys naming tables that never existed are gone',
 insert into export_checks
 select 'the repaired tables carry the caller''s own rows',
   jsonb_array_length(:'bundle'::jsonb -> 'data' -> 'single_notes') = 1
-  and jsonb_array_length(:'bundle'::jsonb -> 'data' -> 'account_deletion_requests') = 1;
+  and jsonb_array_length(:'bundle'::jsonb -> 'data' -> 'account_deletion_requests') = 1
+  and jsonb_array_length(:'bundle'::jsonb -> 'data' -> 'outbound_share_history') = 1;
 
 insert into export_checks
 select 'the export is scoped to the caller''s own account',
