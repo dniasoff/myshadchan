@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A manual dispatch must share the same production lock as a main push.
+  group: production-deploy
   # A cancelled run can stop after migrations or a worker promotion but before
   # the dependent frontend and smoke steps. Queue a rerun instead of leaving
   # production in an unreported half-applied state.
@@ -22,43 +23,43 @@ jobs:
   # contain every migration still pending on the hosted project.
   deploy-preflight:
     name: 🧭 Deploy preflight and backup
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
       baseline: ${{ steps.remote_migrations.outputs.baseline }}
       heavy: ${{ steps.remote_migrations.outputs.heavy }}
       workers: ${{ steps.worker_list.outputs.workers }}
-    env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      RESEND_FROM: ${{ secrets.RESEND_FROM }}
-      UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
-      UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
-      ADMIN_RESEED_SECRET: ${{ secrets.ADMIN_RESEED_SECRET }}
-      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-      STRIPE_PRICE_ID_QUARTERLY: ${{ secrets.STRIPE_PRICE_ID_QUARTERLY }}
-      STRIPE_PRICE_ID_YEARLY: ${{ secrets.STRIPE_PRICE_ID_YEARLY }}
-      APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
-      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
-      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
-      GOOGLE_AI_STUDIO_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
-      VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
-
     steps:
       - name: 📥 Checkout repo
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: 🔐 Validate required deploy secrets
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_PRICE_ID_QUARTERLY: ${{ secrets.STRIPE_PRICE_ID_QUARTERLY }}
+          STRIPE_PRICE_ID_YEARLY: ${{ secrets.STRIPE_PRICE_ID_YEARLY }}
+          APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
+          AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+          AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+          GOOGLE_AI_STUDIO_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
         run: |
           set -euo pipefail
           missing=()
@@ -67,7 +68,7 @@ jobs:
             SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PUBLISHABLE_KEY \
             CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID \
             RESEND_API_KEY RESEND_FROM UPSTASH_REDIS_REST_URL \
-            UPSTASH_REDIS_REST_TOKEN ADMIN_RESEED_SECRET \
+            UPSTASH_REDIS_REST_TOKEN \
             STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET \
             STRIPE_PRICE_ID_QUARTERLY STRIPE_PRICE_ID_YEARLY APP_ORIGIN \
             AI_GATEWAY_ACCOUNT_ID AI_GATEWAY_ID GOOGLE_AI_STUDIO_API_KEY \
@@ -90,7 +91,7 @@ jobs:
         id: supabase_cli_version
         run: |
           version="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("package.json", "utf8")).devDependencies.supabase)')"
-          test -n "$version" || { echo "::error::package.json does not pin Supabase CLI"; exit 1; }
+          node -e 'if (!/^\d+\.\d+\.\d+$/.test(process.argv[1])) process.exit(1)' "$version" || { echo "::error::package.json must pin Supabase CLI to an exact semver"; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: ⚙️ Setup supabase
@@ -106,20 +107,27 @@ jobs:
         run: npm ci
 
       - name: 🔗 Link hosted project for read-only preflight
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
 
       - name: 🧭 Resolve hosted migration baseline and pending set
         id: remote_migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           set -euo pipefail
           remote_json="$RUNNER_TEMP/remote-migrations.json"
-          dry_run="$RUNNER_TEMP/db-push-dry-run.txt"
+          dry_run="$RUNNER_TEMP/db-push-dry-run.json"
           supabase migration list --linked --output-format json > "$remote_json"
           # This is explicitly read-only. It exercises the same linked history
           # that `db push` will use, while migration list supplies the exact
           # last-applied version for the non-empty-table guard.
-          supabase db push --dry-run --yes > "$dry_run"
-          result="$(node scripts/resolve-remote-migrations.mjs < "$remote_json")"
+          supabase db push --dry-run --yes --output-format json > "$dry_run"
+          result="$(node scripts/resolve-remote-migrations.mjs "$dry_run" < "$remote_json")"
           baseline="$(jq -r '.baseline' <<< "$result")"
           pending_count="$(jq -r '.pending | length' <<< "$result")"
           test "$baseline" != null -a "$baseline" != ""
@@ -185,8 +193,8 @@ jobs:
         if: ${{ steps.remote_migrations.outputs.heavy == 'true' }}
         uses: ./.github/actions/supabase-backup
         with:
-          supabase-access-token: ${{ env.SUPABASE_ACCESS_TOKEN }}
-          supabase-db-password: ${{ env.SUPABASE_DB_PASSWORD }}
+          supabase-access-token: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          supabase-db-password: ${{ secrets.SUPABASE_DB_PASSWORD }}
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -194,6 +202,7 @@ jobs:
 
   deploy-supabase:
     name: 🚀 Deploy (supabase)
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: deploy-preflight
@@ -212,6 +221,7 @@ jobs:
       - name: 📥 Checkout repo
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           # The deploy preflight compares this push with the deployed commit.
           fetch-depth: 0
 
@@ -225,7 +235,7 @@ jobs:
         id: supabase_cli_version
         run: |
           version="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("package.json", "utf8")).devDependencies.supabase)')"
-          test -n "$version" || { echo "::error::package.json does not pin Supabase CLI"; exit 1; }
+          node -e 'if (!/^\d+\.\d+\.\d+$/.test(process.argv[1])) process.exit(1)' "$version" || { echo "::error::package.json must pin Supabase CLI to an exact semver"; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: ⚙️ Setup supabase
@@ -463,6 +473,7 @@ jobs:
 
   deploy-workers:
     name: 🚀 Deploy (Cloudflare Workers · ${{ matrix.worker }})
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -565,6 +576,8 @@ jobs:
     steps:
       - name: 📥 Checkout repo
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
 
       - name: ⚙️ Setup node
         uses: actions/setup-node@v7
@@ -817,9 +830,10 @@ jobs:
   # not paper over it, it just declines to let it cascade.
   #
   # VERCEL_DEPLOY_HOOK_URL is required by deploy-preflight. There is no Vercel
-  # API token in the existing secret set, so this workflow can prove that the
-  # hook accepted the current commit trigger but cannot prove completion or
-  # deployment identity. The smoke summary says that plainly.
+  # API token in the existing secret set, so the frontend build writes its
+  # VERCEL_GIT_COMMIT_SHA into /version.json and the smoke verifies that public
+  # identity instead of calling a provider API. An empty build variable is
+  # labelled unverified and fails closed at the smoke deadline.
   #
   # Rejected: building the frontend inside CI (`vercel deploy --prebuilt
   # --prod`) costs three more secrets, reconfigures PR previews and loses
@@ -834,6 +848,7 @@ jobs:
   # property is required for rollback anyway; the hook just buys the cheap half.
   trigger-frontend:
     name: 🚀 Deploy (Vercel frontend)
+    if: ${{ github.ref == 'refs/heads/main' && always() && needs.deploy-supabase.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [deploy-supabase, deploy-workers]
@@ -842,8 +857,6 @@ jobs:
     # have succeeded" gate so a failed/skipped deploy-workers doesn't
     # skip this job too — deploy-supabase's own result still must be
     # 'success', so a failed migration still blocks the frontend deploy.
-    if: ${{ always() && needs.deploy-supabase.result == 'success' }}
-
     env:
       VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
 
@@ -863,7 +876,7 @@ jobs:
           else
             echo "🚀 Vercel accepted the production hook for $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
           fi
-          echo "⚠️ Frontend completion and deployment identity are not verified: no Vercel API token exists in the current secret set." >> "$GITHUB_STEP_SUMMARY"
+          echo "⏳ Frontend completion is verified by the post-deploy /version.json smoke; no Vercel API token is required." >> "$GITHUB_STEP_SUMMARY"
 
   # Keep the existing provider jobs independent, but make their combined
   # outcome explicit. This job never writes to a provider: it checks the job
@@ -872,11 +885,10 @@ jobs:
   # therefore a failed workflow with a summary of what did and did not land.
   post-deploy-smoke:
     name: 🚦 Post-deploy smoke and completeness
+    if: ${{ github.ref == 'refs/heads/main' && always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [deploy-preflight, deploy-supabase, deploy-workers, trigger-frontend]
-    if: ${{ always() }}
-
     env:
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -952,6 +964,32 @@ jobs:
             -o /tmp/app-entry.html -w '%{http_code}' "$APP_ORIGIN")"
           test "$status" = 200 || { echo "::error::application entry point returned HTTP $status"; exit 1; }
           echo "✅ Application entry point $APP_ORIGIN returned 200." >> "$GITHUB_STEP_SUMMARY"
+
+          version_url="${APP_ORIGIN%/}/version.json"
+          deadline=$((SECONDS + 300))
+          delay=5
+          identity_warned=false
+          while :; do
+            version_payload="$(curl --silent --show-error --fail-with-body --location \
+              --retry 2 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 20 \
+              "$version_url" 2>/dev/null || true)"
+            version_sha="$(jq -r '.commitSha // empty' <<<"$version_payload" 2>/dev/null || true)"
+            identity="$(jq -r '.identity // empty' <<<"$version_payload" 2>/dev/null || true)"
+            if [ "$version_sha" = "$GITHUB_SHA" ]; then
+              echo "✅ Frontend /version.json matches deployed commit $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+              break
+            fi
+            if [ "$identity_warned" = false ] && [ -z "$version_sha" ] && [ "$identity" = "unverified" ]; then
+              echo "⚠️ Frontend /version.json is present but identity is not verified because VERCEL_GIT_COMMIT_SHA was empty during the build; continuing to poll until the smoke deadline." >> "$GITHUB_STEP_SUMMARY"
+              identity_warned=true
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::frontend /version.json did not match $GITHUB_SHA before the smoke deadline (observed commit: ${version_sha:-missing})"
+              exit 1
+            fi
+            sleep "$delay"
+            [ "$delay" -ge 30 ] || delay=$((delay * 2))
+          done
 
       - name: 🚨 Deployment failure summary
         if: ${{ failure() }}
