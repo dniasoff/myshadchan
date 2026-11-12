@@ -20,18 +20,13 @@ const buildShadchan = (overrides: Partial<Shadchan> = {}): Shadchan => ({
   ...overrides,
 });
 
-const renderRow = (
-  shadchan: Shadchan,
-  suggestionCount: number,
-  phoneSearchQuery?: string,
-) =>
+const renderRow = (shadchan: Shadchan, suggestionCount: number) =>
   render(
     <TestMemoryRouter>
       <CoreAdminContext i18nProvider={testI18nProvider}>
         <ShadchanRow
           shadchan={shadchan}
           suggestionCount={suggestionCount}
-          phoneSearchQuery={phoneSearchQuery}
           index={0}
         />
       </CoreAdminContext>
@@ -47,20 +42,6 @@ describe("ShadchanRow — the List-mode counterpart to ShadchanCard (Story 4.2, 
     await expect
       .element(screen.getByRole("link", { name: "Open Rivka Stern file" }))
       .toHaveAttribute("href", "/shadchanim/7");
-  });
-
-  it("masks the matched stored suffix, not the raw query text", async () => {
-    const screen = await renderRow(
-      buildShadchan({ contacts: { phone: "555-123-4567" } }),
-      0,
-      "555-123-4567 ext: 99",
-    );
-
-    // The extension is stripped before matching; the visible suffix must come
-    // from the stored number that matched, never from the raw query string.
-    await expect
-      .element(screen.getByText("Phone ending 4567"))
-      .toBeInTheDocument();
   });
 
   it("labels a count of 1 'shidduch' (singular), never 'suggestion'", async () => {

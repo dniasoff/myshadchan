@@ -241,6 +241,29 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
       .toBeInTheDocument();
   });
 
+  it("masks the matched stored suffix, not the raw query text", async () => {
+    const dataProvider = fakeDataProvider({
+      shadchanim: [
+        { ...SHADCHANIM[0], contacts: { phone: "555-123-4567" } },
+        SHADCHANIM[1],
+      ],
+      shidduchim: [],
+    });
+    const screen = await renderShadchanList(memoryStore(), [], {
+      dataProvider,
+    });
+
+    await screen
+      .getByPlaceholder(SEARCH_PLACEHOLDER)
+      .fill("555-123-4567 ext: 99");
+
+    // The extension is stripped before matching; the visible suffix must come
+    // from the stored number that matched, never from the raw query string.
+    await expect
+      .element(screen.getByText("Phone ending 4567"))
+      .toBeInTheDocument();
+  });
+
   it("lists WhatsApp matches and shows the exact phone empty state", async () => {
     // Arrange
     const screen = await renderShadchanList();
