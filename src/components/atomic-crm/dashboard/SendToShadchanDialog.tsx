@@ -56,6 +56,12 @@ const OUTCOME_LABELS: Record<OutboundShareHistory["outcome"], string> = {
   failed: "Couldn’t prepare files",
 };
 
+const CHANNEL_LABELS: Record<OutboundShareChannel, string> = {
+  whatsapp: "WhatsApp",
+  sms: "Text message",
+  email: "Email",
+};
+
 type PhotoWithMetadata = ResumePhoto & {
   mime_type?: string | null;
   size?: number | null;
@@ -89,8 +95,8 @@ const mimeTypeForFilename = (filename: string): string => {
   return mimeTypes[extension ?? ""] ?? "application/octet-stream";
 };
 
-const formatFileSize = (bytes: number | null | undefined): string => {
-  if (bytes == null) return "Size unavailable until download";
+const formatFileSize = (bytes: number | null | undefined): string | null => {
+  if (bytes == null) return null;
   if (bytes < 1024) return `${bytes} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let value = bytes / 1024;
@@ -101,6 +107,13 @@ const formatFileSize = (bytes: number | null | undefined): string => {
   }
   return `${value.toFixed(1)} ${units[unitIndex]}`;
 };
+
+const describeFile = (
+  filename: string,
+  mimeType: string,
+  size: number | null | undefined,
+): string =>
+  [filename, mimeType, formatFileSize(size)].filter(Boolean).join(" · ");
 
 const photoMimeType = (photo: ResumePhoto): string => {
   const withMetadata = photo as PhotoWithMetadata;
@@ -305,9 +318,31 @@ export function SendToShadchanDialog({
     setChannel(undefined);
     setResumeOnlyConfirmed(false);
     setManualFiles(null);
+    setManualMessage("");
     setManualStatus("");
     setErrorMessage(undefined);
+    setLiveStatus("");
   }, [single.id]);
+
+  useEffect(() => {
+    if (!open) {
+      runIdRef.current += 1;
+      controllerRef.current?.abort();
+      controllerRef.current = null;
+      preparingRef.current = false;
+      setShadchanId(undefined);
+      setShadchanSearch("");
+      setChannel(undefined);
+      setResumeOnlyConfirmed(false);
+      setIsPreparing(false);
+      setManualFiles(null);
+      setManualMessage("");
+      setManualStatus("");
+      setErrorMessage(undefined);
+      setLiveStatus("");
+      setHistoryVisible(false);
+    }
+  }, [open]);
 
   useEffect(() => {
     setResumeSelected(Boolean(latestFile));
@@ -331,13 +366,93 @@ export function SendToShadchanDialog({
         },
       });
       if (historyVisible) void refetchHistory();
-    } catch (error) {
-      console.error("outbound share history write failed", error);
+    } catch {
+      console.error("outbound share history write failed");
     }
   };
 
   const isCurrentRun = (runId: number): boolean =>
     runId === runIdRef.current && open;
+
+  const clearManualState = () => {
+    setManualFiles(null);
+    setManualMessage("");
+    setManualStatus("");
+  };
+
+  const fetchFilesForSelection = async (
+    runId: number,
+    signal: AbortSignal,
+    hasPhoto: boolean,
+  ): Promise<File[]> => {
+    if (!latestFile) throw new Error("resume-not-available");
+    const resumeUrl = await dataProvider.signResumeFileUrl({
+      storagePath: latestFile.path,
+      fileName: latestFile.filename,
+    });
+    if (!isCurrentRun(runId)) throw new Error("run-cancelled");
+    const resumeFile = await fetchAsFile(
+      resumeUrl,
+      latestFile.filename,
+      latestFile.mime_type,
+      signal,
+    );
+    const files = buildResumeSharePayload(
+      new Blob([resumeFile], { type: resumeFile.type }),
+      latestFile,
+    ).files;
+
+    if (hasPhoto && newestEligiblePhoto) {
+      const photoUrl = await dataProvider.signResumePhotoUrl({
+        storagePath: newestEligiblePhoto.path,
+      });
+      files.push(
+        await fetchAsFile(
+          photoUrl,
+          photoFilename(newestEligiblePhoto),
+          photoMimeType(newestEligiblePhoto),
+          signal,
+        ),
+      );
+    }
+    if (!isCurrentRun(runId)) throw new Error("run-cancelled");
+    return files;
+  };
+
+  const openManualComposer = (url: string): boolean => {
+    if (!url) return false;
+    try {
+      const popup = window.open(url, "_blank");
+      if (popup) popup.opener = null;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const completeManualDownload = async (
+    files: File[],
+    message: string,
+    hasPhoto: boolean,
+    runId: number,
+  ) => {
+    downloadFiles(files);
+    const url = buildManualHandoffUrl(
+      selectedChannel?.channel ?? "email",
+      selectedChannel?.contact ?? "",
+      message,
+    );
+    const opened = openManualComposer(url);
+    await recordOutcome(opened ? "download_prepared" : "failed", hasPhoto);
+    if (!isCurrentRun(runId)) return;
+    setManualFiles(files);
+    setManualMessage(message);
+    const status = opened
+      ? "Files downloaded. Attach them to the message before you send."
+      : "The files were downloaded. Your message app did not open, so attach them manually.";
+    setManualStatus(status);
+    setLiveStatus(status);
+  };
 
   const setManualFallback = async (
     files: File[],
@@ -389,36 +504,16 @@ export function SendToShadchanDialog({
     setLiveStatus("Preparing the files…");
 
     try {
-      const resumeUrl = await dataProvider.signResumeFileUrl({
-        storagePath: latestFile.path,
-        fileName: latestFile.filename,
-      });
-      if (!isCurrentRun(runId)) return;
-      const resumeFile = await fetchAsFile(
-        resumeUrl,
-        latestFile.filename,
-        latestFile.mime_type,
+      const files = await fetchFilesForSelection(
+        runId,
         controller.signal,
+        hasPhoto,
       );
-      const files = buildResumeSharePayload(
-        new Blob([resumeFile], { type: resumeFile.type }),
-        latestFile,
-      ).files;
 
-      if (hasPhoto && newestEligiblePhoto) {
-        const photoUrl = await dataProvider.signResumePhotoUrl({
-          storagePath: newestEligiblePhoto.path,
-        });
-        files.push(
-          await fetchAsFile(
-            photoUrl,
-            photoFilename(newestEligiblePhoto),
-            photoMimeType(newestEligiblePhoto),
-            controller.signal,
-          ),
-        );
+      if (!nativeShareAvailable) {
+        await completeManualDownload(files, manualMessage, hasPhoto, runId);
+        return;
       }
-      if (!isCurrentRun(runId)) return;
 
       let canShareFiles = false;
       try {
@@ -479,35 +574,36 @@ export function SendToShadchanDialog({
   };
 
   const handleManualDownload = async () => {
-    if (!manualFiles || !manualMessage || !selectedChannel?.contact) return;
+    if (
+      !manualFiles ||
+      !canSubmit ||
+      !latestFile ||
+      !selectedShadchan ||
+      !selectedChannel?.contact
+    )
+      return;
     if (preparingRef.current) return;
     preparingRef.current = true;
-    const hasPhoto = manualFiles.length > 1;
+    const hasPhoto = includesPhoto;
     const runId = ++runIdRef.current;
+    const message = buildManualHandoffMessage(
+      singleName,
+      shadchanName,
+      hasPhoto,
+    );
+    const controller = new AbortController();
+    controllerRef.current = controller;
     setIsPreparing(true);
     setErrorMessage(undefined);
+    setManualStatus("");
+    setLiveStatus("Preparing the files…");
     try {
-      downloadFiles(manualFiles);
-      const url = buildManualHandoffUrl(
-        selectedChannel.channel,
-        selectedChannel.contact,
-        manualMessage,
+      const files = await fetchFilesForSelection(
+        runId,
+        controller.signal,
+        hasPhoto,
       );
-      const opened = Boolean(
-        url && window.open(url, "_blank", "noopener,noreferrer"),
-      );
-      await recordOutcome("download_prepared", hasPhoto);
-      if (!isCurrentRun(runId)) return;
-      setManualStatus(
-        opened
-          ? "Files downloaded. Attach them to the message before you send."
-          : "The files were downloaded. Your message app did not open, so attach them manually.",
-      );
-      setLiveStatus(
-        opened
-          ? "Files downloaded. Attach them to the message before you send."
-          : "The files were downloaded. Your message app did not open, so attach them manually.",
-      );
+      await completeManualDownload(files, message, hasPhoto, runId);
     } catch {
       if (isCurrentRun(runId)) {
         setErrorMessage(
@@ -544,9 +640,16 @@ export function SendToShadchanDialog({
       controllerRef.current = null;
       preparingRef.current = false;
       setIsPreparing(false);
+      setShadchanId(undefined);
+      setShadchanSearch("");
+      setChannel(undefined);
+      setResumeOnlyConfirmed(false);
       setManualFiles(null);
+      setManualMessage("");
       setManualStatus("");
       setErrorMessage(undefined);
+      setLiveStatus("");
+      setHistoryVisible(false);
     }
     onOpenChange(nextOpen);
   };
@@ -630,7 +733,10 @@ export function SendToShadchanDialog({
                       const nextSingle = singleOptions.find(
                         (option) => String(option.id) === value,
                       );
-                      if (nextSingle) onSingleChange?.(nextSingle.id);
+                      if (nextSingle) {
+                        clearManualState();
+                        onSingleChange?.(nextSingle.id);
+                      }
                       setShowKidPicker(false);
                     }}
                   >
@@ -667,6 +773,7 @@ export function SendToShadchanDialog({
               <Select
                 value={shadchanId ?? ""}
                 onValueChange={(value) => {
+                  clearManualState();
                   setShadchanId(value);
                   setChannel(undefined);
                   setErrorMessage(undefined);
@@ -719,9 +826,10 @@ export function SendToShadchanDialog({
               <RadioGroup
                 aria-label="How would you like to contact them?"
                 value={channel ?? ""}
-                onValueChange={(value) =>
-                  setChannel(value as OutboundShareChannel)
-                }
+                onValueChange={(value) => {
+                  clearManualState();
+                  setChannel(value as OutboundShareChannel);
+                }}
                 className="gap-2"
               >
                 {channelOptions.map((option) => {
@@ -790,6 +898,7 @@ export function SendToShadchanDialog({
                       checked={resumeSelected}
                       disabled={!latestFile}
                       onCheckedChange={(checked) => {
+                        clearManualState();
                         setResumeSelected(checked === true);
                         setResumeOnlyConfirmed(false);
                       }}
@@ -799,8 +908,11 @@ export function SendToShadchanDialog({
                       <Label htmlFor="send-resume">Resume</Label>
                       {latestFile ? (
                         <p dir="auto" className="text-sm text-muted-foreground">
-                          {latestFile.filename} · {latestFile.mime_type} ·{" "}
-                          {formatFileSize(latestFile.size)}
+                          {describeFile(
+                            latestFile.filename,
+                            latestFile.mime_type,
+                            latestFile.size,
+                          )}
                         </p>
                       ) : (
                         <p className="text-sm text-destructive">
@@ -816,6 +928,7 @@ export function SendToShadchanDialog({
                       checked={photoSelected}
                       disabled={!newestEligiblePhoto || Boolean(photosError)}
                       onCheckedChange={(checked) => {
+                        clearManualState();
                         setPhotoSelected(checked === true);
                         setResumeOnlyConfirmed(false);
                       }}
@@ -825,9 +938,11 @@ export function SendToShadchanDialog({
                       <Label htmlFor="send-photo">Photo</Label>
                       {newestEligiblePhoto ? (
                         <p dir="auto" className="text-sm text-muted-foreground">
-                          {photoFilename(newestEligiblePhoto)} ·{" "}
-                          {photoMimeType(newestEligiblePhoto)} ·{" "}
-                          {formatFileSize(photoSize(newestEligiblePhoto))}
+                          {describeFile(
+                            photoFilename(newestEligiblePhoto),
+                            photoMimeType(newestEligiblePhoto),
+                            photoSize(newestEligiblePhoto),
+                          )}
                         </p>
                       ) : (
                         <p className="text-sm text-muted-foreground">
@@ -859,6 +974,7 @@ export function SendToShadchanDialog({
                     type="button"
                     variant="ghost"
                     onClick={() => {
+                      clearManualState();
                       setPhotoSelected(Boolean(newestEligiblePhoto));
                       setResumeOnlyConfirmed(false);
                     }}
@@ -999,7 +1115,7 @@ export function SendToShadchanDialog({
                             (item) =>
                               String(item.id) === String(row.shadchan_id),
                           )?.name ?? "Shadchan"}{" "}
-                          · {row.channel} ·{" "}
+                          · {CHANNEL_LABELS[row.channel]} ·{" "}
                           {row.file_kinds.includes("photo")
                             ? "Resume + photo"
                             : "Resume"}
