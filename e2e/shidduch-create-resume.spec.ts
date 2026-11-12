@@ -128,7 +128,9 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
     buffer: Buffer.from("photo fixture"),
   });
   await expect(page.getByText("Photo ready to add.")).toBeVisible();
-  await expect(page.getByText("suggested-person.jpg")).toBeVisible();
+  await expect(
+    page.getByText("suggested-person.jpg", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("radio", { name: "Shared" })).toBeChecked();
   await expect(
     page.getByRole("button", { name: "Remove photo" }),
