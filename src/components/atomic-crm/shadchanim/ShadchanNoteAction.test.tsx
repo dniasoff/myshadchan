@@ -156,6 +156,8 @@ describe("ShadchanNoteAction", () => {
       queryKey: ["shadchanim", "live-note-indicators"],
     });
     await expect.poll(() => getList.mock.calls.length).toBe(2);
+    await expect.poll(() => queryClient.isFetching()).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
     await expect
       .element(screen.getByRole("dialog", { name: "Rivka Stern — note" }))
       .toBeVisible();

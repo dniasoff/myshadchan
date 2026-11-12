@@ -12,6 +12,7 @@ export type ShadchanNote = Interaction & {
 };
 
 const NOTE_PAGE_SIZE = 500;
+export const MAX_NOTE_PAGES = 20;
 
 const compareIdsDescending = (left: Identifier, right: Identifier): number => {
   const leftNumber = Number(left);
@@ -74,6 +75,9 @@ export const useShadchanNotes = (shadchanIds: readonly Identifier[]) => {
             : result.data.length < NOTE_PAGE_SIZE)
         ) {
           return rows;
+        }
+        if (page >= MAX_NOTE_PAGES) {
+          throw new Error("Could not load all note indicators safely.");
         }
         page += 1;
       }

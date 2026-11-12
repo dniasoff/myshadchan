@@ -7,7 +7,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type { Interaction } from "../types";
-import { useShadchanNotes } from "./useShadchanNotes";
+import { MAX_NOTE_PAGES, useShadchanNotes } from "./useShadchanNotes";
 
 type NoteFixture = Interaction & {
   author_name: string | null;
@@ -223,6 +223,142 @@ describe("useShadchanNotes", () => {
     await expect.poll(() => result?.notesByShadchanId.has("8")).toBe(true);
   });
 
+  it("keeps retained indicators while a changed visible set is loading", async () => {
+    let setIds: (ids: number[]) => void = () => undefined;
+    let resolveSecond!: (value: { data: NoteFixture[]; total: number }) => void;
+    const secondPage = new Promise<{
+      data: NoteFixture[];
+      total: number;
+    }>((resolve) => {
+      resolveSecond = resolve;
+    });
+    const getList = vi
+      .fn()
+      .mockResolvedValueOnce({ data: [note({ target_id: 7 })], total: 1 })
+      .mockImplementationOnce(() => secondPage);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    let result: ReturnType<typeof useShadchanNotes> | undefined;
+
+    function Probe() {
+      const [ids, updateIds] = useState([7]);
+      setIds = updateIds;
+      result = useShadchanNotes(ids);
+      return null;
+    }
+
+    await render(
+      createElement(
+        CoreAdminContext,
+        {
+          dataProvider: { getList } as unknown as CrmDataProvider,
+          i18nProvider: testI18nProvider,
+          queryClient,
+        },
+        createElement(Probe),
+      ),
+    );
+    await expect.poll(() => getList.mock.calls.length).toBe(1);
+    await expect.poll(() => result?.isPending).toBe(false);
+    expect(result?.notesByShadchanId.has("7")).toBe(true);
+
+    setIds([7, 8]);
+    await expect.poll(() => getList.mock.calls.length).toBe(2);
+    await expect.poll(() => queryClient.isFetching()).toBe(1);
+    expect(result?.notesByShadchanId.has("7")).toBe(true);
+
+    resolveSecond({ data: [note({ target_id: 7 })], total: 1 });
+    await expect.poll(() => result?.isPending).toBe(false);
+  });
+
+  it("removes the indicator query from cache when its last observer unmounts", async () => {
+    const getList = vi
+      .fn()
+      .mockResolvedValue({ data: [note({ target_id: 7 })], total: 1 });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    function Probe() {
+      useShadchanNotes([7]);
+      return null;
+    }
+
+    const screen = await render(
+      createElement(
+        CoreAdminContext,
+        {
+          dataProvider: { getList } as unknown as CrmDataProvider,
+          i18nProvider: testI18nProvider,
+          queryClient,
+        },
+        createElement(Probe),
+      ),
+    );
+    await expect.poll(() => getList.mock.calls.length).toBe(1);
+    expect(
+      queryClient.getQueryCache().find({
+        queryKey: ["shadchanim", "live-note-indicators"],
+        exact: false,
+      }),
+    ).toBeDefined();
+
+    screen.unmount();
+    await expect
+      .poll(() =>
+        Boolean(
+          queryClient.getQueryCache().find({
+            queryKey: ["shadchanim", "live-note-indicators"],
+            exact: false,
+          }),
+        ),
+      )
+      .toBe(false);
+  });
+
+  it("refetches when a second observer mounts with a fresh query", async () => {
+    const getList = vi
+      .fn()
+      .mockResolvedValueOnce({ data: [note({ target_id: 7 })], total: 1 })
+      .mockResolvedValueOnce({ data: [note({ target_id: 7 })], total: 1 });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
+    });
+    let showSecondObserver: () => void = () => undefined;
+
+    function Observer() {
+      useShadchanNotes([7]);
+      return null;
+    }
+
+    function Probe() {
+      const [show, setShow] = useState(false);
+      showSecondObserver = () => setShow(true);
+      return createElement(
+        "div",
+        null,
+        createElement(Observer),
+        show ? createElement(Observer) : null,
+      );
+    }
+
+    await render(
+      createElement(
+        CoreAdminContext,
+        {
+          dataProvider: { getList } as unknown as CrmDataProvider,
+          i18nProvider: testI18nProvider,
+          queryClient,
+        },
+        createElement(Probe),
+      ),
+    );
+    await expect.poll(() => getList.mock.calls.length).toBe(1);
+
+    showSecondObserver();
+    await expect.poll(() => getList.mock.calls.length).toBe(2);
+  });
+
   it("pages past the provider cap when total exceeds one batch", async () => {
     const firstPage = Array.from({ length: 500 }, (_, index) =>
       note({ id: index + 1, target_id: 7, created_at: "2026-01-01" }),
@@ -242,6 +378,18 @@ describe("useShadchanNotes", () => {
       perPage: 500,
     });
     expect(result.notesByShadchanId.get("8")?.body).toBe("after cap");
+  });
+
+  it("fails closed when a provider ignores page and exceeds the page bound", async () => {
+    const page = Array.from({ length: 500 }, (_, index) =>
+      note({ id: index + 1, target_id: 7 }),
+    );
+    const getList = vi.fn().mockResolvedValue({ data: page, total: 1_000_000 });
+    const { getList: calls, result } = await renderProbe([7], [], getList);
+
+    expect(calls.mock.calls.length).toBe(MAX_NOTE_PAGES);
+    expect(result.error).toBeTruthy();
+    expect(result.notesByShadchanId.size).toBe(0);
   });
 
   it("fails closed with no indicators when the batch request errors", async () => {
