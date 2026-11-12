@@ -146,7 +146,12 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   );
   await page.getByRole("button", { name: "Add a suggestion" }).click();
   const created = (await (await createResponse).json())[0];
-  await photoResponse;
+  const photoRpcResponse = await photoResponse;
+  expect(photoRpcResponse.status()).toBe(200);
+  expect(photoRpcResponse.ok()).toBeTruthy();
+  const photoPayload = await photoRpcResponse.json();
+  const photoRow = Array.isArray(photoPayload) ? photoPayload[0] : photoPayload;
+  expect(photoRow.visibility).toBe("shared");
   await expect(page).toHaveURL(/#\/shidduchim$/);
   await expect(page.getByText("Leah Edited")).toBeVisible();
 

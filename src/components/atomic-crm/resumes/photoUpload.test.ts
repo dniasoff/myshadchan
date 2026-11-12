@@ -46,6 +46,12 @@ describe("photo upload validation", () => {
     ).toBe("This photo is too large. Choose a photo up to 8 MB.");
   });
 
+  it("rejects empty photos with a plain-English message", () => {
+    expect(
+      validatePhotoUpload({ name: "photo.jpg", type: "image/jpeg", size: 0 }),
+    ).toBe("This photo is empty. Choose a photo with some content.");
+  });
+
   it("advertises only the supported photo types to the native picker", () => {
     expect(PHOTO_UPLOAD_ACCEPT).toContain("image/heic");
     expect(PHOTO_UPLOAD_ACCEPT).toContain(".webp");

@@ -184,113 +184,134 @@ const PhotoUploadPanel = ({
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onRemove: () => void;
   onVisibilityChange: (visibility: ResumePhotoVisibility) => void;
-}) => (
-  <section className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-secondary/30 p-4 sm:p-5">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-          Photo (optional)
-        </h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Add a photo of the person being suggested. JPG, PNG, HEIC or WebP · up
-          to 8 MB.
-        </p>
-      </div>
-      <Button
-        type="button"
-        variant="outline"
-        className="h-11 gap-2"
-        onClick={() => document.getElementById("suggestion-photo")?.click()}
-      >
-        <ImagePlus className="size-4" aria-hidden="true" />
-        {file ? "Replace photo" : "Upload a photo"}
-      </Button>
-      <input
-        id="suggestion-photo"
-        type="file"
-        className="hidden"
-        accept={PHOTO_UPLOAD_ACCEPT}
-        aria-label={file ? "Choose another photo" : "Upload a photo"}
-        onChange={onChange}
-      />
-    </div>
-    {file && (
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-        <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-background">
-          {previewUrl ? (
-            <img
-              src={previewUrl}
-              alt="Selected photo preview"
-              className="size-full object-contain"
-            />
-          ) : null}
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <p className="text-sm font-medium" role="status" aria-live="polite">
-            Photo ready to add.
+}) => {
+  const [previewFailed, setPreviewFailed] = useState(false);
+
+  useEffect(() => {
+    setPreviewFailed(false);
+  }, [file]);
+
+  return (
+    <section className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-secondary/30 p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+            Photo (optional)
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Add a photo of the person being suggested. JPG, PNG, HEIC or WebP ·
+            up to 8 MB.
           </p>
-          <p className="truncate text-sm text-muted-foreground">
-            {file.name} · {formatPhotoSize(file.size)}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-11"
-              onClick={onRemove}
-            >
-              Remove photo
-            </Button>
-          </div>
         </div>
-      </div>
-    )}
-    {file && (
-      <fieldset>
-        <legend className="text-sm font-medium">Visibility</legend>
-        <div
-          className="mt-2 flex flex-row gap-4"
-          role="radiogroup"
-          aria-label="Visibility"
-        >
-          <label className="flex min-h-11 items-center gap-2">
-            <input
-              type="radio"
-              name="suggestion-photo-visibility"
-              value="shared"
-              checked={visibility === "shared"}
-              onChange={() => onVisibilityChange("shared")}
-            />
-            Shared
-          </label>
-          <label className="flex min-h-11 items-center gap-2">
-            <input
-              type="radio"
-              name="suggestion-photo-visibility"
-              value="private_parent"
-              checked={visibility === "private_parent"}
-              onChange={() => onVisibilityChange("private_parent")}
-            />
-            Parents only
-          </label>
-        </div>
-      </fieldset>
-    )}
-    {message && (
-      <div role="alert" className="flex flex-wrap items-center gap-2">
-        <p className="text-sm text-destructive">{message}</p>
         <Button
           type="button"
-          variant="ghost"
-          className="h-11"
+          variant="outline"
+          className="h-11 gap-2"
           onClick={() => document.getElementById("suggestion-photo")?.click()}
         >
-          Choose another photo
+          <ImagePlus className="size-4" aria-hidden="true" />
+          {file ? "Replace photo" : "Upload a photo"}
         </Button>
+        <input
+          id="suggestion-photo"
+          type="file"
+          className="hidden"
+          accept={PHOTO_UPLOAD_ACCEPT}
+          aria-label={file ? "Choose another photo" : "Upload a photo"}
+          onChange={onChange}
+        />
       </div>
-    )}
-  </section>
-);
+      {file && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+          <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-background">
+            {previewUrl && !previewFailed ? (
+              <img
+                src={previewUrl}
+                alt="Selected photo preview"
+                className="size-full object-contain"
+                onError={() => setPreviewFailed(true)}
+              />
+            ) : (
+              <div
+                className="flex size-full flex-col items-center justify-center gap-1 p-2 text-center text-xs text-muted-foreground"
+                role="img"
+                aria-label="Selected photo file"
+              >
+                <span className="max-w-full truncate font-medium text-foreground">
+                  {file.name}
+                </span>
+                <span>{formatPhotoSize(file.size)}</span>
+                <span>{photoMimeType(file)}</span>
+              </div>
+            )}
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <p className="text-sm font-medium" role="status" aria-live="polite">
+              Photo ready to add.
+            </p>
+            <p className="truncate text-sm text-muted-foreground">
+              {file.name} · {formatPhotoSize(file.size)}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-11"
+                onClick={onRemove}
+              >
+                Remove photo
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {file && (
+        <fieldset>
+          <legend className="text-sm font-medium">Visibility</legend>
+          <div
+            className="mt-2 flex flex-row gap-4"
+            role="radiogroup"
+            aria-label="Visibility"
+          >
+            <label className="flex min-h-11 items-center gap-2">
+              <input
+                type="radio"
+                name="suggestion-photo-visibility"
+                value="shared"
+                checked={visibility === "shared"}
+                onChange={() => onVisibilityChange("shared")}
+              />
+              Shared
+            </label>
+            <label className="flex min-h-11 items-center gap-2">
+              <input
+                type="radio"
+                name="suggestion-photo-visibility"
+                value="private_parent"
+                checked={visibility === "private_parent"}
+                onChange={() => onVisibilityChange("private_parent")}
+              />
+              Parents only
+            </label>
+          </div>
+        </fieldset>
+      )}
+      {message && (
+        <div role="alert" className="flex flex-wrap items-center gap-2">
+          <p className="text-sm text-destructive">{message}</p>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-11"
+            onClick={() => document.getElementById("suggestion-photo")?.click()}
+          >
+            Choose another photo
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+};
 
 /**
  * The page at `/shidduchim/new` (UX-DR3 — records live at URLs, not in
@@ -554,7 +575,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
         } catch {
           notify(
             "We couldn’t save the photo. The suggestion was saved, and you can add the photo later.",
-            { type: "error" },
+            { type: "error", autoHideDuration: null },
           );
         }
       } else {

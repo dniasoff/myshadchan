@@ -248,6 +248,27 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     expect(dataProvider.uploadResumePhoto).not.toHaveBeenCalled();
   });
 
+  it("falls back to a text file chip when the local preview cannot render", async () => {
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+    await screen
+      .getByLabelText("Upload a photo")
+      .upload(
+        new File(["photo bytes"], "ronit-photo.heic", { type: "image/heic" }),
+      );
+
+    const preview = screen.container.querySelector("img");
+    expect(preview).not.toBeNull();
+    preview?.dispatchEvent(new Event("error"));
+
+    await expect
+      .element(screen.getByRole("img", { name: "Selected photo file" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("ronit-photo.heic", { exact: true }))
+      .toBeInTheDocument();
+    await expect.element(screen.getByText("image/heic")).toBeInTheDocument();
+  });
+
   it("keeps the suggestion saveable when a photo is rejected", async () => {
     const { screen, dataProvider } = await renderShidduchCreate([
       "/shidduchim/new",
