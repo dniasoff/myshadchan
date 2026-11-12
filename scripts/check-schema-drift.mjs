@@ -37,7 +37,11 @@ export function parseArgs(argv) {
  * declarative schema. Any other stdout is a diff and must fail the gate.
  */
 export function isCleanSchemaDiff(stdout) {
-  const trimmed = stdout.replace(/\u001b\[[0-?]*[ -\/]*[@-~]/g, "").trim();
+  const ansiEscape = new RegExp(
+    `${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`,
+    "g",
+  );
+  const trimmed = stdout.replace(ansiEscape, "").trim();
   if (trimmed === CLEAN_MESSAGE || trimmed === `${CLEAN_MESSAGE}.`) return true;
 
   // The CLI writes progress messages to stdout before its clean marker. Keep
