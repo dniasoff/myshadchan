@@ -90,16 +90,16 @@ install-lsp:
 	npm install -g typescript-language-server
 
 start-supabase: ## start supabase locally
-	npx supabase start
+	npx --no-install supabase start
 
 start-supabase-functions: ## start the supabase Functions watcher
-	npx supabase functions serve
+	npx --no-install supabase functions serve
 
 supabase-migrate-database: ## apply the migrations to the database
-	npx supabase migration up
+	npx --no-install supabase migration up
 
 supabase-reset-database: ## reset (and clear!) the database
-	npx supabase db reset
+	npx --no-install supabase db reset
 
 start-app: ## start the app locally
 	npm run dev
@@ -129,7 +129,7 @@ start-demo: ## start the app locally in demo mode
 	npm run dev:demo
 
 stop-supabase: ## stop local supabase
-	npx supabase stop
+	npx --no-install supabase stop
 
 stop: stop-supabase ## stop the stack locally
 
@@ -140,7 +140,7 @@ stop: stop-supabase ## stop the stack locally
 start-supabase-e2e: ## start a separate supabase instance for e2e, fresh DB every run (STACK_ID=<0-9> for an isolated one)
 	@$(STACK_ENV); \
 	node scripts/stack-lease.mjs acquire || exit 1; \
-	npx supabase stop --workdir $$STACK_WORKDIR --no-backup 2>/dev/null || true; \
+	npx --no-install supabase stop --workdir $$STACK_WORKDIR --no-backup 2>/dev/null || true; \
 	rm -rf $$STACK_WORKDIR/supabase; \
 	mkdir -p $$STACK_WORKDIR/supabase; \
 	node scripts/stack-config.mjs $$STACK_WORKDIR/supabase/config.toml; \
@@ -150,17 +150,17 @@ start-supabase-e2e: ## start a separate supabase instance for e2e, fresh DB ever
 	cp -r supabase/templates $$STACK_WORKDIR/supabase/templates; \
 	cp supabase/seed.sql $$STACK_WORKDIR/supabase/seed.sql; \
 	cp supabase/signing_keys.json $$STACK_WORKDIR/supabase/signing_keys.json; \
-	$(call run-silent-tty,npx supabase start --workdir $$STACK_WORKDIR,$(STACK_TAG))
+	$(call run-silent-tty,npx --no-install supabase start --workdir $$STACK_WORKDIR,$(STACK_TAG))
 
 stop-supabase-e2e: ## stop the e2e supabase instance and release its lease (honours STACK_ID)
-	@$(STACK_ENV); npx supabase stop --workdir $$STACK_WORKDIR --no-backup; \
+	@$(STACK_ENV); npx --no-install supabase stop --workdir $$STACK_WORKDIR --no-backup; \
 	node scripts/stack-lease.mjs release
 
 stop-stacks: ## stop and remove every parameterised e2e stack (all STACK_IDs)
 	@for workdir in .supabase-e2e .supabase-e2e-[0-9]; do \
 	  [ -d "$$workdir" ] || continue; \
 	  echo "stopping $$workdir"; \
-	  npx supabase stop --workdir "$$workdir" --no-backup 2>/dev/null || true; \
+	  npx --no-install supabase stop --workdir "$$workdir" --no-backup 2>/dev/null || true; \
 	done; \
 	for id in "" 0 1 2 3 4 5 6 7 8 9; do \
 	  port=$$(STACK_ID=$$id node scripts/stack-env.mjs --shell | sed -n "s/^STACK_APP_PORT='\(.*\)'$$/\1/p"); \
@@ -199,8 +199,8 @@ supabase-remote-init:
 	$(MAKE) supabase-deploy
 
 supabase-deploy:
-	npx supabase db push
-	npx supabase functions deploy
+	npx --no-install supabase db push
+	npx --no-install supabase functions deploy
 
 # STACK_ID points the "db" project's psql at that stack's database instead of
 # the shared dev stack on 54322. With STACK_ID unset nothing is exported and
