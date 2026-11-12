@@ -210,6 +210,9 @@ export function ResumePrintButton({
               checked={includePicture}
               disabled={!eligiblePhoto || isPreparing}
               onCheckedChange={(checked) => setIncludePicture(checked === true)}
+              aria-label={translate("crm.entity360.rail.print.includePicture", {
+                _: "Include picture",
+              })}
               aria-describedby="include-resume-picture-help"
             />
             <label
