@@ -6,7 +6,15 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   createSingle,
   signIn,
 }) => {
-  await page.setViewportSize({ width: 393, height: 851 });
+  const isMobileProject = test
+    .info()
+    .project.name.toLowerCase()
+    .includes("mobile");
+  await page.setViewportSize(
+    isMobileProject
+      ? { width: 375, height: 851 }
+      : { width: 1440, height: 900 },
+  );
   let releaseParse!: () => void;
   const parseResponse = new Promise<void>((resolve) => {
     releaseParse = resolve;
@@ -78,6 +86,14 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   await expect(
     page.getByText("PDF, Word, JPG, PNG, HEIC, HEIF, or WebP · 8 MB maximum"),
   ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Photo (optional)" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Add a photo of the person being suggested. JPG, PNG, HEIC or WebP · up to 8 MB.",
+    ),
+  ).toBeVisible();
 
   await page.getByLabel("Attach resume").setInputFiles({
     name: "resume.txt",
@@ -106,13 +122,31 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   );
   await expect(page.getByLabel("Name (English)")).toHaveValue("Leah Edited");
 
+  await page.getByLabel("Upload a photo").setInputFiles({
+    name: "suggested-person.jpg",
+    mimeType: "image/jpeg",
+    buffer: Buffer.from("photo fixture"),
+  });
+  await expect(page.getByText("Photo ready to add.")).toBeVisible();
+  await expect(page.getByText("suggested-person.jpg")).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Shared" })).toBeChecked();
+  await expect(
+    page.getByRole("button", { name: "Remove photo" }),
+  ).toBeVisible();
+
   const createResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
       response.url().includes("/rest/v1/rpc/create_shidduch"),
   );
+  const photoResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().includes("/rest/v1/rpc/add_resume_photo"),
+  );
   await page.getByRole("button", { name: "Add a suggestion" }).click();
   const created = (await (await createResponse).json())[0];
+  await photoResponse;
   await expect(page).toHaveURL(/#\/shidduchim$/);
   await expect(page.getByText("Leah Edited")).toBeVisible();
 

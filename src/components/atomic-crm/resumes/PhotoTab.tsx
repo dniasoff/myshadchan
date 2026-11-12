@@ -24,6 +24,11 @@ import type {
   ShidduchSummary,
 } from "../types";
 import { PhotoRevealCard } from "./PhotoRevealCard";
+import {
+  PHOTO_UPLOAD_ACCEPT,
+  photoMimeType,
+  validatePhotoUpload,
+} from "./photoUpload";
 import { resumeSubjectFilter, type ResumeSubject } from "./resumeSubject";
 import { pickActiveContext } from "../providers/commons/roleAuthority";
 import { useMyContexts } from "../root/useMyContexts";
@@ -87,11 +92,23 @@ function PhotoUpload({ subject }: { subject: ResumeSubject }): ReactElement {
     event.target.value = "";
     if (!file) return;
 
+    const validationError = validatePhotoUpload(file);
+    if (validationError) {
+      notify(validationError, { type: "error" });
+      return;
+    }
+
+    const mimeType = photoMimeType(file);
+    const uploadFile =
+      file.type === mimeType
+        ? file
+        : new File([file], file.name, { type: mimeType });
+
     setIsUploading(true);
     try {
       await dataProvider.uploadResumePhoto({
         ...subject,
-        file,
+        file: uploadFile,
         visibility,
       });
       refresh();
@@ -115,31 +132,37 @@ function PhotoUpload({ subject }: { subject: ResumeSubject }): ReactElement {
 
   return (
     <div className="flex flex-col gap-3">
-      <RadioGroup
-        value={visibility}
-        onValueChange={(value) => setVisibility(value as ResumePhotoVisibility)}
-        className="flex flex-row gap-4"
-      >
-        {VISIBILITY_OPTIONS.map((option) => (
-          <div key={option} className="flex items-center gap-2">
-            {/* Same string as the <Label> below; Radix makes this a
-             * `<button role="radio">`, which `htmlFor` cannot name. */}
-            <RadioGroupItem
-              value={option}
-              id={`photo-visibility-${option}`}
-              aria-label={translate(
-                `crm.entity360.photo.visibilityOption.${option}`,
-                { _: option },
-              )}
-            />
-            <Label htmlFor={`photo-visibility-${option}`}>
-              {translate(`crm.entity360.photo.visibilityOption.${option}`, {
-                _: option,
-              })}
-            </Label>
-          </div>
-        ))}
-      </RadioGroup>
+      <fieldset>
+        <legend className="text-sm font-medium">Visibility</legend>
+        <RadioGroup
+          value={visibility}
+          onValueChange={(value) =>
+            setVisibility(value as ResumePhotoVisibility)
+          }
+          aria-label="Visibility"
+          className="mt-2 flex flex-row gap-4"
+        >
+          {VISIBILITY_OPTIONS.map((option) => (
+            <div key={option} className="flex items-center gap-2">
+              {/* Same string as the <Label> below; Radix makes this a
+               * `<button role="radio">`, which `htmlFor` cannot name. */}
+              <RadioGroupItem
+                value={option}
+                id={`photo-visibility-${option}`}
+                aria-label={translate(
+                  `crm.entity360.photo.visibilityOption.${option}`,
+                  { _: option },
+                )}
+              />
+              <Label htmlFor={`photo-visibility-${option}`}>
+                {translate(`crm.entity360.photo.visibilityOption.${option}`, {
+                  _: option,
+                })}
+              </Label>
+            </div>
+          ))}
+        </RadioGroup>
+      </fieldset>
       <div>
         <Button
           type="button"
@@ -151,7 +174,7 @@ function PhotoUpload({ subject }: { subject: ResumeSubject }): ReactElement {
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept={PHOTO_UPLOAD_ACCEPT}
           className="hidden"
           aria-hidden="true"
           tabIndex={-1}

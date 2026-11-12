@@ -1,5 +1,5 @@
 import type { Identifier } from "ra-core";
-import { Loader2, Paperclip, Sparkles } from "lucide-react";
+import { ImagePlus, Loader2, Paperclip, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import {
@@ -19,7 +19,12 @@ import { FormToolbar } from "../layout/FormToolbar";
 import { FormPageFrame } from "../misc/FormPageFrame";
 import { useAiEntitlement } from "../references/useAiEntitlement";
 import type { CrmDataProvider } from "../providers/types";
-import type { CreateShidduchInput, InboxItem, PipelineState } from "../types";
+import type {
+  CreateShidduchInput,
+  InboxItem,
+  PipelineState,
+  ResumePhotoVisibility,
+} from "../types";
 import {
   useParseResume,
   type ParsedResumeResponse,
@@ -34,6 +39,11 @@ import {
   resumeMimeType,
   validateResumeUpload,
 } from "../inbox/resumeUpload";
+import {
+  PHOTO_UPLOAD_ACCEPT,
+  photoMimeType,
+  validatePhotoUpload,
+} from "../resumes/photoUpload";
 import { createShadchanInline } from "./createShadchanInline";
 import { INITIAL_PIPELINE_STATES } from "./pipelineStates";
 import { ShidduchInputs } from "./ShidduchInputs";
@@ -153,6 +163,135 @@ const ResumeUploadPanel = ({
   </section>
 );
 
+const formatPhotoSize = (bytes: number): string =>
+  bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+
+const PhotoUploadPanel = ({
+  file,
+  previewUrl,
+  visibility,
+  message,
+  onChange,
+  onRemove,
+  onVisibilityChange,
+}: {
+  file: File | null;
+  previewUrl: string | null;
+  visibility: ResumePhotoVisibility;
+  message: string | null;
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onRemove: () => void;
+  onVisibilityChange: (visibility: ResumePhotoVisibility) => void;
+}) => (
+  <section className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-secondary/30 p-4 sm:p-5">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          Photo (optional)
+        </h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Add a photo of the person being suggested. JPG, PNG, HEIC or WebP · up
+          to 8 MB.
+        </p>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        className="h-11 gap-2"
+        onClick={() => document.getElementById("suggestion-photo")?.click()}
+      >
+        <ImagePlus className="size-4" aria-hidden="true" />
+        {file ? "Replace photo" : "Upload a photo"}
+      </Button>
+      <input
+        id="suggestion-photo"
+        type="file"
+        className="hidden"
+        accept={PHOTO_UPLOAD_ACCEPT}
+        aria-label={file ? "Choose another photo" : "Upload a photo"}
+        onChange={onChange}
+      />
+    </div>
+    {file && (
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-background">
+          {previewUrl ? (
+            <img
+              src={previewUrl}
+              alt="Selected photo preview"
+              className="size-full object-contain"
+            />
+          ) : null}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <p className="text-sm font-medium" role="status" aria-live="polite">
+            Photo ready to add.
+          </p>
+          <p className="truncate text-sm text-muted-foreground">
+            {file.name} · {formatPhotoSize(file.size)}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-11"
+              onClick={onRemove}
+            >
+              Remove photo
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
+    {file && (
+      <fieldset>
+        <legend className="text-sm font-medium">Visibility</legend>
+        <div
+          className="mt-2 flex flex-row gap-4"
+          role="radiogroup"
+          aria-label="Visibility"
+        >
+          <label className="flex min-h-11 items-center gap-2">
+            <input
+              type="radio"
+              name="suggestion-photo-visibility"
+              value="shared"
+              checked={visibility === "shared"}
+              onChange={() => onVisibilityChange("shared")}
+            />
+            Shared
+          </label>
+          <label className="flex min-h-11 items-center gap-2">
+            <input
+              type="radio"
+              name="suggestion-photo-visibility"
+              value="private_parent"
+              checked={visibility === "private_parent"}
+              onChange={() => onVisibilityChange("private_parent")}
+            />
+            Parents only
+          </label>
+        </div>
+      </fieldset>
+    )}
+    {message && (
+      <div role="alert" className="flex flex-wrap items-center gap-2">
+        <p className="text-sm text-destructive">{message}</p>
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-11"
+          onClick={() => document.getElementById("suggestion-photo")?.click()}
+        >
+          Choose another photo
+        </Button>
+      </div>
+    )}
+  </section>
+);
+
 /**
  * The page at `/shidduchim/new` (UX-DR3 — records live at URLs, not in
  * modals; Story 3.13). Submits straight to createShidduch (AD-4 invariant
@@ -176,12 +315,27 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
     null,
   );
   const [resumeMessage, setResumeMessage] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
+  const [photoVisibility, setPhotoVisibility] =
+    useState<ResumePhotoVisibility>("shared");
+  const [photoMessage, setPhotoMessage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const attemptedCaptureId = useRef<Identifier | null>(null);
   // Once resolution starts, keep the capture even if a later persistence step
   // fails. The suggestion may already exist, and the uploaded resume is the
   // only copy available for a retry.
   const submittedCaptureId = useRef<Identifier | null>(null);
+
+  useEffect(() => {
+    if (!photoFile) {
+      setPhotoPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(photoFile);
+    setPhotoPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photoFile]);
 
   const stateParam = searchParams.get("state") as PipelineState | null;
   const initialState =
@@ -281,6 +435,26 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
     }
   };
 
+  const handlePhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const selected = event.target.files?.[0];
+    event.target.value = "";
+    if (!selected) return;
+
+    const validationError = validatePhotoUpload(selected);
+    if (validationError) {
+      setPhotoMessage(validationError);
+      return;
+    }
+
+    const mimeType = photoMimeType(selected);
+    const file =
+      selected.type === mimeType
+        ? selected
+        : new File([selected], selected.name, { type: mimeType });
+    setPhotoFile(file);
+    setPhotoMessage(null);
+  };
+
   useEffect(() => {
     if (
       !resumeCapture ||
@@ -358,17 +532,34 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
         visibility: "shared",
         redt_date: (values.redt_date as string) ?? null,
       };
+      let created;
       if (resumeCapture?.attachments?.[0]) {
         submittedCaptureId.current = resumeCapture.id;
-        await resolveAsNewShidduch(resumeCapture, input, {
+        created = await resolveAsNewShidduch(resumeCapture, input, {
           attachment: resumeCapture.attachments[0],
           rawDraft: parsedDraft?.rawDraft ?? null,
           sections: parsedDraft?.sections ?? null,
         });
       } else {
-        await dataProvider.createShidduch(input);
+        created = await dataProvider.createShidduch(input);
       }
-      notify("Shidduch added", { type: "info" });
+      if (photoFile) {
+        try {
+          await dataProvider.uploadResumePhoto({
+            shidduchimId: created.id,
+            file: photoFile,
+            visibility: photoVisibility,
+          });
+          notify("Suggestion saved. Photo added.", { type: "info" });
+        } catch {
+          notify(
+            "We couldn’t save the photo. The suggestion was saved, and you can add the photo later.",
+            { type: "error" },
+          );
+        }
+      } else {
+        notify("Shidduch added", { type: "info" });
+      }
       refresh();
       redirect(buildListPath("shidduchim"));
     } catch (error) {
@@ -397,6 +588,18 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
           isParsing={isParsing}
           message={resumeMessage}
           onChange={handleResumeChange}
+        />
+        <PhotoUploadPanel
+          file={photoFile}
+          previewUrl={photoPreviewUrl}
+          visibility={photoVisibility}
+          message={photoMessage}
+          onChange={handlePhotoChange}
+          onRemove={() => {
+            setPhotoFile(null);
+            setPhotoMessage(null);
+          }}
+          onVisibilityChange={setPhotoVisibility}
         />
         <DraftResetter draft={parsedDraft} />
         <ShidduchInputs
