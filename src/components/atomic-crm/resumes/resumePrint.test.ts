@@ -1,8 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const { getDocument } = vi.hoisted(() => ({ getDocument: vi.fn() }));
+vi.mock("pdfjs-dist", () => ({
+  GlobalWorkerOptions: {},
+  getDocument,
+}));
+vi.mock("pdfjs-dist/build/pdf.worker.min.mjs?url", () => ({
+  default: "worker.js",
+}));
+
 import type { ResumePhoto, ResumeFileVersion } from "../types";
 import {
   getResumePrintMode,
+  isIphoneFormatFile,
   printResume,
   selectNewestEligiblePhoto,
 } from "./resumePrint";
@@ -47,6 +57,10 @@ describe("resume print policy", () => {
         ),
       ),
     ).toBe("download");
+    expect(getResumePrintMode(version("image/heic", "resume.heic"))).toBe(
+      "download",
+    );
+    expect(isIphoneFormatFile(version("image/heif", "resume.heif"))).toBe(true);
   });
 
   it("selects only the newest shared, non-hidden photo", () => {
@@ -101,8 +115,8 @@ describe("resume print policy", () => {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "resume.docx",
       ),
-      photo: photo(),
-      includePicture: false,
+      photo: photo({ visibility: "private_parent" }),
+      includePicture: true,
       fetcher,
     });
 
@@ -137,12 +151,19 @@ describe("resume print policy", () => {
       open: vi.fn(),
       write: vi.fn(),
     } as unknown as Document;
+    const afterprintListeners = new Set<() => void>();
     const printWindow = {
+      addEventListener: vi.fn((event: string, listener: () => void) => {
+        if (event === "afterprint") afterprintListeners.add(listener);
+      }),
       close: vi.fn(),
       document: printDocument,
       focus: vi.fn(),
       opener: null,
       print: vi.fn(),
+      removeEventListener: vi.fn((event: string, listener: () => void) => {
+        if (event === "afterprint") afterprintListeners.delete(listener);
+      }),
     } as unknown as Window;
     const openWindow = vi.fn().mockReturnValue(printWindow);
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:temporary");
@@ -163,6 +184,221 @@ describe("resume print policy", () => {
     expect(result).toBe("printed");
     expect(openWindow).toHaveBeenCalledWith("", "_blank", "popup");
     expect(printWindow.print).toHaveBeenCalledOnce();
+    expect(printWindow.close).not.toHaveBeenCalled();
+    afterprintListeners.forEach((listener) => listener());
     expect(printWindow.close).toHaveBeenCalledOnce();
+  });
+
+  it("closes immediately on a preparation failure and reports a typed error", async () => {
+    const printWindow = {
+      addEventListener: vi.fn(),
+      close: vi.fn(),
+      document: {
+        body: { appendChild: vi.fn() },
+        close: vi.fn(),
+        createElement: vi.fn(),
+        open: vi.fn(),
+        write: vi.fn(),
+      },
+      focus: vi.fn(),
+      opener: null,
+      print: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as Window;
+
+    await expect(
+      printResume({
+        dataProvider: {
+          signResumeFileUrl: vi.fn().mockRejectedValue(new Error("offline")),
+          signResumePhotoUrl: vi.fn(),
+        },
+        resume: version("image/jpeg", "resume.jpg"),
+        photo: null,
+        includePicture: false,
+        openWindow: () => printWindow,
+      }),
+    ).rejects.toMatchObject({
+      code: "file-fetch-failed",
+    });
+    expect(printWindow.print).not.toHaveBeenCalled();
+    expect(printWindow.close).toHaveBeenCalledOnce();
+  });
+
+  it("reports a blocked popup without signing or fetching", async () => {
+    const signResumeFileUrl = vi.fn();
+    await expect(
+      printResume({
+        dataProvider: {
+          signResumeFileUrl,
+          signResumePhotoUrl: vi.fn(),
+        },
+        resume: version("image/jpeg", "resume.jpg"),
+        photo: null,
+        includePicture: false,
+        openWindow: () => null,
+      }),
+    ).rejects.toMatchObject({
+      code: "popup-blocked",
+    });
+    expect(signResumeFileUrl).not.toHaveBeenCalled();
+  });
+
+  it("prints every PDF page and includes the picture after the resume", async () => {
+    const pages = [1, 2].map((pageNumber) => ({
+      getViewport: vi.fn().mockReturnValue({
+        height: 100 * pageNumber,
+        width: 80,
+      }),
+      getPage: undefined,
+      render: vi.fn().mockReturnValue({ promise: Promise.resolve() }),
+    }));
+    const pdf = {
+      getPage: vi.fn((pageNumber: number) =>
+        Promise.resolve(pages[pageNumber - 1]),
+      ),
+      numPages: pages.length,
+    };
+    const destroy = vi.fn().mockResolvedValue(undefined);
+    getDocument.mockReturnValue({ destroy, promise: Promise.resolve(pdf) });
+
+    const appended: string[] = [];
+    const canvas = {
+      className: "",
+      getContext: vi.fn().mockReturnValue({}),
+      height: 0,
+      width: 0,
+    };
+    const image = {
+      alt: "",
+      className: "",
+      onerror: null as (() => void) | null,
+      onload: null as (() => void) | null,
+      set src(_: string) {
+        queueMicrotask(() => image.onload?.());
+      },
+    };
+    const printDocument = {
+      body: {
+        appendChild: vi.fn((element: { alt?: string }) => {
+          if (element.alt) appended.push(element.alt);
+        }),
+      },
+      close: vi.fn(),
+      createElement: vi.fn((tag: string) =>
+        tag === "canvas" ? canvas : image,
+      ),
+      getElementById: vi.fn().mockReturnValue(null),
+      open: vi.fn(),
+      write: vi.fn(),
+    } as unknown as Document;
+    const listeners = new Set<() => void>();
+    const printWindow = {
+      addEventListener: vi.fn((_event: string, listener: () => void) => {
+        listeners.add(listener);
+      }),
+      close: vi.fn(),
+      document: printDocument,
+      focus: vi.fn(),
+      opener: null,
+      print: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as Window;
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(new Blob(["pdf"]), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(new Blob(["photo"], { type: "image/jpeg" }), {
+          status: 200,
+        }),
+      );
+
+    const result = await printResume({
+      dataProvider: {
+        signResumeFileUrl: vi.fn().mockResolvedValue("resume-url"),
+        signResumePhotoUrl: vi.fn().mockResolvedValue("photo-url"),
+      },
+      resume: version("application/pdf", "resume.pdf"),
+      photo: photo(),
+      includePicture: true,
+      openWindow: () => printWindow,
+      fetcher,
+    });
+
+    expect(result).toBe("printed");
+    expect(getDocument).toHaveBeenCalledOnce();
+    expect(pdf.getPage).toHaveBeenCalledTimes(2);
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(appended).toEqual(["photo.jpg"]);
+    expect(printWindow.print).toHaveBeenCalledOnce();
+    listeners.forEach((listener) => listener());
+  });
+
+  it("prints the resume when an iPhone-format picture cannot be decoded", async () => {
+    const imageCalls = { count: 0 };
+    const image: {
+      alt: string;
+      className: string;
+      onerror: (() => void) | null;
+      onload: (() => void) | null;
+      remove: ReturnType<typeof vi.fn>;
+      src: string;
+    } = {
+      alt: "",
+      className: "",
+      onerror: null as (() => void) | null,
+      onload: null as (() => void) | null,
+      remove: vi.fn(),
+      set src(_: string) {
+        queueMicrotask(() => {
+          imageCalls.count += 1;
+          if (imageCalls.count === 1) image.onload?.();
+          else image.onerror?.();
+        });
+      },
+    };
+    const printDocument = {
+      body: { appendChild: vi.fn() },
+      close: vi.fn(),
+      createElement: vi.fn().mockReturnValue(image),
+      getElementById: vi.fn().mockReturnValue(null),
+      open: vi.fn(),
+      write: vi.fn(),
+    } as unknown as Document;
+    const printWindow = {
+      addEventListener: vi.fn(),
+      close: vi.fn(),
+      document: printDocument,
+      focus: vi.fn(),
+      opener: null,
+      print: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as Window;
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(new Blob(["resume"], { type: "image/jpeg" }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(new Blob(["heic"], { type: "image/heic" }), {
+          status: 200,
+        }),
+      );
+
+    const result = await printResume({
+      dataProvider: {
+        signResumeFileUrl: vi.fn().mockResolvedValue("resume-url"),
+        signResumePhotoUrl: vi.fn().mockResolvedValue("photo-url"),
+      },
+      resume: version("image/jpeg", "resume.jpg"),
+      photo: photo({ path: "1/photos/shared/1/photo.heic" }),
+      includePicture: true,
+      openWindow: () => printWindow,
+      fetcher,
+    });
+
+    expect(result).toBe("printed-without-picture");
+    expect(printWindow.print).toHaveBeenCalledOnce();
   });
 });

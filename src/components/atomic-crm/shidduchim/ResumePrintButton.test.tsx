@@ -16,11 +16,14 @@ vi.mock("../resumes/resumePrint", () => {
   return {
     downloadResumeFiles: vi.fn().mockResolvedValue(undefined),
     getResumePrintMode: vi.fn().mockReturnValue("browser"),
+    isIphoneFormatFile: vi.fn().mockReturnValue(false),
     printResume,
     selectNewestEligiblePhoto: (photos: ResumePhoto[]) =>
-      photos.find(
-        (photo) => photo.visibility === "shared" && photo.hidden_at == null,
-      ) ?? null,
+      photos
+        .filter(
+          (photo) => photo.visibility === "shared" && photo.hidden_at == null,
+        )
+        .sort((a, b) => b.uploaded_at.localeCompare(a.uploaded_at))[0] ?? null,
   };
 });
 
@@ -54,15 +57,15 @@ const eligiblePhoto: ResumePhoto = {
 const buildProvider = (
   resumes: Resume[] = [resume],
   photos: ResumePhoto[] = [eligiblePhoto],
-): CrmDataProvider =>
-  ({
-    getList: vi.fn((resource: string) =>
-      Promise.resolve({
-        data: resource === "resumes" ? resumes : photos,
-        total: resource === "resumes" ? resumes.length : photos.length,
-      }),
-    ),
-  }) as unknown as CrmDataProvider;
+): CrmDataProvider => {
+  const getList = vi.fn((resource: string, _params: unknown) =>
+    Promise.resolve({
+      data: resource === "resumes" ? resumes : photos,
+      total: resource === "resumes" ? resumes.length : photos.length,
+    }),
+  );
+  return { getList } as unknown as CrmDataProvider;
+};
 
 const renderButton = async (dataProvider: CrmDataProvider) =>
   render(
@@ -108,6 +111,25 @@ describe("ResumePrintButton", () => {
       resume: file,
       photo: eligiblePhoto,
       includePicture: false,
+    });
+  });
+
+  it("queries only shared, non-hidden photos for the current resume", async () => {
+    const dataProvider = buildProvider();
+    await renderButton(dataProvider);
+
+    const calls = vi.mocked(dataProvider.getList).mock.calls;
+    await expect
+      .poll(() => calls.find(([resource]) => resource === "resume_photos"))
+      .not.toBeUndefined();
+    const photoCall = calls.find(([resource]) => resource === "resume_photos");
+    expect(photoCall?.[1]).toMatchObject({
+      filter: {
+        resume_id: resume.id,
+        visibility: "shared",
+        "hidden_at@is": null,
+      },
+      sort: { field: "uploaded_at", order: "DESC" },
     });
   });
 

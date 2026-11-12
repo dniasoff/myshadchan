@@ -1,12 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
-import {
-  useDataProvider,
-  useGetList,
-  useNotify,
-  useRefresh,
-  useTranslate,
-} from "ra-core";
+import { useDataProvider, useGetList, useRefresh, useTranslate } from "ra-core";
 import type { Identifier } from "ra-core";
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +12,7 @@ import { sortResumeFilesNewestFirst } from "../resumes/useLatestResumeFile";
 import {
   downloadResumeFiles,
   getResumePrintMode,
+  isIphoneFormatFile,
   printResume,
   selectNewestEligiblePhoto,
 } from "../resumes/resumePrint";
@@ -28,11 +23,13 @@ export function ResumePrintButton({
   shidduchimId: Identifier;
 }): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
-  const notify = useNotify();
   const refresh = useRefresh();
   const translate = useTranslate();
   const [isPreparing, setIsPreparing] = useState(false);
   const [includePicture, setIncludePicture] = useState(false);
+  const [includePictureContext, setIncludePictureContext] = useState<
+    string | null
+  >(null);
   const [status, setStatus] = useState<string | null>(null);
   const [printError, setPrintError] = useState(false);
   const printButtonRef = useRef<HTMLButtonElement>(null);
@@ -74,7 +71,12 @@ export function ResumePrintButton({
     : "none";
   useEffect(() => {
     setIncludePicture(photoContext !== "none");
+    setIncludePictureContext(photoContext);
   }, [photoContext]);
+  const selectedIncludePicture =
+    includePictureContext === photoContext
+      ? includePicture
+      : photoContext !== "none";
 
   const noResumeReason = translate("crm.entity360.rail.print.noResume", {
     _: "No resume available to print.",
@@ -97,18 +99,24 @@ export function ResumePrintButton({
         dataProvider,
         resume: latestFile,
         photo: eligiblePhoto,
-        includePicture,
+        includePicture: selectedIncludePicture,
       });
       setStatus(
         result === "printed"
           ? translate("crm.entity360.rail.print.opened", {
               _: "Print dialog opened.",
             })
-          : translate("crm.entity360.rail.print.downloaded", {
-              _: includePicture
-                ? "The Word resume and picture were downloaded. Open the Word file to print it; the picture is a separate file."
-                : "The Word file was downloaded. Open it in Word or another document app to print it.",
-            }),
+          : result === "printed-without-picture"
+            ? translate("crm.entity360.rail.print.pictureOmitted", {
+                _: "The picture could not be included (iPhone-format photo); the resume was printed.",
+              })
+            : translate("crm.entity360.rail.print.downloaded", {
+                _: isIphoneFormatFile(latestFile)
+                  ? "The iPhone-format resume was downloaded. Open it to print it."
+                  : selectedIncludePicture
+                    ? "The Word resume and picture were downloaded. Open the Word file to print it; the picture is a separate file."
+                    : "The Word file was downloaded. Open it in Word or another document app to print it.",
+              }),
       );
     } catch (caught) {
       setPrintError(getResumePrintMode(latestFile) === "browser");
@@ -117,13 +125,16 @@ export function ResumePrintButton({
           ? translate("crm.entity360.rail.print.downloadError", {
               _: "We couldn’t download the Word file for printing. Try again.",
             })
-          : translate("crm.entity360.rail.print.error", {
-              _: "We couldn’t open the print dialog. Allow pop-ups for MyShadchan and try again, or download the file to print it.",
-            });
+          : caught instanceof Error &&
+              "code" in caught &&
+              caught.code === "popup-blocked"
+            ? translate("crm.entity360.rail.print.popupError", {
+                _: "We couldn’t open the print dialog. Allow pop-ups for MyShadchan and try again, or download the file to print it.",
+              })
+            : translate("crm.entity360.rail.print.prepareError", {
+                _: "We couldn’t prepare these files for printing. Nothing was printed. Try again.",
+              });
       setStatus(message);
-      if (caught instanceof Error && caught.message !== message) {
-        notify(message, { type: "error" });
-      }
     } finally {
       setIsPreparing(false);
       printButtonRef.current?.focus();
@@ -144,7 +155,7 @@ export function ResumePrintButton({
         dataProvider,
         resume: latestFile,
         photo: eligiblePhoto,
-        includePicture,
+        includePicture: selectedIncludePicture,
       });
       setStatus(
         translate("crm.entity360.rail.print.downloadedFallback", {
@@ -207,7 +218,7 @@ export function ResumePrintButton({
           <div className="flex items-start gap-2">
             <Checkbox
               id="include-resume-picture"
-              checked={includePicture}
+              checked={selectedIncludePicture}
               disabled={!eligiblePhoto || isPreparing}
               onCheckedChange={(checked) => setIncludePicture(checked === true)}
               aria-label={translate("crm.entity360.rail.print.includePicture", {
@@ -229,7 +240,7 @@ export function ResumePrintButton({
             className="text-xs text-muted-foreground"
           >
             {eligiblePhoto
-              ? includePicture
+              ? selectedIncludePicture
                 ? translate("crm.entity360.rail.print.summaryWithPicture", {
                     _: "The latest resume and picture will be printed.",
                   })
