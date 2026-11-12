@@ -2,11 +2,31 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { visualizer } from "rollup-plugin-visualizer";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import createHtmlPlugin from "vite-plugin-simple-html";
 
 import { resolveStack } from "./scripts/stack-env.mjs";
+
+function versionJsonPlugin(): Plugin {
+  return {
+    name: "version-json",
+    generateBundle() {
+      // Vercel supplies VERCEL_GIT_COMMIT_SHA for deploy-hook builds. Keep an
+      // explicit unverified value for non-Vercel builds so smoke can report the
+      // limitation rather than mistaking an absent identity for a match.
+      const commitSha = process.env.VERCEL_GIT_COMMIT_SHA ?? "";
+      this.emitFile({
+        type: "asset",
+        fileName: "version.json",
+        source: `${JSON.stringify({
+          commitSha,
+          identity: commitSha ? "verified" : "unverified",
+        })}\n`,
+      });
+    },
+  };
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -30,6 +50,7 @@ export default defineConfig({
     host: true,
   },
   plugins: [
+    versionJsonPlugin(),
     react(),
     tailwindcss(),
     /**
