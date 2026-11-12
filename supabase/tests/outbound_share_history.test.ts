@@ -43,7 +43,7 @@ describe("outbound share history policy", () => {
 
   it("proves manager-only append and account isolation", () => {
     expect(DB_URL).not.toContain(":54322/");
-    expect(checks).toHaveLength(18);
+    expect(checks).toHaveLength(26);
     for (const check of checks) {
       expect(check.passed, check.detail ?? check.name).toBe(true);
     }

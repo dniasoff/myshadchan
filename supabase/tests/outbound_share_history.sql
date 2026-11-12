@@ -50,6 +50,8 @@ insert into public.singles (account_id, first_name_en, member_id)
 values (:'acct_a', 'Manager Single', :'manager_member') returning id as manager_single \gset
 insert into public.singles (account_id, first_name_en, member_id)
 values (:'acct_a', 'Other Member Single', :'single_member') returning id as other_single \gset
+insert into public.singles (account_id, first_name_en, member_id)
+values (:'acct_a', 'Helper Owned Single', :'helper_member') returning id as helper_single \gset
 insert into public.singles (account_id, first_name_en)
 values (:'acct_b', 'Other Account Single') returning id as other_account_single \gset
 insert into public.shadchanim (account_id, name)
@@ -95,6 +97,129 @@ exception when others then
 end;
 $$;
 
+insert into outbound_checks
+select 'history table has FORCE RLS',
+  coalesce((select relforcerowsecurity from pg_class where oid = 'public.outbound_share_history'::regclass), false),
+  coalesce((select relforcerowsecurity::text from pg_class where oid = 'public.outbound_share_history'::regclass), 'missing');
+
+insert into outbound_checks
+select 'authenticated history grants are select and insert only',
+  has_table_privilege('authenticated', 'public.outbound_share_history', 'SELECT')
+    and has_table_privilege('authenticated', 'public.outbound_share_history', 'INSERT')
+    and not has_table_privilege('authenticated', 'public.outbound_share_history', 'UPDATE')
+    and not has_table_privilege('authenticated', 'public.outbound_share_history', 'DELETE')
+    and not has_table_privilege('authenticated', 'public.outbound_share_history', 'TRUNCATE')
+    and not has_table_privilege('authenticated', 'public.outbound_share_history', 'REFERENCES')
+    and not has_table_privilege('authenticated', 'public.outbound_share_history', 'TRIGGER'),
+  has_table_privilege('authenticated', 'public.outbound_share_history', 'SELECT')::text;
+
+insert into outbound_checks
+select 'anon has no history table grants',
+  not has_table_privilege('anon', 'public.outbound_share_history', 'SELECT')
+    and not has_table_privilege('anon', 'public.outbound_share_history', 'INSERT')
+    and not has_table_privilege('anon', 'public.outbound_share_history', 'UPDATE')
+    and not has_table_privilege('anon', 'public.outbound_share_history', 'DELETE')
+    and not has_table_privilege('anon', 'public.outbound_share_history', 'TRUNCATE')
+    and not has_table_privilege('anon', 'public.outbound_share_history', 'REFERENCES')
+    and not has_table_privilege('anon', 'public.outbound_share_history', 'TRIGGER'),
+  has_table_privilege('anon', 'public.outbound_share_history', 'SELECT')::text;
+
+insert into outbound_checks
+select 'authenticated history sequence grants are usage and select only',
+  has_sequence_privilege('authenticated', 'public.outbound_share_history_id_seq', 'USAGE')
+    and has_sequence_privilege('authenticated', 'public.outbound_share_history_id_seq', 'SELECT')
+    and not has_sequence_privilege('authenticated', 'public.outbound_share_history_id_seq', 'UPDATE'),
+  has_sequence_privilege('authenticated', 'public.outbound_share_history_id_seq', 'USAGE')::text;
+
+insert into outbound_checks
+select 'anon has no history sequence grants',
+  not has_sequence_privilege('anon', 'public.outbound_share_history_id_seq', 'USAGE')
+    and not has_sequence_privilege('anon', 'public.outbound_share_history_id_seq', 'SELECT')
+    and not has_sequence_privilege('anon', 'public.outbound_share_history_id_seq', 'UPDATE'),
+  has_sequence_privilege('anon', 'public.outbound_share_history_id_seq', 'USAGE')::text;
+
+insert into outbound_checks
+select 'history has exactly the two authenticated manager policies',
+  (select count(*) from pg_policies
+   where schemaname = 'public'
+     and tablename = 'outbound_share_history'
+     and policyname in ('Outbound share history insertable by managers', 'Outbound share history selectable by managers')) = 2
+  and exists (select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'outbound_share_history'
+      and policyname = 'Outbound share history insertable by managers'
+      and cmd = 'INSERT'
+      and roles @> array['authenticated']::name[]
+      and with_check like '%parent_admin%'
+      and with_check like '%self_manager%'
+      and with_check like '%actor_member_id%')
+  and exists (select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'outbound_share_history'
+      and policyname = 'Outbound share history selectable by managers'
+      and cmd = 'SELECT'
+      and roles @> array['authenticated']::name[]
+      and qual like '%parent_admin%'
+      and qual like '%self_manager%'),
+  (select string_agg(policyname, ', ' order by policyname)
+   from pg_policies where schemaname = 'public' and tablename = 'outbound_share_history');
+
+insert into outbound_checks
+select 'history checks and foreign keys have approved shape',
+  (select count(*) from pg_constraint
+   where conrelid = 'public.outbound_share_history'::regclass
+     and conname = 'outbound_share_history_channel_check'
+     and contype = 'c'
+     and convalidated
+     and pg_get_constraintdef(oid) like '%whatsapp%'
+     and pg_get_constraintdef(oid) like '%sms%'
+     and pg_get_constraintdef(oid) like '%email%') = 1
+  and (select count(*) from pg_constraint
+   where conrelid = 'public.outbound_share_history'::regclass
+     and conname = 'outbound_share_history_file_kinds_check'
+     and contype = 'c'
+     and convalidated
+     and pg_get_constraintdef(oid) like '%resume%'
+     and pg_get_constraintdef(oid) like '%photo%') = 1
+  and (select count(*) from pg_constraint
+   where conrelid = 'public.outbound_share_history'::regclass
+     and conname = 'outbound_share_history_outcome_check'
+     and contype = 'c'
+     and convalidated
+     and pg_get_constraintdef(oid) like '%share_sheet_opened%'
+     and pg_get_constraintdef(oid) like '%download_prepared%'
+     and pg_get_constraintdef(oid) like '%cancelled%'
+     and pg_get_constraintdef(oid) like '%unsupported%'
+     and pg_get_constraintdef(oid) like '%failed%') = 1
+  and exists (select 1 from pg_constraint
+   where conrelid = 'public.outbound_share_history'::regclass
+     and conname = 'outbound_share_history_account_id_fkey'
+     and confrelid = 'public.accounts'::regclass
+     and confdeltype = 'c'
+     and convalidated)
+  and exists (select 1 from pg_constraint
+   where conrelid = 'public.outbound_share_history'::regclass
+     and conname = 'outbound_share_history_single_id_fkey'
+     and confrelid = 'public.singles'::regclass
+     and confdeltype = 'c'
+     and pg_get_constraintdef(oid) like '%FOREIGN KEY (account_id, single_id)%'
+     and convalidated)
+  and exists (select 1 from pg_constraint
+   where conrelid = 'public.outbound_share_history'::regclass
+     and conname = 'outbound_share_history_shadchan_id_fkey'
+     and confrelid = 'public.shadchanim'::regclass
+     and confdeltype = 'c'
+     and pg_get_constraintdef(oid) like '%FOREIGN KEY (account_id, shadchan_id)%'
+     and convalidated)
+  and exists (select 1 from pg_constraint
+   where conrelid = 'public.outbound_share_history'::regclass
+     and conname = 'outbound_share_history_actor_member_id_fkey'
+     and confrelid = 'public.account_members'::regclass
+     and confdeltype = 'n'
+     and convalidated),
+  (select string_agg(conname, ', ' order by conname)
+   from pg_constraint where conrelid = 'public.outbound_share_history'::regclass);
+
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"0a500000-0000-0000-0000-000000000001","role":"authenticated"}', true);
 select public.current_member_role() = 'parent_admin' as parent_role \gset
@@ -123,6 +248,7 @@ select set_config('request.jwt.claims', '{"sub":"0a500000-0000-0000-0000-0000000
 insert into outbound_checks values ('helper role resolves correctly', public.current_member_role() = 'helper', public.current_member_role());
 insert into outbound_checks select 'helper cannot select history', count(*) = 0, count(*)::text from public.outbound_share_history;
 select pg_temp.assert_insert_denied('helper cannot insert history', :'acct_a', :'manager_single', :'ronit', :'helper_member');
+select pg_temp.assert_insert_denied('helper cannot insert for helper-owned single', :'acct_a', :'helper_single', :'ronit', :'helper_member');
 
 select set_config('request.jwt.claims', '{"sub":"0a500000-0000-0000-0000-000000000004","role":"authenticated"}', true);
 insert into outbound_checks values ('single role resolves correctly', public.current_member_role() = 'single', public.current_member_role());
