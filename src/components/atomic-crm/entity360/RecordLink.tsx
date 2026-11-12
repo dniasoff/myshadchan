@@ -6,7 +6,7 @@ import { getEntityDescriptor } from "./registry";
 
 /**
  * AD-24's single record-navigation primitive (contract §7). Exactly these
- * five props — no `onClick`, no `ref` forwarding, no `{...rest}` spread. A
+ * six props — no `onClick`, no `ref` forwarding, no `{...rest}` spread. A
  * caller that needs drag props, a ref or a click guard puts them on its own
  * wrapper element (see `shidduchim/ShidduchCard.tsx`'s `onClickCapture`
  * guard around the dnd `<div>`); `RecordLink` itself stays a closed anchor.
@@ -16,6 +16,7 @@ export interface RecordLinkProps {
   id: Identifier;
   children: ReactNode;
   className?: string;
+  "aria-label"?: string;
   /**
    * The one sanctioned escape hatch beyond `className`. The swept site
    * (`singles/SingleCard.tsx`; `references/ReferenceList.tsx` was the other
@@ -46,6 +47,7 @@ export function RecordLink({
   id,
   children,
   className,
+  "aria-label": ariaLabel,
   style,
 }: RecordLinkProps): ReactElement {
   const descriptor = getEntityDescriptor(resource);
@@ -55,7 +57,7 @@ export function RecordLink({
       `RecordLink: no entity descriptor registered for resource "${resource}"; rendering plain text instead of a link.`,
     );
     return (
-      <span className={className} style={style}>
+      <span className={className} aria-label={ariaLabel} style={style}>
         {children}
       </span>
     );
@@ -65,6 +67,7 @@ export function RecordLink({
     <Link
       to={descriptor.buildRecordPath(id)}
       className={className}
+      aria-label={ariaLabel}
       style={style}
     >
       {children}

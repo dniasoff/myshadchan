@@ -40,7 +40,7 @@ describe("ShadchanRow — the List-mode counterpart to ShadchanCard (Story 4.2, 
 
     // Assert
     await expect
-      .element(screen.getByRole("link", { name: /Rivka Stern/ }))
+      .element(screen.getByRole("link", { name: "Open Rivka Stern file" }))
       .toHaveAttribute("href", "/shadchanim/7");
   });
 

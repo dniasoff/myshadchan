@@ -269,13 +269,19 @@ async function createShidduch({
 async function createShadchan({
   accountId,
   name,
+  contacts,
 }: {
   accountId: number;
   name: string;
+  contacts?: Record<string, string>;
 }) {
   const { data, error } = await adminSupabase
     .from("shadchanim")
-    .insert({ account_id: accountId, name })
+    .insert({
+      account_id: accountId,
+      name,
+      ...(contacts ? { contacts } : {}),
+    })
     .select()
     .single();
 

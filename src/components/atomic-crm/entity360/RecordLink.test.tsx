@@ -70,6 +70,26 @@ describe("RecordLink — registered resource (AC 1a)", () => {
       .element(link)
       .toHaveAttribute("style", "animation-delay: 80ms;");
   });
+
+  it("forwards an explicit accessible name onto the anchor", async () => {
+    registerFixture("record-link-label-fixture");
+
+    const screen = await render(
+      <TestMemoryRouter>
+        <RecordLink
+          resource="record-link-label-fixture"
+          id={1}
+          aria-label="Open Rivka Stern file"
+        >
+          Rivka Stern
+        </RecordLink>
+      </TestMemoryRouter>,
+    );
+
+    await expect
+      .element(screen.getByRole("link", { name: "Open Rivka Stern file" }))
+      .toBeInTheDocument();
+  });
 });
 
 describe("RecordLink — unregistered resource degrades, never throws (AC 1b)", () => {
@@ -135,11 +155,12 @@ describe("RecordLink — unregistered resource degrades, never throws (AC 1b)", 
   });
 });
 
-describe("RecordLinkProps — closed prop list, exactly five keys (AC 1c)", () => {
+describe("RecordLinkProps — closed prop list, exactly six keys (AC 1c)", () => {
   it("type-checks: no key beyond resource/id/children/className/style, and onClick is rejected", () => {
-    type ExpectedKeys = "resource" | "id" | "children" | "className" | "style";
+    type ExpectedKeys =
+      "resource" | "id" | "children" | "className" | "style" | "aria-label";
     // `true` only if RecordLinkProps has NEITHER a missing expected key NOR
-    // an extra one beyond ExpectedKeys — i.e. exactly these five keys.
+    // an extra one beyond ExpectedKeys — i.e. exactly these six keys.
     type IsExactlyClosedPropList = [
       Exclude<ExpectedKeys, keyof RecordLinkProps>,
       Exclude<keyof RecordLinkProps, ExpectedKeys>,

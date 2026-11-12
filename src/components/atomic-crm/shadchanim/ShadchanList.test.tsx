@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import { CoreAdminContext, memoryStore, TestMemoryRouter } from "ra-core";
+import {
+  CoreAdminContext,
+  memoryStore,
+  TestMemoryRouter,
+  useLocation,
+} from "ra-core";
 import type { Store } from "ra-core";
 import fakeDataProvider from "ra-data-fakerest";
 
@@ -13,9 +18,37 @@ import "./entityDescriptor";
 import { ShadchanList } from "./ShadchanList";
 
 const SHADCHANIM = [
-  { id: 1, name: "Rivka Stern", responsiveness: "high" },
-  { id: 2, name: "Moshe Adler", responsiveness: "medium" },
+  {
+    id: 1,
+    name: "Rivka Stern",
+    responsiveness: "high",
+    contacts: { phone: "+44 7700 900123" },
+  },
+  {
+    id: 2,
+    name: "Moshe Adler",
+    responsiveness: "medium",
+    contacts: { whatsapp: "+1 555 9001234" },
+  },
 ];
+
+const SEARCH_PLACEHOLDER = "Search by name, location, or phone number";
+
+const LocationProbe = () => {
+  const location = useLocation();
+  return <output data-testid="list-location">{location.search}</output>;
+};
+
+const waitForFilterDebounce = () =>
+  new Promise((resolve) => setTimeout(resolve, 650));
+
+const getStorageSnapshot = () =>
+  Array.from({ length: localStorage.length }, (_, index) => [
+    localStorage.key(index),
+    localStorage.key(index)
+      ? localStorage.getItem(localStorage.key(index) as string)
+      : null,
+  ]);
 
 /**
  * `CoreAdminContext`'s own `store` prop defaults to a module-level
@@ -29,18 +62,26 @@ const SHADCHANIM = [
 const renderShadchanList = (
   store: Store = memoryStore(),
   shidduchim: { id: number; shadchan_id: number }[] = [],
+  options: {
+    initialEntries?: string[];
+    dataProvider?: ReturnType<typeof fakeDataProvider>;
+  } = {},
 ) =>
   render(
-    <TestMemoryRouter>
+    <TestMemoryRouter initialEntries={options.initialEntries}>
       <CoreAdminContext
         store={store}
-        dataProvider={fakeDataProvider({
-          shadchanim: SHADCHANIM,
-          shidduchim,
-        })}
+        dataProvider={
+          options.dataProvider ??
+          fakeDataProvider({
+            shadchanim: SHADCHANIM,
+            shidduchim,
+          })
+        }
         i18nProvider={testI18nProvider}
       >
         <ShadchanList />
+        <LocationProbe />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -53,7 +94,7 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     await expect.element(screen.getByText("Moshe Adler")).toBeInTheDocument();
 
     // Act
-    await screen.getByPlaceholder("Search by name").fill("Rivka");
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("Rivka");
 
     // Assert
     await expect.element(screen.getByText("Rivka Stern")).toBeInTheDocument();
@@ -68,7 +109,7 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
   it("never shows an 'Add filter' control — ShadchanList has no extraFilters (AC 1, F8)", async () => {
     // Arrange
     const screen = await renderShadchanList();
-    await screen.getByPlaceholder("Search by name").fill("Rivka");
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("Rivka");
     await expect.element(screen.getByText("Rivka Stern")).toBeInTheDocument();
 
     // Assert
@@ -86,7 +127,7 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     const heading = screen
       .getByRole("heading", { name: "Shadchanim" })
       .element();
-    const searchInput = screen.getByPlaceholder("Search by name").element();
+    const searchInput = screen.getByPlaceholder(SEARCH_PLACEHOLDER).element();
     const createLink = screen
       .getByRole("link", { name: "Add a shadchan" })
       .element();
@@ -181,5 +222,246 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
     await expect
       .element(screen.getByRole("button", { name: "List view" }))
       .toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("finds a formatted phone number locally and exposes the masked ending", async () => {
+    // Arrange
+    const screen = await renderShadchanList();
+
+    // Act
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("07700-900-123");
+
+    // Assert
+    await expect.element(screen.getByText("Rivka Stern")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Phone ending 0123"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Moshe Adler"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Phone search active"))
+      .toBeInTheDocument();
+  });
+
+  it("masks the matched stored suffix, not the raw query text", async () => {
+    const dataProvider = fakeDataProvider({
+      shadchanim: [
+        { ...SHADCHANIM[0], contacts: { phone: "555-123-4567" } },
+        SHADCHANIM[1],
+      ],
+      shidduchim: [],
+    });
+    const screen = await renderShadchanList(memoryStore(), [], {
+      dataProvider,
+    });
+
+    await screen
+      .getByPlaceholder(SEARCH_PLACEHOLDER)
+      .fill("555-123-4567 ext: 99");
+
+    // The extension is stripped before matching; the visible suffix must come
+    // from the stored number that matched, never from the raw query string.
+    await expect
+      .element(screen.getByText("Phone ending 4567"))
+      .toBeInTheDocument();
+  });
+
+  it("lists WhatsApp matches and shows the exact phone empty state", async () => {
+    // Arrange
+    const screen = await renderShadchanList();
+
+    // Act
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("9001234");
+
+    // Assert
+    await expect.element(screen.getByText("Moshe Adler")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("WhatsApp ending 1234"))
+      .toBeInTheDocument();
+
+    // Act — use a phone-shaped query with no saved match.
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("9999");
+
+    // Assert
+    await expect
+      .element(screen.getByText("No shadchan with that number"))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "Try the last 4 or more digits, or check the number you entered.",
+        ),
+      )
+      .toBeInTheDocument();
+  });
+
+  it("keeps one-to-three-digit input out of phone mode", async () => {
+    // Arrange / Act
+    const screen = await renderShadchanList();
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("123");
+
+    // Assert
+    await expect
+      .element(
+        screen.getByText("Enter at least 4 digits to search by phone number."),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Phone search active"))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps number-like keystrokes out of URL filters and provider calls", async () => {
+    const dataProvider = fakeDataProvider({
+      shadchanim: SHADCHANIM,
+      shidduchim: [],
+    });
+    const getList = vi.spyOn(dataProvider, "getList");
+    const screen = await renderShadchanList(memoryStore(), [], {
+      dataProvider,
+    });
+
+    const search = screen.getByPlaceholder(SEARCH_PLACEHOLDER);
+    await search.fill("7");
+    await search.fill("71");
+    await search.fill("718");
+
+    await waitForFilterDebounce();
+
+    expect(
+      screen.getByTestId("list-location").element().textContent,
+    ).not.toContain('"q"');
+    expect(
+      getList.mock.calls.some(
+        ([resource, params]) =>
+          resource === "shadchanim" &&
+          typeof params.filter?.q === "string" &&
+          params.filter.q.length > 0,
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps pure and mixed phone queries ephemeral after the debounce", async () => {
+    const dataProvider = fakeDataProvider({
+      shadchanim: SHADCHANIM,
+      shidduchim: [],
+    });
+    const getList = vi.spyOn(dataProvider, "getList");
+    const screen = await renderShadchanList(memoryStore(), [], {
+      dataProvider,
+    });
+    const search = screen.getByPlaceholder(SEARCH_PLACEHOLDER);
+    const initialHistoryLength = window.history.length;
+    const initialStorage = getStorageSnapshot();
+
+    for (const query of ["7", "718", "718-555-0102", "Klein 718-555-0102"]) {
+      await search.fill(query);
+      await waitForFilterDebounce();
+
+      expect(
+        screen.getByTestId("list-location").element().textContent,
+      ).not.toContain('"q"');
+      expect(
+        getList.mock.calls.some(
+          ([resource, params]) =>
+            resource === "shadchanim" &&
+            typeof params.filter?.q === "string" &&
+            params.filter.q.length > 0,
+        ),
+      ).toBe(false);
+      expect(window.history.length).toBe(initialHistoryLength);
+      expect(getStorageSnapshot()).toEqual(initialStorage);
+    }
+
+    // A pending ordinary-text write must be cancelled when phone mode starts.
+    await search.fill("Klein");
+    await search.fill("7185550102");
+    await waitForFilterDebounce();
+    expect(
+      screen.getByTestId("list-location").element().textContent,
+    ).not.toContain("Klein");
+    expect(getStorageSnapshot()).toEqual(initialStorage);
+  });
+
+  it("debounces ordinary text into URL filters and provider calls", async () => {
+    const dataProvider = fakeDataProvider({
+      shadchanim: SHADCHANIM,
+      shidduchim: [],
+    });
+    const getList = vi.spyOn(dataProvider, "getList");
+    const screen = await renderShadchanList(memoryStore(), [], {
+      dataProvider,
+    });
+
+    await screen.getByPlaceholder(SEARCH_PLACEHOLDER).fill("Rivka");
+    expect(
+      screen.getByTestId("list-location").element().textContent,
+    ).not.toContain("Rivka");
+
+    await waitForFilterDebounce();
+
+    expect(screen.getByTestId("list-location").element().textContent).toContain(
+      "Rivka",
+    );
+    expect(
+      getList.mock.calls.some(
+        ([resource, params]) =>
+          resource === "shadchanim" && params.filter?.q === "Rivka",
+      ),
+    ).toBe(true);
+  });
+
+  it("clears a legacy short numeric q before displaying or reusing it", async () => {
+    const legacyFilter = encodeURIComponent(JSON.stringify({ q: "718" }));
+    const screen = await renderShadchanList(memoryStore(), [], {
+      initialEntries: [`/shadchanim?filter=${legacyFilter}`],
+    });
+
+    await expect
+      .element(screen.getByPlaceholder(SEARCH_PLACEHOLDER))
+      .toHaveValue("");
+    expect(
+      screen.getByTestId("list-location").element().textContent,
+    ).not.toContain("718");
+  });
+
+  it("clears legacy mixed phone queries before displaying or reusing them", async () => {
+    const legacyFilter = encodeURIComponent(
+      JSON.stringify({ q: "Klein 718-555-0102" }),
+    );
+    const dataProvider = fakeDataProvider({
+      shadchanim: SHADCHANIM,
+      shidduchim: [],
+    });
+    const getList = vi.spyOn(dataProvider, "getList");
+    const initialHistoryLength = window.history.length;
+    const initialStorage = getStorageSnapshot();
+    const screen = await renderShadchanList(memoryStore(), [], {
+      initialEntries: [`/shadchanim?filter=${legacyFilter}`],
+      dataProvider,
+    });
+
+    await expect
+      .element(screen.getByPlaceholder(SEARCH_PLACEHOLDER))
+      .toHaveValue("");
+    // The initial List controller may observe the legacy URL before the
+    // search controller's first effect removes it. Assertions below cover all
+    // calls made after that cleanup boundary.
+    getList.mockClear();
+    await waitForFilterDebounce();
+    expect(
+      screen.getByTestId("list-location").element().textContent,
+    ).not.toContain("Klein");
+    expect(window.history.length).toBe(initialHistoryLength);
+    expect(getStorageSnapshot()).toEqual(initialStorage);
+    expect(
+      getList.mock.calls.some(
+        ([resource, params]) =>
+          resource === "shadchanim" &&
+          typeof params.filter?.q === "string" &&
+          params.filter.q.length > 0,
+      ),
+    ).toBe(false);
   });
 });

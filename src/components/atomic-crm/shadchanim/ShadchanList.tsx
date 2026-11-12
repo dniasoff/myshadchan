@@ -1,4 +1,5 @@
 import type { RaRecord } from "ra-core";
+import { useCallback, useState } from "react";
 import { useGetList, useTranslate } from "ra-core";
 
 import { buildNewPath } from "../entity360/entityPaths";
@@ -6,7 +7,14 @@ import { EntityList } from "../misc/EntityList";
 import type { Shadchan, ShidduchSummary } from "../types";
 import { ShadchanCardGrid, ShadchanCardGridSkeleton } from "./ShadchanCardGrid";
 import { ShadchanRow } from "./ShadchanRow";
+import { ShadchanSearchInput } from "./ShadchanSearchInput";
 import { countSuggestionsByShadchan } from "./shadchanUtils";
+import {
+  filterShadchanimBySearch,
+  isPhoneSearchQuery,
+  sortShadchanim,
+} from "./shadchanUtils";
+import { useAllShadchanim } from "./useAllShadchanim";
 
 /**
  * `EntityList`'s `renderList` for the shadchan book (Story 4.2, Task 4): the
@@ -16,7 +24,13 @@ import { countSuggestionsByShadchan } from "./shadchanUtils";
  * both active at once (`EntityListView` renders exactly one per
  * `viewMode`), so the two queries are never in flight together.
  */
-const ShadchanRowList = ({ data }: { data: RaRecord[] }) => {
+const ShadchanRowList = ({
+  data,
+  phoneSearchQuery,
+}: {
+  data: RaRecord[];
+  phoneSearchQuery?: string;
+}) => {
   const shadchanim = data as Shadchan[];
   const { data: shidduchim, isPending: shidduchimPending } =
     useGetList<ShidduchSummary>("shidduchim", {
@@ -47,6 +61,7 @@ const ShadchanRowList = ({ data }: { data: RaRecord[] }) => {
           shadchan={shadchan}
           suggestionCount={counts.get(shadchan.id) ?? 0}
           index={index}
+          phoneSearchQuery={phoneSearchQuery}
         />
       ))}
     </div>
@@ -66,6 +81,13 @@ const ShadchanRowList = ({ data }: { data: RaRecord[] }) => {
  */
 export const ShadchanList = () => {
   const translate = useTranslate();
+  const [searchQuery, setSearchQuery] = useState("");
+  const allShadchanim = useAllShadchanim();
+  const handleQueryChange = useCallback(
+    (query: string) => setSearchQuery(query),
+    [],
+  );
+  const phoneSearchActive = isPhoneSearchQuery(searchQuery);
 
   return (
     <EntityList
@@ -80,9 +102,14 @@ export const ShadchanList = () => {
       createLabel={translate("crm.shadchanim.list.createLabel", {
         _: "Add a shadchan",
       })}
-      searchPlaceholder={translate("crm.shadchanim.list.searchPlaceholder", {
-        _: "Search by name",
-      })}
+      searchInput={
+        <ShadchanSearchInput
+          key="q"
+          source="q"
+          alwaysOn
+          onQueryChange={handleQueryChange}
+        />
+      }
       perPage={200}
       pagination={null}
       sort={{ field: "name", order: "ASC" }}
@@ -90,29 +117,71 @@ export const ShadchanList = () => {
       // clause had no reachable UI on either retrofitted list.
       sortFields={["name", "location"]}
       skeleton={<ShadchanCardGridSkeleton />}
-      emptyState={{
-        title: translate("crm.shadchanim.list.emptyTitle", {
-          _: "Add your first shadchan",
-        }),
-        description: translate("crm.shadchanim.list.emptyDescription", {
-          _: "Shadchanim your family works with are listed here.",
-        }),
-        actionLabel: translate("crm.shadchanim.list.createLabel", {
-          _: "Add a shadchan",
-        }),
-        actionTo: buildNewPath("shadchanim"),
-        // Review fix (F9): the pre-story `ShadchanDirectory`'s EmptyState
-        // carried `className="py-14"`; the retrofit dropped it.
-        className: "py-14",
+      emptyState={
+        phoneSearchActive
+          ? {
+              title: "No shadchan with that number",
+              description:
+                "Try the last 4 or more digits, or check the number you entered.",
+              className: "py-14",
+            }
+          : {
+              title: translate("crm.shadchanim.list.emptyTitle", {
+                _: "Add your first shadchan",
+              }),
+              description: translate("crm.shadchanim.list.emptyDescription", {
+                _: "Shadchanim your family works with are listed here.",
+              }),
+              actionLabel: translate("crm.shadchanim.list.createLabel", {
+                _: "Add a shadchan",
+              }),
+              actionTo: buildNewPath("shadchanim"),
+              // Review fix (F9): the pre-story `ShadchanDirectory`'s EmptyState
+              // carried `className="py-14"`; the retrofit dropped it.
+              className: "py-14",
+            }
+      }
+      noMatchesMessage={
+        phoneSearchActive
+          ? "No shadchan with that number"
+          : translate("crm.shadchanim.list.noMatches", {
+              _: "No shadchanim match this search.",
+            })
+      }
+      noMatchesDescription={
+        phoneSearchActive
+          ? "Try the last 4 or more digits, or check the number you entered."
+          : undefined
+      }
+      filterData={(data, sort) =>
+        sortShadchanim(
+          filterShadchanimBySearch(data as Shadchan[], searchQuery),
+          sort,
+        )
+      }
+      listStatusOverrides={{
+        data: allShadchanim.data?.data ?? [],
+        isPending: allShadchanim.isPending,
+        error: allShadchanim.error,
+        refetch: () => {
+          void allShadchanim.refetch();
+        },
       }}
-      noMatchesMessage={translate("crm.shadchanim.list.noMatches", {
-        _: "No shadchanim match this search.",
-      })}
       // Story 4.2, AC 1: this book's current, only, deliberately-designed
       // first-visit look (Dev Notes).
       defaultViewMode="cards"
-      renderCards={(data) => <ShadchanCardGrid data={data} />}
-      renderList={(data) => <ShadchanRowList data={data} />}
+      renderCards={(data) => (
+        <ShadchanCardGrid
+          data={data}
+          phoneSearchQuery={phoneSearchActive ? searchQuery : undefined}
+        />
+      )}
+      renderList={(data) => (
+        <ShadchanRowList
+          data={data}
+          phoneSearchQuery={phoneSearchActive ? searchQuery : undefined}
+        />
+      )}
     />
   );
 };

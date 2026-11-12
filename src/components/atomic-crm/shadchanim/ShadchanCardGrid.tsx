@@ -30,6 +30,7 @@ export const ShadchanCardGridSkeleton = () => (
 
 export interface ShadchanCardGridProps {
   data: RaRecord[];
+  phoneSearchQuery?: string;
 }
 
 /**
@@ -50,7 +51,10 @@ export interface ShadchanCardGridProps {
  * but the nested `shidduchim` fetch below is independent of that decision
  * and needs its own gate.
  */
-export const ShadchanCardGrid = ({ data }: ShadchanCardGridProps) => {
+export const ShadchanCardGrid = ({
+  data,
+  phoneSearchQuery,
+}: ShadchanCardGridProps) => {
   const shadchanim = data as Shadchan[];
   const { data: shidduchim, isPending: shidduchimPending } =
     useGetList<ShidduchSummary>("shidduchim", {
@@ -72,6 +76,7 @@ export const ShadchanCardGrid = ({ data }: ShadchanCardGridProps) => {
           shadchan={shadchan}
           suggestionCount={counts.get(shadchan.id) ?? 0}
           index={index}
+          phoneSearchQuery={phoneSearchQuery}
         />
       ))}
     </div>

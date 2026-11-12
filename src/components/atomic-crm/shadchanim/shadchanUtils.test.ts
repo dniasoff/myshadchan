@@ -1,10 +1,235 @@
 import {
   capitalizeName,
   countSuggestionsByShadchan,
+  filterShadchanimBySearch,
+  getShadchanPhoneMatch,
   isResponsivenessLevel,
   normalizeShadchanName,
+  normalizePhoneDigits,
   parseContactInfo,
+  sortShadchanim,
 } from "./shadchanUtils";
+
+const shadchan = (id: number, contacts: unknown, name = `Shadchan ${id}`) => ({
+  id,
+  account_id: 1,
+  name,
+  contacts,
+  created_at: "2026-01-01T00:00:00Z",
+});
+
+describe("phone search matching", () => {
+  it("normalizes punctuation and one leading international 00 prefix", () => {
+    expect(normalizePhoneDigits("+44 (7700) 900-123")).toBe("447700900123");
+    expect(normalizePhoneDigits("00 44.7700.900.123")).toBe("447700900123");
+  });
+
+  it("drops extension markers from stored values and typed queries", () => {
+    expect(normalizePhoneDigits("555-1234 x12")).toBe("5551234");
+    expect(normalizePhoneDigits("(212) 555-1234 EXT 12")).toBe("2125551234");
+    expect(normalizePhoneDigits("(212) 555-1234 ext. 12")).toBe("2125551234");
+    expect(normalizePhoneDigits("(212) 555-1234 extn 12")).toBe("2125551234");
+    expect(normalizePhoneDigits("(212) 555-1234 extension 12")).toBe(
+      "2125551234",
+    );
+    expect(normalizePhoneDigits("212-555-1234 #5")).toBe("2125551234");
+
+    expect(
+      getShadchanPhoneMatch(
+        shadchan(1, { phone: "555-1234 x12" }),
+        "5551234 ext 99",
+      ),
+    ).toEqual({
+      channels: ["phone"],
+      suffix: "1234",
+    });
+    expect(
+      getShadchanPhoneMatch(shadchan(2, { phone: "555-1234 x12" }), "3412"),
+    ).toBeNull();
+    expect(
+      getShadchanPhoneMatch(shadchan(3, { phone: "call after 5" }), "5"),
+    ).toBeNull();
+  });
+
+  it("matches each number in slash, comma, semicolon, or word-separated values", () => {
+    const candidate = shadchan(1, {
+      phone:
+        "0501234567 / 0527654321, 0531234567; 0547654321 or 0551234567 and 0567654321",
+    });
+
+    for (const query of [
+      "1234567",
+      "7654321",
+      "0547654321",
+      "0551234567",
+      "0567654321",
+    ]) {
+      expect(getShadchanPhoneMatch(candidate, query)).toEqual({
+        channels: ["phone"],
+        suffix: query.slice(-4),
+      });
+    }
+  });
+
+  it("matches international and local formats by trailing digits", () => {
+    const candidate = shadchan(1, { phone: "+44 7700 900123" });
+
+    expect(getShadchanPhoneMatch(candidate, "07700 900123")).toEqual({
+      channels: ["phone"],
+      suffix: "0123",
+    });
+    expect(getShadchanPhoneMatch(candidate, "7700900123")).toEqual({
+      channels: ["phone"],
+      suffix: "0123",
+    });
+    expect(getShadchanPhoneMatch(candidate, "0123")).toEqual({
+      channels: ["phone"],
+      suffix: "0123",
+    });
+    expect(getShadchanPhoneMatch(candidate, "900")).toBeNull();
+  });
+
+  it("keeps a leading 00 when stripping it would cross below four digits", () => {
+    for (const number of ["0001", "0099", "00123"]) {
+      const candidate = shadchan(1, { phone: number });
+      expect(getShadchanPhoneMatch(candidate, number)).toEqual({
+        channels: ["phone"],
+        suffix: number.slice(-4),
+      });
+    }
+  });
+
+  it("searches WhatsApp and numbered phone-like contact keys without reading email", () => {
+    const candidate = shadchan(1, {
+      email: "900123@example.com",
+      mobile_2: "+1 555 900 0123",
+      mobile_3: "+1 555 900 1234",
+      whatsapp: "044 7700 9000123",
+      notes: "7700900123",
+    });
+
+    expect(getShadchanPhoneMatch(candidate, "9000123")).toEqual({
+      channels: ["phone", "whatsapp"],
+      suffix: "0123",
+    });
+    expect(getShadchanPhoneMatch(candidate, "1234")).toEqual({
+      channels: ["phone"],
+      suffix: "1234",
+    });
+    expect(getShadchanPhoneMatch(candidate, "0000")).toBeNull();
+  });
+
+  it("only searches the explicit phone-like contact key allow-list", () => {
+    const candidate = shadchan(1, {
+      home2: "212-555-2024",
+      email2: "bob2024@example.com",
+      notes1: "555-2024",
+      fax1: "555-2024",
+      dob1990: "2024",
+    });
+
+    expect(getShadchanPhoneMatch(candidate, "2024")).toEqual({
+      channels: ["phone"],
+      suffix: "2024",
+    });
+    expect(
+      getShadchanPhoneMatch(
+        shadchan(2, {
+          email2: "bob2024@example.com",
+          notes1: "555-2024",
+          fax1: "555-2024",
+          dob1990: "2024",
+        }),
+        "2024",
+      ),
+    ).toBeNull();
+  });
+
+  it("preserves full slash-grouped numbers and protects x inside words", () => {
+    expect(
+      getShadchanPhoneMatch(
+        shadchan(1, { phone: "0171/1234567" }),
+        "01711234567",
+      ),
+    ).toEqual({
+      channels: ["phone"],
+      suffix: "4567",
+    });
+    expect(
+      getShadchanPhoneMatch(
+        shadchan(2, { phone: "Max 212-555-7070" }),
+        "5557070",
+      ),
+    ).toEqual({
+      channels: ["phone"],
+      suffix: "7070",
+    });
+    expect(
+      getShadchanPhoneMatch(shadchan(3, { phone: "212-555-9090" }), "9090"),
+    ).toEqual({
+      channels: ["phone"],
+      suffix: "9090",
+    });
+    expect(
+      getShadchanPhoneMatch(
+        shadchan(4, { phone: "212-555-6060 ext: 55" }),
+        "6060",
+      ),
+    ).toEqual({
+      channels: ["phone"],
+      suffix: "6060",
+    });
+  });
+
+  it("requires a trailing match and preserves the full ten-digit suffix", () => {
+    const candidate = shadchan(1, { phone: "1234567890123" });
+
+    expect(getShadchanPhoneMatch(candidate, "4567890123")).toEqual({
+      channels: ["phone"],
+      suffix: "0123",
+    });
+    expect(getShadchanPhoneMatch(candidate, "4597890123")).toBeNull();
+    expect(getShadchanPhoneMatch(candidate, "5557")).toBeNull();
+  });
+
+  it("lists every suffix collision and preserves text search", () => {
+    const rows = [
+      shadchan(1, { phone: "+1 555 900 0123" }, "Rivka Stern"),
+      shadchan(2, { whatsapp: "+44 7700 9000123" }, "Moshe Adler"),
+      shadchan(3, { phone: "+972 50 700 9999" }, "Leah Cohen"),
+    ];
+
+    expect(
+      filterShadchanimBySearch(rows, "9000123").map((row) => row.id),
+    ).toEqual([1, 2]);
+    expect(
+      filterShadchanimBySearch(rows, "Stern, Rivka").map((row) => row.id),
+    ).toEqual([1]);
+  });
+
+  it("sorts the locally filtered book in the active list order", () => {
+    const rows = [
+      { ...shadchan(1, {}, "Ariella Katz"), location: "Brooklyn" },
+      { ...shadchan(2, {}, "Zev Adler"), location: "Lakewood" },
+    ];
+
+    expect(
+      sortShadchanim(rows, { field: "name", order: "DESC" }).map(
+        (row) => row.name,
+      ),
+    ).toEqual(["Zev Adler", "Ariella Katz"]);
+    expect(
+      sortShadchanim(rows, { field: "location", order: "ASC" }).map(
+        (row) => row.location,
+      ),
+    ).toEqual(["Brooklyn", "Lakewood"]);
+    expect(
+      sortShadchanim(rows, { field: "location", order: "DESC" }).map(
+        (row) => row.location,
+      ),
+    ).toEqual(["Lakewood", "Brooklyn"]);
+  });
+});
 
 describe("capitalizeName", () => {
   it("capitalizes the first letter of each lower-case word without lower-casing the rest", () => {
