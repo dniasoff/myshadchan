@@ -1,0 +1,5 @@
+A new version of Supabase CLI is available: v3.1.0 (currently installed v2.111.0)
+Diffing schemas...
+Finished supabase db diff on branch main.
+
+No schema changes found

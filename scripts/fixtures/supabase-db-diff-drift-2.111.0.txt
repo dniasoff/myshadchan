@@ -1,0 +1,5 @@
+Diffing schemas...
+Finished supabase db diff on branch main.
+
+alter table "public"."members" drop column "legacy_name";
+No schema changes found

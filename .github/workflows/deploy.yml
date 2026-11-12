@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,10 +17,167 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # This job is the only gate in front of hosted mutations. It checks the
+  # actual linked migration history, not the push's before SHA: queued runs can
+  # contain every migration still pending on the hosted project.
+  deploy-preflight:
+    name: 🧭 Deploy preflight and backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      baseline: ${{ steps.remote_migrations.outputs.baseline }}
+      heavy: ${{ steps.remote_migrations.outputs.heavy }}
+      workers: ${{ steps.worker_list.outputs.workers }}
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      RESEND_FROM: ${{ secrets.RESEND_FROM }}
+      UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+      UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+      ADMIN_RESEED_SECRET: ${{ secrets.ADMIN_RESEED_SECRET }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      STRIPE_PRICE_ID_QUARTERLY: ${{ secrets.STRIPE_PRICE_ID_QUARTERLY }}
+      STRIPE_PRICE_ID_YEARLY: ${{ secrets.STRIPE_PRICE_ID_YEARLY }}
+      APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
+      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      GOOGLE_AI_STUDIO_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
+      VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: 🔐 Validate required deploy secrets
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_ID \
+            SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_PUBLISHABLE_KEY \
+            CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID \
+            RESEND_API_KEY RESEND_FROM UPSTASH_REDIS_REST_URL \
+            UPSTASH_REDIS_REST_TOKEN ADMIN_RESEED_SECRET \
+            STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET \
+            STRIPE_PRICE_ID_QUARTERLY STRIPE_PRICE_ID_YEARLY APP_ORIGIN \
+            AI_GATEWAY_ACCOUNT_ID AI_GATEWAY_ID GOOGLE_AI_STUDIO_API_KEY \
+            VERCEL_DEPLOY_HOOK_URL; do
+            [ -n "${!name:-}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::deploy is blocked; missing required secret(s): ${missing[*]}"
+            echo "The workflow will not partially deploy Supabase, Workers, or Vercel." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: ⚙️ Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: 🏷️ Read pinned Supabase CLI version
+        id: supabase_cli_version
+        run: |
+          version="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("package.json", "utf8")).devDependencies.supabase)')"
+          test -n "$version" || { echo "::error::package.json does not pin Supabase CLI"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: ⚙️ Setup supabase
+        uses: supabase/setup-cli@689adcfb80d947100a1eab127289b97d1fb07b13 # v3.2.0
+        with:
+          # 2.112.0 rejects the hosted Management API's current inserted_at
+          # timestamp shape during `supabase link`; lift this pin only after a
+          # non-production linked-project dry run proves the hosted history is
+          # read correctly by the newer CLI.
+          version: ${{ steps.supabase_cli_version.outputs.version }}
+
+      - name: 📥 Download deps
+        run: npm ci
+
+      - name: 🔗 Link hosted project for read-only preflight
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: 🧭 Resolve hosted migration baseline and pending set
+        id: remote_migrations
+        run: |
+          set -euo pipefail
+          remote_json="$RUNNER_TEMP/remote-migrations.json"
+          dry_run="$RUNNER_TEMP/db-push-dry-run.txt"
+          supabase migration list --linked --output-format json > "$remote_json"
+          # This is explicitly read-only. It exercises the same linked history
+          # that `db push` will use, while migration list supplies the exact
+          # last-applied version for the non-empty-table guard.
+          supabase db push --dry-run --yes > "$dry_run"
+          result="$(node scripts/resolve-remote-migrations.mjs < "$remote_json")"
+          baseline="$(jq -r '.baseline' <<< "$result")"
+          pending_count="$(jq -r '.pending | length' <<< "$result")"
+          test "$baseline" != null -a "$baseline" != ""
+          if [ "$pending_count" -gt 0 ]; then
+            heavy=true
+            echo "Migration preflight enabled: $pending_count hosted migration(s) are pending."
+          else
+            heavy=false
+            echo "Migration preflight found no hosted migrations pending."
+          fi
+          {
+            echo "baseline=$baseline"
+            echo "heavy=$heavy"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Hosted migration preflight"
+            echo "- Last remotely applied migration: \`$baseline\`"
+            echo "- Pending migration count: \`$pending_count\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 🧾 Resolve deploy worker matrix
+        id: worker_list
+        run: |
+          workers="$(node scripts/deploy-worker-list.mjs)"
+          {
+            echo "workers<<WORKERS_JSON"
+            echo "$workers"
+            echo "WORKERS_JSON"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 🧬 Start preflight Supabase stack
+        if: ${{ steps.remote_migrations.outputs.heavy == 'true' }}
+        run: make start-supabase-e2e
+
+      - name: 🧬 Check pending migrations against populated baseline
+        if: ${{ steps.remote_migrations.outputs.heavy == 'true' }}
+        run: node scripts/check-migration-data-safety.mjs --baseline "${{ steps.remote_migrations.outputs.baseline }}"
+
+      - name: 🛑 Stop preflight Supabase stack
+        if: ${{ always() && steps.remote_migrations.outputs.heavy == 'true' }}
+        run: make stop-supabase-e2e || true
+
+      - name: 💾 Back up linked Supabase database to private R2
+        if: ${{ steps.remote_migrations.outputs.heavy == 'true' }}
+        uses: ./.github/actions/supabase-backup
+        with:
+          supabase-access-token: ${{ env.SUPABASE_ACCESS_TOKEN }}
+          supabase-db-password: ${{ env.SUPABASE_DB_PASSWORD }}
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET }}
+
   deploy-supabase:
     name: 🚀 Deploy (supabase)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    needs: deploy-preflight
 
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -49,7 +210,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: ⚙️ Setup supabase
-        uses: supabase/setup-cli@v3
+        uses: supabase/setup-cli@689adcfb80d947100a1eab127289b97d1fb07b13 # v3.2.0
         with:
           # 2.112.0 rejects the hosted Management API's current inserted_at
           # timestamp shape during `supabase link`; 2.111.0 is the last
@@ -58,34 +219,6 @@ jobs:
 
       - name: 📥 Download deps
         run: npm ci
-
-      - name: 🧭 Decide whether the migration preflight is needed
-        id: migration_scope
-        run: |
-          set -euo pipefail
-          base="${{ github.event.before }}"
-          if [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
-            echo "heavy=true" >> "$GITHUB_OUTPUT"
-            echo "Migration preflight enabled: push base is unavailable." >> "$GITHUB_STEP_SUMMARY"
-          elif git diff --quiet "$base" "$GITHUB_SHA" -- supabase/migrations supabase/schemas; then
-            echo "heavy=false" >> "$GITHUB_OUTPUT"
-            echo "Migration preflight skipped: no migration or declarative-schema changes in this push." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "heavy=true" >> "$GITHUB_OUTPUT"
-            echo "Migration preflight enabled: migrations or declarative schemas changed." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      # Run the same non-empty-table migration guard as pull requests, against
-      # the previous deployed commit, before touching the hosted project. This
-      # uses only the runner's disposable local Supabase stack.
-      - if: ${{ env.IS_SUPABASE_CONFIGURED && steps.migration_scope.outputs.heavy == 'true' }}
-        name: 🧬 Preflight migration data-safety (local, non-empty table)
-        run: |
-          set -euo pipefail
-          status=0
-          trap 'stop_status=$?; make stop-supabase-e2e || stop_status=$?; exit "$((status || stop_status))"' EXIT
-          make start-supabase-e2e
-          node scripts/check-migration-data-safety.mjs --base-ref "${{ github.event.before }}"
 
       # The `version:` pin on setup-cli above is only real if these steps call
       # the binary it installed. They used to call `npx supabase`, which
@@ -102,21 +235,7 @@ jobs:
 
       - if: ${{ env.IS_SUPABASE_CONFIGURED }}
         name: 🔗 Supabase Link
-        run: supabase link --project-ref $SUPABASE_PROJECT_ID
-
-      # Capture a recoverable SQL dump in the same private R2 bucket and
-      # restore shape as backup.yml. A dump/upload failure stops this job
-      # before the Auth Hook PATCH or db push.
-      - if: ${{ env.IS_SUPABASE_CONFIGURED && steps.migration_scope.outputs.heavy == 'true' }}
-        name: 💾 Back up linked Supabase database to private R2
-        uses: ./.github/actions/supabase-backup
-        with:
-          supabase-access-token: ${{ env.SUPABASE_ACCESS_TOKEN }}
-          supabase-db-password: ${{ env.SUPABASE_DB_PASSWORD }}
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ secrets.R2_BUCKET }}
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
 
       # The before_user_created Auth Hook is RETIRED. It ran check_signup_age()
       # to 403 a signup that had not affirmed 18+; the affirmation is now made
@@ -262,7 +381,7 @@ jobs:
         name: Admin reseed secret NOT pushed
         run: |
           echo '::warning::ADMIN_RESEED_SECRET repo secret is missing.'
-          echo ':rotating_light: **ADMIN_RESEED_SECRET not pushed.** The deployed `admin_reseed_demo_accounts` function will return `401` on every request until the secret is set.' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' ":rotating_light: **ADMIN_RESEED_SECRET not pushed.** The deployed \`admin_reseed_demo_accounts\` function will return \`401\` on every request until the secret is set." >> "$GITHUB_STEP_SUMMARY"
 
       - if: ${{ env.IS_SUPABASE_CONFIGURED }}
         name: 📡 Deploy supabase functions
@@ -323,11 +442,6 @@ jobs:
               echo "🧹 Deleted orphaned edge function \`$slug\` — no longer declared in \`supabase/functions/\`." >> "$GITHUB_STEP_SUMMARY"
           done
 
-      - if: ${{ !env.IS_SUPABASE_CONFIGURED }}
-        name: Supabase deployment skipped
-        run: |
-          echo ':warning: Supabase deployment skipped — missing SUPABASE_ACCESS_TOKEN / SUPABASE_DB_PASSWORD / SUPABASE_PROJECT_ID secret' >> $GITHUB_STEP_SUMMARY
-
   deploy-workers:
     name: 🚀 Deploy (Cloudflare Workers · ${{ matrix.worker }})
     runs-on: ubuntu-latest
@@ -338,7 +452,7 @@ jobs:
     # failed migration still shipped all seven workers, `billing` and `ai`
     # included. Gating them on deploy-supabase means backend code never goes
     # live against a schema that failed to apply.
-    needs: deploy-supabase
+    needs: [deploy-preflight, deploy-supabase]
 
     # `billing` WAS withheld from this matrix (worker-audit, 2026-08-02):
     #   - billing: publishes an unauthenticated POST /webhook on a public
@@ -385,7 +499,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        worker: [ingest, parse, match, ai, cron, share, billing]
+        worker: ${{ fromJSON(needs.deploy-preflight.outputs.workers) }}
 
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -481,7 +595,7 @@ jobs:
         name: 🚨 Cloudflare Workers deployment FAILED
         run: |
           echo "::error::deployment failed for ${{ matrix.worker }} — see the failed step above for the exact error (commonly an invalid/expired/under-scoped CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID, or — for ai/parse — a required secret that was never configured)."
-          echo ':rotating_light: **Cloudflare Workers deployment FAILED (`${{ matrix.worker }}`).** See the failed step above for the exact error. This worker was **NOT** deployed. `trigger-frontend` still runs once `deploy-supabase` succeeds — a Cloudflare problem does not block the frontend.' >> "$GITHUB_STEP_SUMMARY"
+          echo ":rotating_light: **Cloudflare Workers deployment FAILED (${{ matrix.worker }}).** See the failed step above for the exact error. This worker was **NOT** deployed. trigger-frontend still runs once deploy-supabase succeeds — a Cloudflare problem does not block the frontend." >> "$GITHUB_STEP_SUMMARY"
 
       # External review Finding 2 (2026-08-06): SUPABASE_URL /
       # SUPABASE_SERVICE_ROLE_KEY / SUPABASE_PUBLISHABLE_KEY (both `ai` and
@@ -541,8 +655,8 @@ jobs:
 
           echo "::error::${{ matrix.worker }} is missing required secret(s): ${missing[*]}"
           {
-            echo ":rotating_light: **\`${{ matrix.worker }}\` was NOT deployed — missing required secret(s): \`${missing[*]}\`.**"
-            echo 'This Worker cannot serve its route(s) without them (see this step'"'"'s comment in `.github/workflows/deploy.yml` for why each one is required). Set the missing repo secret(s) and re-run.'
+            echo ":rotating_light: **${{ matrix.worker }} was NOT deployed — missing required secret(s): ${missing[*]}.**"
+            echo "This Worker cannot serve its route(s) without them; see this step's comment in .github/workflows/deploy.yml for why each one is required. Set the missing repo secret(s) and re-run."
           } >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
@@ -628,7 +742,7 @@ jobs:
       - if: ${{ !env.IS_CLOUDFLARE_CONFIGURED }}
         name: Cloudflare deployment skipped
         run: |
-          echo ':warning: Cloudflare Workers deployment skipped (${{ matrix.worker }}) — missing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secret' >> $GITHUB_STEP_SUMMARY
+          echo ':warning: Cloudflare Workers deployment skipped (${{ matrix.worker }}) — missing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secret' >> "$GITHUB_STEP_SUMMARY"
 
   # The frontend used to deploy on a pipeline entirely OUTSIDE this workflow:
   # Vercel built from its own git integration on the same push that ran
@@ -683,12 +797,10 @@ jobs:
   # `deploy-workers` (job stays red; see the 🚨 step there) — this job does
   # not paper over it, it just declines to let it cascade.
   #
-  # GUARD: if VERCEL_DEPLOY_HOOK_URL is ever absent (secret rotated away,
-  # restored-from-backup repo) this job does NOT fail the run — it warns
-  # loudly. Failing every deploy over a missing optional secret would be worse
-  # than the race being fixed. But note the consequence while it is missing:
-  # `vercel.json` still blocks the git build, so production simply does not
-  # deploy. The warning says exactly that.
+  # VERCEL_DEPLOY_HOOK_URL is required by deploy-preflight. There is no Vercel
+  # API token in the existing secret set, so this workflow can prove that the
+  # hook accepted the current commit trigger but cannot prove completion or
+  # deployment identity. The smoke summary says that plainly.
   #
   # Rejected: building the frontend inside CI (`vercel deploy --prebuilt
   # --prod`) costs three more secrets, reconfigures PR previews and loses
@@ -717,19 +829,22 @@ jobs:
       VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
 
     steps:
-      - if: ${{ env.VERCEL_DEPLOY_HOOK_URL }}
-        name: 🚀 Trigger the Vercel production build (backends are live)
+      - name: 🚀 Trigger the Vercel production build (backends are live)
         run: |
-          curl -sS --fail-with-body -X POST "$VERCEL_DEPLOY_HOOK_URL" \
+          set -euo pipefail
+          test -n "$VERCEL_DEPLOY_HOOK_URL" || { echo "::error::VERCEL_DEPLOY_HOOK_URL is missing; frontend deploy is blocked"; exit 1; }
+          curl -sS --fail-with-body --retry 5 --retry-delay 5 --retry-max-time 90 \
+              -X POST "$VERCEL_DEPLOY_HOOK_URL" \
               -o /tmp/vercel-hook.json \
-              || { echo "::error::Vercel deploy hook failed — production was NOT rebuilt and is still on the previous build"; head -c 2000 /tmp/vercel-hook.json >&2; exit 1; }
-          echo "🚀 Vercel production build triggered — migrations, edge functions and workers all landed first." >> "$GITHUB_STEP_SUMMARY"
-
-      - if: ${{ !env.VERCEL_DEPLOY_HOOK_URL }}
-        name: ⚠️ Frontend deploy trigger is not configured
-        run: |
-          echo '::warning::VERCEL_DEPLOY_HOOK_URL secret is missing — the frontend was NOT deployed.'
-          echo ':rotating_light: **The frontend was NOT deployed.** `vercel.json` sets `git.deploymentEnabled.main = false`, so Vercel no longer builds on push; this job is what replaces it, and it needs the `VERCEL_DEPLOY_HOOK_URL` repo secret. Recreate the hook (Vercel → Project → Settings → Git → Deploy Hooks, branch `main`) and store its URL as that secret. Production is still serving the last successful build.' >> $GITHUB_STEP_SUMMARY
+              || { echo "::error::Vercel deploy hook failed — production was NOT rebuilt"; head -c 2000 /tmp/vercel-hook.json >&2; exit 1; }
+          test -s /tmp/vercel-hook.json || { echo "::error::Vercel deploy hook returned an empty response"; exit 1; }
+          hook_job_id="$(jq -r '.job.id // .id // empty' /tmp/vercel-hook.json 2>/dev/null || true)"
+          if [ -n "$hook_job_id" ]; then
+            echo "🚀 Vercel accepted hook job $hook_job_id for $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "🚀 Vercel accepted the production hook for $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "⚠️ Frontend completion and deployment identity are not verified: no Vercel API token exists in the current secret set." >> "$GITHUB_STEP_SUMMARY"
 
   # Keep the existing provider jobs independent, but make their combined
   # outcome explicit. This job never writes to a provider: it checks the job
@@ -740,7 +855,7 @@ jobs:
     name: 🚦 Post-deploy smoke and completeness
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [deploy-supabase, deploy-workers, trigger-frontend]
+    needs: [deploy-preflight, deploy-supabase, deploy-workers, trigger-frontend]
     if: ${{ always() }}
 
     env:
@@ -748,6 +863,8 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      DEPLOYED_WORKERS: ${{ needs.deploy-preflight.outputs.workers }}
       SUPABASE_RESULT: ${{ needs.deploy-supabase.result }}
       WORKERS_RESULT: ${{ needs.deploy-workers.result }}
       FRONTEND_RESULT: ${{ needs.trigger-frontend.result }}
@@ -758,9 +875,9 @@ jobs:
           set -u
           {
             echo '## Deployment completeness'
-            echo "- Supabase job: `$SUPABASE_RESULT`"
-            echo "- Workers job: `$WORKERS_RESULT`"
-            echo "- Frontend job: `$FRONTEND_RESULT`"
+            echo "- Supabase job: \`$SUPABASE_RESULT\`"
+            echo "- Workers job: \`$WORKERS_RESULT\`"
+            echo "- Frontend job: \`$FRONTEND_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
           failed=0
@@ -779,11 +896,14 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$SUPABASE_PROJECT_ID" || { echo "::error::SUPABASE_PROJECT_ID is missing; cannot smoke-test Supabase"; exit 1; }
+          test -n "$SUPABASE_PUBLISHABLE_KEY" || { echo "::error::SUPABASE_PUBLISHABLE_KEY is missing; cannot authenticate Supabase health check"; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::CLOUDFLARE_API_TOKEN is missing; cannot verify the deployed worker list"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::CLOUDFLARE_ACCOUNT_ID is missing; cannot verify the deployed worker list"; exit 1; }
           test -n "$APP_ORIGIN" || { echo "::error::APP_ORIGIN is missing; cannot smoke-test the application entry point"; exit 1; }
+          test -n "$DEPLOYED_WORKERS" || { echo "::error::deploy worker matrix output is missing"; exit 1; }
 
-          curl --fail-with-body --retry 3 --retry-all-errors --max-time 20 \
+          curl --fail-with-body --retry 5 --retry-all-errors --retry-delay 5 --retry-max-time 90 --connect-timeout 10 --max-time 20 \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \
             "https://${SUPABASE_PROJECT_ID}.supabase.co/auth/v1/health" \
             -o /tmp/supabase-health.json
           echo '✅ Supabase auth health returned 200.' >> "$GITHUB_STEP_SUMMARY"
@@ -791,28 +911,25 @@ jobs:
           scripts_json="$(curl --fail-with-body --retry 3 --retry-all-errors --max-time 20 \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts")"
-          workers=(
-            myshadchan-ingest
-            myshadchan-parse
-            myshadchan-match
-            myshadchan-ai
-            myshadchan-cron
-            myshadchan-share
-            myshadchan-billing
-          )
+          mapfile -t worker_names < <(jq -r '.[]' <<<"$DEPLOYED_WORKERS")
+          test "${#worker_names[@]}" -gt 0 || { echo "::error::deploy worker matrix is empty"; exit 1; }
+          workers=()
+          for worker_name in "${worker_names[@]}"; do
+            workers+=("myshadchan-$worker_name")
+          done
           for worker in "${workers[@]}"; do
             if ! jq -e --arg worker "$worker" \
               'any(.result[]?; ((.id // .name) == $worker))' <<<"$scripts_json" >/dev/null; then
               echo "::error::deployed worker list is missing $worker"
               exit 1
             fi
-            curl --fail-with-body --retry 3 --retry-all-errors --max-time 20 \
+            curl --fail-with-body --retry 5 --retry-all-errors --retry-delay 5 --retry-max-time 90 --connect-timeout 10 --max-time 20 \
               "https://${worker}.myshadchan.workers.dev/health" \
               -o "/tmp/${worker}-health.json"
             echo "✅ $worker is present and its /health endpoint returned 200." >> "$GITHUB_STEP_SUMMARY"
           done
 
-          status="$(curl --silent --show-error --retry 3 --retry-all-errors --max-time 20 \
+          status="$(curl --silent --show-error --fail-with-body --location --retry 5 --retry-all-errors --retry-delay 5 --retry-max-time 90 --connect-timeout 10 --max-time 20 \
             -o /tmp/app-entry.html -w '%{http_code}' "$APP_ORIGIN")"
           test "$status" = 200 || { echo "::error::application entry point returned HTTP $status"; exit 1; }
           echo "✅ Application entry point $APP_ORIGIN returned 200." >> "$GITHUB_STEP_SUMMARY"
