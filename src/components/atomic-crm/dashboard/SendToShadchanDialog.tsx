@@ -734,6 +734,7 @@ export function SendToShadchanDialog({
                       <RadioGroupItem
                         value={option.channel}
                         id={`send-channel-${option.channel}`}
+                        aria-label={option.label}
                         disabled={!option.contact}
                         aria-describedby={reasonId}
                       />
@@ -785,6 +786,7 @@ export function SendToShadchanDialog({
                   <div className="flex items-start gap-3 rounded-md border p-3">
                     <Checkbox
                       id="send-resume"
+                      aria-label="Resume"
                       checked={resumeSelected}
                       disabled={!latestFile}
                       onCheckedChange={(checked) => {
@@ -810,6 +812,7 @@ export function SendToShadchanDialog({
                   <div className="flex items-start gap-3 rounded-md border p-3">
                     <Checkbox
                       id="send-photo"
+                      aria-label="Photo"
                       checked={photoSelected}
                       disabled={!newestEligiblePhoto || Boolean(photosError)}
                       onCheckedChange={(checked) => {
