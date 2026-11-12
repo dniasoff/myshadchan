@@ -85,6 +85,7 @@ const olderSharedPhoto: ResumePhoto = {
 const privatePhoto: ResumePhoto = {
   ...newestSharedPhoto,
   id: 45,
+  path: "1/photos/private/single-11/00000000-0000-0000-0000-000000000045-private-parent.png",
   uploaded_at: "2026-01-05T00:00:00Z",
   visibility: "private_parent",
 };
@@ -259,13 +260,7 @@ describe("SendToShadchanDialog", () => {
     await expect
       .element(screen.getByText("photo-family.png · image/png"))
       .toBeVisible();
-    await expect
-      .element(
-        screen.getByText(
-          "old.jpg · image/jpeg · Size unavailable until download",
-        ),
-      )
-      .not.toBeInTheDocument();
+    await expect.element(screen.getByText("old.jpg")).not.toBeInTheDocument();
 
     await chooseRecipientAndChannel(screen);
     expect(dataProvider.signResumeFileUrl).not.toHaveBeenCalled();
@@ -284,6 +279,10 @@ describe("SendToShadchanDialog", () => {
         (file) => file.name,
       ),
     ).toEqual(["Miriam-Cohen-resume.pdf", "photo-family.png"]);
+    expect(dataProvider.signResumePhotoUrl).toHaveBeenCalledTimes(1);
+    expect(dataProvider.signResumePhotoUrl).toHaveBeenCalledWith({
+      storagePath: newestSharedPhoto.path,
+    });
     expect(create).toHaveBeenCalledWith("outbound_share_history", {
       data: {
         single_id: single.id,
@@ -631,7 +630,7 @@ describe("SendToShadchanDialog", () => {
       value: vi.fn(),
       configurable: true,
     });
-    vi.spyOn(window, "open").mockReturnValue(null);
+    vi.spyOn(window, "open").mockReturnValue({ opener: null } as Window);
     const click = vi
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => undefined);
@@ -675,7 +674,9 @@ describe("SendToShadchanDialog", () => {
     const click = vi
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => undefined);
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const open = vi
+      .spyOn(window, "open")
+      .mockReturnValue({ opener: null } as Window);
     const { dataProvider } = buildDataProvider();
     const screen = await renderDialog(dataProvider);
     await chooseRecipientAndChannel(screen);
@@ -732,6 +733,15 @@ describe("SendToShadchanDialog", () => {
     button.click();
 
     await expect.poll(() => share.mock.calls.length).toBe(1);
+    await expect
+      .element(screen.getByRole("combobox", { name: "Shadchan" }))
+      .toBeDisabled();
+    await expect
+      .element(screen.getByRole("radio", { name: "WhatsApp" }))
+      .toBeDisabled();
+    await expect
+      .element(screen.getByRole("checkbox", { name: "Photo" }))
+      .toBeDisabled();
     expect(dataProvider.signResumeFileUrl).toHaveBeenCalledTimes(1);
     expect(dataProvider.signResumePhotoUrl).toHaveBeenCalledTimes(1);
     releaseShare?.();
@@ -757,6 +767,35 @@ describe("SendToShadchanDialog", () => {
     vi.spyOn(window, "open").mockImplementation(() => {
       throw new Error("popup blocked");
     });
+    const { dataProvider } = buildDataProvider();
+    const screen = await renderDialog(dataProvider);
+    await chooseRecipientAndChannel(screen);
+    await screen
+      .getByRole("button", { name: "Download files and prepare message" })
+      .click();
+    await expect
+      .element(
+        screen
+          .getByText(
+            "The files were downloaded. Your message app did not open, so attach them manually.",
+          )
+          .first(),
+      )
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: "Copy message" }))
+      .toBeVisible();
+  });
+
+  it("shows manual recovery when WhatsApp's composer is blocked", async () => {
+    useViewerRoleMock.mockReturnValue({
+      role: "parent_admin",
+      isPending: false,
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+      () => undefined,
+    );
+    vi.spyOn(window, "open").mockReturnValue(null);
     const { dataProvider } = buildDataProvider();
     const screen = await renderDialog(dataProvider);
     await chooseRecipientAndChannel(screen);

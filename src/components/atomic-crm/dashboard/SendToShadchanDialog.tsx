@@ -424,7 +424,7 @@ export function SendToShadchanDialog({
     try {
       const popup = window.open(url, "_blank");
       if (popup) popup.opener = null;
-      return true;
+      return popup != null || !url.startsWith("https://wa.me/");
     } catch {
       return false;
     }
@@ -715,6 +715,7 @@ export function SendToShadchanDialog({
                   variant="ghost"
                   size="sm"
                   onClick={() => setShowKidPicker((visible) => !visible)}
+                  disabled={isPreparing}
                 >
                   Change kid
                 </Button>
@@ -729,6 +730,7 @@ export function SendToShadchanDialog({
                   </Label>
                   <Select
                     value={String(single.id)}
+                    disabled={isPreparing}
                     onValueChange={(value) => {
                       const nextSingle = singleOptions.find(
                         (option) => String(option.id) === value,
@@ -768,7 +770,9 @@ export function SendToShadchanDialog({
                 placeholder="Search shadchan"
                 value={shadchanSearch}
                 onChange={(event) => setShadchanSearch(event.target.value)}
-                disabled={isShadchanimPending || Boolean(shadchanimError)}
+                disabled={
+                  isPreparing || isShadchanimPending || Boolean(shadchanimError)
+                }
               />
               <Select
                 value={shadchanId ?? ""}
@@ -779,6 +783,7 @@ export function SendToShadchanDialog({
                   setErrorMessage(undefined);
                 }}
                 disabled={
+                  isPreparing ||
                   isShadchanimPending ||
                   Boolean(shadchanimError) ||
                   filteredShadchanim.length === 0
@@ -830,6 +835,7 @@ export function SendToShadchanDialog({
                   clearManualState();
                   setChannel(value as OutboundShareChannel);
                 }}
+                disabled={isPreparing}
                 className="gap-2"
               >
                 {channelOptions.map((option) => {
@@ -896,7 +902,7 @@ export function SendToShadchanDialog({
                       id="send-resume"
                       aria-label="Resume"
                       checked={resumeSelected}
-                      disabled={!latestFile}
+                      disabled={isPreparing || !latestFile}
                       onCheckedChange={(checked) => {
                         clearManualState();
                         setResumeSelected(checked === true);
@@ -926,7 +932,11 @@ export function SendToShadchanDialog({
                       id="send-photo"
                       aria-label="Photo"
                       checked={photoSelected}
-                      disabled={!newestEligiblePhoto || Boolean(photosError)}
+                      disabled={
+                        isPreparing ||
+                        !newestEligiblePhoto ||
+                        Boolean(photosError)
+                      }
                       onCheckedChange={(checked) => {
                         clearManualState();
                         setPhotoSelected(checked === true);
