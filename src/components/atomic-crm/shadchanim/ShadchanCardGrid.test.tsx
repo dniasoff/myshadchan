@@ -81,5 +81,11 @@ describe("ShadchanCardGrid — gates on the shidduchim count query, not just the
     await expect.element(screen.getByText("Moshe Adler")).toBeInTheDocument();
     await expect.element(screen.getByText("1 shidduch")).toBeInTheDocument();
     await expect.element(screen.getByText("0 shidduchim")).toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("link", { name: "Open Rivka Stern file" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("link", { name: "Open Moshe Adler file" }))
+      .toBeInTheDocument();
   });
 });
