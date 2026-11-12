@@ -25,6 +25,11 @@ Three gzipped files per run, which is Supabase's documented restore shape:
 A data-only dump cannot be restored without the roles and schema that precede
 it. Take all three from the same prefix; never mix prefixes.
 
+`pg_dump` may print a circular-foreign-key warning for the data-only dump.
+That warning is expected when the command succeeds; treat the backup as
+successful only when all three non-empty files from the same run are uploaded
+to R2. The restore order above is what makes the circular references loadable.
+
 First successful run: 2026-08-11T01:48Z (schema 57,523 bytes, data 19,588
 bytes, roles 187 bytes, gzipped).
 

@@ -2,10 +2,12 @@
 
 ## What the deploy does
 
-The `🚀 Deploy` workflow is serialized per branch with
+The `🚀 Deploy` workflow uses one production-wide concurrency group with
 `cancel-in-progress: false`. GitHub keeps only the newest pending run in a
 concurrency group, so rapid merges can collapse into the newest run; that run
-always deploys the current head of `main`.
+always deploys the current head of `main`. A manual dispatch is guarded to
+`main` and uses the same lock, so it cannot deploy an arbitrary branch or race
+with an automatic deploy.
 
 The first job validates every deploy secret, links the hosted project with the
 pinned CLI, reads the hosted migration history, and runs `db push --dry-run`.
@@ -14,8 +16,8 @@ migrations are pending, it creates a disposable local Supabase stack, runs the
 non-empty-table safety check against that exact hosted baseline, and then takes
 the private-R2 backup. A missing or malformed hosted history, an unavailable
 baseline, or any dry-run error fails closed: there is no green skip and no
-hosted mutation. The same preflight is used by `workflow_dispatch`, which is
-the safe manual re-run path.
+hosted mutation. The same preflight is used by a `main`-only
+`workflow_dispatch`, which is the safe manual re-run path.
 
 The same change scope takes a pre-mutation backup through the private R2
 bucket. The shared `.github/actions/supabase-backup` action writes roles,
@@ -45,10 +47,12 @@ After the Supabase, Workers and Vercel jobs finish, the final smoke job checks
 that all three job results succeeded, the seven Workers in the matrix are
 present in Cloudflare and answer `/health`, Supabase Auth health returns 200
 with the publishable key, and `APP_ORIGIN` follows redirects and returns 200.
-The Vercel hook is required. Without a Vercel API token in the existing secret
-set, the workflow can verify hook acceptance but explicitly cannot verify
-frontend completion or commit identity. A failed check makes the workflow red
-and writes the observed provider results and recovery links to the run summary.
+The Vercel hook is required. The frontend build emits `/version.json` from
+Vercel's `VERCEL_GIT_COMMIT_SHA`; the smoke polls it with a bounded deadline
+and requires the deployed commit to equal the workflow SHA. If Vercel omits
+that variable, the file is labelled `identity: unverified` and the summary
+says that identity was not verified. A failed check makes the workflow red and
+writes the observed provider results and recovery links to the run summary.
 It does not attempt an automatic rollback; pause further deploys and follow
 [failed-deploy.md](failed-deploy.md) and [database-restore.md](database-restore.md).
 

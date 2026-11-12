@@ -72,7 +72,7 @@ jobs:
         id: supabase_cli_version
         run: |
           version="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("package.json", "utf8")).devDependencies.supabase)')"
-          test -n "$version" || { echo "::error::package.json does not pin Supabase CLI"; exit 1; }
+          node -e 'if (!/^\d+\.\d+\.\d+$/.test(process.argv[1])) process.exit(1)' "$version" || { echo "::error::package.json must pin Supabase CLI to an exact semver"; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - if: steps.cfg.outputs.ready == 'true'
