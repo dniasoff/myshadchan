@@ -118,12 +118,13 @@ export function checkSchemaDrift(workdir) {
     );
   }
 
-  if (!isCleanSchemaDiff(stdout)) {
+  const output = [stdout, stderr].filter(Boolean).join("\n");
+  if (!isCleanSchemaDiff(output)) {
     throw new Error(
       "DECLARATIVE SCHEMA DRIFT DETECTED. The migrations do not converge to " +
         "supabase/schemas/. Review the diff below and fix the schema or add a " +
         "migration; do not accept a non-convergent diff.\n" +
-        [stdout, stderr].filter(Boolean).join("\n"),
+        output,
     );
   }
 
