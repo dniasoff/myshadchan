@@ -4,6 +4,7 @@ import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 
 import { Notification } from "@/components/admin/notification";
 
+import type { ParsedResumeResponse } from "../inbox/useParseResume";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 
@@ -256,7 +257,7 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
   });
 
   it("reads a PDF, fills only untouched fields, and keeps the fields editable", async () => {
-    let resolveParse!: (value: typeof parsedResume) => void;
+    let resolveParse!: (value: ParsedResumeResponse) => void;
     callAiWorker.mockReturnValue(
       new Promise((resolve) => {
         resolveParse = resolve;
@@ -294,7 +295,7 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
   });
 
   it("does not blank a typed field when the parser returns null for it", async () => {
-    let resolveParse!: (value: typeof parsedResume) => void;
+    let resolveParse!: (value: ParsedResumeResponse) => void;
     callAiWorker.mockReturnValue(
       new Promise((resolve) => {
         resolveParse = resolve;
@@ -439,6 +440,8 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     const { screen, dataProvider } = await renderShidduchCreate([
       "/shidduchim/new",
     ]);
+    const removeInboxAttachment =
+      dataProvider.removeInboxAttachment as unknown as ReturnType<typeof vi.fn>;
     const picker = screen.getByLabelText("Attach resume");
     await picker.upload(
       new File(["first"], "first.docx", {
@@ -455,10 +458,8 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       }),
     );
 
-    await expect
-      .poll(() => dataProvider.removeInboxAttachment.mock.calls.length)
-      .toBe(1);
-    expect(dataProvider.removeInboxAttachment).toHaveBeenCalledWith(
+    await expect.poll(() => removeInboxAttachment.mock.calls.length).toBe(1);
+    expect(removeInboxAttachment).toHaveBeenCalledWith(
       "1/inbox/700/resume.pdf",
     );
   });
@@ -468,6 +469,8 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
       "/shidduchim",
       "/shidduchim/new",
     ]);
+    const removeInboxAttachment =
+      dataProvider.removeInboxAttachment as unknown as ReturnType<typeof vi.fn>;
     await screen.getByLabelText("Attach resume").upload(
       new File(["resume"], "resume.docx", {
         type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -479,9 +482,7 @@ describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
     // TestMemoryRouter keeps the page mounted across the history change;
     // leaving the route in the real app unmounts it and runs the cleanup.
     screen.unmount();
-    await expect
-      .poll(() => dataProvider.removeInboxAttachment.mock.calls.length)
-      .toBe(1);
+    await expect.poll(() => removeInboxAttachment.mock.calls.length).toBe(1);
   });
 
   it("keeps the capture after submit starts if a later persistence step fails", async () => {
