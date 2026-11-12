@@ -4,6 +4,7 @@ import { useTranslate } from "ra-core";
 import type { ShidduchSummary } from "../types";
 import { TasksRailSummary } from "../entity360/tabs/TasksRailSummary";
 import { ForwardResumeButton } from "./ForwardResumeButton";
+import { ResumePrintButton } from "./ResumePrintButton";
 import { SingleInputPanel } from "./SingleInputPanel";
 
 /**
@@ -50,7 +51,10 @@ export function ShidduchRightRail({
         <TasksRailSummary targetType="shidduch" targetId={record.id} />
       </section>
       <section>
-        <ForwardResumeButton shidduchimId={record.id} />
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <ForwardResumeButton shidduchimId={record.id} />
+          <ResumePrintButton shidduchimId={record.id} />
+        </div>
       </section>
     </div>
   );

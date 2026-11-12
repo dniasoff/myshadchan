@@ -78,9 +78,10 @@ export function ForwardResumeButton({
   };
 
   return (
-    <div className="flex flex-col">
+    <div className="flex min-w-0 flex-1 flex-col">
       <Button
         type="button"
+        className="w-full"
         disabled={isPending || isSending || !latestFile}
         onClick={handleForward}
       >

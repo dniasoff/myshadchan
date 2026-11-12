@@ -356,6 +356,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/ResumePrintButton.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/RedtHistorySection.tsx",
           "type": "registry:component"
         },
@@ -621,6 +625,14 @@
         },
         {
           "path": "src/components/atomic-crm/resumes/resumeSharePayload.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/resumes/resumePrint.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/resumes/photoUpload.ts",
           "type": "registry:component"
         },
         {
