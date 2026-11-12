@@ -37,8 +37,25 @@ export function parseArgs(argv) {
  * declarative schema. Any other stdout is a diff and must fail the gate.
  */
 export function isCleanSchemaDiff(stdout) {
-  const trimmed = stdout.trim();
+  const trimmed = stdout.replace(/\u001b\[[0-?]*[ -\/]*[@-~]/g, "").trim();
   if (trimmed === CLEAN_MESSAGE || trimmed === `${CLEAN_MESSAGE}.`) return true;
+
+  // The CLI writes progress messages to stdout before its clean marker. Keep
+  // accepting that real transcript, but never let a SQL statement hide behind
+  // the marker. A diff is emitted as SQL; operational messages are not.
+  const lines = trimmed.split("\n").map((line) => line.trim());
+  const lastLine = lines.at(-1);
+  const hasSql = lines.some((line) =>
+    /^(?:alter|comment|create|delete|do|drop|grant|insert|revoke|set|truncate|update)\b/i.test(
+      line,
+    ),
+  );
+  if (
+    (lastLine === CLEAN_MESSAGE || lastLine === `${CLEAN_MESSAGE}.`) &&
+    !hasSql
+  ) {
+    return true;
+  }
 
   try {
     const result = JSON.parse(trimmed);
