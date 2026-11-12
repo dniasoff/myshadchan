@@ -111,8 +111,24 @@ describe("resumeUpload", () => {
     expect(
       friendlyResumeReadError(new Error("resume is password-protected")),
     ).toMatch(/password-protected/i);
-    expect(friendlyResumeReadError(new Error("could not open resume"))).toMatch(
-      /couldn’t open this Word file/i,
+    expect(
+      friendlyResumeReadError(
+        new Error("could not open resume"),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ),
+    ).toMatch(/couldn’t open this Word file/i);
+    expect(
+      friendlyResumeReadError(
+        new Error("could not open resume"),
+        "application/pdf",
+      ),
+    ).toBe(
+      "We couldn’t open this file. It may be damaged. Try saving it again or choose another file. You can still enter the details yourself.",
+    );
+    expect(
+      friendlyResumeReadError(new Error("could not open resume"), "image/jpeg"),
+    ).toBe(
+      "We couldn’t open this file. It may be damaged. Try saving it again or choose another file. You can still enter the details yourself.",
     );
     expect(friendlyResumeReadError(new Error("resume too long"))).toMatch(
       /too long/i,

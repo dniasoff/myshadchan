@@ -172,4 +172,22 @@ describe("validateAttachmentMagic", () => {
       ),
     ).toBe("password_protected");
   });
+
+  it("accepts a PDF header anywhere in the first 1024 bytes", () => {
+    const bytes = new Uint8Array(1024);
+    bytes.set(new TextEncoder().encode("\ufeff\n%PDF-1.7"), 0);
+
+    expect(validateAttachmentMagic(bytes.buffer, "application/pdf")).toBe("ok");
+  });
+
+  it.each(["heim", "heis", "hevm", "hevs", "avif"])(
+    "accepts the supported HEIF brand %s",
+    (brand) => {
+      const bytes = new Uint8Array(12);
+      bytes.set([0, 0, 0, 12, 0x66, 0x74, 0x79, 0x70]);
+      bytes.set(new TextEncoder().encode(brand), 8);
+
+      expect(validateAttachmentMagic(bytes.buffer, "image/heic")).toBe("ok");
+    },
+  );
 });

@@ -1,7 +1,7 @@
 import type { Identifier } from "ra-core";
 import { ImagePlus, Loader2, Paperclip, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, MutableRefObject } from "react";
 import {
   Form,
   useDataProvider,
@@ -69,13 +69,13 @@ function readNumberField(value: unknown): number | null {
 const DraftResetter = ({
   draft,
   onSnapshot,
-  restoreSnapshot,
-  onRestored,
+  snapshot,
+  onRevertRef,
 }: {
   draft: ParsedResumeResponse | null;
-  onSnapshot: (snapshot: Record<string, unknown>) => void;
-  restoreSnapshot?: Record<string, unknown> | null;
-  onRestored?: () => void;
+  onSnapshot: (snapshot: Record<string, unknown> | null) => void;
+  snapshot: Record<string, unknown> | null;
+  onRevertRef: MutableRefObject<(() => void) | null>;
 }) => {
   const { formState, getValues, setValue } =
     useFormContext<Record<string, unknown>>();
@@ -84,20 +84,23 @@ const DraftResetter = ({
   dirtyFieldsRef.current = formState.dirtyFields;
 
   useEffect(() => {
-    if (restoreSnapshot) {
-      for (const [field, value] of Object.entries(restoreSnapshot)) {
-        setValue(field, value, {
-          shouldDirty: false,
-          shouldTouch: false,
-          shouldValidate: false,
-        });
-      }
-      onRestored?.();
+    if (!draft) {
+      onRevertRef.current = null;
       return;
     }
-    if (!draft) return;
+    const snapshot = getValues();
+    const fieldsToFill = Object.entries(draft.fields).filter(
+      ([field, value]) => {
+        const currentValue = snapshot[field];
+        const isEmpty =
+          currentValue === null ||
+          currentValue === undefined ||
+          currentValue === "";
+        return isEmpty && value !== null && value !== "";
+      },
+    );
     if (snapshottedDraftRef.current !== draft) {
-      onSnapshot(getValues());
+      onSnapshot(fieldsToFill.length > 0 ? snapshot : null);
       snapshottedDraftRef.current = draft;
     }
     for (const [field, value] of Object.entries(draft.fields)) {
@@ -120,7 +123,30 @@ const DraftResetter = ({
         shouldValidate: false,
       });
     }
-  }, [draft, getValues, onRestored, onSnapshot, restoreSnapshot, setValue]);
+  }, [draft, getValues, onRevertRef, onSnapshot, setValue]);
+
+  useEffect(() => {
+    if (!draft || !snapshot) {
+      onRevertRef.current = null;
+      return;
+    }
+    onRevertRef.current = () => {
+      const currentValues = getValues();
+      for (const [field, value] of Object.entries(draft.fields)) {
+        if (value === null || value === "" || currentValues[field] !== value) {
+          continue;
+        }
+        setValue(field, snapshot[field], {
+          shouldDirty: false,
+          shouldTouch: false,
+          shouldValidate: false,
+        });
+      }
+    };
+    return () => {
+      onRevertRef.current = null;
+    };
+  }, [draft, getValues, onRevertRef, setValue, snapshot]);
 
   return null;
 };
@@ -167,6 +193,9 @@ const ResumeUploadPanel = ({
   onEnterDetails,
   selectionError,
   onChooseAnother,
+  undoSnapshot,
+  onUndo,
+  showOriginalNote,
 }: {
   file: File | null;
   disabled: boolean;
@@ -179,6 +208,9 @@ const ResumeUploadPanel = ({
   onEnterDetails: () => void;
   selectionError: string | null;
   onChooseAnother: () => void;
+  undoSnapshot: Record<string, unknown> | null;
+  onUndo: () => void;
+  showOriginalNote: boolean;
 }) => {
   const messageRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -196,6 +228,7 @@ const ResumeUploadPanel = ({
 
   return (
     <section
+      aria-label="Resume upload"
       className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-secondary/30 p-4 sm:p-5"
       aria-busy={isParsing}
     >
@@ -208,10 +241,22 @@ const ResumeUploadPanel = ({
             PDF, Word (.docx or .doc), JPG, PNG, HEIC or WebP · up to 8 MB. We
             keep the original file.
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Older Word files (.doc) can be attached, but cannot be read for
-            auto-fill yet.
-          </p>
+          <div className="mt-1 text-xs text-muted-foreground">
+            <span>
+              Older Word files (.doc) can be attached, but cannot be read for
+              auto-fill yet.
+            </span>
+            {file?.type === "application/msword" && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="ms-2 h-9 px-2"
+                onClick={onChooseAnother}
+              >
+                Upload a .docx or PDF
+              </Button>
+            )}
+          </div>
         </div>
         <Button
           type="button"
@@ -279,6 +324,11 @@ const ResumeUploadPanel = ({
           tabIndex={-1}
           className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
           role={messageIsError ? "alert" : "status"}
+          aria-label={
+            messageIsError
+              ? "Resume auto-fill error"
+              : "Resume auto-fill result"
+          }
           aria-live={messageIsError ? undefined : "polite"}
         >
           <Sparkles className="size-4" aria-hidden="true" />
@@ -308,6 +358,12 @@ const ResumeUploadPanel = ({
           </Button>
         </div>
       )}
+      {showOriginalNote && (
+        <p className="text-sm text-muted-foreground" role="status">
+          The original file is still attached and unchanged.
+        </p>
+      )}
+      <AutoFillUndo snapshot={undoSnapshot} onUndo={onUndo} />
     </section>
   );
 };
@@ -546,10 +602,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
     unknown
   > | null>(null);
   const [isSubmitStarted, setIsSubmitStarted] = useState(false);
-  const [restoreSnapshot, setRestoreSnapshot] = useState<Record<
-    string,
-    unknown
-  > | null>(null);
+  const [resumeRetryCount, setResumeRetryCount] = useState(0);
   const [resumeMessage, setResumeMessage] = useState<string | null>(null);
   const [resumeMessageIsError, setResumeMessageIsError] = useState(false);
   const [resumeSelectionError, setResumeSelectionError] = useState<
@@ -562,6 +615,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const attemptedCaptureId = useRef<Identifier | null>(null);
+  const revertAutoFilledFieldsRef = useRef<(() => void) | null>(null);
   // Once resolution starts, keep the capture even if a later persistence step
   // fails. The suggestion may already exist, and the uploaded resume is the
   // only copy available for a retry.
@@ -628,6 +682,8 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
       return;
     }
     setResumeSelectionError(null);
+    if (resumeCapture) submittedCaptureId.current = null;
+    revertAutoFilledFieldsRef.current?.();
 
     const mimeType = resumeMimeType(selected);
     const file =
@@ -664,6 +720,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
       );
       setResumeFile(file);
       attemptedCaptureId.current = null;
+      setResumeRetryCount(0);
       setResumeCapture(updatedItem ?? { ...item, attachments: [attachment] });
       setParsedDraft(null);
       setDraftSnapshot(null);
@@ -738,13 +795,20 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
       })
       .catch((error: unknown) => {
         if (!active) return;
-        setResumeMessage(friendlyResumeReadError(error));
+        setResumeMessage(friendlyResumeReadError(error, mimeType));
         setResumeMessageIsError(true);
       });
     return () => {
       active = false;
     };
-  }, [isEntitled, isEntitlementLoading, parse, resumeCapture, resumeFile]);
+  }, [
+    isEntitled,
+    isEntitlementLoading,
+    parse,
+    resumeCapture,
+    resumeFile,
+    resumeRetryCount,
+  ]);
 
   const onSubmit = async (values: Record<string, unknown>) => {
     if (isUploading || isParsing) {
@@ -817,6 +881,7 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
       refresh();
       redirect(buildListPath("shidduchim"));
     } catch (error) {
+      setIsSubmitStarted(false);
       notify(friendlySuggestionSubmitError(error), { type: "error" });
     }
   };
@@ -847,8 +912,19 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
           onChooseAnother={() =>
             document.getElementById("suggestion-resume")?.click()
           }
+          undoSnapshot={draftSnapshot}
+          showOriginalNote={Boolean(parsedDraft)}
+          onUndo={() => {
+            setParsedDraft(null);
+            setDraftSnapshot(null);
+            setResumeMessage(
+              "Auto-fill undone. The original file is still attached and unchanged.",
+            );
+            setResumeMessageIsError(false);
+          }}
           onTryAgain={() => {
             attemptedCaptureId.current = null;
+            setResumeRetryCount((count) => count + 1);
             setResumeMessage(null);
             setResumeMessageIsError(false);
           }}
@@ -857,35 +933,15 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
             setResumeMessageIsError(false);
           }}
           onRemove={() => {
-            if (
-              isUploading ||
-              isParsing ||
-              isSubmitStarted ||
-              submittedCaptureId.current === resumeCapture?.id
-            ) {
+            if (isUploading || isParsing || isSubmitStarted) {
               return;
             }
-            if (draftSnapshot) setRestoreSnapshot(draftSnapshot);
+            submittedCaptureId.current = null;
+            revertAutoFilledFieldsRef.current?.();
             setResumeFile(null);
             setResumeCapture(null);
             setParsedDraft(null);
             setResumeMessage(null);
-            setResumeMessageIsError(false);
-          }}
-        />
-        {parsedDraft && (
-          <p className="text-sm text-muted-foreground" role="status">
-            The original file is still attached and unchanged.
-          </p>
-        )}
-        <AutoFillUndo
-          snapshot={draftSnapshot}
-          onUndo={() => {
-            setParsedDraft(null);
-            setDraftSnapshot(null);
-            setResumeMessage(
-              "Auto-fill undone. The original file is still attached and unchanged.",
-            );
             setResumeMessageIsError(false);
           }}
         />
@@ -904,11 +960,8 @@ export const ShidduchCreate = ({ singleId }: { singleId?: Identifier }) => {
         <DraftResetter
           draft={parsedDraft}
           onSnapshot={setDraftSnapshot}
-          restoreSnapshot={restoreSnapshot}
-          onRestored={() => {
-            setRestoreSnapshot(null);
-            setDraftSnapshot(null);
-          }}
+          snapshot={draftSnapshot}
+          onRevertRef={revertAutoFilledFieldsRef}
         />
         <ShidduchInputs
           onCreateShadchan={handleCreateShadchan}

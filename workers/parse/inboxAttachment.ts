@@ -61,6 +61,23 @@ function startsWith(bytes: Uint8Array, signature: number[]): boolean {
   return signature.every((byte, index) => bytes[index] === byte);
 }
 
+function hasSignatureWithin(
+  bytes: Uint8Array,
+  signature: number[],
+  maxOffsetExclusive: number,
+): boolean {
+  const lastOffset = Math.min(
+    maxOffsetExclusive - 1,
+    bytes.length - signature.length,
+  );
+  for (let offset = 0; offset <= lastOffset; offset += 1) {
+    if (signature.every((byte, index) => bytes[offset + index] === byte)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function hasEncryptedPackage(bytes: Uint8Array): boolean {
   const marker = new Uint8Array(
     Array.from("EncryptedPackage", (character) =>
@@ -96,7 +113,7 @@ export function validateAttachmentMagic(
     return startsWith(data, [0x50, 0x4b, 0x03, 0x04]) ? "ok" : "malformed";
   }
   if (mimeType === "application/pdf") {
-    return startsWith(data, [0x25, 0x50, 0x44, 0x46, 0x2d])
+    return hasSignatureWithin(data, [0x25, 0x50, 0x44, 0x46, 0x2d], 1024)
       ? "ok"
       : "malformed";
   }
@@ -117,7 +134,7 @@ export function validateAttachmentMagic(
   if (mimeType === "image/heic" || mimeType === "image/heif") {
     const brand = new TextDecoder().decode(data.slice(8, 12));
     return startsWith(data.slice(4), [0x66, 0x74, 0x79, 0x70]) &&
-      /^(heic|heix|hevc|hevx|mif1|msf1)$/.test(brand)
+      /^(heic|heix|hevc|hevx|heim|heis|hevm|hevs|mif1|msf1|avif)$/.test(brand)
       ? "ok"
       : "malformed";
   }

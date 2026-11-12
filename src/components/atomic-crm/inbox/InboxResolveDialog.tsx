@@ -6,6 +6,7 @@ import {
   useDataProvider,
   useGetList,
   useNotify,
+  useRedirect,
   useRefresh,
   useTranslate,
 } from "ra-core";
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 
 import type { CrmDataProvider } from "../providers/types";
+import { buildNewPath } from "../entity360/entityPaths";
 import { useAiEntitlement } from "../references/useAiEntitlement";
 import type {
   CreateShidduchInput,
@@ -92,13 +94,24 @@ const DraftResetter = ({
   onSnapshot,
 }: {
   draft: ParsedResumeResponse | null;
-  onSnapshot: (snapshot: Record<string, unknown>) => void;
+  onSnapshot: (snapshot: Record<string, unknown> | null) => void;
 }) => {
   const { getValues, setValue } = useFormContext<Record<string, unknown>>();
 
   useEffect(() => {
     if (!draft) return;
-    onSnapshot(getValues());
+    const snapshot = getValues();
+    const fieldsToFill = Object.entries(draft.fields).filter(
+      ([field, value]) => {
+        const currentValue = snapshot[field];
+        const isEmpty =
+          currentValue === null ||
+          currentValue === undefined ||
+          currentValue === "";
+        return isEmpty && value !== null && value !== "";
+      },
+    );
+    onSnapshot(fieldsToFill.length > 0 ? snapshot : null);
     for (const [field, value] of Object.entries(draft.fields)) {
       const currentValue = getValues(field);
       const isEmpty =
@@ -173,6 +186,7 @@ export const InboxResolveDialog = ({
     useResolveInboxItem();
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
+  const redirect = useRedirect();
   const refresh = useRefresh();
   const translate = useTranslate();
   const { isEntitled, isLoading: isEntitlementLoading } = useAiEntitlement();
@@ -226,6 +240,9 @@ export const InboxResolveDialog = ({
 
   const canAutoFill = isEntitled && hasResumeShapedAttachment(item);
   const hasResume = hasResumeShapedAttachment(item);
+  const resumeAttachment = item.attachments?.find((attachment) =>
+    hasResumeShapedAttachment({ ...item, attachments: [attachment] }),
+  );
 
   const handleAutoFill = async () => {
     setIsBusy(true);
@@ -237,7 +254,7 @@ export const InboxResolveDialog = ({
       setResumeMessage(resumeReadSuccessMessage(draft.fields));
       setResumeMessageIsError(false);
     } catch (error) {
-      setResumeMessage(friendlyResumeReadError(error));
+      setResumeMessage(friendlyResumeReadError(error, resumeAttachment?.type));
       setResumeMessageIsError(true);
     } finally {
       setIsBusy(false);
@@ -413,11 +430,26 @@ export const InboxResolveDialog = ({
           </p>
         )}
         {hasLegacyWordAttachment(item) && (
-          <p className="text-sm text-muted-foreground" role="status">
-            This older Word file (.doc) cannot be read for auto-fill yet. Save
-            it as .docx or PDF, then upload it again. You can still enter the
-            details yourself.
-          </p>
+          <div
+            className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+            role="status"
+          >
+            <span>
+              This older Word file (.doc) cannot be read for auto-fill yet. Save
+              it as .docx or PDF, then upload it again. You can still enter the
+              details yourself.
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                onClose();
+                redirect(buildNewPath("shidduchim"));
+              }}
+            >
+              Upload a .docx or PDF
+            </Button>
+          </div>
         )}
         {hasResume && !isEntitlementLoading && !isEntitled && (
           <p className="text-sm text-muted-foreground" role="status">
@@ -456,12 +488,6 @@ export const InboxResolveDialog = ({
             )}
           </div>
         )}
-        {parsedDraft && (
-          <p className="text-sm text-muted-foreground" role="status">
-            The original file is still attached and unchanged.
-          </p>
-        )}
-
         {isShadchanSourced && isLoadingLinkedShadchan ? (
           // Story 8.3 (AC-3): never mount the form with the wrong default —
           // wait for the connection's shadchan to resolve rather than
@@ -483,17 +509,24 @@ export const InboxResolveDialog = ({
             }}
           >
             <DraftResetter draft={parsedDraft} onSnapshot={setDraftSnapshot} />
-            <AutoFillUndo
-              snapshot={draftSnapshot}
-              onUndo={() => {
-                setParsedDraft(null);
-                setDraftSnapshot(null);
-                setResumeMessage(
-                  "Auto-fill undone. The original file is still attached and unchanged.",
-                );
-                setResumeMessageIsError(false);
-              }}
-            />
+            {parsedDraft && (
+              <div className="rounded-xl border border-border/70 bg-secondary/30 p-3">
+                <p className="text-sm text-muted-foreground" role="status">
+                  The original file is still attached and unchanged.
+                </p>
+                <AutoFillUndo
+                  snapshot={draftSnapshot}
+                  onUndo={() => {
+                    setParsedDraft(null);
+                    setDraftSnapshot(null);
+                    setResumeMessage(
+                      "Auto-fill undone. The original file is still attached and unchanged.",
+                    );
+                    setResumeMessageIsError(false);
+                  }}
+                />
+              </div>
+            )}
             <ShidduchInputs
               lockedShadchanId={lockedShadchanId}
               isShadchanLocked={isShadchanSourced}

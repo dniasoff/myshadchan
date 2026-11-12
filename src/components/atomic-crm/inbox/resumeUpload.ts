@@ -119,7 +119,10 @@ function errorText(error: unknown): string {
 }
 
 /** Keep worker, entitlement, quota, and network details out of the form. */
-export function friendlyResumeReadError(error: unknown): string {
+export function friendlyResumeReadError(
+  error: unknown,
+  mimeType?: string,
+): string {
   const message = errorText(error);
   if (/resume appears empty/.test(message)) {
     return "This Word file appears to be empty. You can enter the details yourself or upload a different file.";
@@ -128,7 +131,13 @@ export function friendlyResumeReadError(error: unknown): string {
     return "This Word file is password-protected, so we can’t read it. Remove the password or save it as a PDF, then try again. You can still enter the details yourself.";
   }
   if (/could not open resume/.test(message)) {
-    return "We couldn’t open this Word file. It may be damaged. Try saving it again as .docx or PDF. You can still enter the details yourself.";
+    if (
+      mimeType ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ) {
+      return "We couldn’t open this Word file. It may be damaged. Try saving it again as .docx or PDF. You can still enter the details yourself.";
+    }
+    return "We couldn’t open this file. It may be damaged. Try saving it again or choose another file. You can still enter the details yourself.";
   }
   if (/resume too long/.test(message)) {
     return "This resume is too long for auto-fill here. It is still attached, and you can enter the details yourself.";
