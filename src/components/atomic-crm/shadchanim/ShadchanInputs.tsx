@@ -4,6 +4,7 @@ import { required } from "ra-core";
 import { TextInput } from "@/components/admin/text-input";
 
 import { ResponsivenessInput } from "./ResponsivenessInput";
+import { capitalizeName } from "./shadchanUtils";
 
 const SectionLabel = ({ children }: { children: ReactNode }) => (
   <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
@@ -16,7 +17,11 @@ const SectionLabel = ({ children }: { children: ReactNode }) => (
  * sections (design-language typography scale §2). account_id is set
  * server-side by a trigger — never a form input.
  */
-export const ShadchanInputs = () => (
+export const ShadchanInputs = ({
+  autoFocusName = false,
+}: {
+  autoFocusName?: boolean;
+}) => (
   <>
     <div className="flex flex-col gap-3">
       <SectionLabel>Name</SectionLabel>
@@ -24,6 +29,9 @@ export const ShadchanInputs = () => (
         source="name"
         label="Name"
         validate={required()}
+        parse={capitalizeName}
+        format={capitalizeName}
+        autoFocus={autoFocusName}
         helperText={false}
       />
     </div>

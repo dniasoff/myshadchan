@@ -1,5 +1,24 @@
 import type { Identifier } from "ra-core";
 
+/**
+ * Upper-case the first lower-case letter of each whitespace- or hyphen-
+ * separated word while preserving every other character exactly as entered.
+ * This intentionally leaves existing casing, punctuation and RTL text alone.
+ */
+export const capitalizeName = (value: string | null | undefined): string =>
+  (value ?? "").replace(
+    /(^|[\s-])(\p{Ll})/gu,
+    (_match, boundary: string, letter: string) =>
+      `${boundary}${letter.toUpperCase()}`,
+  );
+
+export const normalizeShadchanName = <T extends Record<string, unknown>>(
+  data: T,
+): T => {
+  if (typeof data.name !== "string") return data;
+  return { ...data, name: capitalizeName(data.name) };
+};
+
 /** The three responsiveness levels a shadchan can be tagged with. */
 export type ResponsivenessLevel = "high" | "medium" | "low";
 
