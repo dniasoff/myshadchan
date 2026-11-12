@@ -109,7 +109,7 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   const createResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
-      response.url().includes("/rest/v1/shidduchim"),
+      response.url().includes("/rest/v1/rpc/create_shidduch"),
   );
   await page.getByRole("button", { name: "Add a suggestion" }).click();
   const created = (await (await createResponse).json())[0];
