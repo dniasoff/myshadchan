@@ -17,7 +17,7 @@ describe("isCleanSchemaDiff", () => {
     ).toBe(true);
     expect(
       isCleanSchemaDiff(
-        "Creating shadow database...\nDiffing schemas...\nNo schema changes found\n",
+        "Creating shadow database...\nDiffing schemas...\nNo schema changes found\nFinished supabase db diff.",
       ),
     ).toBe(true);
   });
