@@ -3,6 +3,7 @@ import { useGetList, useTranslate, useListContext } from "ra-core";
 import { useMemo } from "react";
 
 import { buildNewPath } from "../entity360/entityPaths";
+import { useCanAddSingle } from "../dashboard/useCanAddSingle";
 import { EntityList } from "../misc/EntityList";
 import { pickActiveContext } from "../providers/commons/roleAuthority";
 import { useMyContexts } from "../root/useMyContexts";
@@ -82,6 +83,7 @@ const SingleRowList = ({ data }: { data: RaRecord[] }) => {
  */
 export const SingleList = () => {
   const translate = useTranslate();
+  const canAddSingle = useCanAddSingle();
   const { data: personas } = useMyPersonas();
   const { data: contexts } = useMyContexts();
   const activeAccountId = pickActiveContext(contexts)?.account_id;
@@ -115,10 +117,14 @@ export const SingleList = () => {
               _: "Every single you are redting for, each with their own pipeline.",
             })
       }
-      createTo={buildNewPath("singles")}
-      createLabel={translate("crm.singles.list.createLabel", {
-        _: "Add a single",
-      })}
+      createTo={canAddSingle ? buildNewPath("singles") : undefined}
+      createLabel={
+        canAddSingle
+          ? translate("crm.singles.list.createLabel", {
+              _: "Add a single",
+            })
+          : undefined
+      }
       searchPlaceholder={translate("crm.singles.list.searchPlaceholder", {
         _: "Search by name",
       })}
@@ -140,10 +146,12 @@ export const SingleList = () => {
           : translate("crm.singles.list.emptyDescription", {
               _: "A shidduchim pipeline belongs to a single — the person you are redting for. Add a single to start tracking suggestions.",
             }),
-        actionLabel: translate("crm.singles.list.createLabel", {
-          _: "Add a single",
-        }),
-        actionTo: buildNewPath("singles"),
+        actionLabel: canAddSingle
+          ? translate("crm.singles.list.createLabel", {
+              _: "Add a single",
+            })
+          : undefined,
+        actionTo: canAddSingle ? buildNewPath("singles") : undefined,
       }}
       noMatchesMessage={translate("crm.singles.list.noMatches", {
         _: "No singles match this search.",

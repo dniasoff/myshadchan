@@ -138,7 +138,7 @@ describe("ShadchanDashboard — populated state (Story 8.5, AC-7)", () => {
       .toBeInTheDocument();
     const link = screen.getByRole("link", { name: /Klein Family/ });
     await expect.element(link).toBeInTheDocument();
-    const statLink = screen.getByRole("link").first();
+    const statLink = screen.getByRole("link", { name: /Connections/ });
     expect(statLink.element().getAttribute("href")).toBe("/connections");
     const addSingle = screen.getByRole("link", { name: "Add a single" });
     await expect.element(addSingle).toBeVisible();

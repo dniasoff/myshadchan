@@ -1,7 +1,6 @@
 import { Users } from "lucide-react";
 
 import { buildNewPath } from "../entity360/entityPaths";
-import { useViewerRole } from "../entity360/useViewerRole";
 import { EmptyState } from "../misc/EmptyState";
 import { AttentionSection } from "./AttentionSection";
 import { DashboardHeader } from "./DashboardHeader";
@@ -10,6 +9,7 @@ import { DueRemindersCard } from "./DueRemindersCard";
 import { ParentFocusCards } from "./ParentFocusCards";
 import { PipelineSnapshot } from "./PipelineSnapshot";
 import { RecentSuggestions } from "./RecentSuggestions";
+import { useCanAddSingle } from "./useCanAddSingle";
 import { useDashboardData } from "./useDashboardData";
 
 /**
@@ -38,8 +38,7 @@ export const Dashboard = () => {
     hasSuggestions,
     totalShadchanim,
   } = useDashboardData();
-  const { role, isPending: isRolePending } = useViewerRole();
-  const canAddSingle = !isRolePending && role != null && role !== "single";
+  const canAddSingle = useCanAddSingle();
 
   if (isPending) return null;
 

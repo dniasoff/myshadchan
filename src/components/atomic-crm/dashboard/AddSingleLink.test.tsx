@@ -88,13 +88,6 @@ describe("AddSingleLink", () => {
     ];
     db.singles = [
       {
-        id: 901,
-        account_id: 41,
-        first_name_en: "Ronit's child",
-        status: "active",
-        created_at: "2026-01-01T00:00:00Z",
-      },
-      {
         id: 902,
         account_id: 42,
         first_name_en: "Other child's record",
@@ -118,6 +111,15 @@ describe("AddSingleLink", () => {
       },
     });
 
+    const { data: addedSingle } = await ownProvider.create("singles", {
+      data: {
+        account_id: 41,
+        first_name_en: "Ronit's added child",
+        status: "active",
+        created_at: "2026-01-02T00:00:00Z",
+      },
+    });
+
     const [{ data: ownSingles }, { data: otherSingles }] = await Promise.all([
       ownProvider.getList("singles", {
         pagination: { page: 1, perPage: 100 },
@@ -129,7 +131,8 @@ describe("AddSingleLink", () => {
       }),
     ]);
 
-    expect(ownSingles.map((single) => single.id)).toEqual([901]);
+    expect(addedSingle.first_name_en).toBe("Ronit's added child");
+    expect(ownSingles.map((single) => single.id)).toEqual([addedSingle.id]);
     expect(otherSingles.map((single) => single.id)).toEqual([902]);
   });
 });
