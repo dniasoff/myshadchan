@@ -92,6 +92,7 @@ const buildDataProvider = (
       src: "https://signed.example/resume.pdf",
     }),
     removeInboxAttachment: vi.fn().mockResolvedValue(undefined),
+    uploadResumePhoto: vi.fn().mockResolvedValue({ id: 501 }),
     aiEntitlement: vi.fn().mockResolvedValue({
       is_entitled: false,
       plan: "free",
@@ -99,7 +100,7 @@ const buildDataProvider = (
       resumes_used: 0,
       resumes_limit: 0,
     }),
-    createShidduch: vi.fn().mockResolvedValue({ data: { id: 99 } }),
+    createShidduch: vi.fn().mockResolvedValue({ id: 99 }),
     ...overrides,
   }) as unknown as CrmDataProvider;
 
@@ -198,6 +199,171 @@ describe("ShidduchCreate — create behaviour preserved exactly (AC 2)", () => {
 });
 
 describe("ShidduchCreate — resume capture and auto-fill affordance", () => {
+  it("renders an optional photo control without requiring a visibility choice", async () => {
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+
+    await expect
+      .element(screen.getByRole("heading", { name: "Photo (optional)" }))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "Add a photo of the person being suggested. JPG, PNG, HEIC or WebP · up to 8 MB.",
+        ),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Upload a photo"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("radio", { name: "Shared" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("stages an accepted photo with preview details and shared visibility", async () => {
+    const { screen, dataProvider } = await renderShidduchCreate([
+      "/shidduchim/new",
+    ]);
+    const photo = new File(["photo bytes"], "ronit-photo.jpg", {
+      type: "image/jpeg",
+    });
+
+    await screen.getByLabelText("Upload a photo").upload(photo);
+
+    await expect
+      .element(screen.getByText("Photo ready to add."))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("ronit-photo.jpg"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("radio", { name: "Shared" }))
+      .toBeChecked();
+    await expect
+      .element(screen.getByRole("button", { name: "Replace photo" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Remove photo" }))
+      .toBeInTheDocument();
+    expect(dataProvider.uploadResumePhoto).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a text file chip when the local preview cannot render", async () => {
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+    await screen
+      .getByLabelText("Upload a photo")
+      .upload(
+        new File(["photo bytes"], "ronit-photo.heic", { type: "image/heic" }),
+      );
+
+    const preview = screen.container.querySelector("img");
+    expect(preview).not.toBeNull();
+    preview?.dispatchEvent(new Event("error"));
+
+    await expect
+      .element(screen.getByRole("img", { name: "Selected photo file" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("ronit-photo.heic", { exact: true }))
+      .toBeInTheDocument();
+    await expect.element(screen.getByText("image/heic")).toBeInTheDocument();
+  });
+
+  it("keeps the suggestion saveable when a photo is rejected", async () => {
+    const { screen, dataProvider } = await renderShidduchCreate([
+      "/shidduchim/new",
+    ]);
+
+    await screen
+      .getByLabelText("Upload a photo")
+      .upload(new File(["gif"], "photo.gif", { type: "image/gif" }));
+
+    await expect
+      .element(
+        screen.getByText(
+          "This file type is not supported. Choose a JPG, PNG, HEIC or WebP photo.",
+        ),
+      )
+      .toBeInTheDocument();
+    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen.getByRole("button", { name: "Add a suggestion" }).click();
+    await expect
+      .element(screen.getByText("Shidduch added"))
+      .toBeInTheDocument();
+    expect(dataProvider.createShidduch).toHaveBeenCalledTimes(1);
+    expect(dataProvider.uploadResumePhoto).not.toHaveBeenCalled();
+  });
+
+  it("shows a plain-English error for a photo over 8 MB", async () => {
+    const { screen } = await renderShidduchCreate(["/shidduchim/new"]);
+
+    await screen.getByLabelText("Upload a photo").upload(
+      new File([new Uint8Array(8 * 1024 * 1024 + 1)], "photo.jpg", {
+        type: "image/jpeg",
+      }),
+    );
+
+    await expect
+      .element(
+        screen.getByText("This photo is too large. Choose a photo up to 8 MB."),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Choose another photo"))
+      .toBeInTheDocument();
+  });
+
+  it("uploads the staged photo after the suggestion exists", async () => {
+    const { screen, dataProvider, getPathname } = await renderShidduchCreate([
+      "/shidduchim/new",
+    ]);
+    const photo = new File(["photo bytes"], "ronit-photo.webp", {
+      type: "image/webp",
+    });
+
+    await screen.getByLabelText("Upload a photo").upload(photo);
+    await screen.getByRole("radio", { name: "Parents only" }).click();
+    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen.getByRole("button", { name: "Add a suggestion" }).click();
+
+    await expect.poll(() => getPathname()).toBe("/shidduchim");
+    expect(dataProvider.createShidduch).toHaveBeenCalledTimes(1);
+    expect(dataProvider.uploadResumePhoto).toHaveBeenCalledWith({
+      shidduchimId: 99,
+      file: photo,
+      visibility: "private_parent",
+    });
+  });
+
+  it("does not block the saved suggestion when photo upload fails", async () => {
+    const { screen, dataProvider, getPathname } = await renderShidduchCreate(
+      ["/shidduchim/new"],
+      {
+        uploadResumePhoto: vi
+          .fn()
+          .mockRejectedValue(new Error("storage unavailable")),
+      },
+    );
+
+    await screen
+      .getByLabelText("Upload a photo")
+      .upload(
+        new File(["photo bytes"], "ronit-photo.png", { type: "image/png" }),
+      );
+    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen.getByRole("button", { name: "Add a suggestion" }).click();
+
+    await expect.poll(() => getPathname()).toBe("/shidduchim");
+    expect(dataProvider.createShidduch).toHaveBeenCalledTimes(1);
+    await expect
+      .element(
+        screen.getByText(
+          "We couldn’t save the photo. The suggestion was saved, and you can add the photo later.",
+        ),
+      )
+      .toBeInTheDocument();
+  });
+
   it("rejects unsupported files before creating an inbox capture", async () => {
     const { screen, dataProvider } = await renderShidduchCreate([
       "/shidduchim/new",

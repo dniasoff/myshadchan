@@ -84,6 +84,24 @@ describe("PhotoTab — empty state and visibility default (AC 1 / AC 2)", () => 
       .element(screen.getByRole("radio", { name: "Parents only" }))
       .not.toBeChecked();
   });
+
+  it("rejects unsupported photo types before calling the provider", async () => {
+    const { screen, dataProvider } = await renderTab(1);
+    const uploadResumePhoto = vi.spyOn(dataProvider, "uploadResumePhoto");
+
+    await screen
+      .getByLabelText("Upload a photo")
+      .upload(new File(["gif"], "photo.gif", { type: "image/gif" }));
+
+    await expect
+      .element(
+        screen.getByText(
+          "This file type is not supported. Choose a JPG, PNG, HEIC or WebP photo.",
+        ),
+      )
+      .toBeInTheDocument();
+    expect(uploadResumePhoto).not.toHaveBeenCalled();
+  });
 });
 
 describe("PhotoTab — configurable photo display", () => {
