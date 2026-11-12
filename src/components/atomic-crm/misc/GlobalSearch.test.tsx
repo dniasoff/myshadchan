@@ -141,14 +141,13 @@ describe("GlobalSearch — debounce (AC 5)", () => {
     const screen = await render(<Harness dataProvider={dataProvider} />);
     const input = screen.getByPlaceholder(PLACEHOLDER);
 
-    // Act — each keystroke resets the pending timeout (Task 2's cleanup),
-    // so 300ms elapses in total but never 300ms since the LAST keystroke.
-    await input.fill("a");
-    await sleep(120);
-    await input.fill("ab");
-    await sleep(120);
-    await input.fill("abc");
-    await sleep(120);
+    // Act — send the burst through the focused input in one browser action.
+    // Three separate `fill` calls plus 120ms sleeps made this test depend on
+    // the worker's scheduling: under CI load, the action overhead could put
+    // the second fill more than 300ms after the first, allowing an intermediate
+    // query to fire before the intended burst was complete.
+    input.element().focus();
+    await userEvent.keyboard("abc");
 
     // Assert
     expect(dataProvider.getList).not.toHaveBeenCalled();
