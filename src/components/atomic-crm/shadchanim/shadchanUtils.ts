@@ -68,7 +68,8 @@ export const parseContactInfo = (contacts: unknown): ShadchanContactInfo => {
   };
 };
 
-const PHONE_EXTENSION_PATTERN = /(?:extension|extn|ext\.?|x|#)\s*\d+/iu;
+const PHONE_EXTENSION_PATTERN =
+  /(?:extension|extn|ext\.?|(?<!\p{L})x|#)\s*:?\s*\d+/iu;
 const PHONE_VALUE_SEPARATOR_PATTERN = /\s*(?:[/,;]|\b(?:or|and)\b)\s*/iu;
 
 /** Keep the base number before an extension, then discard one leading `00`. */
@@ -76,14 +77,22 @@ export const normalizePhoneDigits = (value: unknown): string => {
   if (typeof value !== "string") return "";
   const baseNumber = value.split(PHONE_EXTENSION_PATTERN, 1)[0];
   const digits = baseNumber.replace(/[^0-9]/g, "");
-  return digits.startsWith("00") ? digits.slice(2) : digits;
+  const withoutLeading00 = digits.slice(2);
+  return digits.startsWith("00") &&
+    withoutLeading00.length >= PHONE_SEARCH_MIN_DIGITS
+    ? withoutLeading00
+    : digits;
 };
 
 const getPhoneDigitCandidates = (value: string): string[] =>
-  value
-    .split(PHONE_VALUE_SEPARATOR_PATTERN)
-    .map(normalizePhoneDigits)
-    .filter(Boolean);
+  Array.from(
+    new Set(
+      [
+        normalizePhoneDigits(value),
+        ...value.split(PHONE_VALUE_SEPARATOR_PATTERN).map(normalizePhoneDigits),
+      ].filter(Boolean),
+    ),
+  );
 
 /** Return the query suffix used for phone mode, or null below the 4-digit floor. */
 const getPhoneSearchDigits = (query: string): string | null => {
@@ -124,12 +133,16 @@ const PHONE_KEY_ROOTS = [
   "cell",
   "tel",
   "telephone",
+  "home",
+  "work",
+  "office",
 ] as const;
 
 const isPhoneLikeContactKey = (key: string): boolean => {
   const compactKey = key.toLocaleLowerCase().replace(/[^a-z0-9]/g, "");
   return PHONE_KEY_ROOTS.some((root) => {
     if (compactKey === root) return true;
+    if (!compactKey.startsWith(root)) return false;
     const suffix = compactKey.slice(root.length);
     return (
       suffix.length > 0 &&

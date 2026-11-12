@@ -89,6 +89,16 @@ describe("phone search matching", () => {
     expect(getShadchanPhoneMatch(candidate, "900")).toBeNull();
   });
 
+  it("keeps a leading 00 when stripping it would cross below four digits", () => {
+    for (const number of ["0001", "0099", "00123"]) {
+      const candidate = shadchan(1, { phone: number });
+      expect(getShadchanPhoneMatch(candidate, number)).toEqual({
+        channels: ["phone"],
+        suffix: number.slice(-4),
+      });
+    }
+  });
+
   it("searches WhatsApp and numbered phone-like contact keys without reading email", () => {
     const candidate = shadchan(1, {
       email: "900123@example.com",
@@ -107,6 +117,79 @@ describe("phone search matching", () => {
       suffix: "1234",
     });
     expect(getShadchanPhoneMatch(candidate, "0000")).toBeNull();
+  });
+
+  it("only searches the explicit phone-like contact key allow-list", () => {
+    const candidate = shadchan(1, {
+      home2: "212-555-2024",
+      email2: "bob2024@example.com",
+      notes1: "555-2024",
+      fax1: "555-2024",
+      dob1990: "2024",
+    });
+
+    expect(getShadchanPhoneMatch(candidate, "2024")).toEqual({
+      channels: ["phone"],
+      suffix: "2024",
+    });
+    expect(
+      getShadchanPhoneMatch(
+        shadchan(2, {
+          email2: "bob2024@example.com",
+          notes1: "555-2024",
+          fax1: "555-2024",
+          dob1990: "2024",
+        }),
+        "2024",
+      ),
+    ).toBeNull();
+  });
+
+  it("preserves full slash-grouped numbers and protects x inside words", () => {
+    expect(
+      getShadchanPhoneMatch(
+        shadchan(1, { phone: "0171/1234567" }),
+        "01711234567",
+      ),
+    ).toEqual({
+      channels: ["phone"],
+      suffix: "4567",
+    });
+    expect(
+      getShadchanPhoneMatch(
+        shadchan(2, { phone: "Max 212-555-7070" }),
+        "5557070",
+      ),
+    ).toEqual({
+      channels: ["phone"],
+      suffix: "7070",
+    });
+    expect(
+      getShadchanPhoneMatch(shadchan(3, { phone: "212-555-9090" }), "9090"),
+    ).toEqual({
+      channels: ["phone"],
+      suffix: "9090",
+    });
+    expect(
+      getShadchanPhoneMatch(
+        shadchan(4, { phone: "212-555-6060 ext: 55" }),
+        "6060",
+      ),
+    ).toEqual({
+      channels: ["phone"],
+      suffix: "6060",
+    });
+  });
+
+  it("requires a trailing match and preserves the full ten-digit suffix", () => {
+    const candidate = shadchan(1, { phone: "1234567890123" });
+
+    expect(getShadchanPhoneMatch(candidate, "4567890123")).toEqual({
+      channels: ["phone"],
+      suffix: "0123",
+    });
+    expect(getShadchanPhoneMatch(candidate, "4597890123")).toBeNull();
+    expect(getShadchanPhoneMatch(candidate, "5557")).toBeNull();
   });
 
   it("lists every suffix collision and preserves text search", () => {
