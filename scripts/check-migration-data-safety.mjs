@@ -26,8 +26,10 @@
 //   node scripts/check-migration-data-safety.mjs --baseline <version>
 //   STACK_ID=1 node scripts/check-migration-data-safety.mjs      # own stack
 //
-// `--base-ref` is how CI names "what production had before this push":
-// `github.event.before` on a push, `origin/<base_ref>` on a pull request.
+// `--base-ref` is how PR CI names the merge-base schema. Deploy preflight uses
+// `--baseline` from the hosted migration history instead: a queued deploy can
+// contain migrations from several pushes, so the push event's `before` SHA is
+// not a safe description of what db push will apply.
 // ===========================================================================
 
 import { execFileSync } from "node:child_process";
@@ -212,11 +214,11 @@ function main() {
     pending = local.filter((version) => version > baselineVersion);
   } else {
     if (!isUsableBaseRef(options.baseRef)) {
-      console.log(
-        `migration data-safety guard: skipped — '${options.baseRef}' is not a usable base ref ` +
-          `(first push, or history was rewritten). Re-run with --baseline <version>.`,
+      throw new Error(
+        `cannot determine a migration safety baseline: '${options.baseRef}' is not a usable base ref ` +
+          `(first push, or history was rewritten). Supply the last remotely applied ` +
+          `migration with --baseline <version>; refusing to pass without a baseline.`,
       );
-      return;
     }
     const partition = partitionMigrations(
       localFilenames,
