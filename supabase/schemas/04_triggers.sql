@@ -96,6 +96,20 @@ create or replace trigger set_resumes_account_id
     before insert on public.resumes
     for each row execute function public.set_account_id_default();
 
+-- Parsed references are reconciled server-side after the resume row is safe.
+-- The insert trigger covers direct CRUD and worker writes; the update trigger
+-- is explicitly no-op for an unchanged sections document. The trigger
+-- function catches reconciliation failures so filing never rolls back.
+create or replace trigger sync_resume_references_after_insert
+    after insert on public.resumes
+    for each row execute function public.sync_resume_references_after_change();
+
+create or replace trigger sync_resume_references_after_sections_update
+    after update of sections on public.resumes
+    for each row
+    when (old.sections is distinct from new.sections)
+    execute function public.sync_resume_references_after_change();
+
 -- Story 5.4: server-set account_id on insert (AD-1), same shape as
 -- set_resumes_account_id above.
 create or replace trigger set_resume_photos_account_id
