@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { ChangeEvent, ReactElement } from "react";
 import { useDataProvider, useNotify, useRefresh, useTranslate } from "ra-core";
 
@@ -24,6 +24,7 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
   const notify = useNotify();
   const translate = useTranslate();
   const refresh = useRefresh();
+  const uploadHintId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -51,7 +52,10 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
   };
 
   const uploadLabel = translate("crm.entity360.resume.upload", {
-    _: "Upload a new version",
+    _: "Attach resume",
+  });
+  const uploadHint = translate("crm.entity360.resume.uploadHint", {
+    _: "If the resume is in WhatsApp, Messages or email, save it to your phone first, then choose it here.",
   });
 
   return (
@@ -60,9 +64,16 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
         type="button"
         disabled={isUploading}
         onClick={() => inputRef.current?.click()}
+        aria-describedby={uploadHintId}
       >
         {uploadLabel}
       </Button>
+      <p
+        id={uploadHintId}
+        className="mt-2 max-w-sm text-sm leading-5 text-muted-foreground"
+      >
+        {uploadHint}
+      </p>
       <input
         ref={inputRef}
         type="file"
@@ -70,6 +81,7 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
         aria-hidden="true"
         tabIndex={-1}
         aria-label={uploadLabel}
+        aria-describedby={uploadHintId}
         onChange={handleUpload}
       />
     </div>

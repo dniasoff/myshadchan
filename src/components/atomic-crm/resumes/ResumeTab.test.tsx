@@ -52,7 +52,7 @@ describe("ResumeTab — real FakeRest round trip (AC 1 / AC 2 / AC 3)", () => {
       .toBeInTheDocument();
 
     // Act
-    await screen.getByLabelText("Upload a new version").upload(file);
+    await screen.getByLabelText("Attach resume").upload(file);
 
     // Assert
     await expect.element(screen.getByText("resume-v1.pdf")).toBeInTheDocument();
@@ -69,7 +69,7 @@ describe("ResumeTab — real FakeRest round trip (AC 1 / AC 2 / AC 3)", () => {
     const secondFile = new File(["contents-v2"], "resume-v2.pdf", {
       type: "application/pdf",
     });
-    await screen.getByLabelText("Upload a new version").upload(secondFile);
+    await screen.getByLabelText("Attach resume").upload(secondFile);
 
     await expect.element(screen.getByText("resume-v2.pdf")).toBeInTheDocument();
     await expect.element(screen.getByText("resume-v1.pdf")).toBeInTheDocument();
