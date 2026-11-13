@@ -56,6 +56,21 @@ writes the observed provider results and recovery links to the run summary.
 It does not attempt an automatic rollback; pause further deploys and follow
 [failed-deploy.md](failed-deploy.md) and [database-restore.md](database-restore.md).
 
+### Enabling outbound email
+
+Outbound email remains off until Captain/ops has confirmed the Resend sender,
+plan and retention posture. The controlled switch-on sets the existing Worker
+secret `OUTBOUND_EMAIL_REPLY_TO` and the Vercel build variable
+`VITE_OUTBOUND_EMAIL_REPLY_TO` to the same approved address, without committing
+the address. It also sets the existing Worker variable
+`OUTBOUND_EMAIL_ACCOUNT_IDS` to the explicitly approved account ids and turns
+`OUTBOUND_EMAIL_ENABLED` on. The authenticated email Worker `/config` response
+is the runtime source of truth; the frontend checks that its build value
+exactly matches the Worker value and keeps the Email action unavailable on any
+mismatch or unset value. `OUTBOUND_EMAIL_GLOBAL_DAILY_CAP` defaults to 40 and
+may only be lowered or raised deliberately with the shared Resend plan budget
+in view.
+
 ## Safe rollback
 
 Do not run `supabase db reset` or manually re-run a production migration. A git

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { callEmailWorker } from "./emailWorkerClient";
+import { callEmailWorker, readEmailWorkerConfig } from "./emailWorkerClient";
 
 const getSession = vi.fn();
 vi.mock("../supabase/supabase", () => ({
@@ -8,7 +8,10 @@ vi.mock("../supabase/supabase", () => ({
 }));
 
 describe("callEmailWorker", () => {
-  beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
+  beforeEach(() => {
+    getSession.mockReset();
+    vi.stubGlobal("fetch", vi.fn());
+  });
   afterEach(() => vi.unstubAllGlobals());
 
   it("forwards the current bearer token and only the opaque send body", async () => {
@@ -51,5 +54,32 @@ describe("callEmailWorker", () => {
       "Not authenticated",
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("reads the authenticated server Reply-To configuration", async () => {
+    getSession.mockResolvedValue({
+      data: { session: { access_token: "token-abc" } },
+      error: null,
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: { reply_to: "ronit@example.test" },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(readEmailWorkerConfig("http://email.local/")).resolves.toEqual(
+      { replyTo: "ronit@example.test" },
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://email.local/config",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer token-abc" },
+      }),
+    );
   });
 });

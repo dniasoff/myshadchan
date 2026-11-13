@@ -12,6 +12,11 @@ port = 8791
 [vars]
 OUTBOUND_EMAIL_ENABLED = "false"
 RATE_LIMITING_ENFORCED = "true"
+# Explicit switchboard: an empty list authorises no household. Captain/ops set
+# exact account ids only during the controlled enablement step.
+OUTBOUND_EMAIL_ACCOUNT_IDS = ""
+# Shared Resend FREE-plan safety budget; accepted and ambiguous rows only.
+OUTBOUND_EMAIL_GLOBAL_DAILY_CAP = "40"
 
 [secrets]
 required = [

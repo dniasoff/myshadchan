@@ -75,3 +75,23 @@ export function isProviderServerError(error: string): boolean {
     error === "transport error contacting Resend"
   );
 }
+
+/** Keep provider subjects useful without allowing control characters or an
+ * attacker-controlled unbounded header value. */
+export function safeSubjectName(
+  value: unknown,
+  fallback = "your match",
+): string {
+  if (typeof value !== "string") return fallback;
+  const cleaned = value
+    .split("")
+    .filter((character) => {
+      const code = character.charCodeAt(0);
+      return code >= 0x20 && code !== 0x7f;
+    })
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+  return cleaned || fallback;
+}

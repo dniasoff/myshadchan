@@ -32,6 +32,7 @@ import {
   isProviderRateLimitError,
   isProviderServerError,
   isSafeFilename,
+  safeSubjectName,
   isUsableEmail,
   toBase64,
 } from "./emailPayload";
@@ -42,6 +43,8 @@ export type EmailEnv = BaseEnv &
     EMAIL_ACCOUNT_RATE_LIMITER?: RateLimit;
     OUTBOUND_EMAIL_ENABLED?: string;
     OUTBOUND_EMAIL_REPLY_TO?: string;
+    OUTBOUND_EMAIL_ACCOUNT_IDS?: string;
+    OUTBOUND_EMAIL_GLOBAL_DAILY_CAP?: string;
   };
 
 type EmailContext = { Bindings: EmailEnv; Variables: TracingVariables };
@@ -80,6 +83,15 @@ type ResumeRow = {
   single_id: number | null;
   files: ResumeFile[] | null;
 };
+type SingleRow = {
+  id: number;
+  account_id: number;
+  member_id: number | null;
+  first_name_en?: string | null;
+  last_name_en?: string | null;
+  first_name_he?: string | null;
+  last_name_he?: string | null;
+};
 type PhotoRow = {
   id: number;
   resume_id: number;
@@ -92,6 +104,20 @@ type MemberRow = { id: number; disabled: boolean | null };
 type AccountMemberRow = { id: number; status: string };
 type ShadchanRow = { id: number; name: string; contacts: unknown };
 type Attachment = { filename: string; content: string; content_type: string };
+type EmailDependencies = {
+  createCallerClient: (authorization: string, env: EmailEnv) => SupabaseClient;
+  createAdminClient: (env: EmailEnv) => SupabaseClient;
+  sendEmail: typeof sendEmail;
+};
+
+const defaultEmailDependencies: EmailDependencies = {
+  createCallerClient,
+  createAdminClient: (env) =>
+    createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false },
+    }),
+  sendEmail,
+};
 
 function isEnabled(value: string | undefined): boolean {
   return value === "true";
@@ -113,9 +139,10 @@ function replyToFor(configuredReplyTo: string | undefined): string | null {
 
 function safeProviderFailure(
   error: string,
+  retryable: boolean,
 ): "rate_limited" | "unknown" | "rejected" {
   if (isProviderRateLimitError(error)) return "rate_limited";
-  if (isProviderServerError(error)) return "unknown";
+  if (retryable || isProviderServerError(error)) return "unknown";
   return "rejected";
 }
 
@@ -150,6 +177,7 @@ type StorageMetadata = { filename: string; mimeType: string; size: number };
 async function storageMetadata(
   admin: SupabaseClient,
   path: string,
+  kind: "resume" | "photo",
 ): Promise<StorageMetadata | null> {
   const filename = fileNameFromPath(path);
   if (!filename) return null;
@@ -167,8 +195,7 @@ async function storageMetadata(
   const mimeType = metadata?.mimetype;
   const size = metadata?.size;
   if (
-    (!isAllowedAttachmentMime("photo", mimeType) &&
-      !isAllowedAttachmentMime("resume", mimeType)) ||
+    !isAllowedAttachmentMime(kind, mimeType) ||
     typeof size !== "number" ||
     !Number.isSafeInteger(size) ||
     size < 1
@@ -178,15 +205,80 @@ async function storageMetadata(
   return { filename, mimeType, size };
 }
 
+/** Fetch through the private Storage object API with a byte guard before the
+ * body is materialised. The list metadata is an early rejection signal; the
+ * stream guard also protects against stale or dishonest metadata. */
+async function boundedDownload(
+  storageUrl: string,
+  serviceRoleKey: string,
+  path: string,
+): Promise<ArrayBuffer | null> {
+  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+  let response: Response;
+  try {
+    response = await fetch(
+      `${storageUrl.replace(/\/$/, "")}/storage/v1/object/${DOCUMENTS_BUCKET}/${encodedPath}`,
+      {
+        headers: {
+          Authorization: `Bearer ${serviceRoleKey}`,
+          apikey: serviceRoleKey,
+        },
+      },
+    );
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  const contentLength = response.headers.get("content-length");
+  if (
+    contentLength != null &&
+    (!/^\d+$/.test(contentLength) ||
+      Number(contentLength) > EMAIL_MAX_RAW_BYTES)
+  ) {
+    return null;
+  }
+  if (!response.body) {
+    const bytes = await response.arrayBuffer();
+    return bytes.byteLength <= EMAIL_MAX_RAW_BYTES ? bytes : null;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > EMAIL_MAX_RAW_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(next.value);
+    }
+  } catch {
+    return null;
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes.buffer;
+}
+
 async function readAttachment(
-  admin: SupabaseClient,
   path: unknown,
   filename: unknown,
   mimeType: unknown,
   expectedSize: unknown,
+  metadata: StorageMetadata,
   kind: "resume" | "photo",
   accountId: number,
   singleId: number,
+  storageUrl: string,
+  serviceRoleKey: string,
 ): Promise<{ attachment: Attachment; size: number } | null> {
   if (
     !isAccountStoragePath(path, accountId, kind, singleId) ||
@@ -199,11 +291,15 @@ async function readAttachment(
   ) {
     return null;
   }
-  const { data, error } = await admin.storage
-    .from(DOCUMENTS_BUCKET)
-    .download(path);
-  if (error || !data) return null;
-  const bytes = await data.arrayBuffer();
+  if (
+    metadata.filename !== filename ||
+    metadata.mimeType !== String(mimeType).toLowerCase() ||
+    metadata.size !== expectedSize
+  ) {
+    return null;
+  }
+  const bytes = await boundedDownload(storageUrl, serviceRoleKey, path);
+  if (!bytes || bytes.byteLength > EMAIL_MAX_RAW_BYTES) return null;
   if (bytes.byteLength !== expectedSize) return null;
   return {
     attachment: {
@@ -218,22 +314,55 @@ async function readAttachment(
 async function recentEmailCount(
   supabase: SupabaseClient,
   windowMs: number,
+  accountId?: number,
 ): Promise<number | null> {
   const cutoff = new Date(Date.now() - windowMs).toISOString();
-  const result = await supabase
+  let query = supabase
     .from("outbound_share_history")
     .select("id", { count: "exact", head: true })
     .eq("channel", "email")
+    .in("outcome", ["email_provider_accepted", "email_delivery_unknown"])
     .gte("created_at", cutoff);
+  if (accountId != null) query = query.eq("account_id", accountId);
+  const result = await query;
   return result.error ? null : (result.count ?? 0);
+}
+
+function allowedAccountIds(value: string | undefined): Set<number> {
+  const ids = new Set<number>();
+  for (const part of value?.split(",") ?? []) {
+    const trimmed = part.trim();
+    if (/^[1-9]\d*$/.test(trimmed)) ids.add(Number(trimmed));
+  }
+  return ids;
+}
+
+function globalDailyCap(value: string | undefined): number | null {
+  if (value == null || value.trim() === "") return 40;
+  if (!/^\d+$/.test(value.trim())) return null;
+  const cap = Number(value.trim());
+  return Number.isSafeInteger(cap) && cap > 0 ? cap : null;
+}
+
+function singleDisplayName(single: SingleRow): string {
+  return safeSubjectName(
+    [single.first_name_en, single.last_name_en].filter(Boolean).join(" ") ||
+      [single.first_name_he, single.last_name_he].filter(Boolean).join(" "),
+  );
 }
 
 function configured(env: EmailEnv): boolean {
   return (
     isEnabled(env.OUTBOUND_EMAIL_ENABLED) &&
-    env.RESEND_API_KEY.length > 0 &&
-    env.RESEND_FROM.length > 0
+    Boolean(env.RESEND_API_KEY?.length) &&
+    Boolean(env.RESEND_FROM?.length)
   );
+}
+
+function unavailable(
+  message = "email sending is temporarily unavailable, nothing was sent",
+) {
+  return fail(message, { code: "unavailable" });
 }
 
 function authHeader(c: EmailRequestContext): string | null {
@@ -241,13 +370,16 @@ function authHeader(c: EmailRequestContext): string | null {
   return value && /^Bearer\s+\S+$/i.test(value) ? value : null;
 }
 
-export function createEmailApp(): EmailApp {
+export function createEmailApp(
+  dependencies: Partial<EmailDependencies> = {},
+): EmailApp {
+  const deps = { ...defaultEmailDependencies, ...dependencies };
   const app = createWorkerApp<EmailEnv>("email") as unknown as EmailApp;
   app.use(
     "*",
     createCorsMiddleware({
       origins: [...PRODUCTION_ORIGINS, ...LOCAL_DEV_ORIGINS],
-      methods: ["POST"],
+      methods: ["GET", "POST"],
       allowHeaders: ["Content-Type", "Authorization"],
     }),
   );
@@ -264,9 +396,39 @@ export function createEmailApp(): EmailApp {
     }),
   );
 
+  app.get("/config", async (c) => {
+    if (!configured(c.env)) return c.json(unavailable(), 503);
+    const authorization = authHeader(c);
+    if (!authorization)
+      return c.json(fail("missing Authorization header"), 401);
+    const supabase = deps.createCallerClient(authorization, c.env);
+    const { data: userResult, error: userError } =
+      await supabase.auth.getUser();
+    if (userError || !userResult.user)
+      return c.json(fail("not authenticated"), 401);
+    const [
+      { data: accountId, error: accountError },
+      { data: role, error: roleError },
+    ] = await Promise.all([
+      supabase.rpc("current_context_id"),
+      supabase.rpc("current_member_role"),
+    ]);
+    const replyTo = replyToFor(c.env.OUTBOUND_EMAIL_REPLY_TO);
+    if (
+      accountError ||
+      roleError ||
+      typeof accountId !== "number" ||
+      (role !== "parent_admin" && role !== "self_manager") ||
+      !replyTo ||
+      !allowedAccountIds(c.env.OUTBOUND_EMAIL_ACCOUNT_IDS).has(accountId)
+    ) {
+      return c.json(unavailable(), 503);
+    }
+    return c.json(ok({ reply_to: replyTo }));
+  });
+
   app.post("/send", async (c) => {
-    if (!configured(c.env))
-      return c.json(fail("email sending is temporarily unavailable"), 503);
+    if (!configured(c.env)) return c.json(unavailable(), 503);
     const authorization = authHeader(c);
     if (!authorization)
       return c.json(fail("missing Authorization header"), 401);
@@ -280,7 +442,7 @@ export function createEmailApp(): EmailApp {
       return c.json(fail("invalid request body"), 400);
     }
 
-    const supabase = createCallerClient(authorization, c.env);
+    const supabase = deps.createCallerClient(authorization, c.env);
     const [
       { data: accountId, error: accountError },
       { data: role, error: roleError },
@@ -289,7 +451,7 @@ export function createEmailApp(): EmailApp {
       supabase.rpc("current_member_role"),
     ]);
     if (accountError || roleError || typeof accountId !== "number") {
-      return c.json(fail("email sending is temporarily unavailable"), 503);
+      return c.json(unavailable(), 503);
     }
     if (role !== "parent_admin" && role !== "self_manager") {
       return c.json(
@@ -322,16 +484,27 @@ export function createEmailApp(): EmailApp {
       !accountMember ||
       member.disabled === true
     ) {
-      return c.json(
-        fail("email sending is temporarily unavailable, nothing was sent"),
-        503,
-      );
+      return c.json(unavailable(), 503);
     }
     if (!replyTo) {
-      return c.json(
-        fail("email sending is temporarily unavailable, nothing was sent"),
-        503,
-      );
+      return c.json(unavailable(), 503);
+    }
+
+    // This is an explicit server-side switchboard, separate from AI billing.
+    // An empty or malformed list authorises nobody, including when the public
+    // feature flag is accidentally enabled during a rollout.
+    if (!allowedAccountIds(c.env.OUTBOUND_EMAIL_ACCOUNT_IDS).has(accountId)) {
+      return c.json(unavailable(), 503);
+    }
+
+    const admin = deps.createAdminClient(c.env);
+    const cap = globalDailyCap(c.env.OUTBOUND_EMAIL_GLOBAL_DAILY_CAP);
+    if (cap == null) return c.json(unavailable(), 503);
+    const globalDaily = await recentEmailCount(admin, ACCOUNT_DAY_MS);
+    if (globalDaily == null) return c.json(unavailable(), 503);
+    if (globalDaily >= cap) {
+      console.warn("email.globalDailyCapReached");
+      return c.json(unavailable(), 503);
     }
 
     const rate = await checkRateLimit({
@@ -350,12 +523,17 @@ export function createEmailApp(): EmailApp {
         accountMember.id,
         body.include_photo,
       );
-      return c.json(fail("you've reached the email sending limit"), 429);
+      return c.json(
+        fail("you've reached the email sending limit", {
+          code: "rate_limited",
+        }),
+        429,
+      );
     }
-    const recent = await recentEmailCount(supabase, ACCOUNT_WINDOW_MS);
-    const daily = await recentEmailCount(supabase, ACCOUNT_DAY_MS);
+    const recent = await recentEmailCount(admin, ACCOUNT_WINDOW_MS, accountId);
+    const daily = await recentEmailCount(admin, ACCOUNT_DAY_MS, accountId);
     if (recent == null || daily == null) {
-      return c.json(fail("email sending is temporarily unavailable"), 503);
+      return c.json(unavailable(), 503);
     }
     if (
       daily >= ACCOUNT_DAILY_LIMIT ||
@@ -370,7 +548,12 @@ export function createEmailApp(): EmailApp {
         accountMember.id,
         body.include_photo,
       );
-      return c.json(fail("you've reached the email sending limit"), 429);
+      return c.json(
+        fail("you've reached the email sending limit", {
+          code: "rate_limited",
+        }),
+        429,
+      );
     }
 
     const activeKey = `${accountId}:${member.id}`;
@@ -383,20 +566,23 @@ export function createEmailApp(): EmailApp {
         accountMember.id,
         body.include_photo,
       );
-      return c.json(fail("you've reached the email sending limit"), 429);
+      return c.json(
+        fail("you've reached the email sending limit", {
+          code: "rate_limited",
+        }),
+        429,
+      );
     }
     activeAccounts.add(activeKey);
 
     try {
       const { data: single, error: singleError } = await supabase
         .from("singles")
-        .select("id,account_id,member_id")
+        .select(
+          "id,account_id,member_id,first_name_en,last_name_en,first_name_he,last_name_he",
+        )
         .eq("id", body.single_id)
-        .maybeSingle<{
-          id: number;
-          account_id: number;
-          member_id: number | null;
-        }>();
+        .maybeSingle<SingleRow>();
       if (
         singleError ||
         !single ||
@@ -424,7 +610,10 @@ export function createEmailApp(): EmailApp {
           accountMember.id,
           body.include_photo,
         );
-        return c.json(fail("no email saved for this shadchan"), 422);
+        return c.json(
+          fail("no email saved for this shadchan", { code: "no_email" }),
+          422,
+        );
       }
 
       const { data: resume, error: resumeError } = await supabase
@@ -449,7 +638,12 @@ export function createEmailApp(): EmailApp {
           accountMember.id,
           body.include_photo,
         );
-        return c.json(fail("we couldn't prepare these attachments"), 422);
+        return c.json(
+          fail("we couldn't prepare these attachments", {
+            code: "prepare_failed",
+          }),
+          422,
+        );
       }
 
       let photo: PhotoRow | null = null;
@@ -463,7 +657,12 @@ export function createEmailApp(): EmailApp {
           .order("uploaded_at", { ascending: false })
           .limit(1)
           .maybeSingle<PhotoRow>();
-        if (result.error || !result.data) {
+        if (
+          result.error ||
+          !result.data ||
+          result.data.visibility !== "shared" ||
+          result.data.hidden_at != null
+        ) {
           await audit(
             supabase,
             accountId,
@@ -472,24 +671,31 @@ export function createEmailApp(): EmailApp {
             accountMember.id,
             true,
           );
-          return c.json(fail("we couldn't prepare these attachments"), 422);
+          return c.json(
+            fail("we couldn't prepare these attachments", {
+              code: "prepare_failed",
+            }),
+            422,
+          );
         }
         photo = result.data;
       }
 
-      const admin = createClient(
-        c.env.SUPABASE_URL,
-        c.env.SUPABASE_SERVICE_ROLE_KEY,
-        {
-          auth: { persistSession: false },
-        },
+      const resumeInfo = await storageMetadata(
+        admin,
+        String(resumeFile.path ?? ""),
+        "resume",
       );
-      const photoInfo = photo ? await storageMetadata(admin, photo.path) : null;
+      const photoInfo = photo
+        ? await storageMetadata(admin, photo.path, "photo")
+        : null;
+      const resumeSize = resumeInfo?.size;
       const totalSize =
-        typeof resumeFile.size === "number" && photoInfo
-          ? resumeFile.size + photoInfo.size
-          : resumeFile.size;
+        resumeSize != null && photoInfo
+          ? resumeSize + photoInfo.size
+          : resumeSize;
       if (
+        !resumeInfo ||
         typeof totalSize !== "number" ||
         !Number.isSafeInteger(totalSize) ||
         totalSize < 1 ||
@@ -505,32 +711,38 @@ export function createEmailApp(): EmailApp {
           Boolean(photo),
         );
         return c.json(
-          fail("these files are too large or unavailable to email"),
+          fail("these files are too large or unavailable to email", {
+            code: "too_large",
+          }),
           413,
         );
       }
 
       const resumeAttachment = await readAttachment(
-        admin,
         resumeFile.path,
         resumeFile.filename,
         resumeFile.mime_type,
-        resumeFile.size,
+        resumeSize,
+        resumeInfo,
         "resume",
         accountId,
         body.single_id,
+        c.env.SUPABASE_URL,
+        c.env.SUPABASE_SERVICE_ROLE_KEY,
       );
       const photoAttachment =
         photo && photoInfo
           ? await readAttachment(
-              admin,
               photo.path,
               photoInfo.filename,
               photoInfo.mimeType,
               photoInfo.size,
+              photoInfo,
               "photo",
               accountId,
               body.single_id,
+              c.env.SUPABASE_URL,
+              c.env.SUPABASE_SERVICE_ROLE_KEY,
             )
           : null;
       if (!resumeAttachment || (photo && !photoAttachment)) {
@@ -542,16 +754,21 @@ export function createEmailApp(): EmailApp {
           accountMember.id,
           Boolean(photo),
         );
-        return c.json(fail("we couldn't prepare these attachments"), 422);
+        return c.json(
+          fail("we couldn't prepare these attachments", {
+            code: "prepare_failed",
+          }),
+          422,
+        );
       }
 
-      const result = await sendEmail({
+      const result = await deps.sendEmail({
         apiKey: c.env.RESEND_API_KEY,
         from: c.env.RESEND_FROM,
         to: recipient,
         replyTo,
-        subject: `Resume for ${shadchan.name}`,
-        text: `Please find the attached resume${photo ? " and photo" : ""}.`,
+        subject: `Resume for ${singleDisplayName(single)} from MyShadchan`,
+        text: `Please find ${singleDisplayName(single)}'s attached resume${photo ? " and photo" : ""} from MyShadchan.`,
         idempotencyKey: `outbound-email:${accountId}:${body.request_id}`,
         attachments: [
           resumeAttachment.attachment,
@@ -569,7 +786,7 @@ export function createEmailApp(): EmailApp {
         );
         return c.json(ok({ status: "accepted" }));
       }
-      const failure = safeProviderFailure(result.error);
+      const failure = safeProviderFailure(result.error, result.retryable);
       const outcome: EmailOutcome =
         failure === "rate_limited"
           ? "email_rate_limited"
@@ -586,15 +803,25 @@ export function createEmailApp(): EmailApp {
       );
       if (failure === "rate_limited") {
         c.header("Retry-After", "60");
-        return c.json(fail("you've reached the email sending limit"), 429);
+        return c.json(
+          fail("you've reached the email sending limit", {
+            code: "rate_limited",
+          }),
+          429,
+        );
       }
       if (failure === "unknown") {
         return c.json(
-          fail("we couldn't confirm what happened with the email"),
+          fail("we couldn't confirm what happened with the email", {
+            code: "ambiguous",
+          }),
           503,
         );
       }
-      return c.json(fail("the email service rejected this email"), 422);
+      return c.json(
+        fail("the email service rejected this email", { code: "rejected" }),
+        422,
+      );
     } finally {
       activeAccounts.delete(activeKey);
     }
