@@ -530,6 +530,50 @@ describe("toDraft", () => {
     ]);
   });
 
+  it.each([
+    "+49 30 2019 1234",
+    "+49 (30) 2019 1234",
+    "+61 2 2012 3456",
+    "+44 20 2019 3344",
+    "+972 3 2019 3344",
+    "+1 20 2019 1234 5",
+  ])(
+    "drops international phone-shaped values even with year groups: %s",
+    (value) => {
+      const draft = toDraft({
+        sections: {
+          additionalSections: [
+            {
+              key: "work",
+              title: "Work",
+              items: [{ label: "Contact", value }],
+            },
+          ],
+        },
+      });
+
+      expect(draft.sections.additionalSections).toEqual([]);
+    },
+  );
+
+  it("keeps a three-digit count before a parenthesized year range", () => {
+    const draft = toDraft({
+      sections: {
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [{ label: "Team", value: "Led 120 (2019-2021)" }],
+          },
+        ],
+      },
+    });
+
+    expect(draft.sections.additionalSections[0]?.items).toEqual([
+      { label: "Team", value: "Led 120 (2019-2021)" },
+    ]);
+  });
+
   it("caps generic sections, items, and aggregate text without dropping the parse", () => {
     const draft = toDraft({
       sections: {

@@ -808,7 +808,6 @@ export const englishCrmMessages = {
           emptyTitle: "No sections were found in this resume.",
           emptyDescription:
             "You can still read or download the original file above.",
-          learningHistory: "Learning history",
           references: "References",
           referencesPreparing: "References are being prepared.",
           loadingReferences: "Loading references",

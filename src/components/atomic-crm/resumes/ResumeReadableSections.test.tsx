@@ -239,6 +239,20 @@ describe("parseResumeSections", () => {
             after: "personal_details",
             items: [{ label: "Fact", value: "Also kept" }],
           },
+          {
+            key: "negative_order",
+            title: "Negative order",
+            order: -1,
+            after: "personal_details",
+            items: [{ label: "Fact", value: "Still kept" }],
+          },
+          {
+            key: "fractional_order",
+            title: "Fractional order",
+            order: 1.5,
+            after: "personal_details",
+            items: [{ label: "Fact", value: "Still kept" }],
+          },
         ],
       }),
     ).toEqual({
@@ -264,9 +278,45 @@ describe("parseResumeSections", () => {
           after: "personal_details",
           items: [{ label: "Fact", value: "Also kept" }],
         },
+        {
+          key: "negative_order",
+          title: "Negative order",
+          after: "personal_details",
+          items: [{ label: "Fact", value: "Still kept" }],
+        },
+        {
+          key: "fractional_order",
+          title: "Fractional order",
+          after: "personal_details",
+          items: [{ label: "Fact", value: "Still kept" }],
+        },
       ],
     });
   });
+
+  it.each([
+    "+49 30 2019 1234",
+    "+49 (30) 2019 1234",
+    "+61 2 2012 3456",
+    "+44 20 2019 3344",
+    "+972 3 2019 3344",
+    "+1 20 2019 1234 5",
+  ])(
+    "drops international phone-shaped values even with year groups: %s",
+    (value) => {
+      expect(
+        parseResumeSections({
+          additionalSections: [
+            {
+              key: "work",
+              title: "Work",
+              items: [{ label: "Contact", value }],
+            },
+          ],
+        }).additionalSections,
+      ).toEqual([]);
+    },
+  );
 
   it("strips bidi overrides, preserves Hebrew direction marks, and merges duplicates", () => {
     expect(
@@ -482,9 +532,10 @@ describe("ResumeReadableSections", () => {
           },
           {
             key: "family",
-            title: "Family",
+            title: "  fAmIlY\u200B  ",
             items: [
-              { label: "Father", value: "Yosef Levi" },
+              { label: "  FATHER\u200B ", value: " yosef LEVI " },
+              { label: "Father's name", value: "Yosef\u200B Levi" },
               { label: "Sibling", value: "Sister" },
             ],
           },
@@ -599,6 +650,130 @@ describe("ResumeReadableSections", () => {
       "Learning detail",
       "Other",
     ]);
+  });
+
+  it("keeps absent anchor buckets, orders siblings, and gives them stable unique keys", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      const { screen } = await renderSections({
+        fixtureRecord: {
+          ...record,
+          father_en: null,
+          father_he: null,
+          mother_en: null,
+          mother_he: null,
+          seminary_en: null,
+          seminary_he: null,
+          shul_en: null,
+          shul_he: null,
+        } as ShidduchSummary,
+        canViewReferences: false,
+        sections: {
+          learningHistory: [],
+          references: [],
+          additionalSections: [
+            {
+              key: "late",
+              title: "Late",
+              order: 20,
+              after: "family",
+              items: [{ label: "Value", value: "Late" }],
+            },
+            {
+              key: "early",
+              title: "Early",
+              order: 10,
+              after: "personal_details",
+              items: [{ label: "Value", value: "Early" }],
+            },
+            {
+              key: "other",
+              title: "Tie A",
+              order: 5,
+              after: "personal_details",
+              items: [{ label: "Value", value: "Tie A" }],
+            },
+            {
+              key: "other",
+              title: "Tie B",
+              order: 5,
+              after: "personal_details",
+              items: [{ label: "Value", value: "Tie B" }],
+            },
+            {
+              key: "without_order",
+              title: "Without order",
+              after: "personal_details",
+              items: [{ label: "Value", value: "Without order" }],
+            },
+            {
+              key: "history_late",
+              title: "History late",
+              order: 30,
+              after: "learning_history",
+              items: [{ label: "Value", value: "History late" }],
+            },
+          ],
+        },
+      });
+
+      await expect
+        .element(screen.getByText("Personal details"))
+        .toBeInTheDocument();
+      const headings = Array.from(
+        screen.container.querySelectorAll("h3"),
+        (heading) => heading.textContent?.trim(),
+      );
+      expect(headings).toEqual([
+        "Personal details",
+        "Tie A",
+        "Tie B",
+        "Early",
+        "Without order",
+        "Late",
+        "History late",
+      ]);
+      expect(headings).not.toContain("Family");
+      expect(
+        consoleError.mock.calls.filter(([message]) =>
+          String(message).includes('unique "key"'),
+        ),
+      ).toHaveLength(0);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("omits a Family extra made entirely of fixed-item duplicates", async () => {
+    const { screen } = await renderSections({
+      canViewReferences: false,
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "family_duplicate",
+            title: "  FAMILY  ",
+            items: [{ label: "Father's\u200B name", value: " Yosef Levi " }],
+          },
+          {
+            key: "work_duplicate_value",
+            title: "Work",
+            items: [{ label: "Parent name", value: "Yosef Levi" }],
+          },
+        ],
+      },
+    });
+
+    await expect.element(screen.getByText("Family")).toBeInTheDocument();
+    expect(
+      Array.from(screen.container.querySelectorAll("h3"), (heading) =>
+        heading.textContent?.trim(),
+      ).filter((heading) => heading === "FAMILY" || heading === "Family"),
+    ).toHaveLength(1);
+    await expect.element(screen.getByText("Parent name")).toBeInTheDocument();
   });
 
   it("does not render parsed reference content when the viewer is a single", async () => {
