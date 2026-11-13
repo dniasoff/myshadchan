@@ -47,7 +47,17 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
             marital_status: null,
           },
           lowConfidenceFields: ["age"],
-          sections: { learningHistory: [], references: [] },
+          sections: {
+            learningHistory: [
+              {
+                label: "Yeshiva",
+                value: "Torah learning at Yeshivat Or HaChaim",
+              },
+            ],
+            references: [
+              { name: "Miriam E2E", relationship: "Teacher", phone: "" },
+            ],
+          },
           rawDraft: { name_en: { value: "Leah Original", confidence: 0.95 } },
         },
       }),
@@ -166,4 +176,27 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
 
   await page.goto(`${APP_URL}/#/shidduchim/${created.id}/resume`);
   await expect(page.getByText("resume.pdf")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Original resume" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Easy-to-read resume" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Learning history" }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "References" })).toBeVisible();
+  await expect(page.getByText("Miriam E2E")).toBeVisible();
+  await expect(page.getByText("No phone number saved")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Answered", exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() => {
+      const browserGlobal = globalThis as typeof globalThis & {
+        document: { documentElement: { scrollWidth: number } };
+      };
+      return browserGlobal.document.documentElement.scrollWidth;
+    }),
+  ).toBeLessThanOrEqual(isMobileProject ? 375 : 1440);
 });
