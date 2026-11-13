@@ -29,6 +29,13 @@ export const MAX_ADDITIONAL_SECTION_ITEM_COUNT = 250;
 export const MAX_ADDITIONAL_SECTION_KEY_LENGTH = 80;
 export const MAX_ADDITIONAL_SECTION_TITLE_LENGTH = 120;
 export const MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH = 40_000;
+export const MAX_ADDITIONAL_SECTION_ORDER = 249;
+export const ADDITIONAL_SECTION_AFTER_VALUES = [
+  "personal_details",
+  "family",
+  "learning_and_community",
+  "learning_history",
+] as const;
 
 /**
  * Finding 13 (Epic 11 adversarial review): every field used to accept
@@ -128,6 +135,25 @@ const AdditionalSectionKeySchema = z.preprocess(
     .regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/u),
 );
 
+const AdditionalSectionAfterSchema = z.preprocess(
+  (value) =>
+    typeof value === "string" &&
+    (ADDITIONAL_SECTION_AFTER_VALUES as readonly string[]).includes(value)
+      ? value
+      : undefined,
+  z.enum(ADDITIONAL_SECTION_AFTER_VALUES).optional(),
+);
+
+const RawAdditionalSectionSchema = z.object({
+  key: AdditionalSectionKeySchema,
+  title: additionalSectionTextSchema(MAX_ADDITIONAL_SECTION_TITLE_LENGTH),
+  items: tolerantArray(
+    AdditionalSectionItemSchema,
+    MAX_ADDITIONAL_SECTION_RAW_ITEMS,
+  ),
+  after: AdditionalSectionAfterSchema,
+});
+
 const AdditionalSectionSchema = z.object({
   key: AdditionalSectionKeySchema,
   title: additionalSectionTextSchema(MAX_ADDITIONAL_SECTION_TITLE_LENGTH),
@@ -135,6 +161,8 @@ const AdditionalSectionSchema = z.object({
     AdditionalSectionItemSchema,
     MAX_ADDITIONAL_SECTION_RAW_ITEMS,
   ),
+  after: z.enum(ADDITIONAL_SECTION_AFTER_VALUES).optional(),
+  order: z.number().int().min(0).max(MAX_ADDITIONAL_SECTION_ORDER),
 });
 
 /**
@@ -329,7 +357,15 @@ const isPhoneLikeNumber = (value: string): boolean => {
       const currentIsYear = isYear(runs[runs.length - 1]);
       const isYearRangeLink =
         currentIsYear && isYear(nextRun) && /[^\p{L}\p{N}\s]/u.test(separator);
-      if (currentIsYear && /\s/u.test(separator) && !isYearRangeLink) {
+      const nonYearIntoParenthesizedYear =
+        !currentIsYear &&
+        isYear(nextRun) &&
+        runs[runs.length - 1].length <= 2 &&
+        /[\s(]/u.test(separator);
+      if (
+        (currentIsYear && /\s/u.test(separator) && !isYearRangeLink) ||
+        nonYearIntoParenthesizedYear
+      ) {
         break;
       }
 
@@ -369,14 +405,14 @@ const normalizeAdditionalSections = (
 ): Array<z.infer<typeof AdditionalSectionSchema>> => {
   if (!Array.isArray(raw)) return [];
 
-  const mergedSections: Array<z.infer<typeof AdditionalSectionSchema>> = [];
+  const mergedSections: Array<z.infer<typeof RawAdditionalSectionSchema>> = [];
   const sectionsByTitle = new Map<
     string,
-    z.infer<typeof AdditionalSectionSchema>
+    z.infer<typeof RawAdditionalSectionSchema>
   >();
 
   for (const entry of raw) {
-    const result = AdditionalSectionSchema.safeParse(entry);
+    const result = RawAdditionalSectionSchema.safeParse(entry);
     if (!result.success || result.data.items.length === 0) continue;
     if (
       isReferenceLikeSection(result.data.key, result.data.title) ||
@@ -449,6 +485,7 @@ const normalizeAdditionalSections = (
     sections.push({
       ...section,
       items,
+      order: sections.length,
     });
     textLength += sectionTextLength + acceptedItemTextLength;
 

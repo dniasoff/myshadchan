@@ -14,11 +14,11 @@ import { RawExtractionSchema } from "./parsedResumeDraft";
  * already paid for one extraction of the document, and a re-parse forced by
  * OUR OWN contract change must not charge it again.
  *
- * Version 3 adds bounded, generic additional resume sections while retaining
- * the legacy learningHistory/references keys. Older cached results are deliberately
+ * Version 4 adds parser-assigned ordering anchors to the bounded, generic
+ * additional resume sections while retaining the legacy learningHistory/references keys. Older cached results are deliberately
  * re-parsed rather than guessed at.
  */
-export const CURRENT_PARSE_RESULT_SCHEMA_VERSION = 3;
+export const CURRENT_PARSE_RESULT_SCHEMA_VERSION = 4;
 
 /**
  * Mirrors `ParsedResumeFields` (`parsedResumeDraft.ts`, Finding 13 closure)

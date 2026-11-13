@@ -68,8 +68,9 @@ const FIXED_RESUME_FIELDS_PROMPT =
 const FULL_RESUME_PROMPT =
   FIXED_RESUME_FIELDS_PROMPT +
   "Also include sections.learningHistory as [{label, value}] and sections.references as [{name, relationship, phone}]. " +
-  "Include sections.additionalSections as an ordered array of resume sections, each {key, title, items:[{label, value}]}. " +
+  "Include sections.additionalSections as an ordered array of resume sections, each {key, title, items:[{label, value}], after?}. " +
   "Use a lowercase snake_case key such as education, work, interests, skills, languages, volunteer, community, family, looking_for, about, or other; use the resume's own heading as title and preserve section order. " +
+  "When an additional section follows one of the fixed blocks, set after to exactly one of personal_details, family, learning_and_community, or learning_history; otherwise omit after. Never provide an order field: the parser assigns the bounded source position. " +
   "Return at most 20 additional sections, 50 items per section, and 250 items total; keep their combined text concise (under 24,000 characters). " +
   "Do not repeat any fixed field, learningHistory, or reference in additionalSections; sections.references remains the canonical reference list. ";
 

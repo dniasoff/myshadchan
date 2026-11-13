@@ -32,11 +32,148 @@ import { resumeSubjectFilter } from "./resumeSubject";
 import {
   matchResumeReferenceLinks,
   parseResumeSections,
+  type ParsedAdditionalSection,
+  type ParsedAdditionalSectionItem,
   type ParsedResumeReference,
 } from "./resumeReadableSections";
 
 type DetailItem = { label: string; value: string };
 type DetailGroup = { heading: string; items: DetailItem[] };
+type ReadableGroupEntry = {
+  key: string;
+  group: DetailGroup;
+  stacked?: boolean;
+};
+
+const FIXED_GROUP_KEYS = [
+  "personal_details",
+  "family",
+  "learning_and_community",
+] as const;
+
+const FIXED_GROUP_HEADINGS: Record<(typeof FIXED_GROUP_KEYS)[number], string> =
+  {
+    personal_details: "Personal details",
+    family: "Family",
+    learning_and_community: "Learning and community",
+  };
+
+const normalizeReadableItemKey = (item: ParsedAdditionalSectionItem): string =>
+  JSON.stringify([
+    item.label.trim().replace(/\s+/gu, " ").toLocaleLowerCase(),
+    item.value.trim().replace(/\s+/gu, " ").toLocaleLowerCase(),
+  ]);
+
+function filterDuplicateFamilyExtras(
+  additionalSections: ParsedAdditionalSection[],
+  detailGroups: DetailGroup[],
+): ParsedAdditionalSection[] {
+  const familyGroup = detailGroups.find(
+    (group) => group.heading === FIXED_GROUP_HEADINGS.family,
+  );
+  const fixedFamilyItems = new Set(
+    familyGroup?.items.map(normalizeReadableItemKey) ?? [],
+  );
+
+  return additionalSections.flatMap((section) => {
+    if (section.title.trim().toLocaleLowerCase() !== "family") {
+      return [section];
+    }
+    const items = section.items.filter(
+      (item) => !fixedFamilyItems.has(normalizeReadableItemKey(item)),
+    );
+    return items.length > 0 ? [{ ...section, items }] : [];
+  });
+}
+
+function buildReadableGroups(
+  detailGroups: DetailGroup[],
+  learningHistory: ParsedAdditionalSectionItem[],
+  additionalSections: ParsedAdditionalSection[],
+): ReadableGroupEntry[] {
+  const fixedEntries = FIXED_GROUP_KEYS.flatMap((key) => {
+    const group = detailGroups.find(
+      (candidate) => candidate.heading === FIXED_GROUP_HEADINGS[key],
+    );
+    return group ? [{ key, group }] : [];
+  });
+  const learningEntry =
+    learningHistory.length > 0
+      ? {
+          key: "learning_history",
+          group: { heading: "Learning history", items: learningHistory },
+          stacked: true,
+        }
+      : null;
+  const hasAnchors = additionalSections.some(
+    (section) => section.order !== undefined || section.after !== undefined,
+  );
+
+  if (!hasAnchors) {
+    return [
+      ...detailGroups.map((group) => ({
+        key: `fixed-${group.heading}`,
+        group,
+      })),
+      ...(learningEntry ? [learningEntry] : []),
+      ...additionalSections.map((section, index) => ({
+        key: `additional-${section.key}-${section.title}-${index}`,
+        group: { heading: section.title, items: section.items },
+        stacked: true,
+      })),
+    ];
+  }
+
+  const orderedExtras = additionalSections
+    .map((section, index) => ({ section, index }))
+    .sort((left, right) => {
+      const leftOrder = left.section.order ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = right.section.order ?? Number.MAX_SAFE_INTEGER;
+      return leftOrder - rightOrder || left.index - right.index;
+    });
+  const anchoredExtras = new Map<string, typeof orderedExtras>();
+  const unanchoredExtras: typeof orderedExtras = [];
+  for (const entry of orderedExtras) {
+    if (entry.section.after === undefined) {
+      unanchoredExtras.push(entry);
+      continue;
+    }
+    const bucket = anchoredExtras.get(entry.section.after) ?? [];
+    bucket.push(entry);
+    anchoredExtras.set(entry.section.after, bucket);
+  }
+
+  const entries: ReadableGroupEntry[] = [];
+  for (const fixedKey of FIXED_GROUP_KEYS) {
+    const fixedEntry = fixedEntries.find((entry) => entry.key === fixedKey);
+    if (fixedEntry) entries.push(fixedEntry);
+    for (const { section, index } of anchoredExtras.get(fixedKey) ?? []) {
+      entries.push({
+        key: `additional-${section.key}-${section.title}-${section.order ?? index}`,
+        group: { heading: section.title, items: section.items },
+        stacked: true,
+      });
+    }
+  }
+  if (learningEntry) entries.push(learningEntry);
+  for (const { section, index } of anchoredExtras.get("learning_history") ??
+    []) {
+    entries.push({
+      key: `additional-${section.key}-${section.title}-${section.order ?? index}`,
+      group: { heading: section.title, items: section.items },
+      stacked: true,
+    });
+  }
+  for (const { section, index } of unanchoredExtras) {
+    entries.push({
+      key: `additional-${section.key}-${section.title}-${section.order ?? index}`,
+      group: { heading: section.title, items: section.items },
+      stacked: true,
+    });
+  }
+
+  return entries;
+}
 
 const STATUS_OPTIONS: ReadonlyArray<{
   id: CallStatus;
@@ -185,6 +322,20 @@ export function ResumeReadableSections({
     [resume?.sections, canViewReferences],
   );
   const detailGroups = useMemo(() => readableDetailGroups(record), [record]);
+  const displayAdditionalSections = useMemo(
+    () =>
+      filterDuplicateFamilyExtras(sections.additionalSections, detailGroups),
+    [sections.additionalSections, detailGroups],
+  );
+  const readableGroups = useMemo(
+    () =>
+      buildReadableGroups(
+        detailGroups,
+        sections.learningHistory,
+        displayAdditionalSections,
+      ),
+    [detailGroups, sections.learningHistory, displayAdditionalSections],
+  );
 
   const { data: links, isPending: areLinksPending } =
     useGetList<ReferenceLinkSummary>(
@@ -203,9 +354,7 @@ export function ResumeReadableSections({
   if (isResumePending || !resume) return null;
 
   const hasReadableContent =
-    detailGroups.length > 0 ||
-    sections.learningHistory.length > 0 ||
-    sections.additionalSections.length > 0 ||
+    readableGroups.length > 0 ||
     (canViewReferences && sections.references.length > 0);
   const referenceRows = canViewReferences
     ? buildReferenceRows(sections.references, links ?? [])
@@ -247,31 +396,11 @@ export function ResumeReadableSections({
           </div>
         ) : (
           <>
-            {detailGroups.map((group) => (
-              <ReadableGroup key={group.heading} group={group} />
-            ))}
-            {sections.learningHistory.length > 0 ? (
-              <section className="border-t py-5 first:border-t-0">
-                <h3 dir="auto" className="mb-3 text-base font-semibold">
-                  {translate("crm.entity360.resume.readable.learningHistory", {
-                    _: "Learning history",
-                  })}
-                </h3>
-                <div className="flex flex-col gap-2">
-                  {sections.learningHistory.map((item, index) => (
-                    <ReadableItem
-                      key={`${index}-${JSON.stringify(item)}`}
-                      item={item}
-                    />
-                  ))}
-                </div>
-              </section>
-            ) : null}
-            {sections.additionalSections.map((section) => (
+            {readableGroups.map((entry) => (
               <ReadableGroup
-                key={`additional-${section.key}-${section.title}`}
-                group={{ heading: section.title, items: section.items }}
-                stacked
+                key={entry.key}
+                group={entry.group}
+                stacked={entry.stacked}
               />
             ))}
             {canViewReferences && sections.references.length > 0 ? (

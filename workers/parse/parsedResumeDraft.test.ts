@@ -136,6 +136,7 @@ describe("toDraft", () => {
     expect(draft.sections.additionalSections).toEqual([
       {
         key: "work",
+        order: 0,
         title: "Work",
         items: [
           { label: "Employer", value: "Acme" },
@@ -144,8 +145,58 @@ describe("toDraft", () => {
       },
       {
         key: "interests",
+        order: 1,
         title: "Interests",
         items: [{ label: "Hobbies", value: "Reading / קריאה" }],
+      },
+    ]);
+  });
+
+  it("assigns bounded anchors after validation and merging, never trusting model order", () => {
+    const draft = toDraft({
+      sections: {
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            order: 249,
+            after: "family",
+            items: [{ label: "Role", value: "Teacher" }],
+          },
+          {
+            key: "employment",
+            title: " Work ",
+            order: 0,
+            after: "learning_history",
+            items: [{ label: "Location", value: "Brooklyn" }],
+          },
+          {
+            key: "unknown_anchor",
+            title: "Unknown anchor",
+            order: 1,
+            after: "not_a_fixed_block",
+            items: [{ label: "Fact", value: "Kept" }],
+          },
+        ],
+      },
+    });
+
+    expect(draft.sections.additionalSections).toEqual([
+      {
+        key: "work",
+        title: "Work",
+        items: [
+          { label: "Role", value: "Teacher" },
+          { label: "Location", value: "Brooklyn" },
+        ],
+        after: "family",
+        order: 0,
+      },
+      {
+        key: "unknown_anchor",
+        title: "Unknown anchor",
+        items: [{ label: "Fact", value: "Kept" }],
+        order: 1,
       },
     ]);
   });
@@ -173,6 +224,7 @@ describe("toDraft", () => {
     expect(draft.sections.additionalSections).toEqual([
       {
         key: "work",
+        order: 0,
         title: "Work",
         items: [{ label: "Role", value: "עברית\u200E text\u200Fhidden" }],
       },
@@ -327,6 +379,9 @@ describe("toDraft", () => {
                 label: "Schedule",
                 value: "Mon–Fri 9–5, 2019–2021, 120 credits",
               },
+              { label: "Ages", value: "Ages 6-12 (2020-2021)" },
+              { label: "Employees", value: "Employees: 15 (2018-2022)" },
+              { label: "Team", value: "Team of 12 (2018–2022)" },
               { label: "Phone 054-222", value: "3344" },
               { label: "Slash phone", value: "054/222/3344" },
               { label: "En dash phone", value: "054–222–3344" },
@@ -364,6 +419,7 @@ describe("toDraft", () => {
     expect(draft.sections.additionalSections).toEqual([
       {
         key: "work",
+        order: 0,
         title: "Work",
         items: [
           { label: "Dates", value: "2019–2023" },
@@ -416,6 +472,9 @@ describe("toDraft", () => {
             label: "Schedule",
             value: "Mon–Fri 9–5, 2019–2021, 120 credits",
           },
+          { label: "Ages", value: "Ages 6-12 (2020-2021)" },
+          { label: "Employees", value: "Employees: 15 (2018-2022)" },
+          { label: "Team", value: "Team of 12 (2018–2022)" },
           { label: "Born", value: "14 March 1999" },
           { label: "Duration", value: "2015–2018 (3 years)" },
           {
@@ -461,6 +520,7 @@ describe("toDraft", () => {
     expect(draft.sections.additionalSections).toEqual([
       {
         key: "work",
+        order: 0,
         title: "Work",
         items: [
           { label: "Role", value: "Teacher" },
