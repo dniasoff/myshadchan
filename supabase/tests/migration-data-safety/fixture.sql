@@ -753,6 +753,28 @@ begin
   end if;
 end $$;
 
+-- B2a: ai_reread_attempts is the deliberate-resume idempotency ledger. It is
+-- guarded for the same reason as ai_parse_attempts above: this fixture runs
+-- against the last deployed baseline, so the table is absent while its own
+-- migration is pending. Once deployed, keep one completed metadata-only row
+-- here so later migrations prove its lifecycle columns and account/resume
+-- foreign keys preserve a production-shaped record. No resume text is stored.
+do $$
+begin
+  if to_regclass('public.ai_reread_attempts') is not null then
+    execute $seed$
+      insert into public.ai_reread_attempts
+        (id, account_id, resume_id, request_id, period, status, generation,
+         result_schema_version, lease_expires_at, created_at, updated_at)
+      values (
+        9000001, 9000001, 9000001,
+        '90000000-0000-4000-8000-000000000001', '2026-07', 'completed', 1,
+        4, now(), now(), now()
+      );
+    $seed$;
+  end if;
+end $$;
+
 -- Story 7.1 (Epic 7: threads). A shadchanus account, an accepted connection
 -- to the household above, and one thread/participant/message PER SCOPE AXIS
 -- on the SAME subject shidduch (9000001) — the shape Story 7.5's

@@ -997,6 +997,14 @@ grant all on table public.ai_parse_attempts to service_role;
 revoke all on sequence public.ai_parse_attempts_id_seq from anon, authenticated;
 grant all on sequence public.ai_parse_attempts_id_seq to service_role;
 
+-- Re-read idempotency/quota ledger: service-role RPCs only, with no client
+-- read or write path and no direct authenticated sequence access.
+revoke all on table public.ai_reread_attempts from public, anon, authenticated;
+grant all on table public.ai_reread_attempts to service_role;
+
+revoke all on sequence public.ai_reread_attempts_id_seq from public, anon, authenticated;
+grant all on sequence public.ai_reread_attempts_id_seq to service_role;
+
 -- Story 12.4 (AC-3): stripe_events is the webhook idempotency ledger. Same
 -- posture as ai_parse_attempts above — no client write path, no client read
 -- path at all (05_policies.sql has zero policies on it). Every access is
@@ -1045,6 +1053,15 @@ grant execute on function public.confirm_ai_parse_attempt(bigint, bigint, bigint
 
 revoke all on function public.release_ai_parse_attempt(bigint, bigint, bigint) from public, anon, authenticated;
 grant execute on function public.release_ai_parse_attempt(bigint, bigint, bigint) to service_role;
+
+revoke all on function public.claim_ai_reread_attempt(bigint, bigint, uuid, smallint) from public, anon, authenticated;
+grant execute on function public.claim_ai_reread_attempt(bigint, bigint, uuid, smallint) to service_role;
+
+revoke all on function public.complete_ai_reread_attempt(bigint, bigint, bigint, smallint) from public, anon, authenticated;
+grant execute on function public.complete_ai_reread_attempt(bigint, bigint, bigint, smallint) to service_role;
+
+revoke all on function public.release_ai_reread_attempt(bigint, bigint, bigint) from public, anon, authenticated;
+grant execute on function public.release_ai_reread_attempt(bigint, bigint, bigint) to service_role;
 
 -- force_reclaim_ai_parse_attempt() (Finding 12 closure): same posture as
 -- claim/confirm/release above — SECURITY DEFINER, reachable ONLY from the

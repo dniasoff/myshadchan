@@ -1755,6 +1755,12 @@ create policy "AI usage readable within account" on public.ai_usage
 alter table public.ai_parse_attempts enable row level security;
 alter table public.ai_parse_attempts force row level security;
 
+-- Deliberate resume re-reads carry request ids and lifecycle state, but never
+-- resume text. Like ai_parse_attempts, the table has no client policies and
+-- is FORCE RLS; only the service-role RPCs may access it.
+alter table public.ai_reread_attempts enable row level security;
+alter table public.ai_reread_attempts force row level security;
+
 -- Story 12.4 (AC-3). Same shape as ai_parse_attempts above: RLS enabled,
 -- ZERO client policies — not even SELECT. The webhook that writes it, and
 -- everything downstream (the future reconciliation sweep, if any ships),
