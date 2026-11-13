@@ -63,17 +63,25 @@ describe("ResumeUpload — upload (AC 1 / AC 2)", () => {
     const { screen } = await renderUpload(42);
 
     // Assert
-    await expect
-      .element(screen.getByRole("button", { name: "Attach resume" }))
-      .toHaveAttribute("aria-describedby", "resume-upload-hint");
-    await expect.element(screen.getByText(hint)).toBeInTheDocument();
+    const button = screen.getByRole("button", {
+      name: "Attach resume",
+      exact: true,
+    });
+    const hintElement = screen.getByText(hint, { exact: true });
+    await expect.element(button).toHaveAccessibleDescription(hint);
+    await expect.element(hintElement).toBeInTheDocument();
+    expect(
+      button.element().compareDocumentPosition(hintElement.element()) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
 
-    const input = screen.getByLabelText("Attach resume");
+    const input = screen.getByLabelText("Attach resume", { exact: true });
     await expect
-      .element(input)
-      .toHaveAttribute("aria-describedby", "resume-upload-hint");
+      .element(button)
+      .toHaveAttribute("aria-describedby", hintElement.element().id);
     await expect.element(input).not.toHaveAttribute("accept");
     await expect.element(input).not.toHaveAttribute("capture");
+    await expect.element(input).not.toHaveAttribute("multiple");
   });
 
   it("uploads the selected file for the given shidduch, never a replace call", async () => {
@@ -85,7 +93,7 @@ describe("ResumeUpload — upload (AC 1 / AC 2)", () => {
 
     // Act
     const { screen } = await renderUpload(42, { uploadResumeFile });
-    await screen.getByLabelText("Attach resume").upload(file);
+    await screen.getByLabelText("Attach resume", { exact: true }).upload(file);
 
     // Assert
     await expect.poll(() => uploadResumeFile.mock.calls.length).toBe(1);
@@ -104,12 +112,14 @@ describe("ResumeUpload — upload (AC 1 / AC 2)", () => {
 
     // Act
     const { screen } = await renderUpload(1, { uploadResumeFile });
-    await screen.getByLabelText("Attach resume").upload(file);
+    await screen.getByLabelText("Attach resume", { exact: true }).upload(file);
 
     // Assert
     await expect.element(screen.getByText("boom")).toBeInTheDocument();
     await expect
-      .element(screen.getByRole("button", { name: "Attach resume" }))
+      .element(
+        screen.getByRole("button", { name: "Attach resume", exact: true }),
+      )
       .toBeInTheDocument();
   });
 
@@ -122,7 +132,7 @@ describe("ResumeUpload — upload (AC 1 / AC 2)", () => {
 
     // Act
     const { screen } = await renderUpload(1, { uploadResumeFile });
-    await screen.getByLabelText("Attach resume").upload(file);
+    await screen.getByLabelText("Attach resume", { exact: true }).upload(file);
 
     // Assert
     await expect

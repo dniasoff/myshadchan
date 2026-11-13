@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { ChangeEvent, ReactElement } from "react";
 import { useDataProvider, useNotify, useRefresh, useTranslate } from "ra-core";
 
@@ -24,6 +24,7 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
   const notify = useNotify();
   const translate = useTranslate();
   const refresh = useRefresh();
+  const uploadHintId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -63,12 +64,12 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
         type="button"
         disabled={isUploading}
         onClick={() => inputRef.current?.click()}
-        aria-describedby="resume-upload-hint"
+        aria-describedby={uploadHintId}
       >
         {uploadLabel}
       </Button>
       <p
-        id="resume-upload-hint"
+        id={uploadHintId}
         className="mt-2 max-w-sm text-sm leading-5 text-muted-foreground"
       >
         {uploadHint}
@@ -80,7 +81,7 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
         aria-hidden="true"
         tabIndex={-1}
         aria-label={uploadLabel}
-        aria-describedby="resume-upload-hint"
+        aria-describedby={uploadHintId}
         onChange={handleUpload}
       />
     </div>
