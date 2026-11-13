@@ -180,9 +180,9 @@ export function ResumeReadableSections({
     },
   );
   const resume = resumes?.[0];
-  const sections = parseResumeSections(
-    resume?.sections,
-    canViewReferences === true,
+  const sections = useMemo(
+    () => parseResumeSections(resume?.sections, canViewReferences === true),
+    [resume?.sections, canViewReferences],
   );
   const detailGroups = useMemo(() => readableDetailGroups(record), [record]);
 

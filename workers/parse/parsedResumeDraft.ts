@@ -298,20 +298,27 @@ const digitRuns = (value: string): { all: string; runs: string[] } => {
 const isYear = (value: string): boolean =>
   value.length === 4 && /^(?:19|20)\d{2}$/u.test(value);
 
-const isPhoneLikeNumber = (value: string): boolean => {
-  const normalized = value.normalize("NFKC").replace(/\p{Cf}/gu, "");
-  const { all, runs } = digitRuns(normalized);
-  if (all.length === 0) return false;
-  if (runs.every(isYear)) return false;
+const PHONE_TOKEN_PATTERN =
+  /(?:\+|00)?(?:\(\p{Nd}+\)|\p{Nd}+)(?:(?:[ .-])(?:\(\p{Nd}+\)|\p{Nd}+))*/gu;
 
-  const hasInternationalPrefix =
-    /(?:^|[^\p{Nd}])(?:\+|00)(?=\s*[\p{Nd}])/u.test(normalized);
+const isPhoneLikeToken = (token: string): boolean => {
+  const { all, runs } = digitRuns(token);
+  if (all.length === 0 || runs.every(isYear)) return false;
+
+  const hasInternationalPrefix = /^(?:\+|00)/u.test(token);
   if (hasInternationalPrefix) return all.length >= 7 && all.length <= 15;
   if (all.length < 9 || all.length > 15) return false;
   if (runs.length === 2 && runs[0].length === 5 && runs[1].length === 4) {
     return false;
   }
   return true;
+};
+
+const isPhoneLikeNumber = (value: string): boolean => {
+  const normalized = value.normalize("NFKC").replace(/\p{Cf}/gu, "");
+  return [...normalized.matchAll(PHONE_TOKEN_PATTERN)].some(([token]) =>
+    isPhoneLikeToken(token),
+  );
 };
 
 const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[^\s@]{2,}/u;
@@ -356,10 +363,7 @@ const normalizeAdditionalSections = (
     const sectionItems: z.infer<typeof AdditionalSectionItemSchema>[] = [];
     const itemKeys = new Set<string>();
     for (const item of result.data.items) {
-      if (
-        containsSensitiveContactInfo(item.label) ||
-        containsSensitiveContactInfo(item.value)
-      ) {
+      if (containsSensitiveContactInfo(`${item.label} ${item.value}`)) {
         continue;
       }
       const itemKey = normalizeItemKey(item);

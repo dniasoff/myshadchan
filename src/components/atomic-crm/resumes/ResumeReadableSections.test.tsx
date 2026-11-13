@@ -560,9 +560,56 @@ describe("ResumeReadableSections", () => {
             title: "Work",
             items: [
               { label: "Dates", value: "2019–2023" },
+              {
+                label: "Term dates",
+                value: "Sep 2019 – Jun 2023 (3 years 9 months)",
+              },
+              { label: "Born", value: "14 March 1999" },
+              { label: "Duration", value: "2015–2018 (3 years)" },
+              {
+                label: "Class of 2019",
+                value: "GPA 3.85, 120 credits",
+              },
+              {
+                label: "Project",
+                value: "Levi Home Renovation · 2019–2023",
+              },
+              {
+                label: "Leadership",
+                value: "Led a team of 15 across 3 offices, 2018–2022",
+              },
+              {
+                label: "Volunteer",
+                value: "Volunteered 2019-2021, 10 hours a week",
+              },
+              {
+                label: "Budget",
+                value: "Monthly budget $120,000 and 45 staff",
+              },
+              {
+                label: "Academic",
+                value: "Grade 95, rank 3 of 120 (2021)",
+              },
+              {
+                label: "Class",
+                value: "Ages 6-12, 8 students, 2020-2021, 4 classes",
+              },
+              {
+                label: "Address",
+                value: "123 Main Street, Brooklyn NY 11230-1234",
+              },
+              { label: "Phone 054-222", value: "3344" },
               { label: "Phone", value: "054-222-3344" },
+              { label: "Call", value: "054-222-3344" },
               { label: "International", value: "+972 54 222 3344" },
               { label: "US phone", value: "(718) 555-1234" },
+              { label: "Dotted phone", value: "718.555.1234" },
+              { label: "Bare phone", value: "0542223344" },
+              { label: "International bare", value: "00972542223344" },
+              {
+                label: "Embedded phone",
+                value: "Call 054-222-3344 after 6",
+              },
               { label: "Email", value: "person@example.com" },
             ],
           },
@@ -576,7 +623,41 @@ describe("ResumeReadableSections", () => {
     });
 
     await expect.element(screen.getByText("Work")).toBeInTheDocument();
-    await expect.element(screen.getByText("2019–2023")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("2019–2023").first())
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("2015–2018 (3 years)"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Sep 2019 – Jun 2023 (3 years 9 months)"))
+      .toBeInTheDocument();
+    await expect.element(screen.getByText("14 March 1999")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("GPA 3.85, 120 credits"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Levi Home Renovation · 2019–2023"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Led a team of 15 across 3 offices, 2018–2022"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Volunteered 2019-2021, 10 hours a week"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Monthly budget $120,000 and 45 staff"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Grade 95, rank 3 of 120 (2021)"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Ages 6-12, 8 students, 2020-2021, 4 classes"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("123 Main Street, Brooklyn NY 11230-1234"))
+      .toBeInTheDocument();
+    await expect.element(screen.getByText("3344")).not.toBeInTheDocument();
     await expect
       .element(screen.getByText("054-222-3344"))
       .not.toBeInTheDocument();
@@ -585,6 +666,18 @@ describe("ResumeReadableSections", () => {
       .not.toBeInTheDocument();
     await expect
       .element(screen.getByText("(718) 555-1234"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("718.555.1234"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("0542223344"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("00972542223344"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Call 054-222-3344 after 6"))
       .not.toBeInTheDocument();
     await expect
       .element(screen.getByText("person@example.com"))

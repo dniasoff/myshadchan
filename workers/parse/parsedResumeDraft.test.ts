@@ -277,9 +277,57 @@ describe("toDraft", () => {
               { label: "Age", value: "25" },
               { label: "Height", value: "5'11\"" },
               { label: "Postcode", value: "12345-6789" },
+              { label: "Years", value: "2015–2018 (3 years)" },
+              {
+                label: "Dates",
+                value: "Sep 2019 – Jun 2023 (3 years 9 months)",
+              },
+              {
+                label: "Education",
+                value: "Class of 2019, GPA 3.85, 120 credits",
+              },
+              {
+                label: "Leadership",
+                value: "Led a team of 15 across 3 offices, 2018–2022",
+              },
+              {
+                label: "Volunteer",
+                value: "Volunteered 2019-2021, 10 hours a week",
+              },
+              {
+                label: "Budget",
+                value: "Monthly budget $120,000 and 45 staff",
+              },
+              {
+                label: "Academic",
+                value: "Grade 95, rank 3 of 120 (2021)",
+              },
+              {
+                label: "Class",
+                value: "Ages 6-12, 8 students, 2020-2021, 4 classes",
+              },
+              {
+                label: "Address",
+                value: "123 Main Street, Brooklyn NY 11230-1234",
+              },
+              { label: "Phone 054-222", value: "3344" },
+              { label: "Call", value: "054-222-3344" },
+              { label: "Born", value: "14 March 1999" },
+              { label: "Duration", value: "2015–2018 (3 years)" },
+              {
+                label: "Class of 2019",
+                value: "GPA 3.85, 120 credits",
+              },
               { label: "Phone", value: "054-222-3344" },
               { label: "International", value: "+972 54 222 3344" },
               { label: "US phone", value: "(718) 555-1234" },
+              { label: "Dotted phone", value: "718.555.1234" },
+              { label: "Bare phone", value: "0542223344" },
+              { label: "International bare", value: "00972542223344" },
+              {
+                label: "Embedded phone",
+                value: "Call 054-222-3344 after 6",
+              },
               { label: "Email", value: "person@example.com" },
             ],
           },
@@ -305,6 +353,45 @@ describe("toDraft", () => {
           { label: "Age", value: "25" },
           { label: "Height", value: "5'11\"" },
           { label: "Postcode", value: "12345-6789" },
+          { label: "Years", value: "2015–2018 (3 years)" },
+          {
+            label: "Dates",
+            value: "Sep 2019 – Jun 2023 (3 years 9 months)",
+          },
+          {
+            label: "Education",
+            value: "Class of 2019, GPA 3.85, 120 credits",
+          },
+          {
+            label: "Leadership",
+            value: "Led a team of 15 across 3 offices, 2018–2022",
+          },
+          {
+            label: "Volunteer",
+            value: "Volunteered 2019-2021, 10 hours a week",
+          },
+          {
+            label: "Budget",
+            value: "Monthly budget $120,000 and 45 staff",
+          },
+          {
+            label: "Academic",
+            value: "Grade 95, rank 3 of 120 (2021)",
+          },
+          {
+            label: "Class",
+            value: "Ages 6-12, 8 students, 2020-2021, 4 classes",
+          },
+          {
+            label: "Address",
+            value: "123 Main Street, Brooklyn NY 11230-1234",
+          },
+          { label: "Born", value: "14 March 1999" },
+          { label: "Duration", value: "2015–2018 (3 years)" },
+          {
+            label: "Class of 2019",
+            value: "GPA 3.85, 120 credits",
+          },
         ],
       },
     ]);
