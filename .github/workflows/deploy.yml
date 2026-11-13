@@ -591,16 +591,12 @@ jobs:
         run: npm ci
 
       # `versions upload` requires the Worker script resource to exist before
-      # it can create the atomic version. Keep the established plain-deploy
-      # path for ingest/match/share unchanged; this guard runs for the
-      # version-upload workers and for any future worker added outside that
-      # established set. Existing Workers are a no-op. A missing Worker gets
-      # one bootstrap deploy with a derived config that preserves all
-      # committed vars/bindings but removes only the required-secrets table.
-      # Secret values are explicitly absent from that command; the following
-      # versions-upload step remains the only secret bundle and promotion
-      # path for these workers.
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker != 'ingest' && matrix.worker != 'match' && matrix.worker != 'share' }}
+      # it can create the atomic version. Existing Workers are a no-op. A
+      # missing Worker may bootstrap only when the helper's explicit
+      # default-off allowlist permits it (currently email only); every other
+      # missing Worker fails loudly as an incident. The established deploy
+      # commands below are unchanged for existing Workers.
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED }}
         name: 🧱 Ensure Worker exists before atomic upload
         working-directory: workers/${{ matrix.worker }}
         env:
@@ -616,7 +612,7 @@ jobs:
               bootstrap_config=".wrangler.bootstrap.toml"
               trap 'rm -f "$bootstrap_config"' EXIT
               node "$GITHUB_WORKSPACE/scripts/ensure-worker-exists.mjs" \
-                --bootstrap-config wrangler.toml "$bootstrap_config"
+                --bootstrap-config "$WORKER_NAME" wrangler.toml "$bootstrap_config"
               # The derived config has no [secrets] table, and process-env
               # loading is disabled explicitly. Only the API token/account id
               # authenticate this bootstrap; no Worker secret is uploaded.

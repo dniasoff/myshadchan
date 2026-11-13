@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
+  assertBootstrapAllowed,
+  SAFE_BOOTSTRAP_WORKERS,
   withoutRequiredSecretsTable,
   workerExists,
 } from "./ensure-worker-exists.mjs";
@@ -20,6 +22,36 @@ const options = {
   apiBase: "https://api.example.test",
 };
 
+const pageInfo = (page, totalPages) => ({
+  page,
+  per_page: 100,
+  total_count: totalPages * 100,
+  total_pages: totalPages,
+});
+
+function isTomlTableHeader(line) {
+  const trimmed = line.trim();
+  return (
+    (trimmed.startsWith("[[") && trimmed.endsWith("]]")) ||
+    (trimmed.startsWith("[") &&
+      !trimmed.startsWith("[[") &&
+      trimmed.endsWith("]"))
+  );
+}
+
+function expectedBootstrapConfig(committed) {
+  const lines = committed.split("\n");
+  const secretsStart = lines.findIndex((line) => line.trim() === "[secrets]");
+  const nextTable = lines.findIndex(
+    (line, index) => index > secretsStart && isTomlTableHeader(line),
+  );
+  const secretsEnd = nextTable === -1 ? lines.length : nextTable;
+  return lines
+    .slice(0, secretsStart)
+    .concat(lines.slice(secretsEnd))
+    .join("\n");
+}
+
 describe("workerExists", () => {
   it("recognises an existing Worker and sends the account token", async () => {
     let requestUrl;
@@ -32,12 +64,13 @@ describe("workerExists", () => {
         return request(200, {
           success: true,
           result: [{ id: "myshadchan-email", etag: "opaque" }],
+          result_info: pageInfo(1, 1),
         });
       },
     });
 
     expect(exists).toBe(true);
-    expect(requestUrl).toBe(
+    expect(String(requestUrl)).toBe(
       "https://api.example.test/accounts/account-123/workers/scripts",
     );
     expect(requestHeaders).toEqual({
@@ -50,7 +83,10 @@ describe("workerExists", () => {
     await expect(
       workerExists({
         ...options,
-        fetchImpl: async () => request(200, { success: true, result: [] }),
+        fetchImpl: async (url) =>
+          String(url).includes("/myshadchan-email")
+            ? new Response(null, { status: 404 })
+            : request(200, { success: true, result: [] }),
       }),
     ).resolves.toBe(false);
   });
@@ -63,6 +99,7 @@ describe("workerExists", () => {
           request(500, {
             success: false,
             errors: [{ message: "provider-internal-secret" }],
+            result_info: pageInfo(1, 1),
           }),
       }),
     ).rejects.toThrow("Cloudflare Worker list API failed (HTTP 500)");
@@ -76,6 +113,7 @@ describe("workerExists", () => {
           request(403, {
             success: false,
             errors: [{ message: "token is invalid" }],
+            result_info: pageInfo(1, 1),
           }),
       }),
     ).rejects.toThrow(
@@ -87,9 +125,71 @@ describe("workerExists", () => {
     await expect(
       workerExists({
         ...options,
-        fetchImpl: async () => request(200, { success: true, result: null }),
+        fetchImpl: async () =>
+          request(200, {
+            success: true,
+            result: null,
+            result_info: pageInfo(1, 1),
+          }),
       }),
     ).rejects.toThrow("Cloudflare Worker list returned an invalid result");
+  });
+
+  it("fails closed when the fallback single-script lookup is unauthorized", async () => {
+    await expect(
+      workerExists({
+        ...options,
+        fetchImpl: async (url) =>
+          String(url).includes("/myshadchan-email")
+            ? new Response(null, { status: 403 })
+            : request(200, { success: true, result: [] }),
+      }),
+    ).rejects.toThrow(
+      "Cloudflare Worker lookup authentication/authorization failed (HTTP 403)",
+    );
+  });
+
+  it("follows all result_info pages before declaring a Worker missing", async () => {
+    const requestedPages = [];
+    await expect(
+      workerExists({
+        ...options,
+        fetchImpl: async (url) => {
+          const page = new URL(url).searchParams.get("page") ?? "1";
+          requestedPages.push(page);
+          return request(200, {
+            success: true,
+            result:
+              page === "2" ? [{ id: "myshadchan-email" }] : [{ id: "other" }],
+            result_info: pageInfo(Number(page), 2),
+          });
+        },
+      }),
+    ).resolves.toBe(true);
+    expect(requestedPages).toEqual(["1", "2"]);
+  });
+
+  it("fails closed when a list page is truncated or has incomplete pagination metadata", async () => {
+    let page = 0;
+    await expect(
+      workerExists({
+        ...options,
+        fetchImpl: async (url) => {
+          page += 1;
+          if (page === 1) {
+            return request(200, {
+              success: true,
+              result: [{ id: "other" }],
+              result_info: { page: 1, total_pages: 2 },
+            });
+          }
+          expect(String(url)).toContain("page=2");
+          return request(200, { success: true, result: [{ id: "other" }] });
+        },
+      }),
+    ).rejects.toThrow(
+      "Cloudflare Worker list returned partial pagination data",
+    );
   });
 });
 
@@ -124,4 +224,33 @@ required = ["RESEND_API_KEY"]
     expect(bootstrap).not.toContain("[secrets]");
     expect(bootstrap).not.toContain("RESEND_API_KEY");
   });
+
+  it.each(["ai", "parse", "cron", "billing", "ingest", "match", "share"])(
+    "refuses to bootstrap %s because it has no safe default-off gate",
+    (worker) => {
+      expect(() => assertBootstrapAllowed(`myshadchan-${worker}`)).toThrow(
+        `Refusing to bootstrap myshadchan-${worker}`,
+      );
+    },
+  );
+
+  it("has one explicit bootstrap allowlist and allows only email", () => {
+    expect(SAFE_BOOTSTRAP_WORKERS).toEqual(["email"]);
+    expect(() => assertBootstrapAllowed("myshadchan-email")).not.toThrow();
+  });
+
+  it.each(["ai", "parse", "email"])(
+    "diffs %s bootstrap config against its committed config with only [secrets] removed",
+    (worker) => {
+      const committed = readFileSync(
+        new URL(`../workers/${worker}/wrangler.toml`, import.meta.url),
+        "utf8",
+      );
+      const generated = withoutRequiredSecretsTable(committed);
+      const expected = expectedBootstrapConfig(committed);
+
+      expect(generated).toBe(expected);
+      expect(generated).toContain("[[ratelimits]]");
+    },
+  );
 });

@@ -5,6 +5,11 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
+const WORKER_LIST_PAGE_SIZE = 100;
+
+// Only a Worker with a committed, safe default-off gate may be created by
+// this recovery path. A missing Worker outside this list is an incident.
+export const SAFE_BOOTSTRAP_WORKERS = Object.freeze(["email"]);
 
 function assertNonEmpty(value, label) {
   if (typeof value !== "string" || value.length === 0) {
@@ -22,6 +27,64 @@ function workerEntryMatches(entry, workerName) {
   return [entry.id, entry.name, entry.script, entry.worker_name].includes(
     workerName,
   );
+}
+
+function tableHeader(line) {
+  const trimmed = line.trim();
+  return (
+    (trimmed.startsWith("[[") && trimmed.endsWith("]]")) ||
+    (trimmed.startsWith("[") &&
+      !trimmed.startsWith("[[") &&
+      trimmed.endsWith("]"))
+  );
+}
+
+function workerSlug(workerName) {
+  return workerName.startsWith("myshadchan-")
+    ? workerName.slice("myshadchan-".length)
+    : workerName;
+}
+
+export function assertBootstrapAllowed(workerName) {
+  assertNonEmpty(workerName, "Worker name");
+  if (!SAFE_BOOTSTRAP_WORKERS.includes(workerSlug(workerName))) {
+    throw new Error(
+      `Refusing to bootstrap ${workerName}: no safe default-off bootstrap is configured; only ${SAFE_BOOTSTRAP_WORKERS.map((worker) => `myshadchan-${worker}`).join(", ")} is allowed`,
+    );
+  }
+}
+
+function apiFailure(status, operation) {
+  const category =
+    status === 401 || status === 403 ? "authentication/authorization" : "API";
+  return new Error(
+    `Cloudflare Worker ${operation} ${category} failed (HTTP ${status})`,
+  );
+}
+
+async function lookupWorkerScript({
+  accountPath,
+  apiBase,
+  apiToken,
+  workerName,
+  fetchImpl,
+}) {
+  const url = new URL(
+    `${apiBase}/accounts/${accountPath}/workers/scripts/${encodeURIComponent(workerName)}`,
+  );
+  const response = await fetchImpl(url, {
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${apiToken}`,
+    },
+  });
+  if (response.status === 200) {
+    return true;
+  }
+  if (response.status === 404) {
+    return false;
+  }
+  throw apiFailure(response.status, "lookup");
 }
 
 /**
@@ -44,39 +107,76 @@ export async function workerExists({
     throw new Error("fetch is unavailable");
   }
 
-  const response = await fetchImpl(
-    `${apiBase}/accounts/${encodeURIComponent(accountId)}/workers/scripts`,
-    {
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${apiToken}`,
-      },
-    },
-  );
+  const headers = {
+    Accept: "application/json",
+    Authorization: `Bearer ${apiToken}`,
+  };
+  const accountPath = encodeURIComponent(accountId);
+  let page = 1;
+  let sawPagination = false;
 
-  let body;
-  try {
-    body = await response.json();
-  } catch {
-    throw new Error(
-      `Cloudflare Worker list returned invalid JSON (HTTP ${response.status})`,
-    );
-  }
+  while (true) {
+    const url = new URL(`${apiBase}/accounts/${accountPath}/workers/scripts`);
+    if (page > 1) {
+      url.searchParams.set("page", String(page));
+      url.searchParams.set("per_page", String(WORKER_LIST_PAGE_SIZE));
+    }
+    const response = await fetchImpl(url, { headers });
 
-  if (!response.ok || body?.success !== true) {
-    const category =
-      response.status === 401 || response.status === 403
-        ? "authentication/authorization"
-        : "API";
-    throw new Error(
-      `Cloudflare Worker list ${category} failed (HTTP ${response.status})`,
-    );
-  }
-  if (!Array.isArray(body.result)) {
-    throw new Error("Cloudflare Worker list returned an invalid result");
-  }
+    let body;
+    try {
+      body = await response.json();
+    } catch {
+      throw new Error(
+        `Cloudflare Worker list returned invalid JSON (HTTP ${response.status})`,
+      );
+    }
 
-  return body.result.some((entry) => workerEntryMatches(entry, workerName));
+    if (!response.ok || body?.success !== true) {
+      throw apiFailure(response.status, "list");
+    }
+    if (!Array.isArray(body.result)) {
+      throw new Error("Cloudflare Worker list returned an invalid result");
+    }
+
+    const resultInfo = body.result_info;
+    if (body.result.some((entry) => workerEntryMatches(entry, workerName))) {
+      return true;
+    }
+    if (!resultInfo) {
+      if (sawPagination) {
+        throw new Error(
+          "Cloudflare Worker list returned partial pagination data",
+        );
+      }
+      // The list endpoint's result_info is optional. Resolve a list miss with
+      // the single-script endpoint so an unpaginated/partial list cannot
+      // cause a false missing result.
+      return lookupWorkerScript({
+        accountPath,
+        apiBase,
+        apiToken,
+        workerName,
+        fetchImpl,
+      });
+    }
+    if (
+      !Number.isInteger(resultInfo.page) ||
+      !Number.isInteger(resultInfo.total_pages) ||
+      resultInfo.page !== page ||
+      resultInfo.total_pages < 1 ||
+      resultInfo.page > resultInfo.total_pages
+    ) {
+      throw new Error(
+        "Cloudflare Worker list returned partial pagination data",
+      );
+    }
+    if (page === resultInfo.total_pages) {
+      return false;
+    }
+    sawPagination = true;
+    page += 1;
+  }
 }
 
 /**
@@ -96,7 +196,7 @@ export function withoutRequiredSecretsTable(configText) {
       skippingSecretsTable = true;
       continue;
     }
-    if (skippingSecretsTable && /^\s*\[[^\]]+\]\s*$/.test(line)) {
+    if (skippingSecretsTable && tableHeader(line)) {
       skippingSecretsTable = false;
     }
     if (!skippingSecretsTable) {
@@ -107,17 +207,18 @@ export function withoutRequiredSecretsTable(configText) {
   return output.join("\n");
 }
 
-export async function writeBootstrapConfig(sourcePath, targetPath) {
+export async function writeBootstrapConfig(workerName, sourcePath, targetPath) {
+  assertBootstrapAllowed(workerName);
   const configText = await readFile(sourcePath, "utf8");
   await writeFile(targetPath, withoutRequiredSecretsTable(configText), "utf8");
 }
 
 async function main() {
   if (process.argv[2] === "--bootstrap-config") {
-    const [sourcePath, targetPath] = process.argv.slice(3);
+    const [workerName, sourcePath, targetPath] = process.argv.slice(3);
     assertNonEmpty(sourcePath, "Bootstrap source config");
     assertNonEmpty(targetPath, "Bootstrap target config");
-    await writeBootstrapConfig(sourcePath, targetPath);
+    await writeBootstrapConfig(workerName, sourcePath, targetPath);
     return;
   }
 
