@@ -590,6 +590,58 @@ jobs:
       - name: 📥 Download deps
         run: npm ci
 
+      # `versions upload` requires the Worker script resource to exist before
+      # it can create the atomic version. Existing Workers are a no-op. A
+      # missing Worker may bootstrap only when the helper's explicit
+      # default-off allowlist permits it (currently email only); every other
+      # missing Worker fails loudly as an incident. The established deploy
+      # commands below are unchanged for existing Workers.
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED }}
+        name: 🧱 Ensure Worker exists before atomic upload
+        working-directory: workers/${{ matrix.worker }}
+        env:
+          WORKER_NAME: myshadchan-${{ matrix.worker }}
+        run: |
+          set -euo pipefail
+          worker_exists="$(node "$GITHUB_WORKSPACE/scripts/ensure-worker-exists.mjs" "$WORKER_NAME")"
+          case "$worker_exists" in
+            true)
+              echo "✅ $WORKER_NAME already exists; keeping the normal deployment flow."
+              ;;
+            false)
+              bootstrap_config=".wrangler.bootstrap.toml"
+              trap 'rm -f "$bootstrap_config"' EXIT
+              node "$GITHUB_WORKSPACE/scripts/ensure-worker-exists.mjs" \
+                --bootstrap-config "$WORKER_NAME" wrangler.toml "$bootstrap_config"
+              # The derived config has no [secrets] table, and process-env
+              # loading is disabled explicitly. Only the API token/account id
+              # authenticate this bootstrap; no Worker secret is uploaded.
+              env \
+                -u SUPABASE_URL \
+                -u SUPABASE_SERVICE_ROLE_KEY \
+                -u SUPABASE_PUBLISHABLE_KEY \
+                -u RESEND_API_KEY \
+                -u RESEND_FROM \
+                -u OUTBOUND_EMAIL_REPLY_TO \
+                -u STRIPE_SECRET_KEY \
+                -u STRIPE_WEBHOOK_SECRET \
+                -u STRIPE_PRICE_ID_QUARTERLY \
+                -u STRIPE_PRICE_ID_YEARLY \
+                -u APP_ORIGIN \
+                -u AI_GATEWAY_ACCOUNT_ID \
+                -u AI_GATEWAY_ID \
+                -u GOOGLE_AI_STUDIO_API_KEY \
+                CLOUDFLARE_INCLUDE_PROCESS_ENV=false \
+                npx wrangler deploy \
+                  --config "$bootstrap_config" \
+                  --message "Initialize $WORKER_NAME before atomic CI upload"
+              ;;
+            *)
+              echo "::error::Worker existence check returned an unexpected value: $worker_exists"
+              exit 1
+              ;;
+          esac
+
       # External review Finding 1 (2026-08-06), widened by the Epic 12
       # adversarial review (2026-08-07) to `cron` and `billing`: those four
       # are excluded here — plain `wrangler deploy` publishes code AND serves
