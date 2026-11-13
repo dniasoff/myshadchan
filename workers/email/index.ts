@@ -237,10 +237,9 @@ async function boundedDownload(
   ) {
     return null;
   }
-  if (!response.body) {
-    const bytes = await response.arrayBuffer();
-    return bytes.byteLength <= EMAIL_MAX_RAW_BYTES ? bytes : null;
-  }
+  // A fetch response normally exposes a stream. If it does not, fail closed
+  // instead of materialising an object whose length could not be bounded.
+  if (!response.body) return null;
 
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];

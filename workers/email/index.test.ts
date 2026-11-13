@@ -338,6 +338,30 @@ describe("workers/email POST /send", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not materialize a storage response that has no bounded body stream", async () => {
+    const arrayBuffer = vi.fn(async () => new Uint8Array([1, 2]).buffer);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        body: null,
+        headers: new Headers(),
+        arrayBuffer,
+      })),
+    );
+    const harness = makeHarness({ photo: null });
+    const response = await post(harness, {
+      ...requestBody,
+      include_photo: false,
+    });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      meta: { code: "prepare_failed" },
+    });
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(harness.sendEmail).not.toHaveBeenCalled();
+  });
+
   it("fails unavailable when Reply-To is unset or the global cap is reached", async () => {
     const noReply = makeHarness({ replyTo: "" });
     expect((await post(noReply)).status).toBe(503);
@@ -431,6 +455,37 @@ describe("workers/email POST /send", () => {
         ["outcome", ["email_provider_accepted", "email_delivery_unknown"]],
       ]),
     );
+  });
+
+  it("cleans up the account single-flight guard after a provider failure", async () => {
+    const harness = makeHarness({
+      photo: null,
+      sendResult: {
+        ok: false,
+        error: "Resend responded 422",
+        retryable: false,
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([1, 2]), {
+            headers: { "content-length": "2" },
+          }),
+      ),
+    );
+    const first = await post(harness, {
+      ...requestBody,
+      include_photo: false,
+    });
+    const second = await post(harness, {
+      ...requestBody,
+      include_photo: false,
+    });
+    expect(first.status).toBe(422);
+    expect(second.status).toBe(422);
+    expect(harness.sendEmail).toHaveBeenCalledTimes(2);
   });
 });
 
