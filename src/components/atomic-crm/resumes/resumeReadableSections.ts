@@ -173,32 +173,23 @@ const toAsciiDecimalDigit = (character: string): string | null => {
   return null;
 };
 
-const digitRuns = (value: string): { all: string; runs: string[] } => {
-  let all = "";
-  let current = "";
-  const runs: string[] = [];
-  for (const character of value.normalize("NFKC")) {
-    const digit = toAsciiDecimalDigit(character);
-    if (digit === null) {
-      if (current) runs.push(current);
-      current = "";
-      continue;
-    }
-    all += digit;
-    current += digit;
-  }
-  if (current) runs.push(current);
-  return { all, runs };
-};
-
 const isYear = (value: string): boolean =>
   value.length === 4 && /^(?:19|20)\d{2}$/u.test(value);
 
-const PHONE_TOKEN_PATTERN =
-  /(?:\+|00)?(?:\(\p{Nd}+\)|\p{Nd}+)(?:(?:[ .-])(?:\(\p{Nd}+\)|\p{Nd}+))*/gu;
+const PHONE_DIGIT_GROUP_PATTERN = /\p{Nd}+/gu;
 
-const isPhoneLikeToken = (token: string): boolean => {
-  const { all, runs } = digitRuns(token);
+const normalizeDigitGroup = (value: string): string =>
+  [...value].map((character) => toAsciiDecimalDigit(character) ?? "").join("");
+
+const isPhoneSeparator = (separator: string): boolean =>
+  separator.length >= 1 &&
+  separator.length <= 2 &&
+  !/[\p{L}\p{N}]/u.test(separator) &&
+  !/[,:;]/u.test(separator) &&
+  !/\.\s/u.test(separator);
+
+const isPhoneLikeToken = (token: string, runs: string[]): boolean => {
+  const all = runs.join("");
   if (all.length === 0 || runs.every(isYear)) return false;
 
   const hasInternationalPrefix = /^(?:\+|00)/u.test(token);
@@ -212,9 +203,43 @@ const isPhoneLikeToken = (token: string): boolean => {
 
 const isPhoneLikeNumber = (value: string): boolean => {
   const normalized = value.normalize("NFKC").replace(/\p{Cf}/gu, "");
-  return [...normalized.matchAll(PHONE_TOKEN_PATTERN)].some(([token]) =>
-    isPhoneLikeToken(token),
-  );
+  const groups = [...normalized.matchAll(PHONE_DIGIT_GROUP_PATTERN)];
+
+  for (let index = 0; index < groups.length; index += 1) {
+    const first = groups[index];
+    const firstStart = first.index ?? 0;
+    const tokenStart =
+      firstStart > 0 && normalized[firstStart - 1] === "+"
+        ? firstStart - 1
+        : firstStart;
+    const runs = [normalizeDigitGroup(first[0])];
+    let tokenEnd = firstStart + first[0].length;
+
+    for (let nextIndex = index + 1; nextIndex < groups.length; nextIndex += 1) {
+      const next = groups[nextIndex];
+      const nextStart = next.index ?? 0;
+      const separator = normalized.slice(tokenEnd, nextStart);
+      if (!isPhoneSeparator(separator)) break;
+
+      const nextRun = normalizeDigitGroup(next[0]);
+      const currentIsYear = isYear(runs[runs.length - 1]);
+      const isYearRangeLink =
+        currentIsYear && isYear(nextRun) && /[^\p{L}\p{N}\s]/u.test(separator);
+      if (currentIsYear && /\s/u.test(separator) && !isYearRangeLink) {
+        break;
+      }
+
+      runs.push(nextRun);
+      tokenEnd = nextStart + next[0].length;
+      index = nextIndex;
+    }
+
+    if (isPhoneLikeToken(normalized.slice(tokenStart, tokenEnd), runs)) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[^\s@]{2,}/u;

@@ -598,12 +598,25 @@ describe("ResumeReadableSections", () => {
                 label: "Address",
                 value: "123 Main Street, Brooklyn NY 11230-1234",
               },
+              {
+                label: "Schedule",
+                value: "Mon–Fri 9–5, 2019–2021, 120 credits",
+              },
               { label: "Phone 054-222", value: "3344" },
+              { label: "Slash phone", value: "054/222/3344" },
+              { label: "En dash phone", value: "054–222–3344" },
+              { label: "Minus phone", value: "054−222−3344" },
+              { label: "Em dash phone", value: "054—222—3344" },
+              { label: "Middle dot phone", value: "054·222·3344" },
+              { label: "Newline phone", value: "054\n222\n3344" },
+              { label: "Parenthesized phone", value: "(054)222-3344" },
               { label: "Phone", value: "054-222-3344" },
               { label: "Call", value: "054-222-3344" },
+              { label: "En dash call", value: "Call 054–222–3344 after 6" },
               { label: "International", value: "+972 54 222 3344" },
               { label: "US phone", value: "(718) 555-1234" },
               { label: "Dotted phone", value: "718.555.1234" },
+              { label: "Year-looking phone", value: "718-555-1999" },
               { label: "Bare phone", value: "0542223344" },
               { label: "International bare", value: "00972542223344" },
               {
@@ -618,6 +631,19 @@ describe("ResumeReadableSections", () => {
             title: "Work 054-222-3344",
             items: [{ label: "Role", value: "Teacher" }],
           },
+          ...[
+            ["slash", "Work 054/222/3344"],
+            ["en_dash", "Work 054–222–3344"],
+            ["minus", "Work 054−222−3344"],
+            ["em_dash", "Work 054—222—3344"],
+            ["middle_dot", "Work 054·222·3344"],
+            ["newline", "Work 054\n222\n3344"],
+            ["parentheses", "Work (054)222-3344"],
+          ].map(([key, title]) => ({
+            key: `contact_title_${key}`,
+            title,
+            items: [{ label: "Role", value: "Teacher" }],
+          })),
         ],
       },
     });
@@ -657,6 +683,9 @@ describe("ResumeReadableSections", () => {
     await expect
       .element(screen.getByText("123 Main Street, Brooklyn NY 11230-1234"))
       .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Mon–Fri 9–5, 2019–2021, 120 credits"))
+      .toBeInTheDocument();
     await expect.element(screen.getByText("3344")).not.toBeInTheDocument();
     await expect
       .element(screen.getByText("054-222-3344"))
@@ -679,6 +708,30 @@ describe("ResumeReadableSections", () => {
     await expect
       .element(screen.getByText("Call 054-222-3344 after 6"))
       .not.toBeInTheDocument();
+    for (const value of [
+      "054/222/3344",
+      "054–222–3344",
+      "054−222−3344",
+      "054—222—3344",
+      "054·222·3344",
+      "054\n222\n3344",
+      "(054)222-3344",
+      "Call 054–222–3344 after 6",
+      "718-555-1999",
+    ]) {
+      await expect.element(screen.getByText(value)).not.toBeInTheDocument();
+    }
+    for (const title of [
+      "Work 054/222/3344",
+      "Work 054–222–3344",
+      "Work 054−222−3344",
+      "Work 054—222—3344",
+      "Work 054·222·3344",
+      "Work 054\n222\n3344",
+      "Work (054)222-3344",
+    ]) {
+      await expect.element(screen.getByText(title)).not.toBeInTheDocument();
+    }
     await expect
       .element(screen.getByText("person@example.com"))
       .not.toBeInTheDocument();
