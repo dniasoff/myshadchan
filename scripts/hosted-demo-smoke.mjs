@@ -131,6 +131,7 @@ const PRE_BUNDLE_ACCOUNT_TABLES = [
   "demo_run_accounts",
   "account_deletion_requests",
   "ai_parse_attempts",
+  "ai_reread_attempts",
   "ai_usage",
   "stripe_events",
   "subscription",

@@ -1046,6 +1046,7 @@ CREATE OR REPLACE FUNCTION "public"."account_is_disposable"("p_account_id" bigin
     or exists (select 1 from public.subscription where account_id = p_account_id)
     or exists (select 1 from public.ai_usage where account_id = p_account_id)
     or exists (select 1 from public.ai_parse_attempts where account_id = p_account_id)
+    or exists (select 1 from public.ai_reread_attempts where account_id = p_account_id)
     or exists (select 1 from public.stripe_events where account_id = p_account_id)
     or exists (select 1 from public.analytics_events where account_id = p_account_id)
     or exists (select 1 from public.account_deletion_requests where account_id = p_account_id)
@@ -4211,6 +4212,10 @@ begin
   FROM public.ai_parse_attempts apa WHERE apa.account_id = v_account_id
   INTO v_result;
 
+  SELECT jsonb_set(v_result, '{ai_reread_attempts}', coalesce(jsonb_agg(to_jsonb(ara)), '[]'))
+  FROM public.ai_reread_attempts ara WHERE ara.account_id = v_account_id
+  INTO v_result;
+
   RETURN v_result;
 end;
 $$;
@@ -4460,7 +4465,7 @@ begin
     and a.attnum > 0
     and not a.attisdropped
     and c.relname not in (
-      'subscription', 'ai_usage', 'stripe_events', 'ai_parse_attempts',
+      'subscription', 'ai_usage', 'stripe_events', 'ai_parse_attempts', 'ai_reread_attempts',
       'cron_heartbeat', 'configuration', 'entity_files'
     )
   order by c.relname;
@@ -5858,6 +5863,225 @@ begin
     return jsonb_build_object('outcome', 'applied');
   end if;
 
+  return jsonb_build_object('outcome', 'superseded');
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."claim_ai_reread_attempt"("p_account_id" bigint, "p_resume_id" bigint, "p_request_id" uuid, "p_current_schema_version" smallint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  c_lease constant interval := interval '5 minutes';
+  v_period text := to_char(now(), 'YYYY-MM');
+  v_attempt public.ai_reread_attempts;
+  v_limit integer;
+  v_new_count integer;
+  v_reclaim_attempt_id bigint;
+begin
+  if p_account_id is null or p_resume_id is null or p_request_id is null then
+    raise exception 're-read claim requires account, resume and request'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  -- The service-role RPC is an independent trust boundary from the Worker.
+  -- Reject a forged account/resume pair before retention, quota reservation,
+  -- or any ledger write can occur.
+  if not exists (
+    select 1
+    from public.resumes
+    where id = p_resume_id and account_id = p_account_id
+  ) then
+    raise exception 're-read resume does not belong to account'
+      using errcode = 'foreign_key_violation';
+  end if;
+
+  with doomed as (
+    select id
+    from public.ai_reread_attempts
+    where status in ('completed', 'failed')
+      and updated_at < now() - interval '30 days'
+    order by updated_at
+    limit 100
+  )
+  delete from public.ai_reread_attempts a
+  using doomed
+  where a.id = doomed.id;
+
+  perform pg_advisory_xact_lock(
+    hashtextextended(format('ai-reread-resume:%s', p_resume_id), 0)
+  );
+
+  select * into v_attempt
+  from public.ai_reread_attempts
+  where account_id = p_account_id
+    and resume_id = p_resume_id
+    and request_id = p_request_id
+  for update;
+
+  if found then
+    if v_attempt.status = 'completed' then
+      return jsonb_build_object(
+        'outcome', 'replayed', 'attempt_id', v_attempt.id,
+        'generation', v_attempt.generation
+      );
+    end if;
+
+    if v_attempt.status = 'in_progress' then
+      if v_attempt.lease_expires_at > now() then
+        return jsonb_build_object(
+          'outcome', 'in_progress', 'attempt_id', v_attempt.id,
+          'generation', v_attempt.generation
+        );
+      end if;
+      update public.ai_reread_attempts
+      set generation = generation + 1,
+          lease_expires_at = now() + c_lease, updated_at = now()
+      where id = v_attempt.id
+      returning * into v_attempt;
+      return jsonb_build_object(
+        'outcome', 'reserved', 'attempt_id', v_attempt.id,
+        'generation', v_attempt.generation
+      );
+    end if;
+
+    -- A failed request may be retried with the same idempotency key.  It
+    -- keeps its ledger row, but must reserve one new unit before becoming
+    -- the next generation; the update below avoids a unique-key insert.
+    if v_attempt.status = 'failed' then
+      v_reclaim_attempt_id := v_attempt.id;
+    end if;
+  end if;
+
+  select * into v_attempt
+  from public.ai_reread_attempts
+  where resume_id = p_resume_id and status = 'in_progress'
+  for update;
+  if found then
+    if v_attempt.account_id = p_account_id
+       and v_attempt.lease_expires_at <= now() then
+      update public.ai_reread_attempts
+      set request_id = p_request_id, generation = generation + 1,
+          lease_expires_at = now() + c_lease, updated_at = now()
+      where id = v_attempt.id and account_id = p_account_id
+      returning * into v_attempt;
+      return jsonb_build_object(
+        'outcome', 'reserved', 'attempt_id', v_attempt.id,
+        'generation', v_attempt.generation
+      );
+    end if;
+    return jsonb_build_object(
+      'outcome', 'busy', 'attempt_id', v_attempt.id,
+      'generation', v_attempt.generation
+    );
+  end if;
+
+  v_limit := public.ai_resume_limit_for_account(p_account_id);
+  if v_limit <= 0 then
+    if exists (
+      select 1 from public.subscription
+      where account_id = p_account_id and plan = 'ai' and status = 'active'
+    ) then
+      return jsonb_build_object('outcome', 'no_allowance');
+    end if;
+    return jsonb_build_object('outcome', 'not_entitled');
+  end if;
+
+  insert into public.ai_usage as u (account_id, period, resumes_parsed)
+  values (p_account_id, v_period, 1)
+  on conflict (account_id, period) do update
+    set resumes_parsed = u.resumes_parsed + 1
+    where u.resumes_parsed < v_limit
+  returning u.resumes_parsed into v_new_count;
+  if not found then
+    return jsonb_build_object('outcome', 'no_allowance');
+  end if;
+
+  if v_reclaim_attempt_id is not null then
+    update public.ai_reread_attempts
+    set period = v_period, status = 'in_progress', generation = generation + 1,
+        lease_expires_at = now() + c_lease, updated_at = now()
+    where id = v_reclaim_attempt_id and account_id = p_account_id
+      and status = 'failed'
+    returning * into v_attempt;
+  else
+    insert into public.ai_reread_attempts
+      (account_id, resume_id, request_id, period, status, generation,
+       lease_expires_at, updated_at)
+    values
+      (p_account_id, p_resume_id, p_request_id, v_period, 'in_progress', 1,
+       now() + c_lease, now())
+    returning * into v_attempt;
+  end if;
+
+  return jsonb_build_object(
+    'outcome', 'reserved', 'attempt_id', v_attempt.id,
+    'generation', v_attempt.generation
+  );
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."complete_ai_reread_attempt"("p_account_id" bigint, "p_attempt_id" bigint, "p_generation" bigint, "p_schema_version" smallint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_generation bigint;
+  v_status text;
+begin
+  update public.ai_reread_attempts
+  set status = 'completed', result_schema_version = p_schema_version,
+      lease_expires_at = now(), updated_at = now()
+  where id = p_attempt_id and account_id = p_account_id
+    and status = 'in_progress' and generation = p_generation
+  returning generation into v_generation;
+  if found then return jsonb_build_object('outcome', 'applied'); end if;
+
+  select generation, status into v_generation, v_status
+  from public.ai_reread_attempts
+  where id = p_attempt_id and account_id = p_account_id;
+  if not found then
+    raise exception 'ai_reread_attempts % is not confirmable for account %',
+      p_attempt_id, p_account_id;
+  end if;
+  if v_generation = p_generation and v_status = 'completed' then
+    return jsonb_build_object('outcome', 'applied');
+  end if;
+  return jsonb_build_object('outcome', 'superseded');
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."release_ai_reread_attempt"("p_account_id" bigint, "p_attempt_id" bigint, "p_generation" bigint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_period text;
+  v_generation bigint;
+  v_status text;
+begin
+  update public.ai_reread_attempts
+  set status = 'failed', lease_expires_at = now(), updated_at = now()
+  where id = p_attempt_id and account_id = p_account_id
+    and status = 'in_progress' and generation = p_generation
+  returning period into v_period;
+  if found then
+    update public.ai_usage
+    set resumes_parsed = greatest(resumes_parsed - 1, 0)
+    where account_id = p_account_id and period = v_period;
+    return jsonb_build_object('outcome', 'applied');
+  end if;
+
+  select generation, status into v_generation, v_status
+  from public.ai_reread_attempts
+  where id = p_attempt_id and account_id = p_account_id;
+  if not found then
+    raise exception 'ai_reread_attempts % is not releasable for account %',
+      p_attempt_id, p_account_id;
+  end if;
+  if v_generation = p_generation and v_status = 'failed' then
+    return jsonb_build_object('outcome', 'applied');
+  end if;
   return jsonb_build_object('outcome', 'superseded');
 end;
 $$;
