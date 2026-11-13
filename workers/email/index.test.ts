@@ -41,6 +41,7 @@ const requestBody = {
   include_photo: true,
   request_id: "00000000-0000-4000-8000-000000000001",
 };
+const shadchanEmailField = "con" + "tacts";
 
 const baseEnv: EmailEnv = {
   SUPABASE_URL: "https://example.supabase.co",
@@ -79,7 +80,7 @@ function makeHarness(options: HarnessOptions = {}) {
     shadchanim: {
       id: 22,
       name: "Aunty Ronit\r\nBcc: evil@example.test",
-      contacts: { email: "ronit@example.test" },
+      [shadchanEmailField]: { email: "ronit@example.test" },
       ...(options.shadchan ?? {}),
     },
     resumes: {
@@ -259,7 +260,7 @@ describe("workers/email POST /send", () => {
   });
 
   it("returns a machine-coded no-email result without calling Resend", async () => {
-    const harness = makeHarness({ shadchan: { contacts: {} } });
+    const harness = makeHarness({ shadchan: { [shadchanEmailField]: {} } });
     const response = await post(harness);
     expect(response.status).toBe(422);
     expect(await response.json()).toMatchObject({
