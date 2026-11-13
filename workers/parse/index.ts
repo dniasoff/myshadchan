@@ -20,6 +20,7 @@ import { resolveConfirmOutcome } from "./resolveConfirmOutcome";
 import { registerParseMiddleware } from "./registerParseMiddleware";
 import { DocxExtractionError } from "./docxExtractor";
 import type { ParseApp, ParseContext } from "./parseAppTypes";
+import { rereadResume } from "./rereadRoute";
 import {
   CURRENT_PARSE_RESULT_SCHEMA_VERSION,
   type ParseResultPayload,
@@ -32,9 +33,19 @@ import {
   type ResumeExtractor,
 } from "./resumeExtractor";
 
-const ParseBodySchema = z.object({
-  inbox_item_id: z.number(),
+const LegacyParseBodySchema = z.strictObject({
+  inbox_item_id: z.number().int().positive(),
 });
+
+const RereadParseBodySchema = z.strictObject({
+  resume_id: z.number().int().positive(),
+  request_id: z.string().uuid(),
+});
+
+// The two routes intentionally share POST /parse for deployment compatibility,
+// but their bodies are disjoint and strict. A mixed body or an extra key must
+// never silently fall through to the legacy inbox path.
+const ParseBodySchema = z.union([LegacyParseBodySchema, RereadParseBodySchema]);
 
 // The HTTP statuses a post-claim failure can return — narrowed (rather than
 // a bare `number`) so `releaseAndFail` stays assignable to Hono's
@@ -158,6 +169,18 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
     if (!bodyResult.success) {
       c.set("traceOutcome", "invalid_body");
       return c.json(fail("invalid request body"), 400);
+    }
+    if ("resume_id" in bodyResult.data) {
+      const reread = await rereadResume(bodyResult.data, {
+        caller: supabase,
+        env: c.env,
+        extractor: extractor ?? geminiExtractor(c.env),
+      });
+      c.set(
+        "traceOutcome",
+        reread.body.success ? "reread_completed" : "reread_failed",
+      );
+      return c.json(reread.body, reread.status);
     }
     const { inbox_item_id } = bodyResult.data;
 

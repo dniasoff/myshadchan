@@ -86,6 +86,7 @@ Do not run `supabase db reset`, `supabase migration up`, or any DDL against prod
 | `inbox_items` | Resend API `GET /emails`, email provider logs, Inbucket (local dev only) |
 | `cron_heartbeat` | Re-insert: `INSERT INTO cron_heartbeat (worker, last_run_at, last_ok_at) VALUES ('cron', now(), now());` |
 | `ai_parse_attempts` | Re-process from `inbox_items.attachments` via workers/parse |
+| `ai_reread_attempts` | Re-read ledger metadata is disposable; the source resume file and `resumes.sections` remain authoritative |
 | `auth.users` | **Cannot reconstruct** — requires PITR or backup |
 
 ### 4. Accept the Loss

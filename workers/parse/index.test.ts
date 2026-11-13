@@ -77,6 +77,21 @@ function postParse(app: ReturnType<typeof createParseApp>) {
   );
 }
 
+function postParseBody(app: ReturnType<typeof createParseApp>, body: unknown) {
+  return app.request(
+    "http://parse.local/parse",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+    TEST_ENV,
+  );
+}
+
 function arrangeEntitledItemWithAttachment(
   type = "application/pdf",
   path = "10/resume.pdf",
@@ -106,6 +121,30 @@ describe("parse worker", () => {
     eq.mockReturnThis();
     confirmParseAttempt.mockResolvedValue(APPLIED_CONFIRM_OUTCOME);
     releaseParseAttempt.mockResolvedValue(APPLIED_RELEASE_OUTCOME);
+  });
+
+  it.each([
+    [
+      "mixed legacy and re-read keys",
+      { inbox_item_id: 1, resume_id: 22, request_id: crypto.randomUUID() },
+    ],
+    ["an extra key on the legacy body", { inbox_item_id: 1, unexpected: true }],
+    [
+      "an extra key on the re-read body",
+      { resume_id: 22, request_id: crypto.randomUUID(), extra: true },
+    ],
+  ])("rejects %s without entering either parse path", async (_name, body) => {
+    rpc.mockResolvedValue({ data: ENTITLED_PAYLOAD, error: null });
+    const app = createParseApp();
+
+    const res = await postParseBody(app, body);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      success: false,
+      error: "invalid request body",
+    });
+    expect(from).not.toHaveBeenCalled();
   });
 
   it("responds to GET /health without auth", async () => {
