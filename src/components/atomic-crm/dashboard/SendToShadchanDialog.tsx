@@ -27,6 +27,11 @@ import {
 
 import { useViewerRole } from "../entity360/useViewerRole";
 import type { CrmDataProvider } from "../providers/types";
+import {
+  callEmailWorker,
+  readEmailWorkerConfig,
+  type EmailWorkerErrorCode,
+} from "../providers/commons/emailWorkerClient";
 import { buildResumeSharePayload } from "../resumes/resumeSharePayload";
 import { sortResumeFilesNewestFirst } from "../resumes/useLatestResumeFile";
 import {
@@ -47,6 +52,7 @@ import type {
 } from "../types";
 
 const MANAGER_ROLES = new Set<MemberRole>(["parent_admin", "self_manager"]);
+const EMAIL_MAX_RAW_BYTES = 24 * 1024 * 1024;
 
 const OUTCOME_LABELS: Record<OutboundShareHistory["outcome"], string> = {
   share_sheet_opened: "Share sheet opened",
@@ -54,6 +60,11 @@ const OUTCOME_LABELS: Record<OutboundShareHistory["outcome"], string> = {
   cancelled: "Cancelled",
   unsupported: "File sharing not supported",
   failed: "Couldn’t prepare files",
+  email_provider_accepted: "Email accepted by the email service",
+  email_rate_limited: "Email sending limit reached",
+  email_rejected: "Email service rejected the email",
+  email_fetch_failed: "Couldn’t prepare email attachments",
+  email_delivery_unknown: "Couldn’t confirm email result",
 };
 
 const CHANNEL_LABELS: Record<OutboundShareChannel, string> = {
@@ -161,6 +172,25 @@ function isUnsupportedShareError(error: unknown): boolean {
   );
 }
 
+function emailErrorMessage(code: EmailWorkerErrorCode): string {
+  switch (code) {
+    case "rate_limited":
+      return "You’ve reached the email sending limit. Please wait a few minutes before trying again. Nothing was sent.";
+    case "no_email":
+      return "No email saved for this shadchan.";
+    case "rejected":
+      return "The email service rejected this email. Nothing was sent. Check the shadchan’s email and the selected files.";
+    case "prepare_failed":
+      return "We couldn’t prepare these attachments. Nothing was sent. Try again.";
+    case "too_large":
+      return "These files are too large to email. Email attachments must total 24 MB or less.";
+    case "unavailable":
+      return "Email sending is temporarily unavailable. Nothing was sent.";
+    case "ambiguous":
+      return "We couldn’t confirm what happened with the email. Do not click Send again immediately. Check Send history before trying again.";
+  }
+}
+
 interface SendToShadchanDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -180,6 +210,7 @@ export function SendToShadchanDialog({
 }: SendToShadchanDialogProps): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
+  const isManager = viewerRole != null && MANAGER_ROLES.has(viewerRole);
   const [shadchanId, setShadchanId] = useState<string>();
   const [shadchanSearch, setShadchanSearch] = useState("");
   const [channel, setChannel] = useState<OutboundShareChannel>();
@@ -188,18 +219,22 @@ export function SendToShadchanDialog({
   const [resumeOnlyConfirmed, setResumeOnlyConfirmed] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>();
+  const [emailErrorCode, setEmailErrorCode] = useState<EmailWorkerErrorCode>();
+  const [emailAccepted, setEmailAccepted] = useState(false);
   const [liveStatus, setLiveStatus] = useState("");
   const [showKidPicker, setShowKidPicker] = useState(false);
   const [historyVisible, setHistoryVisible] = useState(false);
   const [manualFiles, setManualFiles] = useState<File[] | null>(null);
   const [manualMessage, setManualMessage] = useState("");
   const [manualStatus, setManualStatus] = useState("");
+  const [emailRequestId, setEmailRequestId] = useState<string>();
+  const [resolvedReplyTo, setResolvedReplyTo] = useState<string>();
   const preparingRef = useRef(false);
   const wasPreparingRef = useRef(false);
   const runIdRef = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
   const finalButtonRef = useRef<HTMLButtonElement>(null);
-  const isManager = viewerRole != null && MANAGER_ROLES.has(viewerRole);
+  const statusRef = useRef<HTMLParagraphElement>(null);
 
   const {
     data: shadchanim = [],
@@ -267,10 +302,29 @@ export function SendToShadchanDialog({
   const selectedShadchan = shadchanim.find(
     (item) => String(item.id) === shadchanId,
   );
-  const channelOptions = useMemo(
-    () => getOutboundShareChannels(selectedShadchan?.contacts),
-    [selectedShadchan],
-  );
+  const emailFlagEnabled =
+    import.meta.env.VITE_OUTBOUND_EMAIL_ENABLED === "true";
+  const emailWorkerUrl = import.meta.env.VITE_EMAIL_WORKER_URL as
+    string | undefined;
+  const buildReplyTo = (
+    import.meta.env.VITE_OUTBOUND_EMAIL_REPLY_TO as string | undefined
+  )?.trim();
+  const serverEmailAvailable =
+    emailFlagEnabled &&
+    Boolean(emailWorkerUrl) &&
+    Boolean(resolvedReplyTo) &&
+    Boolean(buildReplyTo) &&
+    resolvedReplyTo === buildReplyTo;
+  const channelOptions = useMemo(() => {
+    const options = getOutboundShareChannels(selectedShadchan?.contacts);
+    return options.map((option) => {
+      if (option.channel !== "email" || !serverEmailAvailable) return option;
+      return {
+        ...option,
+        label: "Email from MyShadchan (attached automatically)",
+      };
+    });
+  }, [selectedShadchan, serverEmailAvailable]);
   const selectedChannel =
     channelOptions.find((item) => item.channel === channel) ?? null;
   const filteredShadchanim = shadchanim.filter((item) =>
@@ -285,6 +339,25 @@ export function SendToShadchanDialog({
   );
   const includesPhoto = Boolean(photoSelected && newestEligiblePhoto);
   const needsResumeOnlyConfirmation = Boolean(latestFile && !includesPhoto);
+  const emailResumeSize = latestFile?.size ?? null;
+  const emailResumeSizeKnown =
+    emailResumeSize != null &&
+    Number.isSafeInteger(emailResumeSize) &&
+    emailResumeSize > 0;
+  const emailPhotoSize =
+    includesPhoto && newestEligiblePhoto
+      ? photoSize(newestEligiblePhoto)
+      : null;
+  const emailAttachmentSize = emailResumeSizeKnown
+    ? emailResumeSize +
+      (includesPhoto && emailPhotoSize != null ? emailPhotoSize : 0)
+    : null;
+  const emailAttachmentTooLarge =
+    emailAttachmentSize != null && emailAttachmentSize > EMAIL_MAX_RAW_BYTES;
+  const emailAttachmentInvalid =
+    serverEmailAvailable &&
+    channel === "email" &&
+    (!emailResumeSizeKnown || emailAttachmentTooLarge);
   const canSubmit = Boolean(
     !isPreparing &&
     !isMetadataPending &&
@@ -293,10 +366,13 @@ export function SendToShadchanDialog({
     resumeSelected &&
     selectedShadchan &&
     selectedChannel?.contact &&
-    (!needsResumeOnlyConfirmation || resumeOnlyConfirmed),
+    (!needsResumeOnlyConfirmation || resumeOnlyConfirmed) &&
+    !emailAttachmentInvalid &&
+    !emailAccepted,
   );
   const singleName = nameForSingle(single);
   const shadchanName = selectedShadchan?.name ?? "the shadchan";
+  const isServerEmail = channel === "email" && serverEmailAvailable;
 
   const {
     data: history = [],
@@ -314,6 +390,25 @@ export function SendToShadchanDialog({
   );
 
   useEffect(() => {
+    if (!open || !emailFlagEnabled || !emailWorkerUrl) {
+      setResolvedReplyTo(undefined);
+      return;
+    }
+    let current = true;
+    setResolvedReplyTo(undefined);
+    void readEmailWorkerConfig(emailWorkerUrl)
+      .then(({ replyTo }) => {
+        if (current) setResolvedReplyTo(replyTo);
+      })
+      .catch(() => {
+        if (current) setResolvedReplyTo(undefined);
+      });
+    return () => {
+      current = false;
+    };
+  }, [emailFlagEnabled, emailWorkerUrl, open]);
+
+  useEffect(() => {
     setShadchanId(undefined);
     setShadchanSearch("");
     setChannel(undefined);
@@ -321,6 +416,9 @@ export function SendToShadchanDialog({
     setManualFiles(null);
     setManualMessage("");
     setManualStatus("");
+    setEmailRequestId(undefined);
+    setEmailAccepted(false);
+    setEmailErrorCode(undefined);
     setErrorMessage(undefined);
     setLiveStatus("");
   }, [single.id]);
@@ -339,6 +437,9 @@ export function SendToShadchanDialog({
       setManualFiles(null);
       setManualMessage("");
       setManualStatus("");
+      setEmailRequestId(undefined);
+      setEmailAccepted(false);
+      setEmailErrorCode(undefined);
       setErrorMessage(undefined);
       setLiveStatus("");
       setHistoryVisible(false);
@@ -346,16 +447,25 @@ export function SendToShadchanDialog({
   }, [open]);
 
   useEffect(() => {
-    if (open && wasPreparingRef.current && !isPreparing && canSubmit) {
+    if (
+      open &&
+      wasPreparingRef.current &&
+      !isPreparing &&
+      canSubmit &&
+      !emailAccepted
+    ) {
       finalButtonRef.current?.focus();
     }
     wasPreparingRef.current = isPreparing;
-  }, [canSubmit, isPreparing, open]);
+  }, [canSubmit, emailAccepted, isPreparing, open]);
 
   useEffect(() => {
     setResumeSelected(Boolean(latestFile));
     setPhotoSelected(Boolean(newestEligiblePhoto));
     setResumeOnlyConfirmed(false);
+    setEmailAccepted(false);
+    setEmailRequestId(undefined);
+    setEmailErrorCode(undefined);
   }, [latestFile, newestEligiblePhoto]);
 
   const recordOutcome = async (
@@ -508,10 +618,57 @@ export function SendToShadchanDialog({
     );
     setIsPreparing(true);
     setErrorMessage(undefined);
+    setEmailErrorCode(undefined);
     setManualStatus("");
-    setLiveStatus("Preparing the files…");
+    setLiveStatus(
+      channel === "email"
+        ? "Preparing the attachments…"
+        : "Preparing the files…",
+    );
 
     try {
+      if (channel === "email" && serverEmailAvailable) {
+        const workerUrl = emailWorkerUrl;
+        if (!workerUrl || !emailFlagEnabled || !serverEmailAvailable) {
+          setErrorMessage(
+            "Email sending is temporarily unavailable. Nothing was sent.",
+          );
+          setLiveStatus("");
+          return;
+        }
+        const requestId = emailRequestId ?? crypto.randomUUID();
+        setEmailRequestId(requestId);
+        setLiveStatus("Sending the email with attachments…");
+        try {
+          await callEmailWorker(workerUrl, {
+            single_id: single.id,
+            shadchan_id: selectedShadchan.id,
+            include_photo: hasPhoto,
+            request_id: requestId,
+          });
+          if (!isCurrentRun(runId)) return;
+          setLiveStatus(
+            "Email accepted by the email service. MyShadchan can’t confirm delivery.",
+          );
+          setEmailAccepted(true);
+          if (historyVisible) void refetchHistory();
+          statusRef.current?.focus();
+        } catch (error) {
+          if (!isCurrentRun(runId)) return;
+          const code =
+            typeof error === "object" &&
+            error !== null &&
+            "code" in error &&
+            typeof (error as { code?: unknown }).code === "string"
+              ? (error as { code: EmailWorkerErrorCode }).code
+              : "ambiguous";
+          setEmailErrorCode(code);
+          setErrorMessage(emailErrorMessage(code));
+          setLiveStatus("");
+        }
+        return;
+      }
+
       const files = await fetchFilesForSelection(
         runId,
         controller.signal,
@@ -654,6 +811,7 @@ export function SendToShadchanDialog({
       setManualFiles(null);
       setManualMessage("");
       setManualStatus("");
+      setEmailRequestId(undefined);
       setErrorMessage(undefined);
       setLiveStatus("");
       setHistoryVisible(false);
@@ -675,22 +833,34 @@ export function SendToShadchanDialog({
     typeof navigator !== "undefined" &&
     typeof navigator.canShare === "function" &&
     typeof navigator.share === "function";
-  const finalActionLabel = nativeShareAvailable
+  const replyToDisplay =
+    resolvedReplyTo || buildReplyTo || "temporarily unavailable";
+  const finalActionLabel = isServerEmail
     ? includesPhoto
-      ? "Share resume and photo"
-      : "Share resume only"
-    : includesPhoto
-      ? "Download files and prepare message"
-      : "Download resume and prepare message";
+      ? "Send resume and photo by email"
+      : "Send resume only by email"
+    : nativeShareAvailable
+      ? includesPhoto
+        ? "Share resume and photo"
+        : "Share resume only"
+      : includesPhoto
+        ? "Download files and prepare message"
+        : "Download resume and prepare message";
   const finalActionHelp = !selectedShadchan
     ? "Choose a shadchan to continue."
     : !selectedChannel
       ? "Choose a contact channel to continue."
       : !latestFile || !resumeSelected
         ? "No resume available"
-        : needsResumeOnlyConfirmation && !resumeOnlyConfirmed
-          ? "Confirm that you want to continue with the resume only."
-          : "";
+        : emailAttachmentInvalid
+          ? emailAttachmentTooLarge
+            ? "These files are too large to email. Email attachments must total 24 MB or less. Choose a smaller file or choose another channel."
+            : "We couldn’t verify the attachment sizes, so this email can’t be sent."
+          : needsResumeOnlyConfirmation && !resumeOnlyConfirmed
+            ? "Confirm that you want to continue with the resume only."
+            : "";
+  const showEmailRetry =
+    emailErrorCode == null || emailErrorCode === "prepare_failed";
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -701,8 +871,9 @@ export function SendToShadchanDialog({
         <DialogHeader>
           <DialogTitle>Send files to a shadchan</DialogTitle>
           <DialogDescription>
-            Review the recipient, channel, and exact files before handing them
-            to your own device or messaging app.
+            {isServerEmail
+              ? "Review the recipient, channel, and exact files before sending."
+              : "Review the recipient, channel, and exact files before handing them to your own device or messaging app."}
           </DialogDescription>
         </DialogHeader>
 
@@ -787,6 +958,9 @@ export function SendToShadchanDialog({
                   clearManualState();
                   setShadchanId(value);
                   setChannel(undefined);
+                  setEmailRequestId(undefined);
+                  setEmailAccepted(false);
+                  setEmailErrorCode(undefined);
                   setErrorMessage(undefined);
                 }}
                 disabled={
@@ -841,6 +1015,10 @@ export function SendToShadchanDialog({
                 onValueChange={(value) => {
                   clearManualState();
                   setChannel(value as OutboundShareChannel);
+                  setEmailRequestId(undefined);
+                  setEmailAccepted(false);
+                  setEmailErrorCode(undefined);
+                  setErrorMessage(undefined);
                 }}
                 disabled={isPreparing}
                 className="gap-2"
@@ -874,6 +1052,27 @@ export function SendToShadchanDialog({
                   );
                 })}
               </RadioGroup>
+              {selectedChannel?.channel === "email" && isServerEmail ? (
+                <div className="grid gap-1 rounded-md bg-muted p-3 text-sm">
+                  <p className="font-medium">Email details</p>
+                  <p>From: MyShadchan (verified email address)</p>
+                  <p dir="auto">Replies go to: {replyToDisplay}</p>
+                  <p dir="auto">To: {selectedChannel.contact}</p>
+                  <p className="text-muted-foreground">
+                    The shadchan will receive the files as email attachments.
+                    Email systems may retain a copy, and the shadchan may save
+                    or forward them.
+                  </p>
+                  <p className="text-muted-foreground">
+                    The email service accepts the send request; MyShadchan
+                    cannot confirm delivery or take the files back.
+                  </p>
+                  <p className="text-muted-foreground">
+                    MyShadchan cannot recall the email after the email service
+                    accepts it.
+                  </p>
+                </div>
+              ) : null}
               {selectedShadchan &&
               channelOptions.every((option) => !option.contact) ? (
                 <p className="text-sm text-muted-foreground">
@@ -914,6 +1113,9 @@ export function SendToShadchanDialog({
                         clearManualState();
                         setResumeSelected(checked === true);
                         setResumeOnlyConfirmed(false);
+                        setEmailAccepted(false);
+                        setEmailRequestId(undefined);
+                        setEmailErrorCode(undefined);
                       }}
                       aria-describedby="send-resume-details"
                     />
@@ -948,6 +1150,9 @@ export function SendToShadchanDialog({
                         clearManualState();
                         setPhotoSelected(checked === true);
                         setResumeOnlyConfirmed(false);
+                        setEmailAccepted(false);
+                        setEmailRequestId(undefined);
+                        setEmailErrorCode(undefined);
                       }}
                       aria-describedby="send-photo-details"
                     />
@@ -960,6 +1165,9 @@ export function SendToShadchanDialog({
                             photoMimeType(newestEligiblePhoto),
                             photoSize(newestEligiblePhoto),
                           )}
+                          {photoSize(newestEligiblePhoto) == null
+                            ? " · size checked when you send"
+                            : null}
                         </p>
                       ) : (
                         <p className="text-sm text-muted-foreground">
@@ -971,6 +1179,29 @@ export function SendToShadchanDialog({
                 </>
               )}
             </section>
+
+            {isServerEmail ? (
+              <div
+                className="grid gap-1 rounded-md border border-amber-500/50 p-3 text-sm"
+                role={emailAttachmentInvalid ? "alert" : undefined}
+                aria-describedby="send-email-size-help"
+              >
+                <p>
+                  Total attachment size:{" "}
+                  {formatFileSize(emailAttachmentSize) ?? "Size unavailable"} of
+                  24 MB
+                </p>
+                <p id="send-email-size-help" className="text-muted-foreground">
+                  {emailAttachmentTooLarge
+                    ? "These files are too large to email. Email attachments must total 24 MB or less. Choose a smaller file or choose another channel."
+                    : !emailResumeSizeKnown
+                      ? "We couldn’t verify the attachment sizes, so this email can’t be sent."
+                      : includesPhoto && emailPhotoSize == null
+                        ? "The selected photo’s size will be checked when you send."
+                        : "The selected files will be attached automatically."}
+                </p>
+              </div>
+            ) : null}
 
             {needsResumeOnlyConfirmation ? (
               <div className="grid gap-2 rounded-md border border-amber-500/50 p-3 text-sm">
@@ -1006,12 +1237,30 @@ export function SendToShadchanDialog({
               id="send-safety-notice"
               className="rounded-md bg-muted p-3 text-sm"
             >
-              Please check the kid, shadchan, channel, and files. Once a file
-              leaves MyShadchan, we can’t take it back.
+              {isServerEmail
+                ? "This will send the selected files from MyShadchan’s email service to the shadchan. The files will leave our servers, and we can’t take them back. The shadchan may save or forward them. Email systems may retain a copy. MyShadchan cannot recall the email after the email service accepts it."
+                : "Please check the kid, shadchan, channel, and files. Once a file leaves MyShadchan, we can’t take it back."}
             </p>
+            {isServerEmail ? (
+              <p className="text-sm text-muted-foreground">
+                MyShadchan sends the email and attaches the files automatically.
+                Replies go to {replyToDisplay}.
+              </p>
+            ) : null}
+            {isServerEmail ? (
+              <p className="text-sm text-muted-foreground">
+                Email attaches the files automatically. WhatsApp and Text
+                message may require you to attach downloaded files yourself.
+              </p>
+            ) : null}
 
             {metadataStatus ? (
-              <p aria-live="polite" className="text-sm text-muted-foreground">
+              <p
+                ref={statusRef}
+                tabIndex={-1}
+                aria-live="polite"
+                className="text-sm text-muted-foreground outline-none"
+              >
                 {metadataStatus}
               </p>
             ) : null}
@@ -1036,21 +1285,26 @@ export function SendToShadchanDialog({
               <Alert variant="destructive" role="alert">
                 <AlertDescription className="flex flex-wrap items-center gap-2">
                   {errorMessage}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handlePrepare}
-                  >
-                    Try again
-                  </Button>
+                  {showEmailRetry ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePrepare}
+                    >
+                      Try again
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => setErrorMessage(undefined)}
+                    onClick={() => {
+                      setErrorMessage(undefined);
+                      setEmailErrorCode(undefined);
+                    }}
                   >
-                    Cancel
+                    {emailErrorCode ? "Back to review" : "Cancel"}
                   </Button>
                 </AlertDescription>
               </Alert>
@@ -1167,7 +1421,11 @@ export function SendToShadchanDialog({
             disabled={!canSubmit}
             aria-describedby="send-safety-notice send-action-help"
           >
-            {isPreparing ? "Preparing the files…" : finalActionLabel}
+            {isPreparing
+              ? isServerEmail
+                ? "Sending the email with attachments…"
+                : "Preparing the files…"
+              : finalActionLabel}
           </Button>
           <span id="send-action-help" className="sr-only" aria-live="polite">
             {finalActionHelp}

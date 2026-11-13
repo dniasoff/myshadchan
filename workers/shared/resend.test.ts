@@ -197,6 +197,40 @@ describe("sendEmail", () => {
     );
   });
 
+  it("sends Reply-To and base64 attachments in the same Resend payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: "email-with-files" }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await sendEmail({
+      ...INPUT,
+      replyTo: "ronit@example.test",
+      attachments: [
+        {
+          filename: "resume.pdf",
+          content: "AQID",
+          content_type: "application/pdf",
+        },
+      ],
+    });
+
+    expect(result).toEqual({ ok: true, id: "email-with-files" });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      reply_to: "ronit@example.test",
+      attachments: [
+        {
+          filename: "resume.pdf",
+          content: "AQID",
+          content_type: "application/pdf",
+        },
+      ],
+    });
+  });
+
   it("omits the Idempotency-Key header when idempotencyKey is not supplied", async () => {
     // Arrange
     const fetchMock = vi

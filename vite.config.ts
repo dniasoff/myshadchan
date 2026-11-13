@@ -201,6 +201,15 @@ export default defineConfig({
           "import.meta.env.VITE_BILLING_WORKER_URL": JSON.stringify(
             process.env.VITE_BILLING_WORKER_URL,
           ),
+          "import.meta.env.VITE_EMAIL_WORKER_URL": JSON.stringify(
+            process.env.VITE_EMAIL_WORKER_URL,
+          ),
+          "import.meta.env.VITE_OUTBOUND_EMAIL_ENABLED": JSON.stringify(
+            process.env.VITE_OUTBOUND_EMAIL_ENABLED,
+          ),
+          "import.meta.env.VITE_OUTBOUND_EMAIL_REPLY_TO": JSON.stringify(
+            process.env.VITE_OUTBOUND_EMAIL_REPLY_TO,
+          ),
         }
       : undefined,
   base: "./",

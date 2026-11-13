@@ -433,7 +433,12 @@ create table public.outbound_share_history (
             'download_prepared',
             'cancelled',
             'unsupported',
-            'failed'
+            'failed',
+            'email_provider_accepted',
+            'email_rate_limited',
+            'email_rejected',
+            'email_fetch_failed',
+            'email_delivery_unknown'
         )
     )
 );

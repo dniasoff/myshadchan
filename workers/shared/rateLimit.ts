@@ -196,6 +196,19 @@ export const SHARE_TOKEN_RATE_LIMIT: RateLimitConfig = {
   periodSeconds: 60,
 };
 
+/** User-send email abuse backstop. The route also checks the durable
+ * account-scoped ten-minute allowance in outbound_share_history; this native
+ * binding catches rapid duplicate clicks before any Storage or provider work. */
+export const EMAIL_IP_RATE_LIMIT: RateLimitConfig = {
+  limit: 10,
+  periodSeconds: 60,
+};
+
+export const EMAIL_ACCOUNT_RATE_LIMIT: RateLimitConfig = {
+  limit: 3,
+  periodSeconds: 60,
+};
+
 export type RateLimitRefusalReason = "over_limit" | "limiter_error";
 
 export type RateLimitCheckResult =

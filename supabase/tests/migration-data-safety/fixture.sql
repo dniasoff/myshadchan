@@ -356,6 +356,14 @@ values (
     9000001, 9000001, 'Mrs. Bracha Katz', 'מרת ברכה כץ', 'Lakewood'
 );
 
+-- myshadchan-92m: keep the existing outbound ledger represented in the
+-- populated-table guard. The pending email migration changes only its outcome
+-- CHECK, so this row proves an existing audit record survives unchanged.
+insert into public.outbound_share_history
+    (id, account_id, single_id, shadchan_id, actor_member_id, channel, file_kinds, outcome)
+values
+    (9000001, 9000001, 9000001, 9000001, 9000001, 'whatsapp', array['resume'], 'download_prepared');
+
 -- Story 13.1: the grantee household account (9000003) is likewise created
 -- inside that same block, with its own user and membership.
 

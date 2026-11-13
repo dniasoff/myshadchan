@@ -479,7 +479,7 @@ jobs:
 
     # The workers are a THIRD pipeline off the same push, and until this
     # `needs:` they ran concurrently with `db push` exactly as Vercel did: a
-    # failed migration still shipped all seven workers, `billing` and `ai`
+    # failed migration still shipped all eight workers, `billing` and `ai`
     # included. Gating them on deploy-supabase means backend code never goes
     # live against a schema that failed to apply.
     needs: [deploy-preflight, deploy-supabase]
@@ -544,14 +544,16 @@ jobs:
       # SUPABASE_PUBLISHABLE_KEY, ...)` on every non-health route of both, so
       # without it the Worker throws an unhandled 500 instead of the intended
       # 401/402. Not part of the "base secrets" step below because the other
-      # four workers in this matrix (ingest, match, cron, share) never read it.
+      # five other workers in this matrix (ingest, match, cron, share, billing)
+      # never read it.
       SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      # Story 12.2: the `cron` Worker's outbound-email sender identity —
-      # `RESEND_FROM` (a verified Resend sending domain address, e.g.
-      # support@myshadchan.space). Only `cron` reads it (see the push step
-      # below); declared at the job level like every other secret here.
+      # Story 12.2 / myshadchan-92m: the outbound-email sender identity —
+      # `RESEND_FROM` (a verified Resend sending domain address). `cron` and
+      # `email` read it (see the push step below); declared at the job level
+      # like every other secret here.
       RESEND_FROM: ${{ secrets.RESEND_FROM }}
+      OUTBOUND_EMAIL_REPLY_TO: ${{ secrets.OUTBOUND_EMAIL_REPLY_TO }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       # Story 12.4: the remaining three billing-worker bindings. There is no
@@ -604,7 +606,7 @@ jobs:
       # bundles code and every secret into ONE version atomically, and
       # nothing serves traffic until the explicit `versions deploy` promotion
       # that follows it.
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker != 'ai' && matrix.worker != 'parse' && matrix.worker != 'cron' && matrix.worker != 'billing' }}
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && matrix.worker != 'ai' && matrix.worker != 'parse' && matrix.worker != 'cron' && matrix.worker != 'billing' && matrix.worker != 'email' }}
         name: 🚀 wrangler deploy
         working-directory: workers/${{ matrix.worker }}
         run: npx wrangler deploy
@@ -647,7 +649,7 @@ jobs:
       # own `[secrets] required = [...]` block is wrangler's OWN independent
       # enforcement of the same requirement, for any deploy of these two
       # Workers that does not go through this workflow at all.
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse' || matrix.worker == 'cron' || matrix.worker == 'billing') }}
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse' || matrix.worker == 'cron' || matrix.worker == 'billing' || matrix.worker == 'email') }}
         name: 🔎 Required Worker secrets present? (fails the job, not just a warning)
         run: |
           set -euo pipefail
@@ -669,6 +671,10 @@ jobs:
             [ -n "${RESEND_API_KEY:-}" ] || missing+=("RESEND_API_KEY")
             [ -n "${RESEND_FROM:-}" ] || missing+=("RESEND_FROM")
             [ -n "${APP_ORIGIN:-}" ] || missing+=("APP_ORIGIN")
+          fi
+          if [ "${{ matrix.worker }}" = "email" ]; then
+            [ -n "${RESEND_API_KEY:-}" ] || missing+=("RESEND_API_KEY")
+            [ -n "${RESEND_FROM:-}" ] || missing+=("RESEND_FROM")
           fi
           # `billing` has a webhook endpoint registered against it in Stripe,
           # so a published-but-unconfigured version answers real deliveries
@@ -704,7 +710,7 @@ jobs:
       # first-ever deploy of `ai`/`parse` and every steady-state redeploy
       # with the same command. `--secrets-file` is additive (per
       # `--help`): a secret not listed here is left untouched, never deleted.
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse' || matrix.worker == 'cron' || matrix.worker == 'billing') }}
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse' || matrix.worker == 'cron' || matrix.worker == 'billing' || matrix.worker == 'email') }}
         name: 🚀 Upload Worker version (code + every secret, bundled atomically)
         working-directory: workers/${{ matrix.worker }}
         run: |
@@ -727,6 +733,11 @@ jobs:
               printf 'APP_ORIGIN=%s\n' "$APP_ORIGIN"
               [ -n "${VAPID_PUBLIC_KEY:-}" ] && printf 'VAPID_PUBLIC_KEY=%s\n' "$VAPID_PUBLIC_KEY"
               [ -n "${VAPID_PRIVATE_KEY:-}" ] && printf 'VAPID_PRIVATE_KEY=%s\n' "$VAPID_PRIVATE_KEY"
+            fi
+            if [ "${{ matrix.worker }}" = "email" ]; then
+              printf 'RESEND_API_KEY=%s\n' "$RESEND_API_KEY"
+              printf 'RESEND_FROM=%s\n' "$RESEND_FROM"
+              [ -n "${OUTBOUND_EMAIL_REPLY_TO:-}" ] && printf 'OUTBOUND_EMAIL_REPLY_TO=%s\n' "$OUTBOUND_EMAIL_REPLY_TO"
             fi
             if [ "${{ matrix.worker }}" = "billing" ]; then
               printf 'STRIPE_SECRET_KEY=%s\n' "$STRIPE_SECRET_KEY"
@@ -754,7 +765,7 @@ jobs:
       # does — this is the only step that makes the uploaded version start
       # serving traffic, and it only runs once the version above uploaded
       # successfully WITH every required secret already attached to it.
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse' || matrix.worker == 'cron' || matrix.worker == 'billing') }}
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse' || matrix.worker == 'cron' || matrix.worker == 'billing' || matrix.worker == 'email') }}
         name: 🚀 Promote uploaded version to 100% traffic
         working-directory: workers/${{ matrix.worker }}
         run: npx wrangler versions deploy "${WRANGLER_VERSION_ID}@100" --yes --message "CI deploy $GITHUB_SHA"
@@ -764,7 +775,7 @@ jobs:
       # above instead (and fail the job outright if either is missing,
       # rather than silently skipping this push the way the other four
       # workers still do below).
-      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY && matrix.worker != 'ai' && matrix.worker != 'parse' && matrix.worker != 'cron' && matrix.worker != 'billing' }}
+      - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY && matrix.worker != 'ai' && matrix.worker != 'parse' && matrix.worker != 'cron' && matrix.worker != 'billing' && matrix.worker != 'email' }}
         name: 🔑 Push base secrets (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
         working-directory: workers/${{ matrix.worker }}
         run: |
@@ -880,7 +891,7 @@ jobs:
 
   # Keep the existing provider jobs independent, but make their combined
   # outcome explicit. This job never writes to a provider: it checks the job
-  # results, the seven workers in the deploy matrix, the Supabase health
+  # results, the eight workers in the deploy matrix, the Supabase health
   # endpoint and the application's own entry point. Any partial deployment is
   # therefore a failed workflow with a summary of what did and did not land.
   post-deploy-smoke:

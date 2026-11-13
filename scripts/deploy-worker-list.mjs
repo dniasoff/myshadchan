@@ -11,6 +11,7 @@ export const DEPLOYED_WORKERS = [
   "cron",
   "share",
   "billing",
+  "email",
 ];
 
 if (process.argv[1]?.endsWith("deploy-worker-list.mjs")) {
