@@ -6,6 +6,7 @@ import { useViewerRole } from "../entity360/useViewerRole";
 import { ResumeUpload } from "./ResumeUpload";
 import { ResumeDocument } from "./ResumeDocument";
 import { ResumeReadableSections } from "./ResumeReadableSections";
+import { canViewResumeReferences } from "./resumeReferenceVisibility";
 
 /**
  * The shidduch descriptor's `resume` tab entry point (Story 5.3, AC 1 / AC 3
@@ -26,7 +27,7 @@ export function ResumeTab(): ReactNode {
   // The single role can see the original resume through the existing dignity
   // boundary, but never parsed references or candid reference-link content.
   // Fail closed while the active context is settling.
-  const canViewReferences = !isRolePending && role != null && role !== "single";
+  const canViewReferences = canViewResumeReferences(role, isRolePending);
 
   return (
     <div className="flex min-w-0 flex-col gap-6">

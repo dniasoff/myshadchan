@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import {
   useDataProvider,
@@ -30,6 +30,7 @@ import type {
 import type { CrmDataProvider } from "../providers/types";
 import { resumeSubjectFilter } from "./resumeSubject";
 import {
+  matchResumeReferenceLinks,
   parseResumeSections,
   type ParsedResumeReference,
 } from "./resumeReadableSections";
@@ -49,15 +50,6 @@ const STATUS_OPTIONS: ReadonlyArray<{
 
 const asText = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
-
-const normalizeName = (value: string): string =>
-  value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, "");
-
-const normalizePhone = (value: string): string => value.replace(/\D/g, "");
 
 const normalizeEnumValue = (value: string): string => {
   if (value === "yes") return "Yes";
@@ -132,34 +124,43 @@ function readableDetailGroups(record: ShidduchSummary): DetailGroup[] {
     .filter((group) => group.items.length > 0);
 }
 
-const linkMatchesReference = (
-  link: ReferenceLinkSummary,
-  reference: ParsedResumeReference,
-): boolean => {
-  const linkName = normalizeName(
-    link.reference_name_en ?? link.reference_name_he ?? "",
-  );
-  const referenceName = normalizeName(reference.name);
-  if (!linkName || linkName !== referenceName) return false;
-
-  const referencePhone = normalizePhone(reference.phone);
-  const linkPhone = normalizePhone(link.reference_phone ?? "");
-  return referencePhone ? referencePhone === linkPhone : true;
+type ReferenceRow = {
+  reference: ParsedResumeReference;
+  link: ReferenceLinkSummary | null;
 };
 
-function matchReferenceLinks(
+const REFERENCE_DISPLAY_LIMIT = 50;
+
+function linkAsParsedReference(
+  link: ReferenceLinkSummary,
+): ParsedResumeReference {
+  return {
+    name:
+      asText(link.reference_name_en) ||
+      asText(link.reference_name_he) ||
+      "Reference",
+    relationship: asText(link.effective_relationship),
+    phone: asText(link.reference_phone),
+  };
+}
+
+function buildReferenceRows(
   references: ParsedResumeReference[],
   links: ReferenceLinkSummary[],
-): Array<ReferenceLinkSummary | null> {
-  const used = new Set<ReferenceLinkSummary["id"]>();
-  return references.map((reference) => {
-    const link = links.find(
-      (candidate) =>
-        !used.has(candidate.id) && linkMatchesReference(candidate, reference),
-    );
-    if (link) used.add(link.id);
-    return link ?? null;
-  });
+): ReferenceRow[] {
+  const matchedLinks = matchResumeReferenceLinks(references, links);
+  const used = new Set(matchedLinks.flatMap((link) => (link ? [link.id] : [])));
+  const rows = references.map((reference, index) => ({
+    reference,
+    link: matchedLinks[index],
+  }));
+
+  return [
+    ...rows,
+    ...links
+      .filter((link) => !used.has(link.id))
+      .map((link) => ({ reference: linkAsParsedReference(link), link })),
+  ].slice(0, REFERENCE_DISPLAY_LIMIT);
 }
 
 export function ResumeReadableSections({
@@ -187,7 +188,7 @@ export function ResumeReadableSections({
       "reference_links",
       {
         filter: { shidduchim_id: record.id },
-        pagination: { page: 1, perPage: 50 },
+        pagination: { page: 1, perPage: REFERENCE_DISPLAY_LIMIT },
         sort: { field: "created_at", order: "ASC" },
       },
       {
@@ -202,8 +203,8 @@ export function ResumeReadableSections({
     detailGroups.length > 0 ||
     sections.learningHistory.length > 0 ||
     (canViewReferences && sections.references.length > 0);
-  const matchedLinks = canViewReferences
-    ? matchReferenceLinks(sections.references, links ?? [])
+  const referenceRows = canViewReferences
+    ? buildReferenceRows(sections.references, links ?? [])
     : [];
 
   return (
@@ -261,9 +262,9 @@ export function ResumeReadableSections({
             ) : null}
             {canViewReferences && sections.references.length > 0 ? (
               <ReferenceGroup
-                references={sections.references}
-                links={matchedLinks}
+                rows={referenceRows}
                 isPending={areLinksPending}
+                hasLinks={(links ?? []).length > 0}
               />
             ) : null}
           </>
@@ -300,13 +301,13 @@ function ReadableItem({ item }: { item: DetailItem }): ReactElement {
 }
 
 function ReferenceGroup({
-  references,
-  links,
+  rows,
   isPending,
+  hasLinks,
 }: {
-  references: ParsedResumeReference[];
-  links: Array<ReferenceLinkSummary | null>;
+  rows: ReferenceRow[];
   isPending: boolean;
+  hasLinks: boolean;
 }): ReactElement {
   const translate = useTranslate();
 
@@ -319,26 +320,38 @@ function ReferenceGroup({
           })}
         </h3>
         <span className="text-xs text-muted-foreground">
-          {references.length}{" "}
-          {references.length === 1 ? "reference" : "references"}
+          {rows.length} {rows.length === 1 ? "reference" : "references"}
         </span>
       </div>
-      {isPending || links.every((link) => link == null) ? (
+      {isPending ? (
+        <div
+          aria-label={translate(
+            "crm.entity360.resume.readable.loadingReferences",
+            {
+              _: "Loading references",
+            },
+          )}
+          role="status"
+          className="mb-3 h-20 animate-pulse rounded-lg bg-muted/40"
+        />
+      ) : !hasLinks ? (
         <p className="mb-3 rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
           {translate("crm.entity360.resume.readable.referencesPreparing", {
             _: "References are being prepared.",
           })}
         </p>
       ) : null}
-      <div className="flex flex-col gap-3">
-        {references.map((reference, index) => (
-          <ReferenceResumeCard
-            key={`${reference.name}-${index}`}
-            reference={reference}
-            link={links[index]}
-          />
-        ))}
-      </div>
+      {!isPending ? (
+        <div className="flex flex-col gap-3">
+          {rows.map((row, index) => (
+            <ReferenceResumeCard
+              key={`${row.reference.name}-${row.link?.id ?? "unlinked"}-${index}`}
+              reference={row.reference}
+              link={row.link}
+            />
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -399,6 +412,17 @@ function LinkedReferenceResumeCard({
   );
   const [isSavingStatus, setIsSavingStatus] = useState(false);
   const [isNoteOpen, setIsNoteOpen] = useState(false);
+  const noteTriggerRef = useRef<HTMLButtonElement>(null);
+  const didOpenNote = useRef(false);
+
+  useEffect(() => {
+    if (isNoteOpen) {
+      didOpenNote.current = true;
+    } else if (didOpenNote.current) {
+      didOpenNote.current = false;
+      requestAnimationFrame(() => noteTriggerRef.current?.focus());
+    }
+  }, [isNoteOpen]);
 
   useEffect(() => {
     setStatus((link.call_status as CallStatus) ?? "not_started");
@@ -407,7 +431,21 @@ function LinkedReferenceResumeCard({
   const displayRelationship =
     link.effective_relationship || reference.relationship;
   const displayPhone = link.reference_phone || reference.phone;
+  const displayName =
+    asText(link.reference_name_en) ||
+    asText(link.reference_name_he) ||
+    reference.name;
   const noteExists = Boolean(link.what_they_said?.trim());
+  const noteAriaLabel = `${translate("crm.entity360.resume.readable.noteOpen", {
+    name: displayName,
+    _: "Open note for %{name}",
+  })}${
+    noteExists
+      ? `; ${translate("crm.entity360.resume.readable.noteSavedAria", {
+          _: "note saved",
+        })}`
+      : ""
+  }`;
 
   const saveStatus = async (nextStatus: CallStatus) => {
     if (isSavingStatus) return;
@@ -421,13 +459,13 @@ function LinkedReferenceResumeCard({
         source: "manual",
       });
       refresh();
-    } catch (error) {
+    } catch {
       setStatus(previousStatus);
       notify(
-        error instanceof Error ? error.message : "Failed to save the call",
-        {
-          type: "error",
-        },
+        translate("crm.entity360.resume.readable.saveError", {
+          _: "We could not save this. Nothing was changed. Try again.",
+        }),
+        { type: "error" },
       );
     } finally {
       setIsSavingStatus(false);
@@ -439,7 +477,7 @@ function LinkedReferenceResumeCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p dir="auto" className="break-words text-sm font-semibold">
-            {reference.name}
+            {displayName}
           </p>
           <p
             dir="auto"
@@ -451,11 +489,13 @@ function LinkedReferenceResumeCard({
           </p>
         </div>
         <Button
+          ref={noteTriggerRef}
           type="button"
           variant="outline"
           size="icon"
-          aria-label={`Open note for ${reference.name}`}
+          aria-label={noteAriaLabel}
           aria-expanded={isNoteOpen}
+          aria-haspopup="dialog"
           className="relative shrink-0"
           onClick={() => setIsNoteOpen(true)}
         >
@@ -463,7 +503,7 @@ function LinkedReferenceResumeCard({
           {noteExists ? (
             <span
               className="absolute right-1 top-1 size-2 rounded-full bg-primary"
-              aria-label="Note saved"
+              aria-hidden="true"
             />
           ) : null}
         </Button>
@@ -485,7 +525,7 @@ function LinkedReferenceResumeCard({
       <div
         className="mt-2 grid grid-cols-3 gap-2"
         role="group"
-        aria-label={`Call status for ${reference.name}`}
+        aria-label={`Call status for ${displayName}`}
       >
         {STATUS_OPTIONS.map((option) => {
           const isSelected = status === option.id;
@@ -496,7 +536,7 @@ function LinkedReferenceResumeCard({
               aria-pressed={isSelected}
               disabled={isSavingStatus}
               className={cn(
-                "min-h-11 min-w-0 rounded-full border px-2 py-2 text-xs font-medium leading-tight",
+                "h-12 min-w-0 rounded-full border px-2 py-1 text-xs font-medium leading-tight sm:h-11",
                 "break-words transition-[box-shadow,background-color]",
                 "disabled:cursor-wait disabled:opacity-60",
                 isSelected
@@ -515,10 +555,9 @@ function LinkedReferenceResumeCard({
       </div>
       <ReferenceNoteEditor
         link={link}
-        referenceName={reference.name}
+        referenceName={displayName}
         open={isNoteOpen}
         onOpenChange={setIsNoteOpen}
-        status={status}
       />
     </article>
   );
@@ -529,13 +568,11 @@ function ReferenceNoteEditor({
   referenceName,
   open,
   onOpenChange,
-  status,
 }: {
   link: ReferenceLinkSummary;
   referenceName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  status: CallStatus;
 }): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
@@ -543,15 +580,18 @@ function ReferenceNoteEditor({
   const translate = useTranslate();
   const [note, setNote] = useState(link.what_they_said ?? "");
   const [isSaving, setIsSaving] = useState(false);
+  const noteDirty = useRef(false);
 
   useEffect(() => {
-    if (open) setNote(link.what_they_said ?? "");
+    if (open && !noteDirty.current) setNote(link.what_they_said ?? "");
   }, [link.what_they_said, open]);
 
   const saveNote = async () => {
     const nextNote = note.trim();
     const previousNote = (link.what_they_said ?? "").trim();
+    if (!nextNote && previousNote) return;
     if (nextNote === previousNote) {
+      noteDirty.current = false;
       onOpenChange(false);
       return;
     }
@@ -560,11 +600,11 @@ function ReferenceNoteEditor({
     try {
       await dataProvider.logReferenceCall({
         reference_link_id: link.id,
-        call_status: status,
-        what_they_said: nextNote || null,
+        what_they_said: nextNote,
         source: "manual",
       });
       refresh();
+      noteDirty.current = false;
       onOpenChange(false);
       notify(
         translate("crm.entity360.resume.readable.noteSaved", {
@@ -572,12 +612,12 @@ function ReferenceNoteEditor({
         }),
         { type: "success" },
       );
-    } catch (error) {
+    } catch {
       notify(
-        error instanceof Error ? error.message : "Failed to save the note",
-        {
-          type: "error",
-        },
+        translate("crm.entity360.resume.readable.saveError", {
+          _: "We could not save this. Nothing was changed. Try again.",
+        }),
+        { type: "error" },
       );
     } finally {
       setIsSaving(false);
@@ -585,7 +625,15 @@ function ReferenceNoteEditor({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen && !noteDirty.current) {
+          setNote(link.what_they_said ?? "");
+        }
+        onOpenChange(nextOpen);
+      }}
+    >
       <SheetContent
         side="bottom"
         className="max-h-[92dvh] overflow-y-auto pb-[calc(1rem+env(safe-area-inset-bottom))] md:bottom-auto md:left-1/2 md:right-auto md:top-1/2 md:w-[min(92vw,32rem)] md:translate-x-[-50%] md:translate-y-[-50%] md:rounded-xl md:border"
@@ -606,15 +654,21 @@ function ReferenceNoteEditor({
         <div className="flex flex-col gap-3 px-4 pb-4 md:px-6">
           <Textarea
             aria-label={`What ${referenceName} said`}
+            dir="auto"
             value={note}
-            onChange={(event) => setNote(event.target.value)}
+            onChange={(event) => {
+              noteDirty.current = true;
+              setNote(event.target.value);
+            }}
             rows={5}
             className="text-base"
           />
           <Button
             type="button"
             size="lg"
-            disabled={isSaving}
+            disabled={
+              isSaving || (!note.trim() && Boolean(link.what_they_said?.trim()))
+            }
             onClick={() => void saveNote()}
             className="min-h-11 w-full"
           >
@@ -622,6 +676,13 @@ function ReferenceNoteEditor({
               _: "Save note",
             })}
           </Button>
+          {!note.trim() && link.what_they_said?.trim() ? (
+            <p className="text-xs text-muted-foreground">
+              {translate("crm.entity360.resume.readable.noteEmpty", {
+                _: "Write a note to save it.",
+              })}
+            </p>
+          ) : null}
         </div>
       </SheetContent>
     </Sheet>

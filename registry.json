@@ -652,6 +652,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/resumes/resumeReferenceVisibility.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/resumes/resumeReadableSections.ts",
           "type": "registry:component"
         },
