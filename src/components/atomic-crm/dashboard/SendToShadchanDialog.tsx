@@ -317,26 +317,14 @@ export function SendToShadchanDialog({
     resolvedReplyTo === buildReplyTo;
   const channelOptions = useMemo(() => {
     const options = getOutboundShareChannels(selectedShadchan?.contacts);
-    return options.map((option) =>
-      option.channel !== "email"
-        ? option
-        : {
-            ...option,
-            label: emailFlagEnabled
-              ? "Email from MyShadchan (attached automatically)"
-              : option.label,
-            contact: emailFlagEnabled
-              ? serverEmailAvailable && option.contact
-                ? option.contact
-                : undefined
-              : option.contact,
-            missingReason:
-              emailFlagEnabled && !serverEmailAvailable
-                ? "Email sending is temporarily unavailable."
-                : option.missingReason,
-          },
-    );
-  }, [emailFlagEnabled, selectedShadchan, serverEmailAvailable]);
+    return options.map((option) => {
+      if (option.channel !== "email" || !serverEmailAvailable) return option;
+      return {
+        ...option,
+        label: "Email from MyShadchan (attached automatically)",
+      };
+    });
+  }, [selectedShadchan, serverEmailAvailable]);
   const selectedChannel =
     channelOptions.find((item) => item.channel === channel) ?? null;
   const filteredShadchanim = shadchanim.filter((item) =>
@@ -885,7 +873,7 @@ export function SendToShadchanDialog({
           <DialogDescription>
             {isServerEmail
               ? "Review the recipient, channel, and exact files before sending."
-              : "Review the recipient, channel, and exact files before sending or handing them to your own device or messaging app."}
+              : "Review the recipient, channel, and exact files before handing them to your own device or messaging app."}
           </DialogDescription>
         </DialogHeader>
 
@@ -1255,8 +1243,14 @@ export function SendToShadchanDialog({
             </p>
             {isServerEmail ? (
               <p className="text-sm text-muted-foreground">
-                MyShadchan will attach the selected files and send the email for
-                you. You will not need to download or attach them.
+                MyShadchan sends the email and attaches the files automatically.
+                Replies go to {replyToDisplay}.
+              </p>
+            ) : null}
+            {isServerEmail ? (
+              <p className="text-sm text-muted-foreground">
+                Email attaches the files automatically. WhatsApp and Text
+                message may require you to attach downloaded files yourself.
               </p>
             ) : null}
 

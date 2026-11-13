@@ -56,6 +56,28 @@ describe("callEmailWorker", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it.each([400, 401, 403])(
+    "maps a no-code %s send response to unavailable",
+    async (status) => {
+      getSession.mockResolvedValue({
+        data: { session: { access_token: "token-abc" } },
+        error: null,
+      });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(JSON.stringify({ success: false, error: "hidden" }), {
+          status,
+        }),
+      );
+
+      await expect(
+        callEmailWorker("http://email.local", {}),
+      ).rejects.toMatchObject({
+        status,
+        code: "unavailable",
+      });
+    },
+  );
+
   it("reads the authenticated server Reply-To configuration", async () => {
     getSession.mockResolvedValue({
       data: { session: { access_token: "token-abc" } },

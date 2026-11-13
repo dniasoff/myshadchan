@@ -538,7 +538,7 @@ describe("SendToShadchanDialog", () => {
     );
     const screen = await renderDialog(dataProvider);
     await chooseRecipient(screen);
-    await screen.getByRole("radio", { name: "Email" }).click();
+    await screen.getByRole("radio", { name: "Email", exact: true }).click();
     expect(document.body.textContent).not.toContain(
       "Add a phone, WhatsApp number, or email",
     );
@@ -559,6 +559,13 @@ describe("SendToShadchanDialog", () => {
       "_blank",
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect
+      .element(
+        screen.getByText(
+          "Review the recipient, channel, and exact files before handing them to your own device or messaging app.",
+        ),
+      )
+      .toBeVisible();
   });
 
   it("sends the size-less photo through the server path and disables Send after acceptance", async () => {
@@ -609,6 +616,20 @@ describe("SendToShadchanDialog", () => {
     await expect
       .element(screen.getByText("size checked when you send"))
       .toBeVisible();
+    await expect
+      .element(
+        screen.getByText(
+          "MyShadchan sends the email and attaches the files automatically. Replies go to reply@example.test.",
+        ),
+      )
+      .toBeVisible();
+    await expect
+      .element(
+        screen.getByText(
+          "Email attaches the files automatically. WhatsApp and Text message may require you to attach downloaded files yourself.",
+        ),
+      )
+      .toBeVisible();
     const sendButton = screen.getByRole("button", {
       name: "Send resume and photo by email",
     });
@@ -639,33 +660,342 @@ describe("SendToShadchanDialog", () => {
       .toHaveFocus();
   });
 
-  it("shows the server Reply-To and keeps the new Email channel unavailable when it is unset", async () => {
-    useViewerRoleMock.mockReturnValue({
-      role: "parent_admin",
-      isPending: false,
-    });
-    vi.stubEnv("VITE_OUTBOUND_EMAIL_ENABLED", "true");
-    vi.stubEnv("VITE_EMAIL_WORKER_URL", "http://email.local");
-    vi.stubEnv("VITE_OUTBOUND_EMAIL_REPLY_TO", "");
-    const { dataProvider } = buildDataProvider();
-    const screen = await renderDialog(dataProvider);
-    await chooseRecipient(screen);
-    const emailOption = screen.getByRole("radio", {
-      name: "Email from MyShadchan (attached automatically)",
-    });
-    await expect.element(emailOption).toBeDisabled();
-    await expect
-      .element(screen.getByText("Email sending is temporarily unavailable."))
-      .toBeVisible();
-  });
-
-  it("fails closed when the worker Reply-To differs from the build value", async () => {
+  it("sends a resume-only server email with include_photo false", async () => {
     useViewerRoleMock.mockReturnValue({
       role: "parent_admin",
       isPending: false,
     });
     enableServerEmail();
-    const { dataProvider, fetchMock } = buildDataProvider();
+    const { dataProvider, fetchMock } = buildDataProvider({ photos: [] });
+    const bodies: unknown[] = [];
+    fetchMock.mockImplementation((input, init) => {
+      if (String(input).endsWith("/config")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              success: true,
+              data: { reply_to: "reply@example.test" },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (String(input).endsWith("/send")) {
+        bodies.push(JSON.parse(String(init?.body)));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ success: true, data: { status: "accepted" } }),
+            { status: 200 },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(new Blob(["bytes"])));
+    });
+    const screen = await renderDialog(dataProvider);
+    await chooseRecipient(screen);
+    await screen
+      .getByRole("radio", {
+        name: "Email from MyShadchan (attached automatically)",
+      })
+      .click();
+    await screen
+      .getByRole("button", { name: "Continue with resume only" })
+      .click();
+    await screen
+      .getByRole("button", { name: "Send resume only by email" })
+      .click();
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0]).toEqual({
+      single_id: single.id,
+      shadchan_id: shadchan.id,
+      include_photo: false,
+      request_id: expect.any(String),
+    });
+  });
+
+  it("disables server email for a resume over 24 MB with an alert", async () => {
+    useViewerRoleMock.mockReturnValue({
+      role: "parent_admin",
+      isPending: false,
+    });
+    enableServerEmail();
+    const { dataProvider, fetchMock } = buildDataProvider({
+      photos: [],
+      resume: [
+        {
+          ...resume,
+          files: [{ ...resume.files![0], size: 24 * 1024 * 1024 + 1 }],
+        },
+      ],
+    });
+    fetchMock.mockImplementation((input) =>
+      String(input).endsWith("/config")
+        ? Promise.resolve(
+            new Response(
+              JSON.stringify({
+                success: true,
+                data: { reply_to: "reply@example.test" },
+              }),
+              { status: 200 },
+            ),
+          )
+        : Promise.resolve(new Response(new Blob(["bytes"]))),
+    );
+    const screen = await renderDialog(dataProvider);
+    await chooseRecipient(screen);
+    await screen
+      .getByRole("radio", {
+        name: "Email from MyShadchan (attached automatically)",
+      })
+      .click();
+    const sendButton = screen.getByRole("button", {
+      name: "Send resume only by email",
+    });
+    await expect.element(sendButton).toBeDisabled();
+    await expect
+      .element(
+        screen
+          .getByRole("alert")
+          .getByText(
+            "These files are too large to email. Email attachments must total 24 MB or less. Choose a smaller file or choose another channel.",
+            { exact: true },
+          ),
+      )
+      .toBeVisible();
+  });
+
+  it("disables server email when resume and sized photo exceed 24 MB", async () => {
+    useViewerRoleMock.mockReturnValue({
+      role: "parent_admin",
+      isPending: false,
+    });
+    enableServerEmail();
+    const oversizedPhoto = {
+      ...newestSharedPhoto,
+      size: 8 * 1024 * 1024 + 1,
+    } as ResumePhoto & { size: number };
+    const { dataProvider, fetchMock } = buildDataProvider({
+      photos: [oversizedPhoto],
+      resume: [
+        {
+          ...resume,
+          files: [{ ...resume.files![0], size: 16 * 1024 * 1024 }],
+        },
+      ],
+    });
+    fetchMock.mockImplementation((input) =>
+      String(input).endsWith("/config")
+        ? Promise.resolve(
+            new Response(
+              JSON.stringify({
+                success: true,
+                data: { reply_to: "reply@example.test" },
+              }),
+              { status: 200 },
+            ),
+          )
+        : Promise.resolve(new Response(new Blob(["bytes"]))),
+    );
+    const screen = await renderDialog(dataProvider);
+    await chooseRecipient(screen);
+    await screen
+      .getByRole("radio", {
+        name: "Email from MyShadchan (attached automatically)",
+      })
+      .click();
+    const photoCheckbox = screen.getByRole("checkbox", { name: "Photo" });
+    await expect.element(photoCheckbox).toBeChecked();
+    const sendButton = screen.getByRole("button", {
+      name: "Send resume and photo by email",
+    });
+    await expect.element(sendButton).toBeDisabled();
+    await expect
+      .element(
+        screen
+          .getByRole("alert")
+          .getByText(
+            "These files are too large to email. Email attachments must total 24 MB or less. Choose a smaller file or choose another channel.",
+            { exact: true },
+          ),
+      )
+      .toBeVisible();
+  });
+
+  it("does not apply the server size guard to the flag-off Email handoff", async () => {
+    useViewerRoleMock.mockReturnValue({
+      role: "parent_admin",
+      isPending: false,
+    });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+      () => undefined,
+    );
+    const { dataProvider } = buildDataProvider({
+      photos: [],
+      resume: [
+        {
+          ...resume,
+          files: [{ ...resume.files![0], size: 24 * 1024 * 1024 + 1 }],
+        },
+      ],
+    });
+    const screen = await renderDialog(dataProvider);
+    await chooseRecipient(screen);
+    await screen.getByRole("radio", { name: "Email", exact: true }).click();
+    await screen
+      .getByRole("button", { name: "Continue with resume only" })
+      .click();
+    const sendButton = screen.getByRole("button", {
+      name: "Download resume and prepare message",
+    });
+    await expect.element(sendButton).toBeEnabled();
+    await sendButton.click();
+    await expect
+      .element(
+        screen
+          .getByText(
+            "Files downloaded. Attach them to the message before you send.",
+          )
+          .first(),
+      )
+      .toBeVisible();
+    expect(open).toHaveBeenCalledWith(
+      expect.stringContaining("mailto:ronit%40example.test"),
+      "_blank",
+    );
+  });
+
+  it.each([400, 401, 403])(
+    "maps no-code %s worker responses to unavailable",
+    async (status) => {
+      useViewerRoleMock.mockReturnValue({
+        role: "parent_admin",
+        isPending: false,
+      });
+      enableServerEmail();
+      const { dataProvider, fetchMock } = buildDataProvider();
+      fetchMock.mockImplementation((input) => {
+        if (String(input).endsWith("/config")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                success: true,
+                data: { reply_to: "reply@example.test" },
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        if (String(input).endsWith("/send")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ success: false, error: "no details" }),
+              { status },
+            ),
+          );
+        }
+        return Promise.resolve(new Response(new Blob(["bytes"])));
+      });
+      const screen = await renderDialog(dataProvider);
+      await chooseRecipient(screen);
+      await screen
+        .getByRole("radio", {
+          name: "Email from MyShadchan (attached automatically)",
+        })
+        .click();
+      await screen
+        .getByRole("button", { name: "Send resume and photo by email" })
+        .click();
+      await expect
+        .element(
+          screen.getByText(
+            "Email sending is temporarily unavailable. Nothing was sent.",
+          ),
+        )
+        .toBeVisible();
+    },
+  );
+
+  it("falls back to the legacy Email handoff when enabled config is unavailable", async () => {
+    useViewerRoleMock.mockReturnValue({
+      role: "parent_admin",
+      isPending: false,
+    });
+    enableServerEmail();
+    const emailOnlyShadchan = {
+      ...shadchan,
+      contacts: { email: "ronit@example.test" },
+    } as Shadchan;
+    const { dataProvider, fetchMock } = buildDataProvider({
+      shadchan: emailOnlyShadchan,
+    });
+    fetchMock.mockImplementation((input) =>
+      String(input).endsWith("/config")
+        ? Promise.resolve(
+            new Response(
+              JSON.stringify({
+                success: false,
+                error: "unavailable",
+                meta: { code: "unavailable" },
+              }),
+              { status: 503 },
+            ),
+          )
+        : Promise.resolve(new Response(new Blob(["bytes"]))),
+    );
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+      () => undefined,
+    );
+    const screen = await renderDialog(dataProvider);
+    await chooseRecipient(screen);
+    const emailOption = screen.getByRole("radio", {
+      name: "Email",
+      exact: true,
+    });
+    await expect.element(emailOption).toBeEnabled();
+    await expect
+      .element(
+        screen.getByRole("radio", {
+          name: "Email from MyShadchan (attached automatically)",
+        }),
+      )
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Add a phone, WhatsApp number, or email"))
+      .not.toBeInTheDocument();
+    await emailOption.click();
+    await screen
+      .getByRole("button", { name: "Download files and prepare message" })
+      .click();
+    await expect
+      .element(
+        screen
+          .getByText(
+            "Files downloaded. Attach them to the message before you send.",
+          )
+          .first(),
+      )
+      .toBeVisible();
+    expect(open).toHaveBeenCalledWith(
+      expect.stringContaining("mailto:ronit%40example.test"),
+      "_blank",
+    );
+  });
+
+  it("falls back to legacy Email when the worker Reply-To differs from the build value", async () => {
+    useViewerRoleMock.mockReturnValue({
+      role: "parent_admin",
+      isPending: false,
+    });
+    enableServerEmail();
+    const emailOnlyShadchan = {
+      ...shadchan,
+      contacts: { email: "ronit@example.test" },
+    } as Shadchan;
+    const { dataProvider, fetchMock } = buildDataProvider({
+      shadchan: emailOnlyShadchan,
+    });
     fetchMock.mockImplementation((input) =>
       String(input).endsWith("/config")
         ? Promise.resolve(
@@ -682,15 +1012,48 @@ describe("SendToShadchanDialog", () => {
     const screen = await renderDialog(dataProvider);
     await chooseRecipient(screen);
     await expect
+      .element(screen.getByRole("radio", { name: "Email", exact: true }))
+      .toBeEnabled();
+    await expect
       .element(
         screen.getByRole("radio", {
           name: "Email from MyShadchan (attached automatically)",
         }),
       )
-      .toBeDisabled();
+      .not.toBeInTheDocument();
+  });
+
+  it("falls back to legacy Email when the build Reply-To is unset", async () => {
+    useViewerRoleMock.mockReturnValue({
+      role: "parent_admin",
+      isPending: false,
+    });
+    vi.stubEnv("VITE_OUTBOUND_EMAIL_ENABLED", "true");
+    vi.stubEnv("VITE_EMAIL_WORKER_URL", "http://email.local");
+    vi.stubEnv("VITE_OUTBOUND_EMAIL_REPLY_TO", "");
+    getSessionMock.mockResolvedValue({
+      data: { session: { access_token: "test-token" } },
+      error: null,
+    });
+    const emailOnlyShadchan = {
+      ...shadchan,
+      contacts: { email: "ronit@example.test" },
+    } as Shadchan;
+    const { dataProvider } = buildDataProvider({
+      shadchan: emailOnlyShadchan,
+    });
+    const screen = await renderDialog(dataProvider);
+    await chooseRecipient(screen);
     await expect
-      .element(screen.getByText("Email sending is temporarily unavailable."))
-      .toBeVisible();
+      .element(screen.getByRole("radio", { name: "Email", exact: true }))
+      .toBeEnabled();
+    await expect
+      .element(
+        screen.getByRole("radio", {
+          name: "Email from MyShadchan (attached automatically)",
+        }),
+      )
+      .not.toBeInTheDocument();
   });
 
   it("requires the resume-only confirmation on the enabled server-email path", async () => {

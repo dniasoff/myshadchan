@@ -44,6 +44,9 @@ function codeFor(status: number, value: unknown): EmailWorkerErrorCode {
   if (status === 429) return "rate_limited";
   if (status === 422) return "rejected";
   if (status === 503) return "unavailable";
+  if (status === 400 || status === 401 || status === 403) {
+    return "unavailable";
+  }
   return "ambiguous";
 }
 
