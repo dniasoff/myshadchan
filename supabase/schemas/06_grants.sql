@@ -691,6 +691,15 @@ revoke all on function public.sync_task_target() from public, anon;
 grant execute on function public.sync_task_target() to authenticated;
 grant execute on function public.sync_task_target() to service_role;
 
+-- Resume reference reconciliation is the only client-visible entry point for
+-- the server-side parser-to-reference sync. The account-parameterized helper
+-- is migration-only and deliberately has no authenticated execute grant.
+revoke all on function public.sync_resume_references(bigint) from public, anon;
+grant execute on function public.sync_resume_references(bigint) to authenticated;
+grant execute on function public.sync_resume_references(bigint) to service_role;
+revoke all on function public.sync_resume_references_for_account(bigint, bigint) from public, anon, authenticated;
+grant execute on function public.sync_resume_references_for_account(bigint, bigint) to service_role;
+
 -- Reference write paths.
 revoke all on function public.create_reference_for_shidduch(bigint, text, text, text, text, text, integer, text) from public, anon;
 grant execute on function public.create_reference_for_shidduch(bigint, text, text, text, text, text, integer, text) to authenticated;
