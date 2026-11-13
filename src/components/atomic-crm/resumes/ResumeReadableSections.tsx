@@ -58,10 +58,17 @@ const FIXED_GROUP_HEADINGS: Record<(typeof FIXED_GROUP_KEYS)[number], string> =
     learning_and_community: "Learning and community",
   };
 
+const normalizeReadableText = (value: string): string =>
+  value
+    .replace(/\p{Cf}/gu, "")
+    .trim()
+    .replace(/\s+/gu, " ")
+    .toLocaleLowerCase();
+
 const normalizeReadableItemKey = (item: ParsedAdditionalSectionItem): string =>
   JSON.stringify([
-    item.label.trim().replace(/\s+/gu, " ").toLocaleLowerCase(),
-    item.value.trim().replace(/\s+/gu, " ").toLocaleLowerCase(),
+    normalizeReadableText(item.label),
+    normalizeReadableText(item.value),
   ]);
 
 function filterDuplicateFamilyExtras(
@@ -74,13 +81,18 @@ function filterDuplicateFamilyExtras(
   const fixedFamilyItems = new Set(
     familyGroup?.items.map(normalizeReadableItemKey) ?? [],
   );
+  const fixedFamilyValues = new Set(
+    familyGroup?.items.map((item) => normalizeReadableText(item.value)) ?? [],
+  );
 
   return additionalSections.flatMap((section) => {
-    if (section.title.trim().toLocaleLowerCase() !== "family") {
+    if (normalizeReadableText(section.title) !== "family") {
       return [section];
     }
     const items = section.items.filter(
-      (item) => !fixedFamilyItems.has(normalizeReadableItemKey(item)),
+      (item) =>
+        !fixedFamilyItems.has(normalizeReadableItemKey(item)) &&
+        !fixedFamilyValues.has(normalizeReadableText(item.value)),
     );
     return items.length > 0 ? [{ ...section, items }] : [];
   });

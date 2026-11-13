@@ -346,6 +346,9 @@ const isPhoneLikeNumber = (value: string): boolean => {
         : firstStart;
     const runs = [normalizeDigitGroup(first[0])];
     let tokenEnd = firstStart + first[0].length;
+    const tokenHasInternationalPrefix = /^(?:\+|00)/u.test(
+      normalized.slice(tokenStart, tokenEnd),
+    );
 
     for (let nextIndex = index + 1; nextIndex < groups.length; nextIndex += 1) {
       const next = groups[nextIndex];
@@ -358,10 +361,10 @@ const isPhoneLikeNumber = (value: string): boolean => {
       const isYearRangeLink =
         currentIsYear && isYear(nextRun) && /[^\p{L}\p{N}\s]/u.test(separator);
       const nonYearIntoParenthesizedYear =
+        !tokenHasInternationalPrefix &&
         !currentIsYear &&
         isYear(nextRun) &&
-        runs[runs.length - 1].length <= 2 &&
-        /[\s(]/u.test(separator);
+        /\(/u.test(separator);
       if (
         (currentIsYear && /\s/u.test(separator) && !isYearRangeLink) ||
         nonYearIntoParenthesizedYear
