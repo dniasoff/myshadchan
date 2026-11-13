@@ -132,7 +132,7 @@ describe("ResumeTab — reference privacy gate", () => {
       );
     }
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
     });
     if (role !== "pending" && role !== "undefined") {
       queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, [
@@ -156,7 +156,13 @@ describe("ResumeTab — reference privacy gate", () => {
           i18nProvider={testI18nProvider}
         >
           <RecordContextProvider
-            value={{ id: 1 } as unknown as ShidduchSummary}
+            value={
+              {
+                id: 1,
+                name_en: "David Levi",
+                age: 24,
+              } as unknown as ShidduchSummary
+            }
           >
             <ResumeTab />
           </RecordContextProvider>
@@ -165,7 +171,47 @@ describe("ResumeTab — reference privacy gate", () => {
       </TestMemoryRouter>,
     );
 
-    return { screen, getList };
+    return { screen, getList, queryClient };
+  };
+
+  const waitForLoadedResume = async (
+    screen: Awaited<ReturnType<typeof render>>,
+    queryClient: QueryClient,
+    role: MyContext["role"] | "pending" | "undefined",
+  ) => {
+    await expect
+      .element(screen.getByText("Easy-to-read resume"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Personal details"))
+      .toBeInTheDocument();
+
+    // The pending-role fixture intentionally never resolves its context query
+    // so that the gate remains pending. Cancel that test-only request after
+    // the resume has loaded, allowing the assertion below to prove that the
+    // reference query never started without leaving an in-flight query alive.
+    if (role === "pending") {
+      await queryClient.cancelQueries({ queryKey: MY_CONTEXTS_QUERY_KEY });
+    }
+    await expect.poll(() => queryClient.isFetching()).toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  };
+
+  const expectReferenceContentHidden = async (
+    screen: Awaited<ReturnType<typeof render>>,
+  ) => {
+    await expect
+      .element(screen.getByText("Chaim Feldman"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("054-222-3344"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: /Open note for/i }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("References"))
+      .not.toBeInTheDocument();
   };
 
   it.each([
@@ -178,10 +224,8 @@ describe("ResumeTab — reference privacy gate", () => {
   ] as const)(
     "role %s makes the expected reference_links reads",
     async (role, expectedReads) => {
-      const { screen, getList } = await renderWithRole(role);
-      await expect
-        .element(screen.getByText("Original resume"))
-        .toBeInTheDocument();
+      const { screen, getList, queryClient } = await renderWithRole(role);
+      await waitForLoadedResume(screen, queryClient, role);
       await expect
         .poll(
           () =>
@@ -191,25 +235,24 @@ describe("ResumeTab — reference privacy gate", () => {
         )
         .toBe(expectedReads);
       if (role === "single" || role === "undefined") {
-        await expect
-          .element(screen.getByText("Chaim Feldman"))
-          .not.toBeInTheDocument();
-        await expect
-          .element(screen.getByText("References"))
-          .not.toBeInTheDocument();
+        await expectReferenceContentHidden(screen);
       } else {
         await expect
           .element(screen.getByRole("heading", { name: "References" }))
+          .toBeInTheDocument();
+        await expect
+          .element(screen.getByText("Chaim Feldman"))
+          .toBeInTheDocument();
+        await expect
+          .element(screen.getByText("054-222-3344"))
           .toBeInTheDocument();
       }
     },
   );
 
   it("fails closed while the active role is pending, without reading or rendering references", async () => {
-    const { screen, getList } = await renderWithRole("pending");
-    await expect
-      .element(screen.getByText("Original resume"))
-      .toBeInTheDocument();
+    const { screen, getList, queryClient } = await renderWithRole("pending");
+    await waitForLoadedResume(screen, queryClient, "pending");
     await expect
       .poll(
         () =>
@@ -218,8 +261,6 @@ describe("ResumeTab — reference privacy gate", () => {
           ).length,
       )
       .toBe(0);
-    await expect
-      .element(screen.getByText("References"))
-      .not.toBeInTheDocument();
+    await expectReferenceContentHidden(screen);
   });
 });
