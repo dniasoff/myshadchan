@@ -549,7 +549,7 @@ describe("singlesDescriptor — the real Resume tab mounts with { singleId }, ne
 
     // Act
     await screen.getByRole("tab", { name: "Resume" }).click();
-    await screen.getByLabelText("Upload a new version").upload(file);
+    await screen.getByLabelText("Attach resume").upload(file);
 
     // Assert — the demo now seeds resume files for singles and shidduchim,
     // so assert on the specific single's row rather than the global count.

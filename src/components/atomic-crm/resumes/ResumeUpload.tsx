@@ -51,7 +51,10 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
   };
 
   const uploadLabel = translate("crm.entity360.resume.upload", {
-    _: "Upload a new version",
+    _: "Attach resume",
+  });
+  const uploadHint = translate("crm.entity360.resume.uploadHint", {
+    _: "If the resume is in WhatsApp, Messages or email, save it to your phone first, then choose it here.",
   });
 
   return (
@@ -60,9 +63,16 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
         type="button"
         disabled={isUploading}
         onClick={() => inputRef.current?.click()}
+        aria-describedby="resume-upload-hint"
       >
         {uploadLabel}
       </Button>
+      <p
+        id="resume-upload-hint"
+        className="mt-2 max-w-sm text-sm leading-5 text-muted-foreground"
+      >
+        {uploadHint}
+      </p>
       <input
         ref={inputRef}
         type="file"
@@ -70,6 +80,7 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
         aria-hidden="true"
         tabIndex={-1}
         aria-label={uploadLabel}
+        aria-describedby="resume-upload-hint"
         onChange={handleUpload}
       />
     </div>

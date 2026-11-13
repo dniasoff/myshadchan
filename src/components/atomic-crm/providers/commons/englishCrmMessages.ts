@@ -794,7 +794,9 @@ export const englishCrmMessages = {
       resume: {
         empty: "No resume uploaded yet.",
         error: "Could not load the resume.",
-        upload: "Upload a new version",
+        upload: "Attach resume",
+        uploadHint:
+          "If the resume is in WhatsApp, Messages or email, save it to your phone first, then choose it here.",
         uploadError: "Failed to upload the resume",
         show: "Show",
         shownNow: "· shown",
