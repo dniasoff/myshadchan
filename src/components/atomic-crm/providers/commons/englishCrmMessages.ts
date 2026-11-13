@@ -802,6 +802,25 @@ export const englishCrmMessages = {
         shownNow: "· shown",
         download: "Download",
         downloadError: "Failed to get a download link",
+        readable: {
+          title: "Easy-to-read resume",
+          description: "Only sections with information are shown.",
+          emptyTitle: "No sections were found in this resume.",
+          emptyDescription:
+            "You can still read or download the original file above.",
+          learningHistory: "Learning history",
+          references: "References",
+          referencesPreparing: "References are being prepared.",
+          referenceUnlinked:
+            "This reference is not linked yet; call details will appear when it is matched.",
+          callQuestion: "How did the call go?",
+          noStatus: "No choice selected yet.",
+          clearStatus: "Tap the selected choice again to clear it.",
+          noteTitle: "Note for %{name}",
+          noteDescription: "Write only what the reference said.",
+          saveNote: "Save note",
+          noteSaved: "Saved to the call log.",
+        },
       },
       // Story 5.4 — PhotoTab.tsx's own UX-DR11 states, its upload control's
       // visibility radio group (resume_photos' narrower subset of

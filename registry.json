@@ -652,6 +652,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/resumes/resumeReadableSections.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/resumes/resumePrint.ts",
           "type": "registry:component"
         },
@@ -669,6 +673,10 @@
         },
         {
           "path": "src/components/atomic-crm/resumes/ResumeTab.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/resumes/ResumeReadableSections.tsx",
           "type": "registry:component"
         },
         {
