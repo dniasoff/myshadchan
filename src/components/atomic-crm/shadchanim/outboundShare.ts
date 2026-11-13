@@ -30,7 +30,7 @@ export function getOutboundShareChannels(
     {
       channel: "email",
       contact: parsed.email,
-      label: "Email",
+      label: "Email from MyShadchan (attached automatically)",
       missingReason: "No email saved for this shadchan.",
     },
   ];

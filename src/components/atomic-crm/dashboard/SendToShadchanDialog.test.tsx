@@ -455,7 +455,7 @@ describe("SendToShadchanDialog", () => {
     );
   });
 
-  it("disables only channels whose contact value is missing", async () => {
+  it("disables missing contact channels and keeps email off without its reply setting", async () => {
     useViewerRoleMock.mockReturnValue({
       role: "parent_admin",
       isPending: false,
@@ -483,8 +483,15 @@ describe("SendToShadchanDialog", () => {
       .element(screen.getByRole("radio", { name: "Text message" }))
       .toBeEnabled();
     await expect
-      .element(screen.getByRole("radio", { name: "Email" }))
-      .toBeEnabled();
+      .element(
+        screen.getByRole("radio", {
+          name: "Email from MyShadchan (attached automatically)",
+        }),
+      )
+      .toBeDisabled();
+    await expect
+      .element(screen.getByText("Email sending is temporarily unavailable."))
+      .toBeVisible();
   });
 
   it("keeps the channel unselected until the manager chooses one", async () => {

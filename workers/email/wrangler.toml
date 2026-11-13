@@ -1,0 +1,33 @@
+name = "myshadchan-email"
+main = "index.ts"
+compatibility_date = "2026-07-21"
+compatibility_flags = ["nodejs_compat"]
+
+[dev]
+port = 8791
+
+# The feature is deliberately off until Daniel confirms the Resend account's
+# verified sender, plan, quota and retention posture. This is committed Worker
+# configuration, not a client-controlled flag.
+[vars]
+OUTBOUND_EMAIL_ENABLED = "false"
+RATE_LIMITING_ENFORCED = "true"
+
+[secrets]
+required = [
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_PUBLISHABLE_KEY",
+  "RESEND_API_KEY",
+  "RESEND_FROM",
+]
+
+[[ratelimits]]
+name = "EMAIL_IP_RATE_LIMITER"
+namespace_id = "1601"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "EMAIL_ACCOUNT_RATE_LIMITER"
+namespace_id = "1602"
+simple = { limit = 3, period = 60 }

@@ -45,6 +45,14 @@ export interface SendEmailInput {
   to: string;
   subject: string;
   text: string;
+  /** Resend's server-side Reply-To value. Never sourced from a browser payload. */
+  replyTo?: string;
+  /** Base64 file bodies fetched and validated by the caller. */
+  attachments?: Array<{
+    filename: string;
+    content: string;
+    content_type?: string;
+  }>;
   /**
    * Epic 12 review fix (R4): Resend's own `Idempotency-Key` request header.
    * The caller (sweepReminders.ts) derives this from the reminder's own
@@ -100,6 +108,8 @@ export async function sendEmail({
   to,
   subject,
   text,
+  replyTo,
+  attachments,
   idempotencyKey,
 }: SendEmailInput): Promise<SendEmailResult> {
   let response: Response;
@@ -111,7 +121,14 @@ export async function sendEmail({
         "Content-Type": "application/json",
         ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
       },
-      body: JSON.stringify({ from, to: [to], subject, text }),
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject,
+        text,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      }),
     });
   } catch (error) {
     console.error(

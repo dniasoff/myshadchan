@@ -420,6 +420,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shadchanim/useShadchanNotes.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shadchanim/useAllShadchanim.ts",
           "type": "registry:component"
         },
@@ -461,6 +465,10 @@
         },
         {
           "path": "src/components/atomic-crm/shadchanim/ShadchanOverviewTab.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shadchanim/ShadchanNoteAction.tsx",
           "type": "registry:component"
         },
         {
@@ -593,6 +601,10 @@
         },
         {
           "path": "src/components/atomic-crm/root/routeManifest.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/root/queryPersistence.ts",
           "type": "registry:component"
         },
         {
@@ -1081,6 +1093,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/commons/englishCrmMessages.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/commons/emailWorkerClient.ts",
           "type": "registry:component"
         },
         {

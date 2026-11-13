@@ -76,6 +76,10 @@
         {
           "file": "src/components/atomic-crm/dashboard/SendToShadchanDialog.test.tsx",
           "term": "contacts"
+        },
+        {
+          "file": "workers/email/index.ts",
+          "term": "contacts"
         }
       ],
       "exemptReasons": {

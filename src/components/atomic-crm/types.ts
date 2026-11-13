@@ -366,7 +366,12 @@ export type OutboundShareOutcome =
   | "download_prepared"
   | "cancelled"
   | "unsupported"
-  | "failed";
+  | "failed"
+  | "email_provider_accepted"
+  | "email_rate_limited"
+  | "email_rejected"
+  | "email_fetch_failed"
+  | "email_delivery_unknown";
 
 /** Sanitized, append-only local handoff outcome; never contact or file bytes. */
 export type OutboundShareHistory = {

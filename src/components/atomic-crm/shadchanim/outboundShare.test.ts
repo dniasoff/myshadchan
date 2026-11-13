@@ -30,7 +30,7 @@ describe("outbound share helpers", () => {
       {
         channel: "email",
         contact: "ronit@example.test",
-        label: "Email",
+        label: "Email from MyShadchan (attached automatically)",
         missingReason: "No email saved for this shadchan.",
       },
     ]);
