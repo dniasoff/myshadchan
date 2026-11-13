@@ -212,6 +212,62 @@ describe("parseResumeSections", () => {
     });
   });
 
+  it("keeps bounded parser anchors and ignores unknown stored anchors", () => {
+    expect(
+      parseResumeSections({
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            order: 249,
+            after: "family",
+            items: [{ label: "Role", value: "Teacher" }],
+          },
+          {
+            key: "unknown",
+            title: "Unknown",
+            order: 2,
+            after: "not_a_fixed_block",
+            items: [{ label: "Fact", value: "Kept" }],
+          },
+          {
+            key: "out_of_range",
+            title: "Out of range",
+            order: 250,
+            after: "personal_details",
+            items: [{ label: "Fact", value: "Also kept" }],
+          },
+        ],
+      }),
+    ).toEqual({
+      learningHistory: [],
+      references: [],
+      additionalSections: [
+        {
+          key: "work",
+          title: "Work",
+          order: 249,
+          after: "family",
+          items: [{ label: "Role", value: "Teacher" }],
+        },
+        {
+          key: "unknown",
+          title: "Unknown",
+          order: 2,
+          items: [{ label: "Fact", value: "Kept" }],
+        },
+        {
+          key: "out_of_range",
+          title: "Out of range",
+          after: "personal_details",
+          items: [{ label: "Fact", value: "Also kept" }],
+        },
+      ],
+    });
+  });
+
   it("strips bidi overrides, preserves Hebrew direction marks, and merges duplicates", () => {
     expect(
       parseResumeSections({
@@ -403,7 +459,7 @@ describe("ResumeReadableSections", () => {
     ).toBe("Personal details");
   });
 
-  it("renders generic cards in the validated source order without rendering references twice", async () => {
+  it("renders generic cards in order and preserves unique Family extras", async () => {
     const { screen } = await renderSections({
       sections: {
         learningHistory: [],
@@ -427,7 +483,10 @@ describe("ResumeReadableSections", () => {
           {
             key: "family",
             title: "Family",
-            items: [{ label: "Duplicate", value: "Do not render" }],
+            items: [
+              { label: "Father", value: "Yosef Levi" },
+              { label: "Sibling", value: "Sister" },
+            ],
           },
           {
             key: "learning_history",
@@ -446,9 +505,10 @@ describe("ResumeReadableSections", () => {
     await expect.element(screen.getByText("Work")).toBeInTheDocument();
     await expect.element(screen.getByText("Interests")).toBeInTheDocument();
     await expect.element(screen.getByText("Volunteer")).toBeInTheDocument();
-    await expect
-      .element(screen.getByText("Do not render"))
-      .not.toBeInTheDocument();
+    await expect.element(screen.getByText("Sister")).toBeInTheDocument();
+    expect(
+      (screen.container.textContent?.match(/Yosef Levi/gu) ?? []).length,
+    ).toBe(1);
     await expect.element(screen.getByText("Teacher")).toBeInTheDocument();
     await expect
       .element(screen.getByText("קריאה"))
@@ -475,6 +535,70 @@ describe("ResumeReadableSections", () => {
     expect(headings.indexOf("Interests")).toBeLessThan(
       headings.indexOf("Volunteer"),
     );
+  });
+
+  it("interleaves anchored extras with fixed groups and keeps unanchored extras last", async () => {
+    const { screen } = await renderSections({
+      sections: {
+        learningHistory: [{ label: "Study", value: "Halacha" }],
+        references: [],
+        additionalSections: [
+          {
+            key: "hobbies",
+            title: "Hobbies",
+            order: 0,
+            after: "personal_details",
+            items: [{ label: "Interest", value: "Reading" }],
+          },
+          {
+            key: "family_extra",
+            title: "Family notes",
+            order: 1,
+            after: "family",
+            items: [{ label: "Note", value: "Close-knit" }],
+          },
+          {
+            key: "volunteer",
+            title: "Volunteer",
+            order: 2,
+            after: "learning_and_community",
+            items: [{ label: "Role", value: "Mentor" }],
+          },
+          {
+            key: "other",
+            title: "Other",
+            order: 3,
+            items: [{ label: "Fact", value: "Unanchored" }],
+          },
+          {
+            key: "learning_extra",
+            title: "Learning detail",
+            order: 4,
+            after: "learning_history",
+            items: [{ label: "Topic", value: "Mussar" }],
+          },
+        ],
+      },
+    });
+
+    await expect
+      .element(screen.getByText("Personal details"))
+      .toBeInTheDocument();
+    const headings = Array.from(
+      screen.container.querySelectorAll("h3"),
+      (heading) => heading.textContent?.trim(),
+    );
+    expect(headings).toEqual([
+      "Personal details",
+      "Hobbies",
+      "Family",
+      "Family notes",
+      "Learning and community",
+      "Volunteer",
+      "Learning history",
+      "Learning detail",
+      "Other",
+    ]);
   });
 
   it("does not render parsed reference content when the viewer is a single", async () => {
@@ -602,6 +726,9 @@ describe("ResumeReadableSections", () => {
                 label: "Schedule",
                 value: "Mon–Fri 9–5, 2019–2021, 120 credits",
               },
+              { label: "Ages", value: "Ages 6-12 (2020-2021)" },
+              { label: "Employees", value: "Employees: 15 (2018-2022)" },
+              { label: "Team", value: "Team of 12 (2018–2022)" },
               { label: "Phone 054-222", value: "3344" },
               { label: "Slash phone", value: "054/222/3344" },
               { label: "En dash phone", value: "054–222–3344" },
@@ -685,6 +812,15 @@ describe("ResumeReadableSections", () => {
       .toBeInTheDocument();
     await expect
       .element(screen.getByText("Mon–Fri 9–5, 2019–2021, 120 credits"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Ages 6-12 (2020-2021)"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Employees: 15 (2018-2022)"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Team of 12 (2018–2022)"))
       .toBeInTheDocument();
     await expect.element(screen.getByText("3344")).not.toBeInTheDocument();
     await expect

@@ -25,6 +25,7 @@ type GeminiSchemaType =
 export interface GeminiSchema {
   type: GeminiSchemaType;
   nullable?: boolean;
+  enum?: string[];
   properties?: Record<string, GeminiSchema>;
   required?: string[];
   items?: GeminiSchema;
@@ -77,6 +78,15 @@ const additionalSectionSchema: GeminiSchema = {
     key: { type: "STRING" },
     title: { type: "STRING" },
     items: { type: "ARRAY", items: additionalSectionItemSchema },
+    after: {
+      type: "STRING",
+      enum: [
+        "personal_details",
+        "family",
+        "learning_and_community",
+        "learning_history",
+      ],
+    },
   },
   required: ["key", "title", "items"],
 };

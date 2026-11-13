@@ -81,6 +81,20 @@ describe("GEMINI_RESUME_RESPONSE_SCHEMA", () => {
     expect(
       sections.properties!.additionalSections.items!.properties!.items.type,
     ).toBe("ARRAY");
+    expect(
+      sections.properties!.additionalSections.items!.properties!.after,
+    ).toEqual({
+      type: "STRING",
+      enum: [
+        "personal_details",
+        "family",
+        "learning_and_community",
+        "learning_history",
+      ],
+    });
+    expect(
+      sections.properties!.additionalSections.items!.properties,
+    ).not.toHaveProperty("order");
   });
 
   it("keeps the recovery schema limited to fixed fields and legacy sections", () => {

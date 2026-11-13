@@ -4,10 +4,15 @@ type ParsedLearningItem = { label: string; value: string };
 
 export type ParsedAdditionalSectionItem = ParsedLearningItem;
 
+export type ParsedAdditionalSectionAfter =
+  "personal_details" | "family" | "learning_and_community" | "learning_history";
+
 export type ParsedAdditionalSection = {
   key: string;
   title: string;
   items: ParsedAdditionalSectionItem[];
+  after?: ParsedAdditionalSectionAfter;
+  order?: number;
 };
 
 export type ParsedResumeReference = {
@@ -30,9 +35,11 @@ const MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH = 40_000;
 const MAX_ADDITIONAL_SECTION_KEY_LENGTH = 80;
 const MAX_ADDITIONAL_SECTION_TITLE_LENGTH = 120;
 const MAX_ADDITIONAL_SECTION_TEXT_LENGTH = 1_000;
+const MAX_ADDITIONAL_SECTION_ORDER = 249;
+const ADDITIONAL_SECTION_AFTER_VALUES: readonly ParsedAdditionalSectionAfter[] =
+  ["personal_details", "family", "learning_and_community", "learning_history"];
 const FIXED_SECTION_TITLE_KEYS = new Set([
   "personal details",
-  "family",
   "learning and community",
   "learning history",
   "name",
@@ -225,7 +232,15 @@ const isPhoneLikeNumber = (value: string): boolean => {
       const currentIsYear = isYear(runs[runs.length - 1]);
       const isYearRangeLink =
         currentIsYear && isYear(nextRun) && /[^\p{L}\p{N}\s]/u.test(separator);
-      if (currentIsYear && /\s/u.test(separator) && !isYearRangeLink) {
+      const nonYearIntoParenthesizedYear =
+        !currentIsYear &&
+        isYear(nextRun) &&
+        runs[runs.length - 1].length <= 2 &&
+        /[\s(]/u.test(separator);
+      if (
+        (currentIsYear && /\s/u.test(separator) && !isYearRangeLink) ||
+        nonYearIntoParenthesizedYear
+      ) {
         break;
       }
 
@@ -378,6 +393,24 @@ const readAdditionalSectionItems = (
 const normalizeSectionTitle = (value: string): string =>
   value.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
 
+const readAdditionalSectionAfter = (
+  value: unknown,
+): ParsedAdditionalSectionAfter | undefined =>
+  typeof value === "string" &&
+  ADDITIONAL_SECTION_AFTER_VALUES.includes(
+    value as ParsedAdditionalSectionAfter,
+  )
+    ? (value as ParsedAdditionalSectionAfter)
+    : undefined;
+
+const readAdditionalSectionOrder = (value: unknown): number | undefined =>
+  typeof value === "number" &&
+  Number.isInteger(value) &&
+  value >= 0 &&
+  value <= MAX_ADDITIONAL_SECTION_ORDER
+    ? value
+    : undefined;
+
 const isReferenceLikeSection = (key: string, title: string): boolean =>
   isReferenceLikePrivacyText(key) || isReferenceLikePrivacyText(title);
 
@@ -420,6 +453,8 @@ const readAdditionalSections = (
 
     const key = asText(section.key);
     const title = stripBidiSpoofingControls(asText(section.title));
+    const after = readAdditionalSectionAfter(section.after);
+    const order = readAdditionalSectionOrder(section.order);
     if (
       !/^[a-z0-9]+(?:_[a-z0-9]+)*$/u.test(key) ||
       key.length > MAX_ADDITIONAL_SECTION_KEY_LENGTH ||
@@ -465,7 +500,13 @@ const readAdditionalSections = (
       continue;
     }
 
-    const mergedSection = { key, title, items };
+    const mergedSection = {
+      key,
+      title,
+      items,
+      ...(after === undefined ? {} : { after }),
+      ...(order === undefined ? {} : { order }),
+    };
     sectionsByTitle.set(titleKey, mergedSection);
     mergedSections.push(mergedSection);
   }
