@@ -7,7 +7,10 @@ import {
   GEMINI_MAX_OUTPUT_TOKENS,
   geminiExtractor,
 } from "./resumeExtractor";
-import { GEMINI_RESUME_RESPONSE_SCHEMA } from "./geminiResponseSchema";
+import {
+  GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA,
+  GEMINI_RESUME_RESPONSE_SCHEMA,
+} from "./geminiResponseSchema";
 import { TEST_ENV } from "./parseTestFixtures";
 
 async function makeDocxFixture(): Promise<ArrayBuffer> {
@@ -25,6 +28,15 @@ async function makeDocxFixture(): Promise<ArrayBuffer> {
     '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Ari Rosenberg</w:t></w:r></w:p></w:body></w:document>',
   );
   return zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
+}
+
+function gatewayResponse(text: string): Response {
+  return new Response(
+    JSON.stringify({
+      candidates: [{ content: { parts: [{ text }] } }],
+    }),
+    { status: 200 },
+  );
 }
 
 describe("geminiExtractor", () => {
@@ -133,6 +145,51 @@ describe("geminiExtractor", () => {
       );
     });
 
+    it("uses one fixed-fields recovery call after truncated JSON", async () => {
+      const recoveryResult = {
+        name_en: { value: "Rivky", confidence: 0.95 },
+        sections: { learningHistory: [], references: [] },
+      };
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(gatewayResponse('{"name_en":'))
+        .mockResolvedValueOnce(gatewayResponse(JSON.stringify(recoveryResult)));
+      vi.stubGlobal("fetch", fetchMock);
+      const extractor = geminiExtractor(TEST_ENV);
+
+      const result = await extractor.extract(
+        new ArrayBuffer(0),
+        "application/pdf",
+      );
+
+      expect(result).toEqual(recoveryResult);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const firstBody = JSON.parse(
+        (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+      ) as {
+        contents: Array<{ parts: Array<{ text?: string }> }>;
+        generationConfig: { responseSchema: unknown };
+      };
+      const secondBody = JSON.parse(
+        (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+      ) as {
+        contents: Array<{ parts: Array<{ text?: string }> }>;
+        generationConfig: { responseSchema: unknown };
+      };
+      expect(firstBody.generationConfig.responseSchema).toEqual(
+        GEMINI_RESUME_RESPONSE_SCHEMA,
+      );
+      expect(secondBody.generationConfig.responseSchema).toEqual(
+        GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA,
+      );
+      expect(firstBody.contents[0].parts[0].text).toContain(
+        "additionalSections",
+      );
+      expect(secondBody.contents[0].parts[0].text).not.toContain(
+        "additionalSections",
+      );
+    });
+
     it("does not throw when the parsed JSON does not conform to any particular field shape — extraction no longer gates on it", async () => {
       // Arrange — Finding 14's second half: the extractor itself is no
       // longer a validation gate. A response shaped nothing like a resume
@@ -174,6 +231,7 @@ describe("geminiExtractor", () => {
         age: { value: "not a valid age shape", confidence: 2 },
         unexpectedField: 12345,
       });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it("still throws on genuinely invalid JSON text (JSON.parse's own failure, unrelated to Finding 14's removed gate)", async () => {
@@ -193,6 +251,7 @@ describe("geminiExtractor", () => {
       await expect(
         extractor.extract(new ArrayBuffer(0), "application/pdf"),
       ).rejects.toThrow();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
   });
 

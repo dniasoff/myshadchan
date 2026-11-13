@@ -24,6 +24,7 @@ const MAX_SECTION_ARRAY_LENGTH = 50;
  * adversarial model response. */
 export const MAX_ADDITIONAL_SECTION_COUNT = 20;
 export const MAX_ADDITIONAL_SECTION_ITEMS = 50;
+const MAX_ADDITIONAL_SECTION_RAW_ITEMS = 250;
 export const MAX_ADDITIONAL_SECTION_ITEM_COUNT = 250;
 export const MAX_ADDITIONAL_SECTION_KEY_LENGTH = 80;
 export const MAX_ADDITIONAL_SECTION_TITLE_LENGTH = 120;
@@ -81,6 +82,17 @@ const ResumeReferenceSchema = z.object({
   phone: z.string().max(MAX_SECTION_TEXT_LENGTH),
 });
 
+const stripBidiSpoofingControls = (value: string): string =>
+  [...value]
+    .filter((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return !(
+        (codePoint >= 0x202a && codePoint <= 0x202e) ||
+        (codePoint >= 0x2066 && codePoint <= 0x2069)
+      );
+    })
+    .join("");
+
 const hasSafePlainText = (value: string): boolean =>
   [...value].every((character) => {
     const codePoint = character.codePointAt(0) ?? 0;
@@ -94,26 +106,34 @@ const hasSafePlainText = (value: string): boolean =>
   });
 
 const additionalSectionTextSchema = (maxLength: number) =>
-  z.string().trim().min(1).max(maxLength).refine(hasSafePlainText);
+  z.preprocess(
+    (value) =>
+      typeof value === "string" ? stripBidiSpoofingControls(value) : value,
+    z.string().trim().min(1).max(maxLength).refine(hasSafePlainText),
+  );
 
 const AdditionalSectionItemSchema = z.object({
   label: additionalSectionTextSchema(MAX_SECTION_TEXT_LENGTH),
   value: additionalSectionTextSchema(MAX_SECTION_TEXT_LENGTH),
 });
 
-const AdditionalSectionKeySchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(MAX_ADDITIONAL_SECTION_KEY_LENGTH)
-  .regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/u);
+const AdditionalSectionKeySchema = z.preprocess(
+  (value) =>
+    typeof value === "string" ? stripBidiSpoofingControls(value) : value,
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_ADDITIONAL_SECTION_KEY_LENGTH)
+    .regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/u),
+);
 
 const AdditionalSectionSchema = z.object({
   key: AdditionalSectionKeySchema,
   title: additionalSectionTextSchema(MAX_ADDITIONAL_SECTION_TITLE_LENGTH),
   items: tolerantArray(
     AdditionalSectionItemSchema,
-    MAX_ADDITIONAL_SECTION_ITEMS,
+    MAX_ADDITIONAL_SECTION_RAW_ITEMS,
   ),
 });
 
@@ -153,34 +173,80 @@ function tolerantArray<Item extends z.ZodTypeAny>(
  * item would cross either aggregate cap, all later output is trailing model
  * output and is dropped rather than causing the whole parse to fail.
  */
+const normalizeSectionTitle = (value: string): string =>
+  value.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+
+const normalizeItemKey = (
+  item: z.infer<typeof AdditionalSectionItemSchema>,
+): string =>
+  JSON.stringify([
+    item.label.trim().replace(/\s+/gu, " ").toLocaleLowerCase(),
+    item.value.trim().replace(/\s+/gu, " ").toLocaleLowerCase(),
+  ]);
+
 const normalizeAdditionalSections = (
   raw: unknown,
 ): Array<z.infer<typeof AdditionalSectionSchema>> => {
   if (!Array.isArray(raw)) return [];
 
-  const sections: Array<z.infer<typeof AdditionalSectionSchema>> = [];
-  let itemCount = 0;
-  let textLength = 0;
+  const mergedSections: Array<z.infer<typeof AdditionalSectionSchema>> = [];
+  const sectionsByTitle = new Map<
+    string,
+    z.infer<typeof AdditionalSectionSchema>
+  >();
 
   for (const entry of raw) {
-    if (sections.length >= MAX_ADDITIONAL_SECTION_COUNT) break;
-
     const result = AdditionalSectionSchema.safeParse(entry);
     if (!result.success || result.data.items.length === 0) continue;
     if (
       result.data.key === "references" ||
-      result.data.title.toLocaleLowerCase() === "references"
+      normalizeSectionTitle(result.data.title) === "references"
     ) {
       continue;
     }
 
-    const sectionTextLength = result.data.key.length + result.data.title.length;
+    const sectionItems: z.infer<typeof AdditionalSectionItemSchema>[] = [];
+    const itemKeys = new Set<string>();
+    for (const item of result.data.items) {
+      const itemKey = normalizeItemKey(item);
+      if (itemKeys.has(itemKey)) continue;
+      itemKeys.add(itemKey);
+      sectionItems.push(item);
+    }
+    if (sectionItems.length === 0) continue;
+
+    const titleKey = normalizeSectionTitle(result.data.title);
+    const existing = sectionsByTitle.get(titleKey);
+    if (existing) {
+      const existingItemKeys = new Set(existing.items.map(normalizeItemKey));
+      for (const item of sectionItems) {
+        const itemKey = normalizeItemKey(item);
+        if (existingItemKeys.has(itemKey)) continue;
+        existingItemKeys.add(itemKey);
+        existing.items.push(item);
+      }
+      continue;
+    }
+
+    const section = { ...result.data, items: sectionItems };
+    sectionsByTitle.set(titleKey, section);
+    mergedSections.push(section);
+  }
+
+  const sections: Array<z.infer<typeof AdditionalSectionSchema>> = [];
+  let itemCount = 0;
+  let textLength = 0;
+
+  for (const section of mergedSections) {
+    if (sections.length >= MAX_ADDITIONAL_SECTION_COUNT) break;
+    const sectionTextLength = section.key.length + section.title.length;
     const items: z.infer<typeof AdditionalSectionItemSchema>[] = [];
     let acceptedItemTextLength = 0;
 
-    for (const item of result.data.items) {
+    for (const item of section.items) {
       const itemTextLength = item.label.length + item.value.length;
       if (
+        items.length >= MAX_ADDITIONAL_SECTION_ITEMS ||
         itemCount >= MAX_ADDITIONAL_SECTION_ITEM_COUNT ||
         textLength +
           sectionTextLength +
@@ -198,7 +264,7 @@ const normalizeAdditionalSections = (
     if (items.length === 0) break;
 
     sections.push({
-      ...result.data,
+      ...section,
       items,
     });
     textLength += sectionTextLength + acceptedItemTextLength;

@@ -135,6 +135,78 @@ describe("toDraft", () => {
     ]);
   });
 
+  it("strips bidi overrides while preserving Hebrew and LRM/RLM marks", () => {
+    const draft = toDraft({
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work\u202E\u202C",
+            items: [
+              {
+                label: "Role\u202E\u202C",
+                value: "עברית\u200E text\u200F\u2066hidden\u2069",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(draft.sections.additionalSections).toEqual([
+      {
+        key: "work",
+        title: "Work",
+        items: [{ label: "Role", value: "עברית\u200E text\u200Fhidden" }],
+      },
+    ]);
+  });
+
+  it("merges duplicate titles and removes duplicate items before applying caps", () => {
+    const draft = toDraft({
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: " Work ",
+            items: [
+              { label: "Role", value: "Teacher" },
+              { label: "Role", value: "Teacher" },
+            ],
+          },
+          {
+            key: "employment",
+            title: "work",
+            items: [
+              { label: " role ", value: " teacher " },
+              { label: "Location", value: "Brooklyn" },
+            ],
+          },
+          {
+            key: "work_history",
+            title: "  WORK  ",
+            items: [{ label: "LOCATION", value: "BROOKLYN" }],
+          },
+        ],
+      },
+    });
+
+    expect(draft.sections.additionalSections).toEqual([
+      {
+        key: "work",
+        title: "Work",
+        items: [
+          { label: "Role", value: "Teacher" },
+          { label: "Location", value: "Brooklyn" },
+        ],
+      },
+    ]);
+  });
+
   it("caps generic sections, items, and aggregate text without dropping the parse", () => {
     const draft = toDraft({
       sections: {

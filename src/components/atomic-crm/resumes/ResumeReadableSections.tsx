@@ -255,15 +255,15 @@ export function ResumeReadableSections({
                   })}
                 </h3>
                 <div className="flex flex-col gap-2">
-                  {sections.learningHistory.map((item, index) => (
-                    <ReadableItem key={`${item.label}-${index}`} item={item} />
+                  {sections.learningHistory.map((item) => (
+                    <ReadableItem key={JSON.stringify(item)} item={item} />
                   ))}
                 </div>
               </section>
             ) : null}
-            {sections.additionalSections.map((section, index) => (
+            {sections.additionalSections.map((section) => (
               <ReadableGroup
-                key={`${section.key}-${section.title}-${index}`}
+                key={`additional-${section.key}-${section.title}`}
                 group={{ heading: section.title, items: section.items }}
               />
             ))}
@@ -287,7 +287,7 @@ function ReadableGroup({ group }: { group: DetailGroup }): ReactElement {
       <h3 className="mb-3 text-base font-semibold">{group.heading}</h3>
       <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {group.items.map((item) => (
-          <ReadableItem key={item.label} item={item} />
+          <ReadableItem key={JSON.stringify(item)} item={item} />
         ))}
       </div>
     </section>

@@ -211,6 +211,48 @@ describe("parseResumeSections", () => {
       ],
     });
   });
+
+  it("strips bidi overrides, preserves Hebrew direction marks, and merges duplicates", () => {
+    expect(
+      parseResumeSections({
+        additionalSections: [
+          {
+            key: "work",
+            title: " Work\u202E\u202C ",
+            items: [
+              {
+                label: "Role\u202E\u202C",
+                value: "עברית\u200E text\u200F\u2066hidden\u2069",
+              },
+              { label: "Role", value: "Teacher" },
+            ],
+          },
+          {
+            key: "employment",
+            title: "work",
+            items: [
+              { label: " role ", value: " teacher " },
+              { label: "Location", value: "Brooklyn" },
+            ],
+          },
+        ],
+      }),
+    ).toEqual({
+      learningHistory: [],
+      references: [],
+      additionalSections: [
+        {
+          key: "work",
+          title: "Work",
+          items: [
+            { label: "Role", value: "עברית\u200E text\u200Fhidden" },
+            { label: "Role", value: "Teacher" },
+            { label: "Location", value: "Brooklyn" },
+          ],
+        },
+      ],
+    });
+  });
 });
 
 describe("resume reference matching", () => {

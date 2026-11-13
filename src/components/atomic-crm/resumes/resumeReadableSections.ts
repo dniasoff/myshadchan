@@ -24,6 +24,7 @@ export type ParsedResumeSections = {
 
 const MAX_ADDITIONAL_SECTION_COUNT = 20;
 const MAX_ADDITIONAL_SECTION_ITEMS = 50;
+const MAX_ADDITIONAL_SECTION_RAW_ITEMS = 250;
 const MAX_ADDITIONAL_SECTION_ITEM_COUNT = 250;
 const MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH = 40_000;
 const MAX_ADDITIONAL_SECTION_KEY_LENGTH = 80;
@@ -32,6 +33,17 @@ const MAX_ADDITIONAL_SECTION_TEXT_LENGTH = 1_000;
 
 const asText = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
+
+const stripBidiSpoofingControls = (value: string): string =>
+  [...value]
+    .filter((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return !(
+        (codePoint >= 0x202a && codePoint <= 0x202e) ||
+        (codePoint >= 0x2066 && codePoint <= 0x2069)
+      );
+    })
+    .join("");
 
 const isSafePlainText = (value: string): boolean =>
   [...value].every((character) => {
@@ -155,8 +167,8 @@ const readAdditionalSectionItems = (
   value: unknown,
 ): ParsedAdditionalSectionItem[] =>
   readStringArray(value, (item) => {
-    const label = asText(item.label);
-    const text = asText(item.value);
+    const label = stripBidiSpoofingControls(asText(item.label));
+    const text = stripBidiSpoofingControls(asText(item.value));
     if (
       !label ||
       !text ||
@@ -168,22 +180,29 @@ const readAdditionalSectionItems = (
       return null;
     }
     return { label, value: text };
-  }).slice(0, MAX_ADDITIONAL_SECTION_ITEMS);
+  }).slice(0, MAX_ADDITIONAL_SECTION_RAW_ITEMS);
+
+const normalizeSectionTitle = (value: string): string =>
+  value.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+
+const normalizeItemKey = (item: ParsedAdditionalSectionItem): string =>
+  JSON.stringify([
+    item.label.trim().replace(/\s+/gu, " ").toLocaleLowerCase(),
+    item.value.trim().replace(/\s+/gu, " ").toLocaleLowerCase(),
+  ]);
 
 const readAdditionalSections = (value: unknown): ParsedAdditionalSection[] => {
   if (!Array.isArray(value)) return [];
 
-  const sections: ParsedAdditionalSection[] = [];
-  let itemCount = 0;
-  let textLength = 0;
+  const mergedSections: ParsedAdditionalSection[] = [];
+  const sectionsByTitle = new Map<string, ParsedAdditionalSection>();
 
   for (const entry of value) {
-    if (sections.length >= MAX_ADDITIONAL_SECTION_COUNT) break;
     const section = recordValue(entry);
     if (!section) continue;
 
     const key = asText(section.key);
-    const title = asText(section.title);
+    const title = stripBidiSpoofingControls(asText(section.title));
     if (
       !/^[a-z0-9]+(?:_[a-z0-9]+)*$/u.test(key) ||
       key.length > MAX_ADDITIONAL_SECTION_KEY_LENGTH ||
@@ -194,19 +213,53 @@ const readAdditionalSections = (value: unknown): ParsedAdditionalSection[] => {
     ) {
       continue;
     }
-    if (key === "references" || title.toLocaleLowerCase() === "references") {
+    if (key === "references" || normalizeSectionTitle(title) === "references") {
       continue;
     }
 
     const sourceItems = readAdditionalSectionItems(section.items);
     if (sourceItems.length === 0) continue;
-
     const items: ParsedAdditionalSectionItem[] = [];
-    const sectionTextLength = key.length + title.length;
-    let acceptedItemTextLength = 0;
+    const itemKeys = new Set<string>();
     for (const item of sourceItems) {
+      const itemKey = normalizeItemKey(item);
+      if (itemKeys.has(itemKey)) continue;
+      itemKeys.add(itemKey);
+      items.push(item);
+    }
+    if (items.length === 0) continue;
+
+    const titleKey = normalizeSectionTitle(title);
+    const existing = sectionsByTitle.get(titleKey);
+    if (existing) {
+      const existingItemKeys = new Set(existing.items.map(normalizeItemKey));
+      for (const item of items) {
+        const itemKey = normalizeItemKey(item);
+        if (existingItemKeys.has(itemKey)) continue;
+        existingItemKeys.add(itemKey);
+        existing.items.push(item);
+      }
+      continue;
+    }
+
+    const mergedSection = { key, title, items };
+    sectionsByTitle.set(titleKey, mergedSection);
+    mergedSections.push(mergedSection);
+  }
+
+  const sections: ParsedAdditionalSection[] = [];
+  let itemCount = 0;
+  let textLength = 0;
+
+  for (const section of mergedSections) {
+    if (sections.length >= MAX_ADDITIONAL_SECTION_COUNT) break;
+    const items: ParsedAdditionalSectionItem[] = [];
+    const sectionTextLength = section.key.length + section.title.length;
+    let acceptedItemTextLength = 0;
+    for (const item of section.items) {
       const itemTextLength = item.label.length + item.value.length;
       if (
+        items.length >= MAX_ADDITIONAL_SECTION_ITEMS ||
         itemCount >= MAX_ADDITIONAL_SECTION_ITEM_COUNT ||
         textLength +
           sectionTextLength +
@@ -222,7 +275,7 @@ const readAdditionalSections = (value: unknown): ParsedAdditionalSection[] => {
     }
 
     if (items.length === 0) break;
-    sections.push({ key, title, items });
+    sections.push({ ...section, items });
     textLength += sectionTextLength + acceptedItemTextLength;
 
     if (
