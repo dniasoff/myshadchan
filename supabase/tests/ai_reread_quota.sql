@@ -28,6 +28,57 @@ values (
 )
 returning id as resume_id \gset
 
+-- The RPC remains a trust boundary even when called directly with the
+-- service role. A caller must not be able to pair its quota account with a
+-- resume owned by another account; this must fail before cleanup, charging or
+-- creating a ledger row.
+insert into public.accounts (name, kind)
+values ('Re-read cross-account test account', 'household')
+returning id as other_account_id \gset
+insert into public.singles (account_id, first_name_en)
+values (:other_account_id, 'Cross-account test single')
+returning id as other_single_id \gset
+insert into public.shidduchim (account_id, single_id, name_en)
+values (:other_account_id, :other_single_id, 'Cross-account test shidduch')
+returning id as other_shidduch_id \gset
+insert into public.resumes (account_id, shidduchim_id, files, sections)
+values (:other_account_id, :other_shidduch_id, '[]'::jsonb, '{}'::jsonb)
+returning id as other_resume_id \gset
+create function pg_temp.assert_cross_account_claim(
+  p_account_id bigint, p_resume_id bigint
+) returns void
+language plpgsql
+as $$
+begin
+  begin
+    perform public.claim_ai_reread_attempt(
+      p_account_id, p_resume_id,
+      '10000000-0000-4000-8000-000000000000', 4::smallint
+    );
+    insert into results values (
+      'cross-account claim is rejected before quota or ledger writes', false,
+      'unexpected success'
+    );
+  exception when foreign_key_violation then
+    insert into results
+    select 'cross-account claim is rejected before quota or ledger writes',
+      not exists (
+        select 1 from public.ai_usage
+        where account_id = p_account_id
+          and period = to_char(now(), 'YYYY-MM')
+      )
+      and not exists (
+        select 1 from public.ai_reread_attempts
+        where account_id = p_account_id
+          and resume_id = p_resume_id
+      ),
+      sqlerrm;
+  end;
+end;
+$$;
+select pg_temp.assert_cross_account_claim(:account_id, :other_resume_id);
+drop function pg_temp.assert_cross_account_claim(bigint, bigint);
+
 -- Fresh claim, same-key replay while live, and a different-key single-flight
 -- conflict must all leave exactly one meter unit reserved.
 select public.claim_ai_reread_attempt(:account_id, :resume_id, '10000000-0000-4000-8000-000000000001', 4::smallint) as claim_one \gset
@@ -146,6 +197,28 @@ select 'ledger is FORCE RLS with no policies',
   (select relforcerowsecurity from pg_class where oid = 'public.ai_reread_attempts'::regclass)
   and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ai_reread_attempts'),
   'pg_class / pg_policies';
+
+insert into results
+select 'single-flight partial unique index is present',
+  exists (
+    select 1
+    from pg_index i
+    join pg_class c on c.oid = i.indexrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_attribute a
+      on a.attrelid = i.indrelid
+     and a.attname = 'resume_id'
+     and a.attnum = i.indkey[0]
+    where n.nspname = 'public'
+      and c.relname = 'ai_reread_attempts_resume_in_progress_key'
+      and i.indrelid = 'public.ai_reread_attempts'::regclass
+      and i.indisunique
+      and i.indpred is not null
+      and i.indnkeyatts = 1
+      and pg_get_expr(i.indpred, i.indrelid) like '%status%'
+      and pg_get_expr(i.indpred, i.indrelid) like '%in_progress%'
+  ),
+  'pg_index catalog assertion';
 
 select gen_random_uuid() as test_user_id \gset
 insert into auth.users (id, instance_id, aud, role, email)

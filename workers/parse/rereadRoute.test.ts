@@ -28,6 +28,8 @@ type TestFile = {
   size: number;
 };
 
+type ThrowPoint = "metadata" | "download" | "arrayBuffer" | "cas";
+
 const file: TestFile = {
   path: "10/resumes/33/current.pdf",
   filename: "current.pdf",
@@ -54,6 +56,7 @@ function makeClients(
     additionalSections: [{ title: "Old", items: [] }],
   },
   casApplied = true,
+  throwPoint?: ThrowPoint,
 ) {
   const memberBuilder = selectBuilder({ id: 7, disabled: false });
   const resumeBuilder = selectBuilder({
@@ -82,26 +85,41 @@ function makeClients(
     eq: vi.fn(() => updateBuilder),
     is: vi.fn(() => updateBuilder),
     select: vi.fn(() => updateBuilder),
-    maybeSingle: vi.fn(async () => ({
-      data: casApplied ? { id: 22 } : null,
-      error: null,
-    })),
+    maybeSingle: vi.fn(async () => {
+      if (throwPoint === "cas") throw new Error("CAS unavailable");
+      return {
+        data: casApplied ? { id: 22 } : null,
+        error: null,
+      };
+    }),
   };
+  const fileData = {
+    size: 8,
+    arrayBuffer: vi.fn(async () => {
+      if (throwPoint === "arrayBuffer") {
+        throw new Error("buffer unavailable");
+      }
+      return new TextEncoder().encode("%PDF-1.7").buffer;
+    }),
+  } as unknown as Blob;
   const storage = {
     from: vi.fn(() => ({
-      list: vi.fn(async () => ({
-        data: [
-          {
-            name: file.filename,
-            metadata: { size: file.size, mimetype: file.mime_type },
-          },
-        ],
-        error: null,
-      })),
-      download: vi.fn(async () => ({
-        data: new Blob(["%PDF-1.7"]),
-        error: null,
-      })),
+      list: vi.fn(async () => {
+        if (throwPoint === "metadata") throw new Error("storage unavailable");
+        return {
+          data: [
+            {
+              name: file.filename,
+              metadata: { size: file.size, mimetype: file.mime_type },
+            },
+          ],
+          error: null,
+        };
+      }),
+      download: vi.fn(async () => {
+        if (throwPoint === "download") throw new Error("download unavailable");
+        return { data: fileData, error: null };
+      }),
     })),
   };
   const service = {
@@ -217,6 +235,45 @@ describe("re-read route", () => {
     });
     expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
     expect(complete).not.toHaveBeenCalled();
+  });
+
+  it.each(["metadata", "download", "arrayBuffer", "cas"] as const)(
+    "releases when the %s await throws",
+    async (throwPoint) => {
+      const { caller, service } = makeClients(undefined, true, throwPoint);
+
+      const result = await rereadResume(
+        { resume_id: 22, request_id: requestId },
+        {
+          caller: caller as never,
+          service: service as never,
+          extractor: { extract: vi.fn(async () => makeExtract()) },
+          env: TEST_ENV,
+        },
+      );
+
+      expect(result.status).toBe(422);
+      expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
+      expect(complete).not.toHaveBeenCalled();
+    },
+  );
+
+  it("releases when completing the reservation throws", async () => {
+    const { caller, service } = makeClients();
+    complete.mockRejectedValueOnce(new Error("completion unavailable"));
+
+    const result = await rereadResume(
+      { resume_id: 22, request_id: requestId },
+      {
+        caller: caller as never,
+        service: service as never,
+        extractor: { extract: vi.fn(async () => makeExtract()) },
+        env: TEST_ENV,
+      },
+    );
+
+    expect(result.status).toBe(422);
+    expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
   });
 
   it("releases on a compare-and-set miss and never overwrites newer edits", async () => {

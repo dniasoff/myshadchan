@@ -5884,6 +5884,18 @@ begin
       using errcode = 'invalid_parameter_value';
   end if;
 
+  -- The service-role RPC is an independent trust boundary from the Worker.
+  -- Reject a forged account/resume pair before retention, quota reservation,
+  -- or any ledger write can occur.
+  if not exists (
+    select 1
+    from public.resumes
+    where id = p_resume_id and account_id = p_account_id
+  ) then
+    raise exception 're-read resume does not belong to account'
+      using errcode = 'foreign_key_violation';
+  end if;
+
   with doomed as (
     select id
     from public.ai_reread_attempts

@@ -72,29 +72,6 @@ function failure(
   return response(status, fail(message));
 }
 
-async function releaseAfterFailure(
-  dependencies: RereadDependencies,
-  accountId: number,
-  attemptId: number,
-  generation: number,
-  status: RereadResponse["status"] = REREAD_FAILURE_STATUS,
-): Promise<RereadResponse> {
-  const release = await releaseRereadAttempt(
-    dependencies.env,
-    accountId,
-    attemptId,
-    generation,
-  );
-  if (release.outcome === "failed") {
-    console.error("parse.reread.release.failed", {
-      accountId,
-      attemptId,
-      generation,
-    });
-  }
-  return failure(dependencies, REREAD_FAILURE_MESSAGE, status);
-}
-
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -265,39 +242,51 @@ export async function rereadResume(
   }
 
   const { attempt_id: attemptId, generation } = claim.outcome;
-  if (
-    !(await verifyStorageMetadata(
-      service,
-      selectedFile.file,
-      selectedFile.dirPath,
-      selectedFile.fileName,
-    ))
-  ) {
-    return releaseAfterFailure(dependencies, accountId, attemptId, generation);
-  }
+  let attemptFinalized = false;
+  const releaseClaim = async (): Promise<void> => {
+    if (attemptFinalized) return;
+    attemptFinalized = true;
+    try {
+      const release = await releaseRereadAttempt(
+        dependencies.env,
+        accountId,
+        attemptId,
+        generation,
+      );
+      if (release.outcome === "failed") {
+        console.error("parse.reread.release.failed", {
+          accountId,
+          attemptId,
+          generation,
+        });
+      }
+    } catch (error) {
+      console.error("parse.reread.release.threw", summarizeErrorForLog(error));
+    }
+  };
 
-  let fileData: Blob | null = null;
   try {
+    if (
+      !(await verifyStorageMetadata(
+        service,
+        selectedFile.file,
+        selectedFile.dirPath,
+        selectedFile.fileName,
+      ))
+    ) {
+      return failure(dependencies);
+    }
+
     const download = await service.storage
       .from(DOCUMENTS_BUCKET)
       .download(selectedFile.file.path);
-    fileData = download.data;
+    const fileData = download.data;
     if (download.error || !fileData || fileData.size > MAX_ATTACHMENT_BYTES) {
-      return releaseAfterFailure(
-        dependencies,
-        accountId,
-        attemptId,
-        generation,
-      );
+      return failure(dependencies);
     }
     const bytes = await fileData.arrayBuffer();
     if (!validateDownloadedRereadFile(bytes, selectedFile.file.mime_type)) {
-      return releaseAfterFailure(
-        dependencies,
-        accountId,
-        attemptId,
-        generation,
-      );
+      return failure(dependencies);
     }
 
     let raw: unknown;
@@ -313,12 +302,7 @@ export async function rereadResume(
           : "parse.reread.extract.failed",
         summarizeErrorForLog(error),
       );
-      return releaseAfterFailure(
-        dependencies,
-        accountId,
-        attemptId,
-        generation,
-      );
+      return failure(dependencies);
     }
 
     const draft = toDraft(raw);
@@ -327,12 +311,7 @@ export async function rereadResume(
       draft.sections.additionalSections,
     );
     if (!nextSections) {
-      return releaseAfterFailure(
-        dependencies,
-        accountId,
-        attemptId,
-        generation,
-      );
+      return failure(dependencies);
     }
 
     const casApplied = await updateSectionsWithCas(
@@ -343,13 +322,7 @@ export async function rereadResume(
       nextSections,
     );
     if (!casApplied) {
-      return releaseAfterFailure(
-        dependencies,
-        accountId,
-        attemptId,
-        generation,
-        REREAD_RETRYABLE_STATUS,
-      );
+      return failure(dependencies, REREAD_FAILURE_MESSAGE, 409);
     }
 
     const completed = await completeRereadAttempt(
@@ -360,23 +333,24 @@ export async function rereadResume(
       CURRENT_PARSE_RESULT_SCHEMA_VERSION,
     );
     if (completed.outcome === "applied") {
+      attemptFinalized = true;
       return response(REREAD_SUCCESS_STATUS, ok({ replayed: false }));
     }
     if (completed.outcome === "failed") {
-      return releaseAfterFailure(
-        dependencies,
-        accountId,
-        attemptId,
-        generation,
-        REREAD_RETRYABLE_STATUS,
-      );
+      return failure(dependencies, REREAD_FAILURE_MESSAGE, 409);
     }
+    // A superseded generation belongs to the newer claimant. Its fenced
+    // release is intentionally skipped so it cannot release that claimant's
+    // reservation.
+    attemptFinalized = true;
     return response(
       REREAD_RETRYABLE_STATUS,
       fail(ALREADY_READING_MESSAGE, { code: "already_reading" }),
     );
   } catch (error) {
     console.error("parse.reread.unexpected", summarizeErrorForLog(error));
-    return releaseAfterFailure(dependencies, accountId, attemptId, generation);
+    return failure(dependencies);
+  } finally {
+    await releaseClaim();
   }
 }
