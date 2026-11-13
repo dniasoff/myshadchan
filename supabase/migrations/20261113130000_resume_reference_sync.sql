@@ -335,8 +335,8 @@ begin
 end;
 $$;
 
-revoke all on function public.sync_resume_references(bigint) from public, anon;
-grant execute on function public.sync_resume_references(bigint) to authenticated, service_role;
+revoke all on function public.sync_resume_references(bigint) from public, anon, authenticated;
+grant execute on function public.sync_resume_references(bigint) to service_role;
 revoke all on function public.sync_resume_references_for_account(bigint, bigint) from public, anon, authenticated;
 grant execute on function public.sync_resume_references_for_account(bigint, bigint) to service_role;
 revoke all on function public.reconcile_resume_references_for_account(bigint, bigint) from public, anon, authenticated, service_role;
@@ -365,12 +365,20 @@ declare
   v_skipped_ambiguous bigint := 0;
   v_skipped_invalid bigint := 0;
   v_skipped_resumes bigint := 0;
+  v_resumes_processed bigint := 0;
+  v_accounts_partially_skipped bigint := 0;
+  v_resumes_partially_skipped bigint := 0;
   v_account_lock bigint;
   v_last_resume_id bigint;
-  v_batch_count integer;
-  v_batch_size constant integer := 250;
+  v_account_resume_limit constant integer := 500;
+  v_account_deadline timestamptz;
   v_started_at timestamptz := clock_timestamp();
 begin
+  -- A concurrent writer may already hold the same account lock. Do not let
+  -- this migration wait indefinitely for it; the clock check below bounds the
+  -- time spent holding a lock after acquisition.
+  perform set_config('lock_timeout', '20s', true);
+
   -- Dry-run report: counts only, deliberately no names, phones, or note text.
   select count(*), coalesce(sum(
     case
@@ -400,53 +408,74 @@ begin
     -- account block before the next account begins.
     perform pg_advisory_lock(v_account_lock);
     begin
+      v_account_deadline := clock_timestamp() + interval '20 seconds';
       v_last_resume_id := 0;
+      -- Deterministic per-account cap; any remaining rows are counted below
+      -- and will be retried by the durable trigger on a later sections change.
+      for v_resume in
+        select r.id
+        from public.resumes r
+        where r.account_id = v_account.account_id
+          and r.shidduchim_id is not null
+        order by r.id
+        limit v_account_resume_limit
       loop
-        v_batch_count := 0;
-        for v_resume in
-          select r.id
-          from public.resumes r
-          where r.account_id = v_account.account_id
-            and r.shidduchim_id is not null
-            and r.id > v_last_resume_id
-          order by r.id
-          limit v_batch_size
-        loop
-          v_batch_count := v_batch_count + 1;
-          v_last_resume_id := v_resume.id;
-          begin
-            select public.reconcile_resume_references_for_account(
-              v_resume.id, v_account.account_id
-            ) into v_result;
+        -- Check between resumes so a pathological account cannot monopolise
+        -- its account-wide lock for longer than the migration budget.
+        if clock_timestamp() >= v_account_deadline then
+          exit;
+        end if;
 
-            v_created_references := v_created_references
-              + coalesce((v_result ->> 'created_references')::bigint, 0);
-            v_created_links := v_created_links
-              + coalesce((v_result ->> 'created_links')::bigint, 0);
-            v_reused_links := v_reused_links
-              + coalesce((v_result ->> 'reused_links')::bigint, 0);
-            v_skipped_ambiguous := v_skipped_ambiguous
-              + coalesce((v_result ->> 'skipped_ambiguous')::bigint, 0);
-            v_skipped_invalid := v_skipped_invalid
-              + coalesce((v_result ->> 'skipped_invalid')::bigint, 0);
-          exception when others then
-            -- Candidate data problems must not strand the rest of the account.
-            -- Catalog, transaction, and internal errors fail closed so a broken
-            -- migration cannot report a green partial backfill.
-            if sqlstate like '42%'
-               or sqlstate like '0A%'
-               or sqlstate like '25%'
-               or sqlstate like '53%'
-               or sqlstate like '57%'
-               or sqlstate like '58%'
-               or sqlstate like 'XX%' then
-              raise;
-            end if;
-            v_skipped_resumes := v_skipped_resumes + 1;
-          end;
-        end loop;
-        exit when v_batch_count = 0;
+        v_resumes_processed := v_resumes_processed + 1;
+        v_last_resume_id := v_resume.id;
+        begin
+          select public.reconcile_resume_references_for_account(
+            v_resume.id, v_account.account_id
+          ) into v_result;
+
+          v_created_references := v_created_references
+            + coalesce((v_result ->> 'created_references')::bigint, 0);
+          v_created_links := v_created_links
+            + coalesce((v_result ->> 'created_links')::bigint, 0);
+          v_reused_links := v_reused_links
+            + coalesce((v_result ->> 'reused_links')::bigint, 0);
+          v_skipped_ambiguous := v_skipped_ambiguous
+            + coalesce((v_result ->> 'skipped_ambiguous')::bigint, 0);
+          v_skipped_invalid := v_skipped_invalid
+            + coalesce((v_result ->> 'skipped_invalid')::bigint, 0);
+        exception when others then
+          -- Candidate data problems must not strand the rest of the account.
+          -- Catalog, transaction, and internal errors fail closed so a broken
+          -- migration cannot report a green partial backfill.
+          if sqlstate like '42%'
+             or sqlstate like '0A%'
+             or sqlstate like '25%'
+             or sqlstate like '53%'
+             or sqlstate like '57%'
+             or sqlstate like '58%'
+             or sqlstate like 'XX%' then
+            raise;
+          end if;
+          -- The resume's savepoint was rolled back by the exception block;
+          -- count it and continue with the next bounded item.
+          v_skipped_resumes := v_skipped_resumes + 1;
+        end;
       end loop;
+
+      if exists (
+        select 1
+        from public.resumes r
+        where r.account_id = v_account.account_id
+          and r.shidduchim_id is not null
+          and r.id > v_last_resume_id
+      ) then
+        v_accounts_partially_skipped := v_accounts_partially_skipped + 1;
+        select v_resumes_partially_skipped + count(*) into v_resumes_partially_skipped
+        from public.resumes r
+        where r.account_id = v_account.account_id
+          and r.shidduchim_id is not null
+          and r.id > v_last_resume_id;
+      end if;
     exception when others then
       perform pg_advisory_unlock(v_account_lock);
       raise;
@@ -454,10 +483,11 @@ begin
     perform pg_advisory_unlock(v_account_lock);
   end loop;
 
-  raise notice 'resume reference sync complete: accounts %, resumes read %, links created %, references created %, links reused %, ambiguous skipped %, invalid skipped %, resumes skipped %, elapsed_ms %',
+  raise notice 'resume reference sync complete: accounts %, resumes read %, links created %, references created %, links reused %, ambiguous skipped %, invalid skipped %, resumes skipped %, accounts_partially_skipped %, resumes_partially_skipped %, elapsed_ms %',
     (select count(distinct r.account_id) from public.resumes r where r.shidduchim_id is not null),
-    v_resume_count, v_created_links, v_created_references, v_reused_links,
+    v_resumes_processed, v_created_links, v_created_references, v_reused_links,
     v_skipped_ambiguous, v_skipped_invalid, v_skipped_resumes,
+    v_accounts_partially_skipped, v_resumes_partially_skipped,
     floor(extract(epoch from clock_timestamp() - v_started_at) * 1000)::bigint;
 end;
 $$;

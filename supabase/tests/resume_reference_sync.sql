@@ -46,6 +46,26 @@ insert into public.shidduchim (account_id, single_id, name_en)
 values (:account_id, :single_id, 'Resume sync suggestion D')
 returning id as shidduch_d_id \gset
 
+-- A second tenant proves the context guard rejects a resume outside the
+-- caller's active account before reconciliation can write anything.
+set local session_replication_role = replica;
+insert into public.accounts (name, kind)
+values ('Resume sync other account fixture', 'shadchanus')
+returning id as other_account_id \gset
+insert into public.shidduchim (account_id, single_id, name_en)
+values (:other_account_id, :single_id, 'Resume sync other-account suggestion')
+returning id as other_shidduch_id \gset
+insert into public.resumes (account_id, shidduchim_id, sections)
+values (
+  :other_account_id,
+  :other_shidduch_id,
+  jsonb_build_object('references', jsonb_build_array(
+    jsonb_build_object('name', 'Other Account Person', 'phone', '555-101-2020')
+  ))
+)
+returning id as other_resume_id \gset
+set local session_replication_role = origin;
+
 insert into public."references" (account_id, name_en, relationship, phone)
 values (:account_id, 'Rachel Cohen', 'old relationship', '555-111-2222')
 returning id as existing_reference_id \gset
@@ -133,7 +153,8 @@ values
   ('resume_a_id', :resume_a_id),
   ('resume_b_id', :resume_b_id),
   ('resume_c_id', :resume_c_id),
-  ('hostile_resume_id', :hostile_resume_id);
+  ('hostile_resume_id', :hostile_resume_id),
+  ('other_resume_id', :other_resume_id);
 
 insert into results (name, passed)
 select 'insert trigger reconciles parsed references', count(*) = 3
@@ -148,6 +169,33 @@ where account_id = :account_id and shidduchim_id = :shidduch_b_id;
 -- The public RPC follows the active account and role, not caller-supplied data.
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"77777777-7777-4777-8777-777777777701","role":"authenticated"}';
+
+do $$
+declare
+  v_resume_id bigint;
+begin
+  select value into v_resume_id from ids where name = 'resume_a_id';
+  perform public.sync_resume_references(v_resume_id);
+  insert into results values ('authenticated cannot execute the server sync RPC', false, 'RPC unexpectedly succeeded');
+exception when others then
+  insert into results values ('authenticated cannot execute the server sync RPC', sqlstate = '42501', sqlstate);
+end $$;
+
+-- The service role is the migration/test actor. Authenticated clients have no
+-- EXECUTE grant; normal filing reaches this operation only through the
+-- SECURITY DEFINER database trigger above.
+set local role service_role;
+
+do $$
+declare
+  v_resume_id bigint;
+begin
+  select value into v_resume_id from ids where name = 'other_resume_id';
+  perform public.sync_resume_references(v_resume_id);
+  insert into results values ('other-account resume cannot be reconciled', false, 'RPC unexpectedly succeeded');
+exception when others then
+  insert into results values ('other-account resume cannot be reconciled', sqlstate = '42501', sqlstate);
+end $$;
 
 select public.sync_resume_references(:resume_a_id) as first_result \gset
 select public.sync_resume_references(:resume_a_id) as second_result \gset
@@ -231,6 +279,11 @@ insert into results (name, passed)
 select 'malformed non-empty phone remains unlinked', count(*) = 0
 from public."references" r
 where r.account_id = :account_id and r.name_norm_en = 'malformed phone';
+
+insert into results (name, passed)
+select 'other-account RPC made no reference writes',
+       (select count(*) from public."references" where account_id = :other_account_id) = 0
+       and (select count(*) from public.reference_links where account_id = :other_account_id) = 0;
 
 insert into results (name, passed, detail)
 select 'hostile 10k input is capped before validation',

@@ -306,10 +306,9 @@ declare
     v_account record;
     v_resume record;
     v_account_lock bigint;
-    v_last_resume_id bigint;
-    v_batch_count integer;
     v_account_count bigint;
     v_resume_count bigint;
+    v_candidate_count bigint;
     v_before_references bigint;
     v_before_links bigint;
     v_after_references bigint;
@@ -321,17 +320,30 @@ begin
     select count(*) into v_resume_count
       from public.resumes
      where id between 94000001 and 94010000 or id between 95000001 and 95005000;
+    select coalesce(sum(jsonb_array_length(r.sections -> 'references')), 0)
+      into v_candidate_count
+      from public.resumes r
+     where r.id between 94000001 and 94010000
+        or r.id between 95000001 and 95005000;
 
-    if v_account_count <> 201 or v_resume_count <> 15000 then
-        raise exception 'resume reference scale proof: expected 201 accounts/15000 resumes, got %/%',
-            v_account_count, v_resume_count;
+    if v_account_count <> 201 or v_resume_count <> 15000 or v_candidate_count <> 40000 then
+        raise exception 'resume reference scale proof: expected 201 accounts/15000 resumes/40000 candidates, got %/%/%',
+            v_account_count, v_resume_count, v_candidate_count;
     end if;
 
     if (select count(*) from public."references"
         where account_id between 9100001 and 9100200 or account_id = 9101000) <> 201
        or (select count(*) from public.reference_links
-           where account_id between 9100001 and 9100200 or account_id = 9101000) <> 15000 then
-        raise exception 'resume reference scale proof: migration did not create 201 identities and 15000 links';
+           where account_id between 9100001 and 9100200 or account_id = 9101000) <> 10500
+       or (select count(*) from public.reference_links where account_id = 9101000) <> 500
+       or (select count(*)
+           from public.resumes r
+          where r.id between 95000501 and 95005000
+            and exists (
+                select 1 from public.reference_links rl
+                 where rl.resume_id = r.id
+            )) <> 0 then
+        raise exception 'resume reference scale proof: expected bounded backfill (201 identities, 10500 links, 500 links on the 5000-resume account)';
     end if;
 
     for v_account in
@@ -350,24 +362,19 @@ begin
         );
         perform pg_advisory_lock(v_account_lock);
         begin
-            v_last_resume_id := 0;
+            -- Rerun exactly the migration's deterministic per-account bound;
+            -- the 4,500 deferred rows remain pending for a future sections
+            -- change/targeted operational reconciliation.
+            for v_resume in
+                select r.id
+                  from public.resumes r
+                 where r.account_id = v_account.account_id
+                 order by r.id
+                 limit 500
             loop
-                v_batch_count := 0;
-                for v_resume in
-                    select r.id
-                      from public.resumes r
-                     where r.account_id = v_account.account_id
-                       and r.id > v_last_resume_id
-                     order by r.id
-                     limit 250
-                loop
-                    v_batch_count := v_batch_count + 1;
-                    v_last_resume_id := v_resume.id;
-                    perform public.reconcile_resume_references_for_account(
-                        v_resume.id, v_account.account_id
-                    );
-                end loop;
-                exit when v_batch_count = 0;
+                perform public.reconcile_resume_references_for_account(
+                    v_resume.id, v_account.account_id
+                );
             end loop;
         exception when others then
             perform pg_advisory_unlock(v_account_lock);
@@ -386,8 +393,8 @@ begin
         end if;
     end loop;
 
-    raise notice 'resume reference scale proof passed: accounts %, resumes %, rerun elapsed_ms %',
-        v_account_count, v_resume_count,
+    raise notice 'resume reference scale proof passed: accounts %, resumes %, candidates %, accounts_partially_skipped 1, resumes_partially_skipped 4500, rerun elapsed_ms %',
+        v_account_count, v_resume_count, v_candidate_count,
         floor(extract(epoch from clock_timestamp() - v_started_at) * 1000)::bigint;
 end;
 $$;

@@ -8,27 +8,41 @@
 The migration reads parsed `resumes.sections.references` for suggestions that
 already have a resume. It runs account by account and resume by resume, using
 one account-wide advisory lock. The migration takes a session lock per account
-and releases it before moving on; online RPC/trigger calls take the same key for
-the transaction. Each resume examines at most 50 parsed candidates. It creates
-only safe missing `references` identities and `reference_links` rows. It never
+and releases it before moving on; online trigger calls take the same key for the
+transaction. The migration processes at most 500 resumes for any one account,
+checks its approximately 20-second account budget between resumes, and uses a
+20-second lock wait limit. Each resume examines at most 50 parsed candidates.
+It creates only safe missing `references` identities and `reference_links` rows.
+It never
 updates an existing reference, link, status, note, conversation log,
 relationship override, or interaction.
 
 Before writing, the migration prints a dry-run count of resumes and parsed
 candidates. At the end it prints counts for accounts, resumes read, links and
-identities created, links reused, and ambiguous/invalid candidates skipped. It
-does not print names, phone numbers, or call notes. A malformed candidate stays
-unlinked. An account or resume error is isolated and counted; a structural
-database error fails the migration closed.
+identities created, links reused, ambiguous/invalid candidates skipped, and
+`accounts_partially_skipped`/`resumes_partially_skipped`. It does not print
+names, phone numbers, or call notes. A malformed candidate stays unlinked. An
+account or resume error is isolated and counted; a structural database error
+fails the migration closed.
+
+If an account has more than 500 resumes, or reaches the account time budget,
+the remaining resumes are deliberately left unlinked and counted as partially
+skipped. This protects the deploy from a hostile or unexpectedly huge account;
+normal household accounts are expected to remain below the bound. A later
+change to `resumes.sections` retries through the server trigger. Until then,
+the Resume tab should show the calm state “References are being prepared” for
+a parsed reference that has no link yet; it should not show an error or invent
+status data.
 
 The database installs an `AFTER INSERT` trigger and an `AFTER UPDATE OF
-sections` trigger on `resumes`. They call the same account-locked
-`sync_resume_references` routine after a newly filed or changed parsed resume
-is stored, so direct CRUD, workers, and clients all use the durable server
-path. An unchanged `sections` value is a no-op. Trigger errors are logged as a
+sections` trigger on `resumes`. They call the same account-locked internal
+routine after a newly filed or changed parsed resume is stored, so direct CRUD,
+workers, and clients all use the durable server path. The public sync RPC has
+no authenticated/anonymous execute grant; it is not a client endpoint. An
+unchanged `sections` value is a no-op. Trigger errors are logged as a
 counts-only SQLSTATE notice and swallowed so the resume write never fails or
 rolls back. The migration is the retry and existing-data path, and rerunning
-the operation is idempotent.
+the bounded operation is idempotent.
 
 ## Matching and rollback
 

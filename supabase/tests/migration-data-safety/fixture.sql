@@ -1382,7 +1382,8 @@ $$;
 -- Scale probe for the pending resume-reference migration. These rows are
 -- intentionally inserted after the generic snapshot: they are load-test
 -- data, not production-shaped rows whose values the guard must preserve.
--- 10,000 resumes span 200 accounts (50 each), plus one 5,000-resume account.
+-- 10,000 resumes span 200 accounts (50 each), plus one 5,000-resume account
+-- whose six candidates per resume total 30,000 parsed candidates.
 -- Replication-role bypass keeps the baseline's old trigger set from doing the
 -- work before the migration under test installs its durable reconciliation
 -- trigger and runs the real backfill.
@@ -1421,12 +1422,13 @@ from generate_series(1, 200) as accounts(g)
 cross join generate_series(1, 50) as suggestions(n)
 union all
 select 95000000 + n, 9101000, 93000000 + n,
-       jsonb_build_object('references', jsonb_build_array(
-           jsonb_build_object(
+       jsonb_build_object('references', (
+           select jsonb_agg(jsonb_build_object(
                'name', 'Scale Person',
                'phone', '555-000-0000',
                'relationship', 'scale probe'
-           )
+           ))
+           from generate_series(1, 6)
        ))
 from generate_series(1, 5000) as suggestions(n);
 set local session_replication_role = origin;

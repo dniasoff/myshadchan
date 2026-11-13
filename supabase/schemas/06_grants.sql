@@ -691,11 +691,10 @@ revoke all on function public.sync_task_target() from public, anon;
 grant execute on function public.sync_task_target() to authenticated;
 grant execute on function public.sync_task_target() to service_role;
 
--- Resume reference reconciliation is the only client-visible entry point for
--- the server-side parser-to-reference sync. The account-parameterized helper
--- is migration-only and deliberately has no authenticated execute grant.
-revoke all on function public.sync_resume_references(bigint) from public, anon;
-grant execute on function public.sync_resume_references(bigint) to authenticated;
+-- Resume reference reconciliation is server-triggered and migration-only. No
+-- client role may invoke the wrapper directly; the trigger owns the durable
+-- filing path and the account-parameterized helper is migration-only.
+revoke all on function public.sync_resume_references(bigint) from public, anon, authenticated;
 grant execute on function public.sync_resume_references(bigint) to service_role;
 revoke all on function public.sync_resume_references_for_account(bigint, bigint) from public, anon, authenticated;
 grant execute on function public.sync_resume_references_for_account(bigint, bigint) to service_role;
