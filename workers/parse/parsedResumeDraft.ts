@@ -19,6 +19,17 @@ const MAX_FIELD_VALUE_LENGTH = 500;
 const MAX_SECTION_TEXT_LENGTH = 1000;
 const MAX_SECTION_ARRAY_LENGTH = 50;
 
+/** Bounds for model-generated generic resume sections. These limits protect
+ * both the JSONB row and the read-only UI from an unexpectedly verbose or
+ * adversarial model response. */
+export const MAX_ADDITIONAL_SECTION_COUNT = 20;
+export const MAX_ADDITIONAL_SECTION_ITEMS = 50;
+const MAX_ADDITIONAL_SECTION_RAW_ITEMS = 250;
+export const MAX_ADDITIONAL_SECTION_ITEM_COUNT = 250;
+export const MAX_ADDITIONAL_SECTION_KEY_LENGTH = 80;
+export const MAX_ADDITIONAL_SECTION_TITLE_LENGTH = 120;
+export const MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH = 40_000;
+
 /**
  * Finding 13 (Epic 11 adversarial review): every field used to accept
  * `string | number` uniformly, so a model response that put a bare number
@@ -71,6 +82,61 @@ const ResumeReferenceSchema = z.object({
   phone: z.string().max(MAX_SECTION_TEXT_LENGTH),
 });
 
+const stripBidiSpoofingControls = (value: string): string =>
+  [...value]
+    .filter((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return !(
+        (codePoint >= 0x202a && codePoint <= 0x202e) ||
+        (codePoint >= 0x2066 && codePoint <= 0x2069)
+      );
+    })
+    .join("");
+
+const hasSafePlainText = (value: string): boolean =>
+  [...value].every((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return !(
+      (codePoint >= 0 && codePoint <= 8) ||
+      codePoint === 11 ||
+      codePoint === 12 ||
+      (codePoint >= 14 && codePoint <= 31) ||
+      codePoint === 127
+    );
+  });
+
+const additionalSectionTextSchema = (maxLength: number) =>
+  z.preprocess(
+    (value) =>
+      typeof value === "string" ? stripBidiSpoofingControls(value) : value,
+    z.string().trim().min(1).max(maxLength).refine(hasSafePlainText),
+  );
+
+const AdditionalSectionItemSchema = z.object({
+  label: additionalSectionTextSchema(MAX_SECTION_TEXT_LENGTH),
+  value: additionalSectionTextSchema(MAX_SECTION_TEXT_LENGTH),
+});
+
+const AdditionalSectionKeySchema = z.preprocess(
+  (value) =>
+    typeof value === "string" ? stripBidiSpoofingControls(value) : value,
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_ADDITIONAL_SECTION_KEY_LENGTH)
+    .regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/u),
+);
+
+const AdditionalSectionSchema = z.object({
+  key: AdditionalSectionKeySchema,
+  title: additionalSectionTextSchema(MAX_ADDITIONAL_SECTION_TITLE_LENGTH),
+  items: tolerantArray(
+    AdditionalSectionItemSchema,
+    MAX_ADDITIONAL_SECTION_RAW_ITEMS,
+  ),
+});
+
 /**
  * Finding 14 (Epic 11 adversarial review): validates an array PER ELEMENT
  * rather than as one array-level schema. `z.array(itemSchema)` fails the
@@ -101,6 +167,303 @@ function tolerantArray<Item extends z.ZodTypeAny>(
   }, z.array(itemSchema).max(maxLength));
 }
 
+/**
+ * Validate each generic section independently, then apply the aggregate item
+ * and character caps while preserving the model's source order. Once an
+ * item would cross either aggregate cap, all later output is trailing model
+ * output and is dropped rather than causing the whole parse to fail.
+ */
+const normalizeSectionTitle = (value: string): string =>
+  value.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+
+const REFERENCE_LIKE_LATIN_STEMS = [
+  "reference",
+  "references",
+  "referee",
+  "referees",
+  "recommendation",
+  "recommendations",
+  "recommender",
+  "recommenders",
+] as const;
+const REFERENCE_LIKE_HEBREW_STEMS = ["ממליצ", "המלצ"] as const;
+const CONFUSABLE_FOLD_MAP: Readonly<Record<string, string>> = {
+  а: "a",
+  в: "b",
+  е: "e",
+  к: "k",
+  м: "m",
+  н: "h",
+  о: "o",
+  р: "p",
+  с: "c",
+  т: "t",
+  у: "y",
+  х: "x",
+  α: "a",
+  β: "b",
+  ε: "e",
+  η: "n",
+  ι: "i",
+  κ: "k",
+  μ: "m",
+  ν: "v",
+  ο: "o",
+  ρ: "p",
+  τ: "t",
+  υ: "y",
+  χ: "x",
+  ω: "w",
+};
+
+const foldPrivacyConfusables = (value: string): string =>
+  [...value]
+    .map((character) => CONFUSABLE_FOLD_MAP[character] ?? character)
+    .join("");
+
+const normalizePrivacyText = (value: string): string =>
+  foldPrivacyConfusables(
+    value
+      .normalize("NFKC")
+      .replace(/[\p{Cf}\p{Mn}]/gu, "")
+      .toLocaleLowerCase(),
+  );
+
+const squashPrivacyText = (value: string): string =>
+  normalizePrivacyText(value).replace(/[\s\p{P}\p{S}]+/gu, "");
+
+const stemPattern = (stem: string): RegExp =>
+  new RegExp(
+    `(?:^|[^\\p{L}])${[...stem].join("[^\\p{L}]*")}(?:$|[^\\p{L}])`,
+    "iu",
+  );
+
+const REFERENCE_LIKE_PATTERNS = REFERENCE_LIKE_LATIN_STEMS.map(stemPattern);
+
+const isReferenceLikePrivacyText = (value: string): boolean => {
+  const normalized = normalizePrivacyText(value);
+  if (
+    REFERENCE_LIKE_PATTERNS.some((pattern) => pattern.test(normalized)) ||
+    REFERENCE_LIKE_HEBREW_STEMS.some((stem) => normalized.includes(stem))
+  ) {
+    return true;
+  }
+
+  const squashed = squashPrivacyText(value);
+  return (
+    REFERENCE_LIKE_LATIN_STEMS.includes(
+      squashed as (typeof REFERENCE_LIKE_LATIN_STEMS)[number],
+    ) || REFERENCE_LIKE_HEBREW_STEMS.some((stem) => squashed.includes(stem))
+  );
+};
+
+const DECIMAL_DIGIT_ZEROES = [
+  0x30, 0x660, 0x6f0, 0x7c0, 0x966, 0x9e6, 0xa66, 0xae6, 0xb66, 0xbe6, 0xc66,
+  0xce6, 0xd66, 0xde6, 0xe50, 0xed0, 0xf20, 0x1040, 0x1090, 0x17e0, 0x1810,
+  0x1946, 0x19d0, 0x1a80, 0x1a90, 0x1b50, 0x1bb0, 0x1c40, 0x1c50, 0xa620,
+  0xa8d0, 0xa900, 0xa9d0, 0xa9f0, 0xaa50, 0xabf0, 0xff10, 0x104a0, 0x10d30,
+  0x11066, 0x110f0, 0x11136, 0x111d0, 0x112f0, 0x11450, 0x114d0, 0x11650,
+  0x116c0, 0x11730, 0x118e0, 0x11950, 0x11c50, 0x11d50, 0x11da0, 0x16a60,
+  0x16ac0, 0x16b50, 0x1d7ce, 0x1e140, 0x1e2f0, 0x1e950,
+];
+
+const toAsciiDecimalDigit = (character: string): string | null => {
+  const codePoint = character.codePointAt(0) ?? 0;
+  for (const zero of DECIMAL_DIGIT_ZEROES) {
+    if (codePoint >= zero && codePoint <= zero + 9) {
+      return String(codePoint - zero);
+    }
+  }
+  return null;
+};
+
+const isYear = (value: string): boolean =>
+  value.length === 4 && /^(?:19|20)\d{2}$/u.test(value);
+
+const PHONE_DIGIT_GROUP_PATTERN = /\p{Nd}+/gu;
+
+const normalizeDigitGroup = (value: string): string =>
+  [...value].map((character) => toAsciiDecimalDigit(character) ?? "").join("");
+
+const isPhoneSeparator = (separator: string): boolean =>
+  separator.length >= 1 &&
+  separator.length <= 2 &&
+  !/[\p{L}\p{N}]/u.test(separator) &&
+  !/[,:;]/u.test(separator) &&
+  !/\.\s/u.test(separator);
+
+const isPhoneLikeToken = (token: string, runs: string[]): boolean => {
+  const all = runs.join("");
+  if (all.length === 0 || runs.every(isYear)) return false;
+
+  const hasInternationalPrefix = /^(?:\+|00)/u.test(token);
+  if (hasInternationalPrefix) return all.length >= 7 && all.length <= 15;
+  if (all.length < 9 || all.length > 15) return false;
+  if (runs.length === 2 && runs[0].length === 5 && runs[1].length === 4) {
+    return false;
+  }
+  return true;
+};
+
+const isPhoneLikeNumber = (value: string): boolean => {
+  const normalized = value.normalize("NFKC").replace(/\p{Cf}/gu, "");
+  const groups = [...normalized.matchAll(PHONE_DIGIT_GROUP_PATTERN)];
+
+  for (let index = 0; index < groups.length; index += 1) {
+    const first = groups[index];
+    const firstStart = first.index ?? 0;
+    const tokenStart =
+      firstStart > 0 && normalized[firstStart - 1] === "+"
+        ? firstStart - 1
+        : firstStart;
+    const runs = [normalizeDigitGroup(first[0])];
+    let tokenEnd = firstStart + first[0].length;
+
+    for (let nextIndex = index + 1; nextIndex < groups.length; nextIndex += 1) {
+      const next = groups[nextIndex];
+      const nextStart = next.index ?? 0;
+      const separator = normalized.slice(tokenEnd, nextStart);
+      if (!isPhoneSeparator(separator)) break;
+
+      const nextRun = normalizeDigitGroup(next[0]);
+      const currentIsYear = isYear(runs[runs.length - 1]);
+      const isYearRangeLink =
+        currentIsYear && isYear(nextRun) && /[^\p{L}\p{N}\s]/u.test(separator);
+      if (currentIsYear && /\s/u.test(separator) && !isYearRangeLink) {
+        break;
+      }
+
+      runs.push(nextRun);
+      tokenEnd = nextStart + next[0].length;
+      index = nextIndex;
+    }
+
+    if (isPhoneLikeToken(normalized.slice(tokenStart, tokenEnd), runs)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[^\s@]{2,}/u;
+
+const containsSensitiveContactInfo = (value: string): boolean => {
+  const normalized = value.normalize("NFKC").replace(/[\p{Cf}\p{Mn}]/gu, "");
+  return EMAIL_PATTERN.test(normalized) || isPhoneLikeNumber(normalized);
+};
+
+const isReferenceLikeSection = (key: string, title: string): boolean =>
+  isReferenceLikePrivacyText(key) || isReferenceLikePrivacyText(title);
+
+const normalizeItemKey = (
+  item: z.infer<typeof AdditionalSectionItemSchema>,
+): string =>
+  JSON.stringify([
+    item.label.trim().replace(/\s+/gu, " ").toLocaleLowerCase(),
+    item.value.trim().replace(/\s+/gu, " ").toLocaleLowerCase(),
+  ]);
+
+const normalizeAdditionalSections = (
+  raw: unknown,
+): Array<z.infer<typeof AdditionalSectionSchema>> => {
+  if (!Array.isArray(raw)) return [];
+
+  const mergedSections: Array<z.infer<typeof AdditionalSectionSchema>> = [];
+  const sectionsByTitle = new Map<
+    string,
+    z.infer<typeof AdditionalSectionSchema>
+  >();
+
+  for (const entry of raw) {
+    const result = AdditionalSectionSchema.safeParse(entry);
+    if (!result.success || result.data.items.length === 0) continue;
+    if (
+      isReferenceLikeSection(result.data.key, result.data.title) ||
+      containsSensitiveContactInfo(result.data.title)
+    ) {
+      continue;
+    }
+
+    const sectionItems: z.infer<typeof AdditionalSectionItemSchema>[] = [];
+    const itemKeys = new Set<string>();
+    for (const item of result.data.items) {
+      if (containsSensitiveContactInfo(`${item.label} ${item.value}`)) {
+        continue;
+      }
+      const itemKey = normalizeItemKey(item);
+      if (itemKeys.has(itemKey)) continue;
+      itemKeys.add(itemKey);
+      sectionItems.push(item);
+    }
+    if (sectionItems.length === 0) continue;
+
+    const titleKey = normalizeSectionTitle(result.data.title);
+    const existing = sectionsByTitle.get(titleKey);
+    if (existing) {
+      const existingItemKeys = new Set(existing.items.map(normalizeItemKey));
+      for (const item of sectionItems) {
+        const itemKey = normalizeItemKey(item);
+        if (existingItemKeys.has(itemKey)) continue;
+        existingItemKeys.add(itemKey);
+        existing.items.push(item);
+      }
+      continue;
+    }
+
+    const section = { ...result.data, items: sectionItems };
+    sectionsByTitle.set(titleKey, section);
+    mergedSections.push(section);
+  }
+
+  const sections: Array<z.infer<typeof AdditionalSectionSchema>> = [];
+  let itemCount = 0;
+  let textLength = 0;
+
+  for (const section of mergedSections) {
+    if (sections.length >= MAX_ADDITIONAL_SECTION_COUNT) break;
+    const sectionTextLength = section.key.length + section.title.length;
+    const items: z.infer<typeof AdditionalSectionItemSchema>[] = [];
+    let acceptedItemTextLength = 0;
+
+    for (const item of section.items) {
+      const itemTextLength = item.label.length + item.value.length;
+      if (
+        items.length >= MAX_ADDITIONAL_SECTION_ITEMS ||
+        itemCount >= MAX_ADDITIONAL_SECTION_ITEM_COUNT ||
+        textLength +
+          sectionTextLength +
+          acceptedItemTextLength +
+          itemTextLength >
+          MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH
+      ) {
+        break;
+      }
+      items.push(item);
+      itemCount += 1;
+      acceptedItemTextLength += itemTextLength;
+    }
+
+    if (items.length === 0) break;
+
+    sections.push({
+      ...section,
+      items,
+    });
+    textLength += sectionTextLength + acceptedItemTextLength;
+
+    if (itemCount >= MAX_ADDITIONAL_SECTION_ITEM_COUNT) break;
+    if (textLength >= MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH) break;
+  }
+
+  return sections;
+};
+
+const AdditionalSectionsSchema = z.preprocess(
+  normalizeAdditionalSections,
+  z.array(AdditionalSectionSchema).max(MAX_ADDITIONAL_SECTION_COUNT),
+);
+
 const SectionsSchema = z.object({
   learningHistory: tolerantArray(
     ResumeSectionSchema,
@@ -110,6 +473,7 @@ const SectionsSchema = z.object({
     ResumeReferenceSchema,
     MAX_SECTION_ARRAY_LENGTH,
   ).default([]),
+  additionalSections: AdditionalSectionsSchema.default([]),
 });
 
 /**
@@ -199,7 +563,11 @@ export const RawExtractionSchema = z.object({
     value: null,
     confidence: 0,
   }),
-  sections: SectionsSchema.default({ learningHistory: [], references: [] }),
+  sections: SectionsSchema.default({
+    learningHistory: [],
+    references: [],
+    additionalSections: [],
+  }),
 });
 
 export type RawExtraction = z.infer<typeof RawExtractionSchema>;
@@ -336,7 +704,7 @@ export function toDraft(raw: unknown): ParsedResumeDraft {
   const sectionsResult = SectionsSchema.safeParse(source.sections);
   const sections = sectionsResult.success
     ? sectionsResult.data
-    : { learningHistory: [], references: [] };
+    : { learningHistory: [], references: [], additionalSections: [] };
 
   return {
     fields: fields as unknown as ParsedResumeFields,

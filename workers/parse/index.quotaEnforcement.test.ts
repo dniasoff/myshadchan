@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createParseApp } from "./index";
-import { ExtractorTimeoutError } from "./resumeExtractor";
+import { ExtractorTimeoutError, geminiExtractor } from "./resumeExtractor";
 import {
   APPLIED_CONFIRM_OUTCOME,
   APPLIED_RELEASE_OUTCOME,
@@ -9,6 +9,7 @@ import {
   CLAIMED_ATTEMPT,
   ENTITLED_PAYLOAD,
   TEST_ENV,
+  makeExtract,
 } from "./parseTestFixtures";
 
 /**
@@ -87,6 +88,15 @@ function postParse(app: ReturnType<typeof createParseApp>) {
   );
 }
 
+function gatewayResponse(text: string): Response {
+  return new Response(
+    JSON.stringify({
+      candidates: [{ content: { parts: [{ text }] } }],
+    }),
+    { status: 200 },
+  );
+}
+
 describe("Findings 6/7 — quota enforcement via the atomic claim", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -94,6 +104,10 @@ describe("Findings 6/7 — quota enforcement via the atomic claim", () => {
     eq.mockReturnThis();
     confirmParseAttempt.mockResolvedValue(APPLIED_CONFIRM_OUTCOME);
     releaseParseAttempt.mockResolvedValue(APPLIED_RELEASE_OUTCOME);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("returns 402 when the atomic claim is the one that reports the cap reached (authoritative enforcement, Finding 7)", async () => {
@@ -178,6 +192,70 @@ describe("Findings 6/7 — quota enforcement via the atomic claim", () => {
       CLAIMED_ATTEMPT.outcome.generation,
     );
     expect(confirmParseAttempt).not.toHaveBeenCalled();
+  });
+
+  it("recovers fixed fields after one truncated response while charging exactly one unit", async () => {
+    arrangeEntitledItemWithAttachment();
+    list.mockResolvedValue({ data: [], error: null });
+    download.mockResolvedValue({
+      data: new Blob(["%PDF-1.7"]),
+      error: null,
+    });
+    claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(gatewayResponse('{"name_en":'))
+      .mockResolvedValueOnce(gatewayResponse(JSON.stringify(makeExtract())));
+    vi.stubGlobal("fetch", fetchMock);
+    const extractor = geminiExtractor(TEST_ENV);
+    const app = createParseApp({
+      extract: (fileBytes, mimeType) => extractor.extract(fileBytes, mimeType),
+    });
+
+    const res = await postParse(app);
+    const json = (await res.json()) as {
+      success: boolean;
+      data?: { fields: Record<string, unknown>; sections: unknown };
+    };
+
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(json.data?.fields.name_en).toBe("Rivky");
+    expect(json.data?.sections).toEqual({
+      learningHistory: [],
+      references: [],
+      additionalSections: [],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(claimParseAttempt).toHaveBeenCalledTimes(1);
+    expect(confirmParseAttempt).toHaveBeenCalledTimes(1);
+    expect(releaseParseAttempt).not.toHaveBeenCalled();
+  });
+
+  it("releases the single reservation when the bounded recovery response is also invalid", async () => {
+    arrangeEntitledItemWithAttachment();
+    list.mockResolvedValue({ data: [], error: null });
+    download.mockResolvedValue({
+      data: new Blob(["%PDF-1.7"]),
+      error: null,
+    });
+    claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(gatewayResponse("{not valid json"));
+    vi.stubGlobal("fetch", fetchMock);
+    const extractor = geminiExtractor(TEST_ENV);
+    const app = createParseApp({
+      extract: (fileBytes, mimeType) => extractor.extract(fileBytes, mimeType),
+    });
+
+    const res = await postParse(app);
+
+    expect(res.status).toBe(502);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(claimParseAttempt).toHaveBeenCalledTimes(1);
+    expect(confirmParseAttempt).not.toHaveBeenCalled();
+    expect(releaseParseAttempt).toHaveBeenCalledTimes(1);
   });
 
   it("labels the cap-reached refusal in the trace log (review Finding C4)", async () => {

@@ -62,6 +62,65 @@ const learningHistoryEntrySchema: GeminiSchema = {
   required: ["label", "value"],
 };
 
+const additionalSectionItemSchema: GeminiSchema = {
+  type: "OBJECT",
+  properties: {
+    label: { type: "STRING" },
+    value: { type: "STRING" },
+  },
+  required: ["label", "value"],
+};
+
+const additionalSectionSchema: GeminiSchema = {
+  type: "OBJECT",
+  properties: {
+    key: { type: "STRING" },
+    title: { type: "STRING" },
+    items: { type: "ARRAY", items: additionalSectionItemSchema },
+  },
+  required: ["key", "title", "items"],
+};
+
+const legacySectionsProperties: Record<string, GeminiSchema> = {
+  learningHistory: { type: "ARRAY", items: learningHistoryEntrySchema },
+  references: { type: "ARRAY", items: referenceEntrySchema },
+};
+
+const resumeFieldProperties: Record<string, GeminiSchema> = {
+  name_en: fieldSchema("STRING"),
+  name_he: fieldSchema("STRING"),
+  father_en: fieldSchema("STRING"),
+  father_he: fieldSchema("STRING"),
+  mother_en: fieldSchema("STRING"),
+  mother_he: fieldSchema("STRING"),
+  seminary_en: fieldSchema("STRING"),
+  seminary_he: fieldSchema("STRING"),
+  shul_en: fieldSchema("STRING"),
+  shul_he: fieldSchema("STRING"),
+  location_en: fieldSchema("STRING"),
+  location_he: fieldSchema("STRING"),
+  age: fieldSchema("NUMBER"),
+  height: fieldSchema("STRING"),
+  person_gender: fieldSchema("STRING"),
+  kohen_status: fieldSchema("STRING"),
+  marital_status: fieldSchema("STRING"),
+};
+
+function resumeResponseSchema(
+  sectionsProperties: Record<string, GeminiSchema>,
+): GeminiSchema {
+  return {
+    type: "OBJECT",
+    properties: {
+      ...resumeFieldProperties,
+      sections: {
+        type: "OBJECT",
+        properties: sectionsProperties,
+      },
+    },
+  };
+}
+
 /**
  * The explicit structured-output schema sent as
  * `generationConfig.responseSchema` (`resumeExtractor.ts`). Field-for-field
@@ -70,32 +129,18 @@ const learningHistoryEntrySchema: GeminiSchema = {
  * text like `5'10"`, not a structured dimension — see `public.shidduchim`)
  * is text.
  */
-export const GEMINI_RESUME_RESPONSE_SCHEMA: GeminiSchema = {
-  type: "OBJECT",
-  properties: {
-    name_en: fieldSchema("STRING"),
-    name_he: fieldSchema("STRING"),
-    father_en: fieldSchema("STRING"),
-    father_he: fieldSchema("STRING"),
-    mother_en: fieldSchema("STRING"),
-    mother_he: fieldSchema("STRING"),
-    seminary_en: fieldSchema("STRING"),
-    seminary_he: fieldSchema("STRING"),
-    shul_en: fieldSchema("STRING"),
-    shul_he: fieldSchema("STRING"),
-    location_en: fieldSchema("STRING"),
-    location_he: fieldSchema("STRING"),
-    age: fieldSchema("NUMBER"),
-    height: fieldSchema("STRING"),
-    person_gender: fieldSchema("STRING"),
-    kohen_status: fieldSchema("STRING"),
-    marital_status: fieldSchema("STRING"),
-    sections: {
-      type: "OBJECT",
-      properties: {
-        learningHistory: { type: "ARRAY", items: learningHistoryEntrySchema },
-        references: { type: "ARRAY", items: referenceEntrySchema },
-      },
-    },
+export const GEMINI_RESUME_RESPONSE_SCHEMA = resumeResponseSchema({
+  ...legacySectionsProperties,
+  additionalSections: {
+    type: "ARRAY",
+    items: additionalSectionSchema,
   },
-};
+});
+
+/** Schema used by the single bounded recovery request after malformed JSON.
+ * It deliberately excludes additionalSections so the retry can recover the
+ * legacy fixed fields without asking Gemini to reproduce the truncated data.
+ */
+export const GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA = resumeResponseSchema(
+  legacySectionsProperties,
+);

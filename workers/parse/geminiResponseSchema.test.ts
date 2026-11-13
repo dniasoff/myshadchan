@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA,
   GEMINI_RESUME_RESPONSE_SCHEMA,
   type GeminiSchema,
 } from "./geminiResponseSchema";
@@ -75,6 +76,23 @@ describe("GEMINI_RESUME_RESPONSE_SCHEMA", () => {
     expect(sections.properties!.learningHistory.items!.type).toBe("OBJECT");
     expect(sections.properties!.references.type).toBe("ARRAY");
     expect(sections.properties!.references.items!.type).toBe("OBJECT");
+    expect(sections.properties!.additionalSections.type).toBe("ARRAY");
+    expect(sections.properties!.additionalSections.items!.type).toBe("OBJECT");
+    expect(
+      sections.properties!.additionalSections.items!.properties!.items.type,
+    ).toBe("ARRAY");
+  });
+
+  it("keeps the recovery schema limited to fixed fields and legacy sections", () => {
+    const sections =
+      GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA.properties!.sections.properties!;
+
+    expect(sections).toHaveProperty("learningHistory");
+    expect(sections).toHaveProperty("references");
+    expect(sections).not.toHaveProperty("additionalSections");
+    expect(GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA.properties).toEqual(
+      expect.not.objectContaining({ additionalSections: expect.anything() }),
+    );
   });
 
   it("only ever uses the restricted OpenAPI-subset type vocabulary Gemini documents", () => {

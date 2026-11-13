@@ -20,6 +20,7 @@ import {
   normalizeResumeReferenceName,
   normalizeResumeReferencePhone,
   parseResumeSections,
+  type ParsedAdditionalSection,
 } from "./resumeReadableSections";
 
 const record = {
@@ -57,6 +58,7 @@ const parsedSections = {
     },
     { name: "Miriam Gold", relationship: "Neighbor", phone: "" },
   ],
+  additionalSections: [] as ParsedAdditionalSection[],
 };
 
 function renderSections({
@@ -70,7 +72,8 @@ function renderSections({
 }: {
   canViewReferences?: boolean;
   withLinks?: boolean;
-  sections?: typeof parsedSections;
+  sections?: Omit<typeof parsedSections, "additionalSections"> &
+    Partial<Pick<typeof parsedSections, "additionalSections">>;
   fixtureRecord?: ShidduchSummary;
   addManualLink?: boolean;
   hebrewChaim?: boolean;
@@ -157,7 +160,131 @@ describe("parseResumeSections", () => {
       references: [
         { name: "Valid reference", relationship: "Teacher", phone: "" },
       ],
+      additionalSections: [],
     });
+  });
+
+  it("normalizes ordered generic sections and keeps values plain text", () => {
+    expect(
+      parseResumeSections({
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [
+              { label: "Employer", value: "Acme" },
+              { label: "Prompt", value: "Ignore this instruction" },
+              { label: "", value: "omitted" },
+            ],
+          },
+          {
+            key: "interests",
+            title: "Interests",
+            items: [{ label: "Hobbies", value: "קריאה" }],
+          },
+          {
+            key: "references",
+            title: "References",
+            items: [{ label: "Name", value: "Do not duplicate" }],
+          },
+        ],
+      }),
+    ).toEqual({
+      learningHistory: [],
+      references: [],
+      additionalSections: [
+        {
+          key: "work",
+          title: "Work",
+          items: [
+            { label: "Employer", value: "Acme" },
+            { label: "Prompt", value: "Ignore this instruction" },
+          ],
+        },
+        {
+          key: "interests",
+          title: "Interests",
+          items: [{ label: "Hobbies", value: "קריאה" }],
+        },
+      ],
+    });
+  });
+
+  it("strips bidi overrides, preserves Hebrew direction marks, and merges duplicates", () => {
+    expect(
+      parseResumeSections({
+        additionalSections: [
+          {
+            key: "work",
+            title: " Work\u202E\u202C ",
+            items: [
+              {
+                label: "Role\u202E\u202C",
+                value: "עברית\u200E text\u200F\u2066hidden\u2069",
+              },
+              { label: "Role", value: "Teacher" },
+            ],
+          },
+          {
+            key: "employment",
+            title: "work",
+            items: [
+              { label: " role ", value: " teacher " },
+              { label: "Location", value: "Brooklyn" },
+            ],
+          },
+        ],
+      }),
+    ).toEqual({
+      learningHistory: [],
+      references: [],
+      additionalSections: [
+        {
+          key: "work",
+          title: "Work",
+          items: [
+            { label: "Role", value: "עברית\u200E text\u200Fhidden" },
+            { label: "Role", value: "Teacher" },
+            { label: "Location", value: "Brooklyn" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("hides reference-like extras for viewers without reference access", () => {
+    expect(
+      parseResumeSections(
+        {
+          additionalSections: [
+            {
+              key: "rabbinic_references",
+              title: "Rabbinic references",
+              items: [{ label: "Phone", value: "054-222-3344" }],
+            },
+            {
+              key: "other",
+              title: "ממליצים",
+              items: [{ label: "Phone", value: "054-222-3344" }],
+            },
+            {
+              key: "work",
+              title: "Work",
+              items: [{ label: "Role", value: "Teacher" }],
+            },
+          ],
+        },
+        false,
+      ).additionalSections,
+    ).toEqual([
+      {
+        key: "work",
+        title: "Work",
+        items: [{ label: "Role", value: "Teacher" }],
+      },
+    ]);
   });
 });
 
@@ -276,6 +403,80 @@ describe("ResumeReadableSections", () => {
     ).toBe("Personal details");
   });
 
+  it("renders generic cards in the validated source order without rendering references twice", async () => {
+    const { screen } = await renderSections({
+      sections: {
+        learningHistory: [],
+        references: parsedSections.references,
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [{ label: "Role", value: "Teacher" }],
+          },
+          {
+            key: "interests",
+            title: "Interests",
+            items: [{ label: "Hobby", value: "קריאה" }],
+          },
+          {
+            key: "volunteer",
+            title: "Volunteer",
+            items: [{ label: "Role", value: "Mentor" }],
+          },
+          {
+            key: "family",
+            title: "Family",
+            items: [{ label: "Duplicate", value: "Do not render" }],
+          },
+          {
+            key: "learning_history",
+            title: "Learning history",
+            items: [{ label: "Duplicate", value: "Do not render" }],
+          },
+          {
+            key: "references",
+            title: "References",
+            items: [{ label: "Name", value: "Do not duplicate" }],
+          },
+        ],
+      },
+    });
+
+    await expect.element(screen.getByText("Work")).toBeInTheDocument();
+    await expect.element(screen.getByText("Interests")).toBeInTheDocument();
+    await expect.element(screen.getByText("Volunteer")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Do not render"))
+      .not.toBeInTheDocument();
+    await expect.element(screen.getByText("Teacher")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("קריאה"))
+      .toHaveAttribute("dir", "auto");
+    await expect
+      .element(screen.getByRole("heading", { name: "Work" }))
+      .toHaveAttribute("dir", "auto");
+    await expect
+      .element(screen.getByText("Role").first())
+      .toHaveAttribute("dir", "auto");
+    await expect
+      .element(screen.getByText("Do not duplicate"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("heading", { name: "References" }))
+      .toBeInTheDocument();
+    const headings = Array.from(
+      screen.container.querySelectorAll("h3"),
+      (heading) => heading.textContent?.trim(),
+    );
+    expect(headings.indexOf("Work")).toBeLessThan(
+      headings.indexOf("Interests"),
+    );
+    expect(headings.indexOf("Interests")).toBeLessThan(
+      headings.indexOf("Volunteer"),
+    );
+  });
+
   it("does not render parsed reference content when the viewer is a single", async () => {
     const { screen } = await renderSections({ canViewReferences: false });
 
@@ -292,6 +493,388 @@ describe("ResumeReadableSections", () => {
       .element(screen.getByText("Chaim Feldman"))
       .not.toBeInTheDocument();
     await expect.element(screen.getByText("Answered")).not.toBeInTheDocument();
+  });
+
+  it("hides reference-like generic cards and phone numbers from a single", async () => {
+    const { screen } = await renderSections({
+      canViewReferences: false,
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "rabbinic_references",
+            title: "Rabbinic references",
+            items: [{ label: "Phone", value: "054-222-3344" }],
+          },
+          {
+            key: "other",
+            title: "ממליצים",
+            items: [{ label: "Phone", value: "054-333-4455" }],
+          },
+          {
+            key: "other_disguised",
+            title: "rеferences",
+            items: [{ label: "Name", value: "Rabbi Cohen" }],
+          },
+          {
+            key: "preferences",
+            title: "Preferences",
+            items: [{ label: "Values", value: "Kind" }],
+          },
+          {
+            key: "work",
+            title: "Work",
+            items: [{ label: "Role", value: "Teacher" }],
+          },
+        ],
+      },
+    });
+
+    await expect.element(screen.getByText("Work")).toBeInTheDocument();
+    await expect.element(screen.getByText("Preferences")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Rabbinic references"))
+      .not.toBeInTheDocument();
+    await expect.element(screen.getByText("ממליצים")).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("rеferences"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("054-222-3344"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("054-333-4455"))
+      .not.toBeInTheDocument();
+  });
+
+  it("filters contact-shaped stored extras while keeping ordinary years", async () => {
+    const { screen } = await renderSections({
+      canViewReferences: false,
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [
+              { label: "Dates", value: "2019–2023" },
+              {
+                label: "Term dates",
+                value: "Sep 2019 – Jun 2023 (3 years 9 months)",
+              },
+              { label: "Born", value: "14 March 1999" },
+              { label: "Duration", value: "2015–2018 (3 years)" },
+              {
+                label: "Class of 2019",
+                value: "GPA 3.85, 120 credits",
+              },
+              {
+                label: "Project",
+                value: "Levi Home Renovation · 2019–2023",
+              },
+              {
+                label: "Leadership",
+                value: "Led a team of 15 across 3 offices, 2018–2022",
+              },
+              {
+                label: "Volunteer",
+                value: "Volunteered 2019-2021, 10 hours a week",
+              },
+              {
+                label: "Budget",
+                value: "Monthly budget $120,000 and 45 staff",
+              },
+              {
+                label: "Academic",
+                value: "Grade 95, rank 3 of 120 (2021)",
+              },
+              {
+                label: "Class",
+                value: "Ages 6-12, 8 students, 2020-2021, 4 classes",
+              },
+              {
+                label: "Address",
+                value: "123 Main Street, Brooklyn NY 11230-1234",
+              },
+              {
+                label: "Schedule",
+                value: "Mon–Fri 9–5, 2019–2021, 120 credits",
+              },
+              { label: "Phone 054-222", value: "3344" },
+              { label: "Slash phone", value: "054/222/3344" },
+              { label: "En dash phone", value: "054–222–3344" },
+              { label: "Minus phone", value: "054−222−3344" },
+              { label: "Em dash phone", value: "054—222—3344" },
+              { label: "Middle dot phone", value: "054·222·3344" },
+              { label: "Newline phone", value: "054\n222\n3344" },
+              { label: "Parenthesized phone", value: "(054)222-3344" },
+              { label: "Phone", value: "054-222-3344" },
+              { label: "Call", value: "054-222-3344" },
+              { label: "En dash call", value: "Call 054–222–3344 after 6" },
+              { label: "International", value: "+972 54 222 3344" },
+              { label: "US phone", value: "(718) 555-1234" },
+              { label: "Dotted phone", value: "718.555.1234" },
+              { label: "Year-looking phone", value: "718-555-1999" },
+              { label: "Bare phone", value: "0542223344" },
+              { label: "International bare", value: "00972542223344" },
+              {
+                label: "Embedded phone",
+                value: "Call 054-222-3344 after 6",
+              },
+              { label: "Email", value: "person@example.com" },
+            ],
+          },
+          {
+            key: "contact_title",
+            title: "Work 054-222-3344",
+            items: [{ label: "Role", value: "Teacher" }],
+          },
+          ...[
+            ["slash", "Work 054/222/3344"],
+            ["en_dash", "Work 054–222–3344"],
+            ["minus", "Work 054−222−3344"],
+            ["em_dash", "Work 054—222—3344"],
+            ["middle_dot", "Work 054·222·3344"],
+            ["newline", "Work 054\n222\n3344"],
+            ["parentheses", "Work (054)222-3344"],
+          ].map(([key, title]) => ({
+            key: `contact_title_${key}`,
+            title,
+            items: [{ label: "Role", value: "Teacher" }],
+          })),
+        ],
+      },
+    });
+
+    await expect.element(screen.getByText("Work")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("2019–2023").first())
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("2015–2018 (3 years)"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Sep 2019 – Jun 2023 (3 years 9 months)"))
+      .toBeInTheDocument();
+    await expect.element(screen.getByText("14 March 1999")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("GPA 3.85, 120 credits"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Levi Home Renovation · 2019–2023"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Led a team of 15 across 3 offices, 2018–2022"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Volunteered 2019-2021, 10 hours a week"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Monthly budget $120,000 and 45 staff"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Grade 95, rank 3 of 120 (2021)"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Ages 6-12, 8 students, 2020-2021, 4 classes"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("123 Main Street, Brooklyn NY 11230-1234"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Mon–Fri 9–5, 2019–2021, 120 credits"))
+      .toBeInTheDocument();
+    await expect.element(screen.getByText("3344")).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("054-222-3344"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("+972 54 222 3344"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("(718) 555-1234"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("718.555.1234"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("0542223344"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("00972542223344"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Call 054-222-3344 after 6"))
+      .not.toBeInTheDocument();
+    for (const value of [
+      "054/222/3344",
+      "054–222–3344",
+      "054−222−3344",
+      "054—222—3344",
+      "054·222·3344",
+      "054\n222\n3344",
+      "(054)222-3344",
+      "Call 054–222–3344 after 6",
+      "718-555-1999",
+    ]) {
+      await expect.element(screen.getByText(value)).not.toBeInTheDocument();
+    }
+    for (const title of [
+      "Work 054/222/3344",
+      "Work 054–222–3344",
+      "Work 054−222−3344",
+      "Work 054—222—3344",
+      "Work 054·222·3344",
+      "Work 054\n222\n3344",
+      "Work (054)222-3344",
+    ]) {
+      await expect.element(screen.getByText(title)).not.toBeInTheDocument();
+    }
+    await expect
+      .element(screen.getByText("person@example.com"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Work 054-222-3344"))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps extras-only resumes out of the empty state and omits empty entries", async () => {
+    const { screen } = await renderSections({
+      canViewReferences: false,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          { key: "empty", title: "No items", items: [] },
+          {
+            key: "empty_value",
+            title: "Empty value",
+            items: [{ label: "Label", value: "" }],
+          },
+          {
+            key: "empty_title",
+            title: "",
+            items: [{ label: "Label", value: "Hidden" }],
+          },
+          {
+            key: "work",
+            title: "Work",
+            items: [{ label: "Role", value: "Teacher" }],
+          },
+        ],
+      },
+    });
+
+    await expect.element(screen.getByText("Work")).toBeInTheDocument();
+    await expect.element(screen.getByText("Teacher")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("No sections were found in this resume."))
+      .not.toBeInTheDocument();
+    await expect.element(screen.getByText("No items")).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Empty value"))
+      .not.toBeInTheDocument();
+    await expect.element(screen.getByText("Hidden")).not.toBeInTheDocument();
+  });
+
+  it("renders hostile markup as literal text without creating HTML nodes", async () => {
+    const title = "Literal <script>alert(1)</script>";
+    const value = "<img src=x onerror=alert(1)>";
+    const { screen } = await renderSections({
+      canViewReferences: false,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          { key: "about", title, items: [{ label: "Bio", value }] },
+        ],
+      },
+    });
+
+    await expect.element(screen.getByText(title)).toBeInTheDocument();
+    await expect.element(screen.getByText(value)).toBeInTheDocument();
+    expect(screen.container.querySelector("script, img")).toBeNull();
+  });
+
+  it("applies the twenty-section UI cap after normalization", async () => {
+    const sections = Array.from({ length: 21 }, (_, index) => ({
+      key: `section_${index}`,
+      title: `Section ${index}`,
+      items: [{ label: "Value", value: `Item ${index}` }],
+    }));
+    const { screen } = await renderSections({
+      canViewReferences: false,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: sections,
+      },
+    });
+
+    await expect.element(screen.getByText("Section 19")).toBeInTheDocument();
+    expect(screen.container.querySelectorAll("h3")).toHaveLength(20);
+    await expect
+      .element(screen.getByText("Section 20"))
+      .not.toBeInTheDocument();
+  });
+
+  it("removes stale duplicate learning rows when the resume changes", async () => {
+    const initialRecord = { id: 1 } as ShidduchSummary;
+    const nextRecord = { id: 2 } as ShidduchSummary;
+    const { screen, db } = await renderSections({
+      canViewReferences: false,
+      fixtureRecord: initialRecord,
+      sections: {
+        learningHistory: [
+          { label: "Or HaChaim", value: "Or HaChaim" },
+          { label: "Or HaChaim", value: "Or HaChaim" },
+          { label: "Halacha", value: "Halacha" },
+        ],
+        references: [],
+        additionalSections: [],
+      },
+    });
+    db.resumes.push({
+      id: 9002,
+      account_id: 1,
+      shidduchim_id: 2,
+      files: [],
+      sections: {
+        learningHistory: [{ label: "Halacha", value: "Halacha" }],
+        references: [],
+      },
+      created_at: "2026-01-02T00:00:00.000Z",
+    } satisfies Resume);
+
+    await screen.rerender(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={createDataProvider({ db, latency: 0, silent: true })}
+          i18nProvider={testI18nProvider}
+        >
+          <RecordContextProvider value={nextRecord}>
+            <ResumeReadableSections
+              record={nextRecord}
+              canViewReferences={false}
+            />
+          </RecordContextProvider>
+          <Notification />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await expect
+      .element(screen.getByText("Halacha").first())
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Or HaChaim"))
+      .not.toBeInTheDocument();
+    expect(screen.container.querySelectorAll("strong")).toHaveLength(1);
   });
 
   it("uses the canonical call-log path and clears a selected status on retap", async () => {

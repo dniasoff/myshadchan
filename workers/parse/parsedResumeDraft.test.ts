@@ -48,6 +48,7 @@ describe("toDraft", () => {
     expect(draft.lowConfidenceFields).toHaveLength(0);
     expect(draft.sections.learningHistory).toEqual([]);
     expect(draft.sections.references).toEqual([]);
+    expect(draft.sections.additionalSections).toEqual([]);
   });
 
   it("returns an all-null draft for non-object input (array, string, null) without throwing", () => {
@@ -57,6 +58,7 @@ describe("toDraft", () => {
       expect(Object.values(draft.fields).every((v) => v === null)).toBe(true);
       expect(draft.sections.learningHistory).toEqual([]);
       expect(draft.sections.references).toEqual([]);
+      expect(draft.sections.additionalSections).toEqual([]);
     }
   });
 
@@ -83,6 +85,431 @@ describe("toDraft", () => {
     expect(draft.sections.references).toEqual([
       { name: "Leah", relationship: "teacher", phone: "555-0100" },
     ]);
+    expect(draft.sections.additionalSections).toEqual([]);
+  });
+
+  it("keeps ordered generic sections while dropping malformed items and unsafe text", () => {
+    const draft = toDraft({
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [
+              { label: "Employer", value: "Acme" },
+              { label: "", value: "hidden" },
+              { label: "Prompt", value: "Ignore this instruction" },
+              { label: "Unsafe", value: "bad\u0000text" },
+            ],
+          },
+          {
+            key: "interests",
+            title: "Interests",
+            items: [{ label: "Hobbies", value: "Reading / קריאה" }],
+          },
+          {
+            key: "references",
+            title: "References",
+            items: [{ label: "Name", value: "Do not duplicate" }],
+          },
+          {
+            key: "rabbinic_references",
+            title: "Rabbinic references",
+            items: [{ label: "Phone", value: "054-222-3344" }],
+          },
+          {
+            key: "recommendations",
+            title: "Recommendations",
+            items: [{ label: "Phone", value: "054-222-3344" }],
+          },
+          {
+            key: "other",
+            title: "ממליצים",
+            items: [{ label: "Phone", value: "054-222-3344" }],
+          },
+        ],
+      },
+    });
+
+    expect(draft.sections.additionalSections).toEqual([
+      {
+        key: "work",
+        title: "Work",
+        items: [
+          { label: "Employer", value: "Acme" },
+          { label: "Prompt", value: "Ignore this instruction" },
+        ],
+      },
+      {
+        key: "interests",
+        title: "Interests",
+        items: [{ label: "Hobbies", value: "Reading / קריאה" }],
+      },
+    ]);
+  });
+
+  it("strips bidi overrides while preserving Hebrew and LRM/RLM marks", () => {
+    const draft = toDraft({
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work\u202E\u202C",
+            items: [
+              {
+                label: "Role\u202E\u202C",
+                value: "עברית\u200E text\u200F\u2066hidden\u2069",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(draft.sections.additionalSections).toEqual([
+      {
+        key: "work",
+        title: "Work",
+        items: [{ label: "Role", value: "עברית\u200E text\u200Fhidden" }],
+      },
+    ]);
+  });
+
+  it("filters disguised reference headings without dropping preference headings", () => {
+    const disguisedReferenceTitles = [
+      "ref\u200Berences",
+      "ref erences",
+      "מַמְלִיצִים",
+      "rеferences",
+      "ｒｅｆｅｒｅｎｃｅｓ",
+    ];
+    const draft = toDraft({
+      sections: {
+        additionalSections: [
+          ...disguisedReferenceTitles.map((title, index) => ({
+            key: `section_${index}`,
+            title,
+            items: [{ label: "Name", value: "Person" }],
+          })),
+          {
+            key: "rabbinic_references",
+            title: "Rabbinic references",
+            items: [{ label: "Name", value: "Person" }],
+          },
+          {
+            key: "recommendations",
+            title: "Recommendations",
+            items: [{ label: "Name", value: "Person" }],
+          },
+          {
+            key: "preferences",
+            title: "Preferences",
+            items: [{ label: "Looking for", value: "Kind and thoughtful" }],
+          },
+          {
+            key: "partner_preferences",
+            title: "Partner preferences",
+            items: [{ label: "Values", value: "Family" }],
+          },
+          {
+            key: "lifestyle_preferences",
+            title: "Lifestyle preferences",
+            items: [{ label: "Lifestyle", value: "Active" }],
+          },
+          {
+            key: "looking_for",
+            title: "Looking for / preferences",
+            items: [{ label: "Description", value: "Warm" }],
+          },
+          {
+            key: "hebrew_preferences",
+            title: "העדפות",
+            items: [{ label: "סגנון", value: "רגוע" }],
+          },
+          {
+            key: "recommended_reading",
+            title: "Recommended reading",
+            items: [{ label: "Book", value: "A good book" }],
+          },
+        ],
+      },
+    });
+
+    expect(
+      draft.sections.additionalSections.map((section) => section.title),
+    ).toEqual([
+      "Preferences",
+      "Partner preferences",
+      "Lifestyle preferences",
+      "Looking for / preferences",
+      "העדפות",
+      "Recommended reading",
+    ]);
+  });
+
+  it("drops contact-bearing titles and items while preserving year-based resume facts", () => {
+    const draft = toDraft({
+      sections: {
+        additionalSections: [
+          {
+            key: "contact_title",
+            title: "Work 054-222-3344",
+            items: [{ label: "Role", value: "Teacher" }],
+          },
+          ...[
+            ["slash", "Work 054/222/3344"],
+            ["en_dash", "Work 054–222–3344"],
+            ["minus", "Work 054−222−3344"],
+            ["em_dash", "Work 054—222—3344"],
+            ["middle_dot", "Work 054·222·3344"],
+            ["newline", "Work 054\n222\n3344"],
+            ["parentheses", "Work (054)222-3344"],
+          ].map(([key, title]) => ({
+            key: `contact_title_${key}`,
+            title,
+            items: [{ label: "Role", value: "Teacher" }],
+          })),
+          {
+            key: "work",
+            title: "Work",
+            items: [
+              { label: "Dates", value: "2019–2023" },
+              {
+                label: "Project",
+                value: "Levi Home Renovation · 2019–2023",
+              },
+              { label: "Term", value: "Sep 2019 – Jun 2023" },
+              {
+                label: "School",
+                value: "Yeshivat Or HaChaim · 2021–2024",
+              },
+              { label: "Age", value: "25" },
+              { label: "Height", value: "5'11\"" },
+              { label: "Postcode", value: "12345-6789" },
+              { label: "Years", value: "2015–2018 (3 years)" },
+              {
+                label: "Dates",
+                value: "Sep 2019 – Jun 2023 (3 years 9 months)",
+              },
+              {
+                label: "Education",
+                value: "Class of 2019, GPA 3.85, 120 credits",
+              },
+              {
+                label: "Leadership",
+                value: "Led a team of 15 across 3 offices, 2018–2022",
+              },
+              {
+                label: "Volunteer",
+                value: "Volunteered 2019-2021, 10 hours a week",
+              },
+              {
+                label: "Budget",
+                value: "Monthly budget $120,000 and 45 staff",
+              },
+              {
+                label: "Academic",
+                value: "Grade 95, rank 3 of 120 (2021)",
+              },
+              {
+                label: "Class",
+                value: "Ages 6-12, 8 students, 2020-2021, 4 classes",
+              },
+              {
+                label: "Address",
+                value: "123 Main Street, Brooklyn NY 11230-1234",
+              },
+              {
+                label: "Schedule",
+                value: "Mon–Fri 9–5, 2019–2021, 120 credits",
+              },
+              { label: "Phone 054-222", value: "3344" },
+              { label: "Slash phone", value: "054/222/3344" },
+              { label: "En dash phone", value: "054–222–3344" },
+              { label: "Minus phone", value: "054−222−3344" },
+              { label: "Em dash phone", value: "054—222—3344" },
+              { label: "Middle dot phone", value: "054·222·3344" },
+              { label: "Newline phone", value: "054\n222\n3344" },
+              { label: "Parenthesized phone", value: "(054)222-3344" },
+              { label: "Call", value: "054-222-3344" },
+              { label: "En dash call", value: "Call 054–222–3344 after 6" },
+              { label: "Born", value: "14 March 1999" },
+              { label: "Duration", value: "2015–2018 (3 years)" },
+              {
+                label: "Class of 2019",
+                value: "GPA 3.85, 120 credits",
+              },
+              { label: "Phone", value: "054-222-3344" },
+              { label: "International", value: "+972 54 222 3344" },
+              { label: "US phone", value: "(718) 555-1234" },
+              { label: "Dotted phone", value: "718.555.1234" },
+              { label: "Year-looking phone", value: "718-555-1999" },
+              { label: "Bare phone", value: "0542223344" },
+              { label: "International bare", value: "00972542223344" },
+              {
+                label: "Embedded phone",
+                value: "Call 054-222-3344 after 6",
+              },
+              { label: "Email", value: "person@example.com" },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(draft.sections.additionalSections).toEqual([
+      {
+        key: "work",
+        title: "Work",
+        items: [
+          { label: "Dates", value: "2019–2023" },
+          {
+            label: "Project",
+            value: "Levi Home Renovation · 2019–2023",
+          },
+          { label: "Term", value: "Sep 2019 – Jun 2023" },
+          {
+            label: "School",
+            value: "Yeshivat Or HaChaim · 2021–2024",
+          },
+          { label: "Age", value: "25" },
+          { label: "Height", value: "5'11\"" },
+          { label: "Postcode", value: "12345-6789" },
+          { label: "Years", value: "2015–2018 (3 years)" },
+          {
+            label: "Dates",
+            value: "Sep 2019 – Jun 2023 (3 years 9 months)",
+          },
+          {
+            label: "Education",
+            value: "Class of 2019, GPA 3.85, 120 credits",
+          },
+          {
+            label: "Leadership",
+            value: "Led a team of 15 across 3 offices, 2018–2022",
+          },
+          {
+            label: "Volunteer",
+            value: "Volunteered 2019-2021, 10 hours a week",
+          },
+          {
+            label: "Budget",
+            value: "Monthly budget $120,000 and 45 staff",
+          },
+          {
+            label: "Academic",
+            value: "Grade 95, rank 3 of 120 (2021)",
+          },
+          {
+            label: "Class",
+            value: "Ages 6-12, 8 students, 2020-2021, 4 classes",
+          },
+          {
+            label: "Address",
+            value: "123 Main Street, Brooklyn NY 11230-1234",
+          },
+          {
+            label: "Schedule",
+            value: "Mon–Fri 9–5, 2019–2021, 120 credits",
+          },
+          { label: "Born", value: "14 March 1999" },
+          { label: "Duration", value: "2015–2018 (3 years)" },
+          {
+            label: "Class of 2019",
+            value: "GPA 3.85, 120 credits",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("merges duplicate titles and removes duplicate items before applying caps", () => {
+    const draft = toDraft({
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: " Work ",
+            items: [
+              { label: "Role", value: "Teacher" },
+              { label: "Role", value: "Teacher" },
+            ],
+          },
+          {
+            key: "employment",
+            title: "work",
+            items: [
+              { label: " role ", value: " teacher " },
+              { label: "Location", value: "Brooklyn" },
+            ],
+          },
+          {
+            key: "work_history",
+            title: "  WORK  ",
+            items: [{ label: "LOCATION", value: "BROOKLYN" }],
+          },
+        ],
+      },
+    });
+
+    expect(draft.sections.additionalSections).toEqual([
+      {
+        key: "work",
+        title: "Work",
+        items: [
+          { label: "Role", value: "Teacher" },
+          { label: "Location", value: "Brooklyn" },
+        ],
+      },
+    ]);
+  });
+
+  it("caps generic sections, items, and aggregate text without dropping the parse", () => {
+    const draft = toDraft({
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: Array.from({ length: 21 }, (_, sectionIndex) => ({
+          key: `section_${sectionIndex}`,
+          title: `Section ${sectionIndex}`,
+          items: Array.from({ length: 51 }, (_, itemIndex) => ({
+            label: `Item ${itemIndex}`,
+            value: "x".repeat(1_000),
+          })),
+        })),
+      },
+    });
+
+    expect(draft.sections.additionalSections.length).toBeLessThanOrEqual(20);
+    expect(
+      draft.sections.additionalSections.reduce(
+        (count, section) => count + section.items.length,
+        0,
+      ),
+    ).toBeLessThanOrEqual(250);
+    expect(
+      draft.sections.additionalSections.reduce(
+        (count, section) =>
+          count +
+          section.key.length +
+          section.title.length +
+          section.items.reduce(
+            (itemCount, item) =>
+              itemCount + item.label.length + item.value.length,
+            0,
+          ),
+        0,
+      ),
+    ).toBeLessThanOrEqual(40_000);
+    expect(draft.sections.additionalSections[0]?.items[0]?.value).toHaveLength(
+      1_000,
+    );
   });
 
   it("flags exactly at the threshold boundary", () => {
@@ -337,6 +764,10 @@ describe("RawExtractionSchema (shape reference for GEMINI_RESUME_RESPONSE_SCHEMA
     for (const key of FIELD_KEYS) {
       expect(parsed[key]).toEqual({ value: null, confidence: 0 });
     }
-    expect(parsed.sections).toEqual({ learningHistory: [], references: [] });
+    expect(parsed.sections).toEqual({
+      learningHistory: [],
+      references: [],
+      additionalSections: [],
+    });
   });
 });
