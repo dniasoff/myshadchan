@@ -482,10 +482,13 @@ values (9000001, 9000001, 9000001, 9000001, current_date - 30, 'First redt.');
 insert into public."references" (
     id, account_id, name_en, name_he, relationship, phone, school, grad_year
 )
-values (
-    9000001, 9000001, 'Rabbi Shloime Green', 'הרב שלמה גרין',
-    'rebbe', '054-123-4567', 'Mir', 2019
-);
+values
+    (9000001, 9000001, 'Rabbi Shloime Green', 'הרב שלמה גרין',
+     'rebbe', '054-123-4567', 'Mir', 2019),
+    -- Two identical phone/name identities make the matching candidate
+    -- ambiguous. The migration must leave it unlinked rather than guessing.
+    (9000002, 9000001, 'Ambiguous Person', null, 'friend', '054-222-2222', null, null),
+    (9000003, 9000001, 'Ambiguous Person', null, 'friend', '054-222-2222', null, null);
 
 insert into public.reference_links (
     id, account_id, reference_id, shidduchim_id, call_status,
@@ -497,11 +500,32 @@ values (
     '[{"q": "How long have you known him?", "a": "Six years."}]'::jsonb
 );
 
-insert into public.resumes (id, account_id, shidduchim_id, files, extracted)
+insert into public.resumes (id, account_id, shidduchim_id, files, extracted, sections)
 values (
     9000001, 9000001, 9000001,
     '[{"path": "9000001/resume.pdf", "title": "resume.pdf"}]'::jsonb,
-    '{"age": 24}'::jsonb
+    '{"age": 24}'::jsonb,
+    jsonb_build_object('references', jsonb_build_array(
+        jsonb_build_object('name', 'Rabbi Shloime Green', 'phone', '054-123-4567', 'relationship', 'rebbe'),
+        jsonb_build_object('name', 'Rabbi Eli Cohen', 'phone', '054-765-4321', 'relationship', 'friend'),
+        jsonb_build_object('name', 'Rabbi Eli Cohen', 'phone', '054-765-4321', 'relationship', 'friend'),
+        jsonb_build_object('name', 'Name Only Person', 'relationship', 'neighbor'),
+        jsonb_build_object('name', 'Ambiguous Person', 'phone', '054-222-2222', 'relationship', 'friend'),
+        jsonb_build_object('name', 'Junk Person', 'phone', 'not a phone', 'relationship', 'friend')
+    ))
+);
+
+-- A second suggestion carries the same person as the first. The account-wide
+-- reconciliation lock must reuse one canonical identity while creating two
+-- independent links, one per suggestion.
+insert into public.resumes (id, account_id, shidduchim_id, files, extracted, sections)
+values (
+    9000002, 9000001, 9000002,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    jsonb_build_object('references', jsonb_build_array(
+        jsonb_build_object('name', 'Rabbi Eli Cohen', 'phone', '054-765-4321', 'relationship', 'friend')
+    ))
 );
 
 -- Story 5.4: one photo row per resume, path-scoped to its account
@@ -1354,6 +1378,58 @@ begin
     end loop;
 end;
 $$;
+
+-- Scale probe for the pending resume-reference migration. These rows are
+-- intentionally inserted after the generic snapshot: they are load-test
+-- data, not production-shaped rows whose values the guard must preserve.
+-- 10,000 resumes span 200 accounts (50 each), plus one 5,000-resume account.
+-- Replication-role bypass keeps the baseline's old trigger set from doing the
+-- work before the migration under test installs its durable reconciliation
+-- trigger and runs the real backfill.
+set local session_replication_role = replica;
+insert into public.accounts (id, name, kind, inbound_email_token)
+select 9100000 + g, format('Resume sync scale account %s', g), 'household',
+       format('resume-scale-%s', g)
+from generate_series(1, 200) as accounts(g)
+union all
+select 9101000, 'Resume sync scale account 5000', 'household', 'resume-scale-5000';
+
+insert into public.shidduchim (id, account_id, single_id, name_en)
+select 92000000 + ((g - 1) * 50) + n,
+       9100000 + g,
+       9000001,
+       format('Resume sync scale suggestion %s-%s', g, n)
+from generate_series(1, 200) as accounts(g)
+cross join generate_series(1, 50) as suggestions(n)
+union all
+select 93000000 + n, 9101000, 9000001,
+       format('Resume sync scale suggestion 5000-%s', n)
+from generate_series(1, 5000) as suggestions(n);
+
+insert into public.resumes (id, account_id, shidduchim_id, sections)
+select 94000000 + ((g - 1) * 50) + n,
+       9100000 + g,
+       92000000 + ((g - 1) * 50) + n,
+       jsonb_build_object('references', jsonb_build_array(
+           jsonb_build_object(
+               'name', 'Scale Person',
+               'phone', '555-000-0000',
+               'relationship', 'scale probe'
+           )
+       ))
+from generate_series(1, 200) as accounts(g)
+cross join generate_series(1, 50) as suggestions(n)
+union all
+select 95000000 + n, 9101000, 93000000 + n,
+       jsonb_build_object('references', jsonb_build_array(
+           jsonb_build_object(
+               'name', 'Scale Person',
+               'phone', '555-000-0000',
+               'relationship', 'scale probe'
+           )
+       ))
+from generate_series(1, 5000) as suggestions(n);
+set local session_replication_role = origin;
 
 -- What derivation cannot give us: MEANINGFUL rows. `capture()` protects
 -- whatever a table already holds, but nothing in the catalog can invent a

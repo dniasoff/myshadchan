@@ -293,3 +293,184 @@ begin
         (select count(distinct s.table_name) from migration_guard.snapshot s);
 end;
 $$;
+
+-- Scale proof for the real migration backfill. The fixture adds 10,000
+-- resumes across 200 accounts and 5,000 resumes on one account after the
+-- generic snapshot is captured, so this section exercises the migration's
+-- account-lock/batched-DML path without making the row-preservation diff
+-- quadratic. It then reruns the same bounded reconcile loop and requires no
+-- reference or link count changes.
+do $$
+declare
+    v_started_at timestamptz := clock_timestamp();
+    v_account record;
+    v_resume record;
+    v_account_lock bigint;
+    v_last_resume_id bigint;
+    v_batch_count integer;
+    v_account_count bigint;
+    v_resume_count bigint;
+    v_before_references bigint;
+    v_before_links bigint;
+    v_after_references bigint;
+    v_after_links bigint;
+begin
+    select count(*) into v_account_count
+      from public.accounts
+     where id between 9100001 and 9100200 or id = 9101000;
+    select count(*) into v_resume_count
+      from public.resumes
+     where id between 94000001 and 94010000 or id between 95000001 and 95005000;
+
+    if v_account_count <> 201 or v_resume_count <> 15000 then
+        raise exception 'resume reference scale proof: expected 201 accounts/15000 resumes, got %/%',
+            v_account_count, v_resume_count;
+    end if;
+
+    if (select count(*) from public."references"
+        where account_id between 9100001 and 9100200 or account_id = 9101000) <> 201
+       or (select count(*) from public.reference_links
+           where account_id between 9100001 and 9100200 or account_id = 9101000) <> 15000 then
+        raise exception 'resume reference scale proof: migration did not create 201 identities and 15000 links';
+    end if;
+
+    for v_account in
+        select id as account_id
+          from public.accounts
+         where id between 9100001 and 9100200 or id = 9101000
+         order by id
+    loop
+        select count(*) into v_before_references
+          from public."references" where account_id = v_account.account_id;
+        select count(*) into v_before_links
+          from public.reference_links where account_id = v_account.account_id;
+
+        v_account_lock := hashtextextended(
+            format('resume-reference-account:%s', v_account.account_id), 0
+        );
+        perform pg_advisory_lock(v_account_lock);
+        begin
+            v_last_resume_id := 0;
+            loop
+                v_batch_count := 0;
+                for v_resume in
+                    select r.id
+                      from public.resumes r
+                     where r.account_id = v_account.account_id
+                       and r.id > v_last_resume_id
+                     order by r.id
+                     limit 250
+                loop
+                    v_batch_count := v_batch_count + 1;
+                    v_last_resume_id := v_resume.id;
+                    perform public.reconcile_resume_references_for_account(
+                        v_resume.id, v_account.account_id
+                    );
+                end loop;
+                exit when v_batch_count = 0;
+            end loop;
+        exception when others then
+            perform pg_advisory_unlock(v_account_lock);
+            raise;
+        end;
+        perform pg_advisory_unlock(v_account_lock);
+
+        select count(*) into v_after_references
+          from public."references" where account_id = v_account.account_id;
+        select count(*) into v_after_links
+          from public.reference_links where account_id = v_account.account_id;
+        if v_before_references <> v_after_references
+           or v_before_links <> v_after_links then
+            raise exception 'resume reference scale proof: rerun changed account % counts',
+                v_account.account_id;
+        end if;
+    end loop;
+
+    raise notice 'resume reference scale proof passed: accounts %, resumes %, rerun elapsed_ms %',
+        v_account_count, v_resume_count,
+        floor(extract(epoch from clock_timestamp() - v_started_at) * 1000)::bigint;
+end;
+$$;
+
+-- Resume-reference backfill proof. The fixture deliberately contains a valid
+-- candidate, a duplicate, a name-only candidate, an ambiguous identity, a
+-- non-empty malformed phone, the same person on two suggestions, and an
+-- existing Diligence link whose status/note/log must remain byte-for-byte
+-- unchanged. This is kept outside the generic row-preservation loop because
+-- all newly-created rows are intentionally absent from the baseline snapshot.
+do $$
+declare
+    v_before_references bigint;
+    v_before_links bigint;
+    v_after_references bigint;
+    v_after_links bigint;
+    v_result jsonb;
+    v_existing public.reference_links;
+    v_eli_id bigint;
+begin
+    select * into v_existing
+      from public.reference_links
+     where id = 9000001;
+
+    if v_existing.call_status is distinct from 'answered'
+       or v_existing.what_they_said is distinct from 'Very warm about the family.'
+       or v_existing.conversation_log is distinct from
+          '[{"q": "How long have you known him?", "a": "Six years."}]'::jsonb then
+        raise exception 'resume reference safety proof: existing Diligence link was overwritten';
+    end if;
+
+    select id into v_eli_id
+      from public."references"
+     where account_id = 9000001 and name_norm_en = public.normalize_identity_text('Rabbi Eli Cohen');
+
+    if v_eli_id is null then
+        raise exception 'resume reference safety proof: valid candidate did not create a reference';
+    end if;
+
+    if (select count(*) from public."references" where account_id = 9000001) <> 5
+       or (select count(*) from public.reference_links where account_id = 9000001) <> 4 then
+        raise exception 'resume reference safety proof: unexpected reference/link counts';
+    end if;
+
+    if (select count(*) from public.reference_links where reference_id = v_eli_id) <> 2
+       or (select count(*) from public.reference_links where reference_id = v_eli_id and shidduchim_id = 9000001) <> 1
+       or (select count(*) from public.reference_links where reference_id = v_eli_id and shidduchim_id = 9000002) <> 1 then
+        raise exception 'resume reference safety proof: same person did not get independent links';
+    end if;
+
+    if exists (
+        select 1
+          from public.reference_links
+         where reference_id in (9000002, 9000003)
+    ) or exists (
+        select 1
+          from public."references"
+         where account_id = 9000001
+           and name_norm_en = public.normalize_identity_text('Junk Person')
+    ) then
+        raise exception 'resume reference safety proof: ambiguous or malformed candidate was linked';
+    end if;
+
+    select count(*) into v_before_references
+      from public."references" where account_id = 9000001;
+    select count(*) into v_before_links
+      from public.reference_links where account_id = 9000001;
+    v_result := public.sync_resume_references_for_account(9000001, 9000001);
+    select count(*) into v_after_references
+      from public."references" where account_id = 9000001;
+    select count(*) into v_after_links
+      from public.reference_links where account_id = 9000001;
+
+    if v_before_references <> v_after_references
+       or v_before_links <> v_after_links
+       or coalesce((v_result ->> 'created_references')::integer, -1) <> 0
+       or coalesce((v_result ->> 'created_links')::integer, -1) <> 0
+       or coalesce((v_result ->> 'skipped_invalid')::integer, -1) <> 1
+       or coalesce((v_result ->> 'skipped_ambiguous')::integer, -1) <> 1 then
+        raise exception 'resume reference safety proof: idempotent rerun changed data or returned wrong counts: %', v_result;
+    end if;
+
+    raise notice 'resume reference safety proof passed: before/after references %, links %, rerun %',
+        v_before_references, v_before_links, v_result;
+end;
+$$;

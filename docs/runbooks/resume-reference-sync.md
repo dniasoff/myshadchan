@@ -1,14 +1,16 @@
 # Resume Reference Sync Runbook
 
-**Status:** Active  
+**Status:** Active
 **Story:** myshadchan-6f2 + myshadchan-n14
 
 ## What the migration does
 
 The migration reads parsed `resumes.sections.references` for suggestions that
-already have a resume. It runs account by account and resume by resume, using a
-transaction advisory lock for each account and parsed identity. It creates only
-safe missing `references` identities and `reference_links` rows. It never
+already have a resume. It runs account by account and resume by resume, using
+one account-wide advisory lock. The migration takes a session lock per account
+and releases it before moving on; online RPC/trigger calls take the same key for
+the transaction. Each resume examines at most 50 parsed candidates. It creates
+only safe missing `references` identities and `reference_links` rows. It never
 updates an existing reference, link, status, note, conversation log,
 relationship override, or interaction.
 
@@ -19,11 +21,14 @@ does not print names, phone numbers, or call notes. A malformed candidate stays
 unlinked. An account or resume error is isolated and counted; a structural
 database error fails the migration closed.
 
-The same `sync_resume_references` operation is called after a newly filed
-parsed resume is stored. That filing hook is asynchronous: a sync error is
-logged and swallowed so filing does not fail or wait on reference creation.
-The migration is the retry and existing-data path, and rerunning the operation
-is idempotent.
+The database installs an `AFTER INSERT` trigger and an `AFTER UPDATE OF
+sections` trigger on `resumes`. They call the same account-locked
+`sync_resume_references` routine after a newly filed or changed parsed resume
+is stored, so direct CRUD, workers, and clients all use the durable server
+path. An unchanged `sections` value is a no-op. Trigger errors are logged as a
+counts-only SQLSTATE notice and swallowed so the resume write never fails or
+rolls back. The migration is the retry and existing-data path, and rerunning
+the operation is idempotent.
 
 ## Matching and rollback
 

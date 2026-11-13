@@ -6863,7 +6863,7 @@ $$;
 -- identity/link tables. The account-scoped helper is callable by the guarded
 -- migration as well as the authenticated wrapper below; EXECUTE privileges
 -- are intentionally granted only on the wrapper in 06_grants.sql.
-CREATE OR REPLACE FUNCTION "public"."sync_resume_references_for_account"("p_resume_id" bigint, "p_account_id" bigint) RETURNS "jsonb"
+CREATE OR REPLACE FUNCTION "public"."reconcile_resume_references_for_account"("p_resume_id" bigint, "p_account_id" bigint) RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -6889,6 +6889,8 @@ declare
   v_reused_links integer := 0;
   v_skipped_ambiguous integer := 0;
   v_skipped_invalid integer := 0;
+  v_candidate_limit constant integer := 50;
+  v_candidate_count integer;
 begin
   if p_resume_id is null or p_account_id is null then
     raise exception 'resume reference sync needs a resume and account'
@@ -6925,24 +6927,22 @@ begin
       using errcode = 'foreign_key_violation';
   end if;
 
-  -- One resume is the unit of work for the filing hook. The per-candidate
-  -- lock below additionally serializes two resumes racing on one identity.
-  perform pg_advisory_xact_lock(
-    hashtextextended(
-      format('resume-reference-sync:%s:%s', p_account_id, p_resume_id),
-      0
-    )
-  );
-
   if jsonb_typeof(v_resume.sections -> 'references') = 'array' then
     v_references := v_resume.sections -> 'references';
   else
     v_references := '[]'::jsonb;
   end if;
 
+  -- Bound JSON work before validating any candidate. Overflow is counted as
+  -- invalid without expanding or inspecting the discarded tail.
+  v_candidate_count := jsonb_array_length(v_references);
+  v_skipped_invalid := greatest(v_candidate_count - v_candidate_limit, 0);
+
   for v_candidate in
-    select value
-    from jsonb_array_elements(v_references)
+    select candidate.value
+    from jsonb_array_elements(v_references) with ordinality as candidate(value, ordinal)
+    order by candidate.ordinal
+    limit v_candidate_limit
   loop
     if jsonb_typeof(v_candidate) <> 'object' then
       v_skipped_invalid := v_skipped_invalid + 1;
@@ -6966,8 +6966,14 @@ begin
     v_name_norm := public.normalize_identity_text(v_name_raw);
     v_phone_norm := public.normalize_phone(v_phone_raw);
 
-    -- A normalized one-character token is not a safe identity signal. An
-    -- invalid/short phone is treated as absent, never as a match key.
+    if v_phone_raw is not null and v_phone_norm is null then
+      v_skipped_invalid := v_skipped_invalid + 1;
+      continue;
+    end if;
+
+    -- A normalized one-character token is not a safe identity signal. A
+    -- non-empty invalid/short phone was rejected above; only a genuinely
+    -- blank phone is allowed to fall through to a name-only match.
     if v_name_norm is null or length(v_name_norm) < 2 then
       v_skipped_invalid := v_skipped_invalid + 1;
       continue;
@@ -6978,22 +6984,6 @@ begin
       continue;
     end if;
     v_seen_keys := array_append(v_seen_keys, v_candidate_key);
-
-    if v_phone_norm is not null then
-      perform pg_advisory_xact_lock(
-        hashtextextended(
-          format('resume-reference-phone:%s:%s:%s', p_account_id, v_shidduchim_id, v_phone_norm),
-          0
-        )
-      );
-    end if;
-
-    perform pg_advisory_xact_lock(
-      hashtextextended(
-        format('resume-reference-identity:%s:%s:%s', p_account_id, v_shidduchim_id, v_candidate_key),
-        0
-      )
-    );
 
     v_reference_id := null;
     v_name_matches := null;
@@ -7124,6 +7114,28 @@ begin
 end;
 $$;
 
+CREATE OR REPLACE FUNCTION "public"."sync_resume_references_for_account"("p_resume_id" bigint, "p_account_id" bigint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if p_account_id is null then
+    raise exception 'resume reference sync needs an account'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  -- Every online caller serializes the whole account. This is intentionally
+  -- the same lock key the trigger and migration use: identity creation can
+  -- then never race across two suggestions, and the migration can release
+  -- the session lock before moving to its next account.
+  perform pg_advisory_xact_lock(
+    hashtextextended(format('resume-reference-account:%s', p_account_id), 0)
+  );
+
+  return public.reconcile_resume_references_for_account(p_resume_id, p_account_id);
+end;
+$$;
+
 CREATE OR REPLACE FUNCTION "public"."sync_resume_references"("p_resume_id" bigint) RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -7153,6 +7165,27 @@ begin
   end if;
 
   return public.sync_resume_references_for_account(p_resume_id, v_account_id);
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."sync_resume_references_after_change"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if tg_op = 'UPDATE' and new.sections is not distinct from old.sections then
+    return new;
+  end if;
+
+  begin
+    perform public.sync_resume_references_for_account(new.id, new.account_id);
+  exception when others then
+    -- A filing must never fail because reconciliation is unavailable. Keep
+    -- the notice aggregate-safe: no resume id, name, phone, or note content.
+    raise notice 'resume reference sync trigger skipped one resume, SQLSTATE %', sqlstate;
+  end;
+
+  return new;
 end;
 $$;
 

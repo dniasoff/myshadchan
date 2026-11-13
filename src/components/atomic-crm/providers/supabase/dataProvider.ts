@@ -176,39 +176,6 @@ const createShidduchViaRpc = async (
   return row as Shidduch;
 };
 
-/**
- * Parsed resume filing is deliberately not held open on reference
- * reconciliation. The resume row is already durable when this fire-and-forget
- * RPC starts; any error is logged without exposing data or failing the filing
- * flow, and a later guarded backfill can retry it idempotently.
- */
-const logResumeReferenceSyncError = (error: unknown): void => {
-  const code =
-    error &&
-    typeof error === "object" &&
-    "code" in error &&
-    typeof error.code === "string"
-      ? error.code
-      : "unknown";
-  console.error("syncResumeReferencesAfterFiling.error", { code });
-};
-
-const syncResumeReferencesAfterFiling = (resumeId: Identifier): void => {
-  try {
-    void Promise.resolve(
-      getSupabaseClient().rpc("sync_resume_references", {
-        p_resume_id: resumeId,
-      }),
-    )
-      .then(({ error }) => {
-        if (error) logResumeReferenceSyncError(error);
-      })
-      .catch(logResumeReferenceSyncError);
-  } catch (error) {
-    logResumeReferenceSyncError(error);
-  }
-};
-
 // Story 7.1 (AC-1, AC-2, AC-7)/Story 7.4 (AC-1): the SOLE creation path for
 // a thread and its initial participants together (mirrors
 // create_shidduch()'s "one creation path" precedent above) — the SPA never
@@ -623,16 +590,7 @@ export const getDataProviderWithCustomMethods = () => {
       if (resource === "shidduchim") {
         return { data: await createShidduchViaRpc(params.data ?? {}) } as any;
       }
-      const result = await baseDataProvider.create(resource, params);
-      if (
-        resource === "resumes" &&
-        result.data?.id != null &&
-        params.data?.shidduchim_id != null &&
-        params.data?.sections != null
-      ) {
-        syncResumeReferencesAfterFiling(result.data.id);
-      }
-      return result;
+      return baseDataProvider.create(resource, params);
     },
 
     async memberUpdate(id: Identifier, data: Partial<MemberFormData>) {

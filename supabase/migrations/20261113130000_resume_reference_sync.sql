@@ -9,7 +9,7 @@
 
 set check_function_bodies = off;
 
-CREATE OR REPLACE FUNCTION "public"."sync_resume_references_for_account"("p_resume_id" bigint, "p_account_id" bigint) RETURNS "jsonb"
+CREATE OR REPLACE FUNCTION "public"."reconcile_resume_references_for_account"("p_resume_id" bigint, "p_account_id" bigint) RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -35,6 +35,8 @@ declare
   v_reused_links integer := 0;
   v_skipped_ambiguous integer := 0;
   v_skipped_invalid integer := 0;
+  v_candidate_limit constant integer := 50;
+  v_candidate_count integer;
 begin
   if p_resume_id is null or p_account_id is null then
     raise exception 'resume reference sync needs a resume and account'
@@ -71,24 +73,22 @@ begin
       using errcode = 'foreign_key_violation';
   end if;
 
-  -- One resume is the unit of work for the filing hook. The per-candidate
-  -- lock below additionally serializes two resumes racing on one identity.
-  perform pg_advisory_xact_lock(
-    hashtextextended(
-      format('resume-reference-sync:%s:%s', p_account_id, p_resume_id),
-      0
-    )
-  );
-
   if jsonb_typeof(v_resume.sections -> 'references') = 'array' then
     v_references := v_resume.sections -> 'references';
   else
     v_references := '[]'::jsonb;
   end if;
 
+  -- Bound JSON work before validating any candidate. Overflow is counted as
+  -- invalid without expanding or inspecting the discarded tail.
+  v_candidate_count := jsonb_array_length(v_references);
+  v_skipped_invalid := greatest(v_candidate_count - v_candidate_limit, 0);
+
   for v_candidate in
-    select value
-    from jsonb_array_elements(v_references)
+    select candidate.value
+    from jsonb_array_elements(v_references) with ordinality as candidate(value, ordinal)
+    order by candidate.ordinal
+    limit v_candidate_limit
   loop
     if jsonb_typeof(v_candidate) <> 'object' then
       v_skipped_invalid := v_skipped_invalid + 1;
@@ -112,8 +112,14 @@ begin
     v_name_norm := public.normalize_identity_text(v_name_raw);
     v_phone_norm := public.normalize_phone(v_phone_raw);
 
-    -- A normalized one-character token is not a safe identity signal. An
-    -- invalid/short phone is treated as absent, never as a match key.
+    if v_phone_raw is not null and v_phone_norm is null then
+      v_skipped_invalid := v_skipped_invalid + 1;
+      continue;
+    end if;
+
+    -- A normalized one-character token is not a safe identity signal. A
+    -- non-empty invalid/short phone was rejected above; only a genuinely
+    -- blank phone is allowed to fall through to a name-only match.
     if v_name_norm is null or length(v_name_norm) < 2 then
       v_skipped_invalid := v_skipped_invalid + 1;
       continue;
@@ -124,22 +130,6 @@ begin
       continue;
     end if;
     v_seen_keys := array_append(v_seen_keys, v_candidate_key);
-
-    if v_phone_norm is not null then
-      perform pg_advisory_xact_lock(
-        hashtextextended(
-          format('resume-reference-phone:%s:%s:%s', p_account_id, v_shidduchim_id, v_phone_norm),
-          0
-        )
-      );
-    end if;
-
-    perform pg_advisory_xact_lock(
-      hashtextextended(
-        format('resume-reference-identity:%s:%s:%s', p_account_id, v_shidduchim_id, v_candidate_key),
-        0
-      )
-    );
 
     v_reference_id := null;
     v_name_matches := null;
@@ -270,6 +260,28 @@ begin
 end;
 $$;
 
+CREATE OR REPLACE FUNCTION "public"."sync_resume_references_for_account"("p_resume_id" bigint, "p_account_id" bigint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if p_account_id is null then
+    raise exception 'resume reference sync needs an account'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  -- Every online caller serializes the whole account. This is intentionally
+  -- the same lock key the trigger and migration use: identity creation can
+  -- then never race across two suggestions, and the migration can release
+  -- the session lock before moving to its next account.
+  perform pg_advisory_xact_lock(
+    hashtextextended(format('resume-reference-account:%s', p_account_id), 0)
+  );
+
+  return public.reconcile_resume_references_for_account(p_resume_id, p_account_id);
+end;
+$$;
+
 CREATE OR REPLACE FUNCTION "public"."sync_resume_references"("p_resume_id" bigint) RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -302,10 +314,43 @@ begin
 end;
 $$;
 
+CREATE OR REPLACE FUNCTION "public"."sync_resume_references_after_change"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if tg_op = 'UPDATE' and new.sections is not distinct from old.sections then
+    return new;
+  end if;
+
+  begin
+    perform public.sync_resume_references_for_account(new.id, new.account_id);
+  exception when others then
+    -- A filing must never fail because reconciliation is unavailable. Keep
+    -- the notice aggregate-safe: no resume id, name, phone, or note content.
+    raise notice 'resume reference sync trigger skipped one resume, SQLSTATE %', sqlstate;
+  end;
+
+  return new;
+end;
+$$;
+
 revoke all on function public.sync_resume_references(bigint) from public, anon;
 grant execute on function public.sync_resume_references(bigint) to authenticated, service_role;
 revoke all on function public.sync_resume_references_for_account(bigint, bigint) from public, anon, authenticated;
 grant execute on function public.sync_resume_references_for_account(bigint, bigint) to service_role;
+revoke all on function public.reconcile_resume_references_for_account(bigint, bigint) from public, anon, authenticated, service_role;
+revoke all on function public.sync_resume_references_after_change() from public, anon, authenticated, service_role;
+
+create or replace trigger sync_resume_references_after_insert
+    after insert on public.resumes
+    for each row execute function public.sync_resume_references_after_change();
+
+create or replace trigger sync_resume_references_after_sections_update
+    after update of sections on public.resumes
+    for each row
+    when (old.sections is distinct from new.sections)
+    execute function public.sync_resume_references_after_change();
 
 do $$
 declare
@@ -320,6 +365,11 @@ declare
   v_skipped_ambiguous bigint := 0;
   v_skipped_invalid bigint := 0;
   v_skipped_resumes bigint := 0;
+  v_account_lock bigint;
+  v_last_resume_id bigint;
+  v_batch_count integer;
+  v_batch_size constant integer := 250;
+  v_started_at timestamptz := clock_timestamp();
 begin
   -- Dry-run report: counts only, deliberately no names, phones, or note text.
   select count(*), coalesce(sum(
@@ -341,54 +391,74 @@ begin
     where r.shidduchim_id is not null
     order by r.account_id
   loop
-    perform pg_advisory_xact_lock(
-      hashtextextended(format('resume-reference-backfill:%s', v_account.account_id), 0)
+    v_account_lock := hashtextextended(
+      format('resume-reference-account:%s', v_account.account_id), 0
     );
+    -- Session-level, not transaction-level: the migration visits many
+    -- accounts in one transaction, so an xact lock per account would retain
+    -- thousands of lock entries until commit. This lock is released in the
+    -- account block before the next account begins.
+    perform pg_advisory_lock(v_account_lock);
+    begin
+      v_last_resume_id := 0;
+      loop
+        v_batch_count := 0;
+        for v_resume in
+          select r.id
+          from public.resumes r
+          where r.account_id = v_account.account_id
+            and r.shidduchim_id is not null
+            and r.id > v_last_resume_id
+          order by r.id
+          limit v_batch_size
+        loop
+          v_batch_count := v_batch_count + 1;
+          v_last_resume_id := v_resume.id;
+          begin
+            select public.reconcile_resume_references_for_account(
+              v_resume.id, v_account.account_id
+            ) into v_result;
 
-    for v_resume in
-      select r.id
-      from public.resumes r
-      where r.account_id = v_account.account_id
-        and r.shidduchim_id is not null
-      order by r.id
-    loop
-      begin
-        select public.sync_resume_references_for_account(
-          v_resume.id, v_account.account_id
-        ) into v_result;
-
-        v_created_references := v_created_references
-          + coalesce((v_result ->> 'created_references')::bigint, 0);
-        v_created_links := v_created_links
-          + coalesce((v_result ->> 'created_links')::bigint, 0);
-        v_reused_links := v_reused_links
-          + coalesce((v_result ->> 'reused_links')::bigint, 0);
-        v_skipped_ambiguous := v_skipped_ambiguous
-          + coalesce((v_result ->> 'skipped_ambiguous')::bigint, 0);
-        v_skipped_invalid := v_skipped_invalid
-          + coalesce((v_result ->> 'skipped_invalid')::bigint, 0);
-      exception when others then
-        -- Candidate data problems must not strand the rest of the account.
-        -- Catalog, transaction, and internal errors fail closed so a broken
-        -- migration cannot report a green partial backfill.
-        if sqlstate like '42%'
-           or sqlstate like '0A%'
-           or sqlstate like '25%'
-           or sqlstate like '53%'
-           or sqlstate like '57%'
-           or sqlstate like '58%'
-           or sqlstate like 'XX%' then
-          raise;
-        end if;
-        v_skipped_resumes := v_skipped_resumes + 1;
-      end;
-    end loop;
+            v_created_references := v_created_references
+              + coalesce((v_result ->> 'created_references')::bigint, 0);
+            v_created_links := v_created_links
+              + coalesce((v_result ->> 'created_links')::bigint, 0);
+            v_reused_links := v_reused_links
+              + coalesce((v_result ->> 'reused_links')::bigint, 0);
+            v_skipped_ambiguous := v_skipped_ambiguous
+              + coalesce((v_result ->> 'skipped_ambiguous')::bigint, 0);
+            v_skipped_invalid := v_skipped_invalid
+              + coalesce((v_result ->> 'skipped_invalid')::bigint, 0);
+          exception when others then
+            -- Candidate data problems must not strand the rest of the account.
+            -- Catalog, transaction, and internal errors fail closed so a broken
+            -- migration cannot report a green partial backfill.
+            if sqlstate like '42%'
+               or sqlstate like '0A%'
+               or sqlstate like '25%'
+               or sqlstate like '53%'
+               or sqlstate like '57%'
+               or sqlstate like '58%'
+               or sqlstate like 'XX%' then
+              raise;
+            end if;
+            v_skipped_resumes := v_skipped_resumes + 1;
+          end;
+        end loop;
+        exit when v_batch_count = 0;
+      end loop;
+    exception when others then
+      perform pg_advisory_unlock(v_account_lock);
+      raise;
+    end;
+    perform pg_advisory_unlock(v_account_lock);
   end loop;
 
-  raise notice 'resume reference sync complete: accounts %, resumes read %, links created %, references created %, links reused %, ambiguous skipped %, invalid skipped %, resumes skipped %',
+  raise notice 'resume reference sync complete: accounts %, resumes read %, links created %, references created %, links reused %, ambiguous skipped %, invalid skipped %, resumes skipped %, elapsed_ms %',
     (select count(distinct r.account_id) from public.resumes r where r.shidduchim_id is not null),
     v_resume_count, v_created_links, v_created_references, v_reused_links,
-    v_skipped_ambiguous, v_skipped_invalid, v_skipped_resumes;
+    v_skipped_ambiguous, v_skipped_invalid, v_skipped_resumes,
+    floor(extract(epoch from clock_timestamp() - v_started_at) * 1000)::bigint;
 end;
 $$;
 
