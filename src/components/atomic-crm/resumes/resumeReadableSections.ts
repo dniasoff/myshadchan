@@ -30,6 +30,24 @@ const MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH = 40_000;
 const MAX_ADDITIONAL_SECTION_KEY_LENGTH = 80;
 const MAX_ADDITIONAL_SECTION_TITLE_LENGTH = 120;
 const MAX_ADDITIONAL_SECTION_TEXT_LENGTH = 1_000;
+const REFERENCE_LIKE_SECTION_PATTERN =
+  /reference|referee|recommend|ממליצ|המלצ/iu;
+const FIXED_SECTION_TITLE_KEYS = new Set([
+  "personal details",
+  "family",
+  "learning and community",
+  "learning history",
+  "name",
+  "age",
+  "height",
+  "location",
+  "marital status",
+  "kohen status",
+  "father",
+  "mother",
+  "seminary / yeshiva",
+  "shul",
+]);
 
 const asText = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
@@ -185,13 +203,38 @@ const readAdditionalSectionItems = (
 const normalizeSectionTitle = (value: string): string =>
   value.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
 
+const isReferenceLikeSection = (key: string, title: string): boolean =>
+  REFERENCE_LIKE_SECTION_PATTERN.test(key) ||
+  REFERENCE_LIKE_SECTION_PATTERN.test(normalizeSectionTitle(title));
+
+const isFixedSectionDuplicate = (title: string): boolean =>
+  FIXED_SECTION_TITLE_KEYS.has(normalizeSectionTitle(title));
+
 const normalizeItemKey = (item: ParsedAdditionalSectionItem): string =>
   JSON.stringify([
     item.label.trim().replace(/\s+/gu, " ").toLocaleLowerCase(),
     item.value.trim().replace(/\s+/gu, " ").toLocaleLowerCase(),
   ]);
 
-const readAdditionalSections = (value: unknown): ParsedAdditionalSection[] => {
+const normalizeLearningHistory = (value: unknown): ParsedLearningItem[] => {
+  const items = readStringArray(value, (item) => {
+    const label = asText(item.label);
+    const text = asText(item.value);
+    return label && text ? { label, value: text } : null;
+  });
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = normalizeItemKey(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const readAdditionalSections = (
+  value: unknown,
+  canViewReferences: boolean,
+): ParsedAdditionalSection[] => {
   if (!Array.isArray(value)) return [];
 
   const mergedSections: ParsedAdditionalSection[] = [];
@@ -213,7 +256,12 @@ const readAdditionalSections = (value: unknown): ParsedAdditionalSection[] => {
     ) {
       continue;
     }
-    if (key === "references" || normalizeSectionTitle(title) === "references") {
+    if (
+      key === "references" ||
+      normalizeSectionTitle(title) === "references" ||
+      (!canViewReferences && isReferenceLikeSection(key, title)) ||
+      isFixedSectionDuplicate(title)
+    ) {
       continue;
     }
 
@@ -294,18 +342,17 @@ const readAdditionalSections = (value: unknown): ParsedAdditionalSection[] => {
  * resumes. The readable surface is deliberately fail-soft: invalid entries
  * disappear, while the original file remains available above it.
  */
-export function parseResumeSections(value: unknown): ParsedResumeSections {
+export function parseResumeSections(
+  value: unknown,
+  canViewReferences = true,
+): ParsedResumeSections {
   const sections = recordValue(value);
   if (!sections) {
     return { learningHistory: [], references: [], additionalSections: [] };
   }
 
   return {
-    learningHistory: readStringArray(sections.learningHistory, (item) => {
-      const label = asText(item.label);
-      const text = asText(item.value);
-      return label && text ? { label, value: text } : null;
-    }),
+    learningHistory: normalizeLearningHistory(sections.learningHistory),
     references: readStringArray(sections.references, (item) => {
       const name = asText(item.name);
       if (!name) return null;
@@ -315,6 +362,9 @@ export function parseResumeSections(value: unknown): ParsedResumeSections {
         phone: asText(item.phone),
       };
     }),
-    additionalSections: readAdditionalSections(sections.additionalSections),
+    additionalSections: readAdditionalSections(
+      sections.additionalSections,
+      canViewReferences,
+    ),
   };
 }

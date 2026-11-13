@@ -71,7 +71,7 @@ const FULL_RESUME_PROMPT =
   "Include sections.additionalSections as an ordered array of resume sections, each {key, title, items:[{label, value}]}. " +
   "Use a lowercase snake_case key such as education, work, interests, skills, languages, volunteer, community, family, looking_for, about, or other; use the resume's own heading as title and preserve section order. " +
   "Return at most 20 additional sections, 50 items per section, and 250 items total; keep their combined text concise (under 24,000 characters). " +
-  "Do not include references in additionalSections because sections.references remains the canonical reference list. ";
+  "Do not repeat any fixed field, learningHistory, or reference in additionalSections; sections.references remains the canonical reference list. ";
 
 const LEGACY_RECOVERY_PROMPT =
   FIXED_RESUME_FIELDS_PROMPT +

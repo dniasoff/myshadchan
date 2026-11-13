@@ -253,6 +253,39 @@ describe("parseResumeSections", () => {
       ],
     });
   });
+
+  it("hides reference-like extras for viewers without reference access", () => {
+    expect(
+      parseResumeSections(
+        {
+          additionalSections: [
+            {
+              key: "rabbinic_references",
+              title: "Rabbinic references",
+              items: [{ label: "Phone", value: "054-222-3344" }],
+            },
+            {
+              key: "other",
+              title: "ממליצים",
+              items: [{ label: "Phone", value: "054-222-3344" }],
+            },
+            {
+              key: "work",
+              title: "Work",
+              items: [{ label: "Role", value: "Teacher" }],
+            },
+          ],
+        },
+        false,
+      ).additionalSections,
+    ).toEqual([
+      {
+        key: "work",
+        title: "Work",
+        items: [{ label: "Role", value: "Teacher" }],
+      },
+    ]);
+  });
 });
 
 describe("resume reference matching", () => {
@@ -387,6 +420,21 @@ describe("ResumeReadableSections", () => {
             items: [{ label: "Hobby", value: "קריאה" }],
           },
           {
+            key: "volunteer",
+            title: "Volunteer",
+            items: [{ label: "Role", value: "Mentor" }],
+          },
+          {
+            key: "family",
+            title: "Family",
+            items: [{ label: "Duplicate", value: "Do not render" }],
+          },
+          {
+            key: "learning_history",
+            title: "Learning history",
+            items: [{ label: "Duplicate", value: "Do not render" }],
+          },
+          {
             key: "references",
             title: "References",
             items: [{ label: "Name", value: "Do not duplicate" }],
@@ -397,9 +445,19 @@ describe("ResumeReadableSections", () => {
 
     await expect.element(screen.getByText("Work")).toBeInTheDocument();
     await expect.element(screen.getByText("Interests")).toBeInTheDocument();
+    await expect.element(screen.getByText("Volunteer")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Do not render"))
+      .not.toBeInTheDocument();
     await expect.element(screen.getByText("Teacher")).toBeInTheDocument();
     await expect
       .element(screen.getByText("קריאה"))
+      .toHaveAttribute("dir", "auto");
+    await expect
+      .element(screen.getByRole("heading", { name: "Work" }))
+      .toHaveAttribute("dir", "auto");
+    await expect
+      .element(screen.getByText("Role").first())
       .toHaveAttribute("dir", "auto");
     await expect
       .element(screen.getByText("Do not duplicate"))
@@ -407,6 +465,16 @@ describe("ResumeReadableSections", () => {
     await expect
       .element(screen.getByRole("heading", { name: "References" }))
       .toBeInTheDocument();
+    const headings = Array.from(
+      screen.container.querySelectorAll("h3"),
+      (heading) => heading.textContent?.trim(),
+    );
+    expect(headings.indexOf("Work")).toBeLessThan(
+      headings.indexOf("Interests"),
+    );
+    expect(headings.indexOf("Interests")).toBeLessThan(
+      headings.indexOf("Volunteer"),
+    );
   });
 
   it("does not render parsed reference content when the viewer is a single", async () => {
@@ -425,6 +493,182 @@ describe("ResumeReadableSections", () => {
       .element(screen.getByText("Chaim Feldman"))
       .not.toBeInTheDocument();
     await expect.element(screen.getByText("Answered")).not.toBeInTheDocument();
+  });
+
+  it("hides reference-like generic cards and phone numbers from a single", async () => {
+    const { screen } = await renderSections({
+      canViewReferences: false,
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "rabbinic_references",
+            title: "Rabbinic references",
+            items: [{ label: "Phone", value: "054-222-3344" }],
+          },
+          {
+            key: "other",
+            title: "ממליצים",
+            items: [{ label: "Phone", value: "054-333-4455" }],
+          },
+          {
+            key: "work",
+            title: "Work",
+            items: [{ label: "Role", value: "Teacher" }],
+          },
+        ],
+      },
+    });
+
+    await expect.element(screen.getByText("Work")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Rabbinic references"))
+      .not.toBeInTheDocument();
+    await expect.element(screen.getByText("ממליצים")).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("054-222-3344"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("054-333-4455"))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps extras-only resumes out of the empty state and omits empty entries", async () => {
+    const { screen } = await renderSections({
+      canViewReferences: false,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          { key: "empty", title: "No items", items: [] },
+          {
+            key: "empty_value",
+            title: "Empty value",
+            items: [{ label: "Label", value: "" }],
+          },
+          {
+            key: "empty_title",
+            title: "",
+            items: [{ label: "Label", value: "Hidden" }],
+          },
+          {
+            key: "work",
+            title: "Work",
+            items: [{ label: "Role", value: "Teacher" }],
+          },
+        ],
+      },
+    });
+
+    await expect.element(screen.getByText("Work")).toBeInTheDocument();
+    await expect.element(screen.getByText("Teacher")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("No sections were found in this resume."))
+      .not.toBeInTheDocument();
+    await expect.element(screen.getByText("No items")).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Empty value"))
+      .not.toBeInTheDocument();
+    await expect.element(screen.getByText("Hidden")).not.toBeInTheDocument();
+  });
+
+  it("renders hostile markup as literal text without creating HTML nodes", async () => {
+    const title = "Literal <script>alert(1)</script>";
+    const value = "<img src=x onerror=alert(1)>";
+    const { screen } = await renderSections({
+      canViewReferences: false,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          { key: "about", title, items: [{ label: "Bio", value }] },
+        ],
+      },
+    });
+
+    await expect.element(screen.getByText(title)).toBeInTheDocument();
+    await expect.element(screen.getByText(value)).toBeInTheDocument();
+    expect(screen.container.querySelector("script, img")).toBeNull();
+  });
+
+  it("applies the twenty-section UI cap after normalization", async () => {
+    const sections = Array.from({ length: 21 }, (_, index) => ({
+      key: `section_${index}`,
+      title: `Section ${index}`,
+      items: [{ label: "Value", value: `Item ${index}` }],
+    }));
+    const { screen } = await renderSections({
+      canViewReferences: false,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: sections,
+      },
+    });
+
+    await expect.element(screen.getByText("Section 19")).toBeInTheDocument();
+    expect(screen.container.querySelectorAll("h3")).toHaveLength(20);
+    await expect
+      .element(screen.getByText("Section 20"))
+      .not.toBeInTheDocument();
+  });
+
+  it("removes stale duplicate learning rows when the resume changes", async () => {
+    const initialRecord = { id: 1 } as ShidduchSummary;
+    const nextRecord = { id: 2 } as ShidduchSummary;
+    const { screen, db } = await renderSections({
+      canViewReferences: false,
+      fixtureRecord: initialRecord,
+      sections: {
+        learningHistory: [
+          { label: "Or HaChaim", value: "Or HaChaim" },
+          { label: "Or HaChaim", value: "Or HaChaim" },
+          { label: "Halacha", value: "Halacha" },
+        ],
+        references: [],
+        additionalSections: [],
+      },
+    });
+    db.resumes.push({
+      id: 9002,
+      account_id: 1,
+      shidduchim_id: 2,
+      files: [],
+      sections: {
+        learningHistory: [{ label: "Halacha", value: "Halacha" }],
+        references: [],
+      },
+      created_at: "2026-01-02T00:00:00.000Z",
+    } satisfies Resume);
+
+    await screen.rerender(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={createDataProvider({ db, latency: 0, silent: true })}
+          i18nProvider={testI18nProvider}
+        >
+          <RecordContextProvider value={nextRecord}>
+            <ResumeReadableSections
+              record={nextRecord}
+              canViewReferences={false}
+            />
+          </RecordContextProvider>
+          <Notification />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await expect
+      .element(screen.getByText("Halacha").first())
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Or HaChaim"))
+      .not.toBeInTheDocument();
+    expect(screen.container.querySelectorAll("strong")).toHaveLength(1);
   });
 
   it("uses the canonical call-log path and clears a selected status on retap", async () => {

@@ -176,6 +176,13 @@ function tolerantArray<Item extends z.ZodTypeAny>(
 const normalizeSectionTitle = (value: string): string =>
   value.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
 
+const REFERENCE_LIKE_SECTION_PATTERN =
+  /reference|referee|recommend|ממליצ|המלצ/iu;
+
+const isReferenceLikeSection = (key: string, title: string): boolean =>
+  REFERENCE_LIKE_SECTION_PATTERN.test(key) ||
+  REFERENCE_LIKE_SECTION_PATTERN.test(normalizeSectionTitle(title));
+
 const normalizeItemKey = (
   item: z.infer<typeof AdditionalSectionItemSchema>,
 ): string =>
@@ -198,10 +205,7 @@ const normalizeAdditionalSections = (
   for (const entry of raw) {
     const result = AdditionalSectionSchema.safeParse(entry);
     if (!result.success || result.data.items.length === 0) continue;
-    if (
-      result.data.key === "references" ||
-      normalizeSectionTitle(result.data.title) === "references"
-    ) {
+    if (isReferenceLikeSection(result.data.key, result.data.title)) {
       continue;
     }
 

@@ -114,6 +114,21 @@ describe("toDraft", () => {
             title: "References",
             items: [{ label: "Name", value: "Do not duplicate" }],
           },
+          {
+            key: "rabbinic_references",
+            title: "Rabbinic references",
+            items: [{ label: "Phone", value: "054-222-3344" }],
+          },
+          {
+            key: "recommendations",
+            title: "Recommendations",
+            items: [{ label: "Phone", value: "054-222-3344" }],
+          },
+          {
+            key: "other",
+            title: "ממליצים",
+            items: [{ label: "Phone", value: "054-222-3344" }],
+          },
         ],
       },
     });

@@ -180,7 +180,10 @@ export function ResumeReadableSections({
     },
   );
   const resume = resumes?.[0];
-  const sections = parseResumeSections(resume?.sections);
+  const sections = parseResumeSections(
+    resume?.sections,
+    canViewReferences === true,
+  );
   const detailGroups = useMemo(() => readableDetailGroups(record), [record]);
 
   const { data: links, isPending: areLinksPending } =
@@ -249,14 +252,17 @@ export function ResumeReadableSections({
             ))}
             {sections.learningHistory.length > 0 ? (
               <section className="border-t py-5 first:border-t-0">
-                <h3 className="mb-3 text-base font-semibold">
+                <h3 dir="auto" className="mb-3 text-base font-semibold">
                   {translate("crm.entity360.resume.readable.learningHistory", {
                     _: "Learning history",
                   })}
                 </h3>
                 <div className="flex flex-col gap-2">
-                  {sections.learningHistory.map((item) => (
-                    <ReadableItem key={JSON.stringify(item)} item={item} />
+                  {sections.learningHistory.map((item, index) => (
+                    <ReadableItem
+                      key={`${index}-${JSON.stringify(item)}`}
+                      item={item}
+                    />
                   ))}
                 </div>
               </section>
@@ -265,6 +271,7 @@ export function ResumeReadableSections({
               <ReadableGroup
                 key={`additional-${section.key}-${section.title}`}
                 group={{ heading: section.title, items: section.items }}
+                stacked
               />
             ))}
             {canViewReferences && sections.references.length > 0 ? (
@@ -281,11 +288,25 @@ export function ResumeReadableSections({
   );
 }
 
-function ReadableGroup({ group }: { group: DetailGroup }): ReactElement {
+function ReadableGroup({
+  group,
+  stacked = false,
+}: {
+  group: DetailGroup;
+  stacked?: boolean;
+}): ReactElement {
   return (
     <section className="border-t py-5 first:border-t-0">
-      <h3 className="mb-3 text-base font-semibold">{group.heading}</h3>
-      <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <h3 dir="auto" className="mb-3 text-base font-semibold">
+        <bdi dir="auto">{group.heading}</bdi>
+      </h3>
+      <div
+        className={
+          stacked
+            ? "flex min-w-0 flex-col gap-2"
+            : "grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-3"
+        }
+      >
         {group.items.map((item) => (
           <ReadableItem key={JSON.stringify(item)} item={item} />
         ))}
@@ -297,11 +318,14 @@ function ReadableGroup({ group }: { group: DetailGroup }): ReactElement {
 function ReadableItem({ item }: { item: DetailItem }): ReactElement {
   return (
     <div className="min-w-0 rounded-xl bg-muted/40 p-3">
-      <strong className="block text-xs font-semibold text-muted-foreground">
-        {item.label}
+      <strong
+        dir="auto"
+        className="block break-words text-xs font-semibold text-muted-foreground"
+      >
+        <bdi dir="auto">{item.label}</bdi>
       </strong>
       <p dir="auto" className="mt-1 whitespace-pre-wrap break-words text-sm">
-        {item.value}
+        <bdi dir="auto">{item.value}</bdi>
       </p>
     </div>
   );

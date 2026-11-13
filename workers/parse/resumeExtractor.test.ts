@@ -185,6 +185,9 @@ describe("geminiExtractor", () => {
       expect(firstBody.contents[0].parts[0].text).toContain(
         "additionalSections",
       );
+      expect(firstBody.contents[0].parts[0].text).toContain(
+        "Do not repeat any fixed field, learningHistory, or reference",
+      );
       expect(secondBody.contents[0].parts[0].text).not.toContain(
         "additionalSections",
       );
