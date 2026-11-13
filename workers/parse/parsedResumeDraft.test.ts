@@ -179,6 +179,137 @@ describe("toDraft", () => {
     ]);
   });
 
+  it("filters disguised reference headings without dropping preference headings", () => {
+    const disguisedReferenceTitles = [
+      "ref\u200Berences",
+      "ref erences",
+      "מַמְלִיצִים",
+      "rеferences",
+      "ｒｅｆｅｒｅｎｃｅｓ",
+    ];
+    const draft = toDraft({
+      sections: {
+        additionalSections: [
+          ...disguisedReferenceTitles.map((title, index) => ({
+            key: `section_${index}`,
+            title,
+            items: [{ label: "Name", value: "Person" }],
+          })),
+          {
+            key: "rabbinic_references",
+            title: "Rabbinic references",
+            items: [{ label: "Name", value: "Person" }],
+          },
+          {
+            key: "recommendations",
+            title: "Recommendations",
+            items: [{ label: "Name", value: "Person" }],
+          },
+          {
+            key: "preferences",
+            title: "Preferences",
+            items: [{ label: "Looking for", value: "Kind and thoughtful" }],
+          },
+          {
+            key: "partner_preferences",
+            title: "Partner preferences",
+            items: [{ label: "Values", value: "Family" }],
+          },
+          {
+            key: "lifestyle_preferences",
+            title: "Lifestyle preferences",
+            items: [{ label: "Lifestyle", value: "Active" }],
+          },
+          {
+            key: "looking_for",
+            title: "Looking for / preferences",
+            items: [{ label: "Description", value: "Warm" }],
+          },
+          {
+            key: "hebrew_preferences",
+            title: "העדפות",
+            items: [{ label: "סגנון", value: "רגוע" }],
+          },
+          {
+            key: "recommended_reading",
+            title: "Recommended reading",
+            items: [{ label: "Book", value: "A good book" }],
+          },
+        ],
+      },
+    });
+
+    expect(
+      draft.sections.additionalSections.map((section) => section.title),
+    ).toEqual([
+      "Preferences",
+      "Partner preferences",
+      "Lifestyle preferences",
+      "Looking for / preferences",
+      "העדפות",
+      "Recommended reading",
+    ]);
+  });
+
+  it("drops contact-bearing titles and items while preserving year-based resume facts", () => {
+    const draft = toDraft({
+      sections: {
+        additionalSections: [
+          {
+            key: "contact_title",
+            title: "Work 054-222-3344",
+            items: [{ label: "Role", value: "Teacher" }],
+          },
+          {
+            key: "work",
+            title: "Work",
+            items: [
+              { label: "Dates", value: "2019–2023" },
+              {
+                label: "Project",
+                value: "Levi Home Renovation · 2019–2023",
+              },
+              { label: "Term", value: "Sep 2019 – Jun 2023" },
+              {
+                label: "School",
+                value: "Yeshivat Or HaChaim · 2021–2024",
+              },
+              { label: "Age", value: "25" },
+              { label: "Height", value: "5'11\"" },
+              { label: "Postcode", value: "12345-6789" },
+              { label: "Phone", value: "054-222-3344" },
+              { label: "International", value: "+972 54 222 3344" },
+              { label: "US phone", value: "(718) 555-1234" },
+              { label: "Email", value: "person@example.com" },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(draft.sections.additionalSections).toEqual([
+      {
+        key: "work",
+        title: "Work",
+        items: [
+          { label: "Dates", value: "2019–2023" },
+          {
+            label: "Project",
+            value: "Levi Home Renovation · 2019–2023",
+          },
+          { label: "Term", value: "Sep 2019 – Jun 2023" },
+          {
+            label: "School",
+            value: "Yeshivat Or HaChaim · 2021–2024",
+          },
+          { label: "Age", value: "25" },
+          { label: "Height", value: "5'11\"" },
+          { label: "Postcode", value: "12345-6789" },
+        ],
+      },
+    ]);
+  });
+
   it("merges duplicate titles and removes duplicate items before applying caps", () => {
     const draft = toDraft({
       sections: {

@@ -513,6 +513,16 @@ describe("ResumeReadableSections", () => {
             items: [{ label: "Phone", value: "054-333-4455" }],
           },
           {
+            key: "other_disguised",
+            title: "rеferences",
+            items: [{ label: "Name", value: "Rabbi Cohen" }],
+          },
+          {
+            key: "preferences",
+            title: "Preferences",
+            items: [{ label: "Values", value: "Kind" }],
+          },
+          {
             key: "work",
             title: "Work",
             items: [{ label: "Role", value: "Teacher" }],
@@ -522,15 +532,65 @@ describe("ResumeReadableSections", () => {
     });
 
     await expect.element(screen.getByText("Work")).toBeInTheDocument();
+    await expect.element(screen.getByText("Preferences")).toBeInTheDocument();
     await expect
       .element(screen.getByText("Rabbinic references"))
       .not.toBeInTheDocument();
     await expect.element(screen.getByText("ממליצים")).not.toBeInTheDocument();
     await expect
+      .element(screen.getByText("rеferences"))
+      .not.toBeInTheDocument();
+    await expect
       .element(screen.getByText("054-222-3344"))
       .not.toBeInTheDocument();
     await expect
       .element(screen.getByText("054-333-4455"))
+      .not.toBeInTheDocument();
+  });
+
+  it("filters contact-shaped stored extras while keeping ordinary years", async () => {
+    const { screen } = await renderSections({
+      canViewReferences: false,
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [
+              { label: "Dates", value: "2019–2023" },
+              { label: "Phone", value: "054-222-3344" },
+              { label: "International", value: "+972 54 222 3344" },
+              { label: "US phone", value: "(718) 555-1234" },
+              { label: "Email", value: "person@example.com" },
+            ],
+          },
+          {
+            key: "contact_title",
+            title: "Work 054-222-3344",
+            items: [{ label: "Role", value: "Teacher" }],
+          },
+        ],
+      },
+    });
+
+    await expect.element(screen.getByText("Work")).toBeInTheDocument();
+    await expect.element(screen.getByText("2019–2023")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("054-222-3344"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("+972 54 222 3344"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("(718) 555-1234"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("person@example.com"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Work 054-222-3344"))
       .not.toBeInTheDocument();
   });
 

@@ -30,8 +30,6 @@ const MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH = 40_000;
 const MAX_ADDITIONAL_SECTION_KEY_LENGTH = 80;
 const MAX_ADDITIONAL_SECTION_TITLE_LENGTH = 120;
 const MAX_ADDITIONAL_SECTION_TEXT_LENGTH = 1_000;
-const REFERENCE_LIKE_SECTION_PATTERN =
-  /reference|referee|recommend|ממליצ|המלצ/iu;
 const FIXED_SECTION_TITLE_KEYS = new Set([
   "personal details",
   "family",
@@ -48,6 +46,45 @@ const FIXED_SECTION_TITLE_KEYS = new Set([
   "seminary / yeshiva",
   "shul",
 ]);
+const REFERENCE_LIKE_LATIN_STEMS = [
+  "reference",
+  "references",
+  "referee",
+  "referees",
+  "recommendation",
+  "recommendations",
+  "recommender",
+  "recommenders",
+] as const;
+const REFERENCE_LIKE_HEBREW_STEMS = ["ממליצ", "המלצ"] as const;
+const CONFUSABLE_FOLD_MAP: Readonly<Record<string, string>> = {
+  а: "a",
+  в: "b",
+  е: "e",
+  к: "k",
+  м: "m",
+  н: "h",
+  о: "o",
+  р: "p",
+  с: "c",
+  т: "t",
+  у: "y",
+  х: "x",
+  α: "a",
+  β: "b",
+  ε: "e",
+  η: "n",
+  ι: "i",
+  κ: "k",
+  μ: "m",
+  ν: "v",
+  ο: "o",
+  ρ: "p",
+  τ: "t",
+  υ: "y",
+  χ: "x",
+  ω: "w",
+};
 
 const asText = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
@@ -74,6 +111,111 @@ const isSafePlainText = (value: string): boolean =>
       codePoint === 127
     );
   });
+
+const foldPrivacyConfusables = (value: string): string =>
+  [...value]
+    .map((character) => CONFUSABLE_FOLD_MAP[character] ?? character)
+    .join("");
+
+const normalizePrivacyText = (value: string): string =>
+  foldPrivacyConfusables(
+    value
+      .normalize("NFKC")
+      .replace(/[\p{Cf}\p{Mn}]/gu, "")
+      .toLocaleLowerCase(),
+  );
+
+const squashPrivacyText = (value: string): string =>
+  normalizePrivacyText(value).replace(/[\s\p{P}\p{S}]+/gu, "");
+
+const stemPattern = (stem: string): RegExp =>
+  new RegExp(
+    `(?:^|[^\\p{L}])${[...stem].join("[^\\p{L}]*")}(?:$|[^\\p{L}])`,
+    "iu",
+  );
+
+const REFERENCE_LIKE_PATTERNS = REFERENCE_LIKE_LATIN_STEMS.map(stemPattern);
+
+const isReferenceLikePrivacyText = (value: string): boolean => {
+  const normalized = normalizePrivacyText(value);
+  if (
+    REFERENCE_LIKE_PATTERNS.some((pattern) => pattern.test(normalized)) ||
+    REFERENCE_LIKE_HEBREW_STEMS.some((stem) => normalized.includes(stem))
+  ) {
+    return true;
+  }
+
+  const squashed = squashPrivacyText(value);
+  return (
+    REFERENCE_LIKE_LATIN_STEMS.includes(
+      squashed as (typeof REFERENCE_LIKE_LATIN_STEMS)[number],
+    ) || REFERENCE_LIKE_HEBREW_STEMS.some((stem) => squashed.includes(stem))
+  );
+};
+
+const DECIMAL_DIGIT_ZEROES = [
+  0x30, 0x660, 0x6f0, 0x7c0, 0x966, 0x9e6, 0xa66, 0xae6, 0xb66, 0xbe6, 0xc66,
+  0xce6, 0xd66, 0xde6, 0xe50, 0xed0, 0xf20, 0x1040, 0x1090, 0x17e0, 0x1810,
+  0x1946, 0x19d0, 0x1a80, 0x1a90, 0x1b50, 0x1bb0, 0x1c40, 0x1c50, 0xa620,
+  0xa8d0, 0xa900, 0xa9d0, 0xa9f0, 0xaa50, 0xabf0, 0xff10, 0x104a0, 0x10d30,
+  0x11066, 0x110f0, 0x11136, 0x111d0, 0x112f0, 0x11450, 0x114d0, 0x11650,
+  0x116c0, 0x11730, 0x118e0, 0x11950, 0x11c50, 0x11d50, 0x11da0, 0x16a60,
+  0x16ac0, 0x16b50, 0x1d7ce, 0x1e140, 0x1e2f0, 0x1e950,
+];
+
+const toAsciiDecimalDigit = (character: string): string | null => {
+  const codePoint = character.codePointAt(0) ?? 0;
+  for (const zero of DECIMAL_DIGIT_ZEROES) {
+    if (codePoint >= zero && codePoint <= zero + 9) {
+      return String(codePoint - zero);
+    }
+  }
+  return null;
+};
+
+const digitRuns = (value: string): { all: string; runs: string[] } => {
+  let all = "";
+  let current = "";
+  const runs: string[] = [];
+  for (const character of value.normalize("NFKC")) {
+    const digit = toAsciiDecimalDigit(character);
+    if (digit === null) {
+      if (current) runs.push(current);
+      current = "";
+      continue;
+    }
+    all += digit;
+    current += digit;
+  }
+  if (current) runs.push(current);
+  return { all, runs };
+};
+
+const isYear = (value: string): boolean =>
+  value.length === 4 && /^(?:19|20)\d{2}$/u.test(value);
+
+const isPhoneLikeNumber = (value: string): boolean => {
+  const normalized = value.normalize("NFKC").replace(/\p{Cf}/gu, "");
+  const { all, runs } = digitRuns(normalized);
+  if (all.length === 0) return false;
+  if (runs.every(isYear)) return false;
+
+  const hasInternationalPrefix =
+    /(?:^|[^\p{Nd}])(?:\+|00)(?=\s*[\p{Nd}])/u.test(normalized);
+  if (hasInternationalPrefix) return all.length >= 7 && all.length <= 15;
+  if (all.length < 9 || all.length > 15) return false;
+  if (runs.length === 2 && runs[0].length === 5 && runs[1].length === 4) {
+    return false;
+  }
+  return true;
+};
+
+const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[^\s@]{2,}/u;
+
+const containsSensitiveContactInfo = (value: string): boolean => {
+  const normalized = value.normalize("NFKC").replace(/[\p{Cf}\p{Mn}]/gu, "");
+  return EMAIL_PATTERN.test(normalized) || isPhoneLikeNumber(normalized);
+};
 
 /**
  * Faithful client port of public.normalize_identity_text(). Keep spaces
@@ -193,7 +335,9 @@ const readAdditionalSectionItems = (
       label.length > MAX_ADDITIONAL_SECTION_TEXT_LENGTH ||
       text.length > MAX_ADDITIONAL_SECTION_TEXT_LENGTH ||
       !isSafePlainText(label) ||
-      !isSafePlainText(text)
+      !isSafePlainText(text) ||
+      containsSensitiveContactInfo(label) ||
+      containsSensitiveContactInfo(text)
     ) {
       return null;
     }
@@ -204,8 +348,7 @@ const normalizeSectionTitle = (value: string): string =>
   value.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
 
 const isReferenceLikeSection = (key: string, title: string): boolean =>
-  REFERENCE_LIKE_SECTION_PATTERN.test(key) ||
-  REFERENCE_LIKE_SECTION_PATTERN.test(normalizeSectionTitle(title));
+  isReferenceLikePrivacyText(key) || isReferenceLikePrivacyText(title);
 
 const isFixedSectionDuplicate = (title: string): boolean =>
   FIXED_SECTION_TITLE_KEYS.has(normalizeSectionTitle(title));
@@ -260,6 +403,7 @@ const readAdditionalSections = (
       key === "references" ||
       normalizeSectionTitle(title) === "references" ||
       (!canViewReferences && isReferenceLikeSection(key, title)) ||
+      containsSensitiveContactInfo(title) ||
       isFixedSectionDuplicate(title)
     ) {
       continue;
