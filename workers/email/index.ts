@@ -176,9 +176,12 @@ type StorageMetadata = { filename: string; mimeType: string; size: number };
 
 async function storageMetadata(
   admin: SupabaseClient,
-  path: string,
+  path: unknown,
   kind: "resume" | "photo",
+  accountId: number,
+  singleId: number,
 ): Promise<StorageMetadata | null> {
+  if (!isAccountStoragePath(path, accountId, kind, singleId)) return null;
   const filename = fileNameFromPath(path);
   if (!filename) return null;
   const folder = path.slice(0, -(filename.length + 1));
@@ -327,11 +330,15 @@ async function recentEmailCount(
   return result.error ? null : (result.count ?? 0);
 }
 
-function allowedAccountIds(value: string | undefined): Set<number> {
+function allowedAccountIds(value: string | undefined): Set<number> | null {
+  if (value == null || value === "") return new Set();
   const ids = new Set<number>();
-  for (const part of value?.split(",") ?? []) {
+  for (const part of value.split(",")) {
     const trimmed = part.trim();
-    if (/^[1-9]\d*$/.test(trimmed)) ids.add(Number(trimmed));
+    if (!/^[1-9]\d*$/.test(trimmed)) return null;
+    const id = Number(trimmed);
+    if (!Number.isSafeInteger(id) || ids.has(id)) return null;
+    ids.add(id);
   }
   return ids;
 }
@@ -394,6 +401,10 @@ export function createEmailApp(
       surface: "email",
     }),
   );
+  app.use("/config", async (c, next) => {
+    c.header("Cache-Control", "no-store, private");
+    await next();
+  });
 
   app.get("/config", async (c) => {
     if (!configured(c.env)) return c.json(unavailable(), 503);
@@ -412,14 +423,38 @@ export function createEmailApp(
       supabase.rpc("current_context_id"),
       supabase.rpc("current_member_role"),
     ]);
+    const allowlistedAccounts = allowedAccountIds(
+      c.env.OUTBOUND_EMAIL_ACCOUNT_IDS,
+    );
+    if (!allowlistedAccounts) {
+      console.warn("email.accountAllowlistMalformed");
+      return c.json(unavailable(), 503);
+    }
     const replyTo = replyToFor(c.env.OUTBOUND_EMAIL_REPLY_TO);
+    const { data: member, error: memberError } = await supabase
+      .from("members")
+      .select("id,disabled")
+      .eq("user_id", userResult.user.id)
+      .maybeSingle<MemberRow>();
+    const { data: accountMember, error: accountMemberError } = await supabase
+      .from("account_members")
+      .select("id,status")
+      .eq("account_id", accountId)
+      .eq("user_id", userResult.user.id)
+      .eq("status", "active")
+      .maybeSingle<AccountMemberRow>();
     if (
       accountError ||
       roleError ||
       typeof accountId !== "number" ||
       (role !== "parent_admin" && role !== "self_manager") ||
       !replyTo ||
-      !allowedAccountIds(c.env.OUTBOUND_EMAIL_ACCOUNT_IDS).has(accountId)
+      !allowlistedAccounts.has(accountId) ||
+      memberError ||
+      accountMemberError ||
+      !member ||
+      !accountMember ||
+      member.disabled === true
     ) {
       return c.json(unavailable(), 503);
     }
@@ -492,7 +527,14 @@ export function createEmailApp(
     // This is an explicit server-side switchboard, separate from AI billing.
     // An empty or malformed list authorises nobody, including when the public
     // feature flag is accidentally enabled during a rollout.
-    if (!allowedAccountIds(c.env.OUTBOUND_EMAIL_ACCOUNT_IDS).has(accountId)) {
+    const allowlistedAccounts = allowedAccountIds(
+      c.env.OUTBOUND_EMAIL_ACCOUNT_IDS,
+    );
+    if (!allowlistedAccounts) {
+      console.warn("email.accountAllowlistMalformed");
+      return c.json(unavailable(), 503);
+    }
+    if (!allowlistedAccounts.has(accountId)) {
       return c.json(unavailable(), 503);
     }
 
@@ -680,13 +722,47 @@ export function createEmailApp(
         photo = result.data;
       }
 
+      if (
+        !isAccountStoragePath(
+          resumeFile.path,
+          accountId,
+          "resume",
+          body.single_id,
+        ) ||
+        (photo != null &&
+          !isAccountStoragePath(photo.path, accountId, "photo", body.single_id))
+      ) {
+        await audit(
+          supabase,
+          accountId,
+          body,
+          "email_fetch_failed",
+          accountMember.id,
+          Boolean(photo),
+        );
+        return c.json(
+          fail("we couldn't prepare these attachments", {
+            code: "prepare_failed",
+          }),
+          422,
+        );
+      }
+
       const resumeInfo = await storageMetadata(
         admin,
-        String(resumeFile.path ?? ""),
+        resumeFile.path,
         "resume",
+        accountId,
+        body.single_id,
       );
       const photoInfo = photo
-        ? await storageMetadata(admin, photo.path, "photo")
+        ? await storageMetadata(
+            admin,
+            photo.path,
+            "photo",
+            accountId,
+            body.single_id,
+          )
         : null;
       const resumeSize = resumeInfo?.size;
       const totalSize =

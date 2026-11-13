@@ -69,7 +69,12 @@ is the runtime source of truth; the frontend checks that its build value
 exactly matches the Worker value and keeps the Email action unavailable on any
 mismatch or unset value. `OUTBOUND_EMAIL_GLOBAL_DAILY_CAP` defaults to 40 and
 may only be lowered or raised deliberately with the shared Resend plan budget
-in view.
+in view. The global count-then-send check is intentionally a best-effort
+cross-account budget rather than an atomic reservation: 40 leaves 60 sends of
+the Resend Free plan's 100/day allowance for reminders and a bounded amount of
+concurrency overshoot. Treat the cap as an operational guard, not a hard
+provider ceiling; a hard ceiling would require a durable atomic reservation
+follow-up before changing this policy.
 
 ## Safe rollback
 

@@ -30,6 +30,7 @@ type HarnessOptions = {
   enabled?: string;
   accounts?: string;
   globalCap?: string;
+  memberDisabled?: boolean;
   sendResult?:
     { ok: true; id: string } | { ok: false; error: string; retryable: boolean };
   storageSize?: number;
@@ -67,7 +68,7 @@ function makeHarness(options: HarnessOptions = {}) {
   const photoPath =
     "1/photos/shared/single-11/00000000-0000-0000-0000-000000000022-photo.jpg";
   const tables: Record<string, unknown> = {
-    members: { id: 10, disabled: false },
+    members: { id: 10, disabled: options.memberDisabled ?? false },
     account_members: { id: 100, status: "active" },
     singles: {
       id: 11,
@@ -150,22 +151,25 @@ function makeHarness(options: HarnessOptions = {}) {
     }),
     storage: {
       from: vi.fn(() => ({
-        list: async (_folder: string, _options: unknown) => ({
-          data: [
-            {
-              name: _folder.includes("photos")
-                ? "00000000-0000-0000-0000-000000000022-photo.jpg"
-                : "resume.pdf",
-              metadata: {
-                mimetype: _folder.includes("photos")
-                  ? "image/jpeg"
-                  : "application/pdf",
-                size: options.storageSize ?? 2,
+        list: async (_folder: string, _options: unknown) => {
+          calls.storagePaths.push(_folder);
+          return {
+            data: [
+              {
+                name: _folder.includes("photos")
+                  ? "00000000-0000-0000-0000-000000000022-photo.jpg"
+                  : "resume.pdf",
+                metadata: {
+                  mimetype: _folder.includes("photos")
+                    ? "image/jpeg"
+                    : "application/pdf",
+                  size: options.storageSize ?? 2,
+                },
               },
-            },
-          ],
-          error: null,
-        }),
+            ],
+            error: null,
+          };
+        },
       })),
     },
   } as unknown as SupabaseClient;
@@ -286,6 +290,86 @@ describe("workers/email POST /send", () => {
     expect(response.status).toBe(422);
     expect(harness.sendEmail).not.toHaveBeenCalled();
     expect(harness.calls.from).toContain("resume_photos");
+  });
+
+  it.each([
+    ["foreign account", "2/resumes/single-11/resume.pdf"],
+    ["traversal", "1/resumes/single-11/../resume.pdf"],
+    ["wrong kind", "1/photos/shared/single-11/resume.pdf"],
+    ["sibling single", "1/resumes/single-12/resume.pdf"],
+  ] as const)(
+    "rejects a %s storage path before service-role metadata listing",
+    async (_kind, path) => {
+      const harness = makeHarness({
+        photo: null,
+        resume: {
+          files: [
+            {
+              path,
+              filename: "resume.pdf",
+              mime_type: "application/pdf",
+              size: 2,
+            },
+          ],
+        },
+      });
+      const response = await post(harness, {
+        ...requestBody,
+        include_photo: false,
+      });
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({
+        meta: { code: "prepare_failed" },
+      });
+      expect(harness.calls.storagePaths).toEqual([]);
+      expect(harness.sendEmail).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a malformed shared photo path before service-role metadata listing", async () => {
+    const harness = makeHarness({
+      photo: {
+        id: 44,
+        resume_id: 33,
+        path: "2/photos/shared/single-11/photo.jpg",
+        uploaded_at: "2026-01-01T00:00:00Z",
+        visibility: "shared",
+        hidden_at: null,
+      },
+    });
+    const response = await post(harness);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      meta: { code: "prepare_failed" },
+    });
+    expect(harness.calls.storagePaths).toEqual([]);
+    expect(harness.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "1,garbage",
+    "1, UUID-ABCD",
+    "1,",
+    "1, ",
+    "1,9007199254740992",
+    "1,1",
+  ])("rejects a malformed whole account allow-list: %s", async (accounts) => {
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    const configHarness = makeHarness({ accounts });
+    const configResponse = await getConfig(configHarness);
+    expect(configResponse.status).toBe(503);
+    expect(configResponse.headers.get("Cache-Control")).toBe(
+      "no-store, private",
+    );
+    const sendHarness = makeHarness({ accounts });
+    const sendResponse = await post(sendHarness);
+    expect(sendResponse.status).toBe(503);
+    expect(sendHarness.calls.storagePaths).toEqual([]);
+    expect(sendHarness.sendEmail).not.toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledWith("email.accountAllowlistMalformed");
+    warning.mockRestore();
   });
 
   it("blocks a metadata object at cap+1 before the bounded download", async () => {
@@ -498,7 +582,14 @@ describe("workers/email GET /config", () => {
       success: true,
       data: { reply_to: "reply@example.test" },
     });
-    expect(harness.calls.from).toEqual([]);
+    expect(response.headers.get("Cache-Control")).toBe("no-store, private");
+    expect(harness.calls.from).toEqual(["members", "account_members"]);
+  });
+
+  it("accepts surrounding whitespace around an otherwise plain account id", async () => {
+    const response = await getConfig(makeHarness({ accounts: " 1 " }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store, private");
   });
 
   it("fails closed when the server Reply-To is unset", async () => {
@@ -508,5 +599,27 @@ describe("workers/email GET /config", () => {
     expect(await response.json()).toMatchObject({
       meta: { code: "unavailable" },
     });
+    expect(response.headers.get("Cache-Control")).toBe("no-store, private");
+  });
+
+  it("fails closed for a disabled member and never caches the response", async () => {
+    const harness = makeHarness({ memberDisabled: true });
+    const response = await getConfig(harness);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      meta: { code: "unavailable" },
+    });
+    expect(response.headers.get("Cache-Control")).toBe("no-store, private");
+  });
+
+  it("sets no-store/private even when authorization is missing", async () => {
+    const harness = makeHarness();
+    const response = await harness.app.request(
+      "http://email.local/config",
+      {},
+      harness.env,
+    );
+    expect(response.status).toBe(401);
+    expect(response.headers.get("Cache-Control")).toBe("no-store, private");
   });
 });
