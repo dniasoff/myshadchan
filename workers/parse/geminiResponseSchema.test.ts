@@ -75,6 +75,11 @@ describe("GEMINI_RESUME_RESPONSE_SCHEMA", () => {
     expect(sections.properties!.learningHistory.items!.type).toBe("OBJECT");
     expect(sections.properties!.references.type).toBe("ARRAY");
     expect(sections.properties!.references.items!.type).toBe("OBJECT");
+    expect(sections.properties!.additionalSections.type).toBe("ARRAY");
+    expect(sections.properties!.additionalSections.items!.type).toBe("OBJECT");
+    expect(
+      sections.properties!.additionalSections.items!.properties!.items.type,
+    ).toBe("ARRAY");
   });
 
   it("only ever uses the restricted OpenAPI-subset type vocabulary Gemini documents", () => {

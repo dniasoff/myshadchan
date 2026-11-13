@@ -2,6 +2,14 @@ import type { ReferenceLinkSummary } from "../types";
 
 type ParsedLearningItem = { label: string; value: string };
 
+export type ParsedAdditionalSectionItem = ParsedLearningItem;
+
+export type ParsedAdditionalSection = {
+  key: string;
+  title: string;
+  items: ParsedAdditionalSectionItem[];
+};
+
 export type ParsedResumeReference = {
   name: string;
   relationship: string;
@@ -11,10 +19,31 @@ export type ParsedResumeReference = {
 export type ParsedResumeSections = {
   learningHistory: ParsedLearningItem[];
   references: ParsedResumeReference[];
+  additionalSections: ParsedAdditionalSection[];
 };
+
+const MAX_ADDITIONAL_SECTION_COUNT = 20;
+const MAX_ADDITIONAL_SECTION_ITEMS = 50;
+const MAX_ADDITIONAL_SECTION_ITEM_COUNT = 250;
+const MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH = 40_000;
+const MAX_ADDITIONAL_SECTION_KEY_LENGTH = 80;
+const MAX_ADDITIONAL_SECTION_TITLE_LENGTH = 120;
+const MAX_ADDITIONAL_SECTION_TEXT_LENGTH = 1_000;
 
 const asText = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
+
+const isSafePlainText = (value: string): boolean =>
+  [...value].every((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return !(
+      (codePoint >= 0 && codePoint <= 8) ||
+      codePoint === 11 ||
+      codePoint === 12 ||
+      (codePoint >= 14 && codePoint <= 31) ||
+      codePoint === 127
+    );
+  });
 
 /**
  * Faithful client port of public.normalize_identity_text(). Keep spaces
@@ -122,6 +151,91 @@ const readStringArray = <T>(
   });
 };
 
+const readAdditionalSectionItems = (
+  value: unknown,
+): ParsedAdditionalSectionItem[] =>
+  readStringArray(value, (item) => {
+    const label = asText(item.label);
+    const text = asText(item.value);
+    if (
+      !label ||
+      !text ||
+      label.length > MAX_ADDITIONAL_SECTION_TEXT_LENGTH ||
+      text.length > MAX_ADDITIONAL_SECTION_TEXT_LENGTH ||
+      !isSafePlainText(label) ||
+      !isSafePlainText(text)
+    ) {
+      return null;
+    }
+    return { label, value: text };
+  }).slice(0, MAX_ADDITIONAL_SECTION_ITEMS);
+
+const readAdditionalSections = (value: unknown): ParsedAdditionalSection[] => {
+  if (!Array.isArray(value)) return [];
+
+  const sections: ParsedAdditionalSection[] = [];
+  let itemCount = 0;
+  let textLength = 0;
+
+  for (const entry of value) {
+    if (sections.length >= MAX_ADDITIONAL_SECTION_COUNT) break;
+    const section = recordValue(entry);
+    if (!section) continue;
+
+    const key = asText(section.key);
+    const title = asText(section.title);
+    if (
+      !/^[a-z0-9]+(?:_[a-z0-9]+)*$/u.test(key) ||
+      key.length > MAX_ADDITIONAL_SECTION_KEY_LENGTH ||
+      !title ||
+      title.length > MAX_ADDITIONAL_SECTION_TITLE_LENGTH ||
+      !isSafePlainText(key) ||
+      !isSafePlainText(title)
+    ) {
+      continue;
+    }
+    if (key === "references" || title.toLocaleLowerCase() === "references") {
+      continue;
+    }
+
+    const sourceItems = readAdditionalSectionItems(section.items);
+    if (sourceItems.length === 0) continue;
+
+    const items: ParsedAdditionalSectionItem[] = [];
+    const sectionTextLength = key.length + title.length;
+    let acceptedItemTextLength = 0;
+    for (const item of sourceItems) {
+      const itemTextLength = item.label.length + item.value.length;
+      if (
+        itemCount >= MAX_ADDITIONAL_SECTION_ITEM_COUNT ||
+        textLength +
+          sectionTextLength +
+          acceptedItemTextLength +
+          itemTextLength >
+          MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH
+      ) {
+        break;
+      }
+      items.push(item);
+      itemCount += 1;
+      acceptedItemTextLength += itemTextLength;
+    }
+
+    if (items.length === 0) break;
+    sections.push({ key, title, items });
+    textLength += sectionTextLength + acceptedItemTextLength;
+
+    if (
+      itemCount >= MAX_ADDITIONAL_SECTION_ITEM_COUNT ||
+      textLength >= MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH
+    ) {
+      break;
+    }
+  }
+
+  return sections;
+};
+
 /**
  * Parser output is persisted JSONB and can be absent or malformed on old
  * resumes. The readable surface is deliberately fail-soft: invalid entries
@@ -129,7 +243,9 @@ const readStringArray = <T>(
  */
 export function parseResumeSections(value: unknown): ParsedResumeSections {
   const sections = recordValue(value);
-  if (!sections) return { learningHistory: [], references: [] };
+  if (!sections) {
+    return { learningHistory: [], references: [], additionalSections: [] };
+  }
 
   return {
     learningHistory: readStringArray(sections.learningHistory, (item) => {
@@ -146,5 +262,6 @@ export function parseResumeSections(value: unknown): ParsedResumeSections {
         phone: asText(item.phone),
       };
     }),
+    additionalSections: readAdditionalSections(sections.additionalSections),
   };
 }

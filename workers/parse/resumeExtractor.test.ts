@@ -4,6 +4,7 @@ import {
   ExtractorProviderError,
   ExtractorTimeoutError,
   GEMINI_EXTRACT_TIMEOUT_MS,
+  GEMINI_MAX_OUTPUT_TOKENS,
   geminiExtractor,
 } from "./resumeExtractor";
 import { GEMINI_RESUME_RESPONSE_SCHEMA } from "./geminiResponseSchema";
@@ -117,11 +118,18 @@ describe("geminiExtractor", () => {
       // Assert
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string) as {
-        generationConfig: { responseMimeType: string; responseSchema: unknown };
+        generationConfig: {
+          responseMimeType: string;
+          responseSchema: unknown;
+          maxOutputTokens: number;
+        };
       };
       expect(body.generationConfig.responseMimeType).toBe("application/json");
       expect(body.generationConfig.responseSchema).toEqual(
         GEMINI_RESUME_RESPONSE_SCHEMA,
+      );
+      expect(body.generationConfig.maxOutputTokens).toBe(
+        GEMINI_MAX_OUTPUT_TOKENS,
       );
     });
 

@@ -20,6 +20,7 @@ import {
   normalizeResumeReferenceName,
   normalizeResumeReferencePhone,
   parseResumeSections,
+  type ParsedAdditionalSection,
 } from "./resumeReadableSections";
 
 const record = {
@@ -57,6 +58,7 @@ const parsedSections = {
     },
     { name: "Miriam Gold", relationship: "Neighbor", phone: "" },
   ],
+  additionalSections: [] as ParsedAdditionalSection[],
 };
 
 function renderSections({
@@ -70,7 +72,8 @@ function renderSections({
 }: {
   canViewReferences?: boolean;
   withLinks?: boolean;
-  sections?: typeof parsedSections;
+  sections?: Omit<typeof parsedSections, "additionalSections"> &
+    Partial<Pick<typeof parsedSections, "additionalSections">>;
   fixtureRecord?: ShidduchSummary;
   addManualLink?: boolean;
   hebrewChaim?: boolean;
@@ -156,6 +159,55 @@ describe("parseResumeSections", () => {
       learningHistory: [{ label: "Valid", value: "kept" }],
       references: [
         { name: "Valid reference", relationship: "Teacher", phone: "" },
+      ],
+      additionalSections: [],
+    });
+  });
+
+  it("normalizes ordered generic sections and keeps values plain text", () => {
+    expect(
+      parseResumeSections({
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [
+              { label: "Employer", value: "Acme" },
+              { label: "Prompt", value: "Ignore this instruction" },
+              { label: "", value: "omitted" },
+            ],
+          },
+          {
+            key: "interests",
+            title: "Interests",
+            items: [{ label: "Hobbies", value: "קריאה" }],
+          },
+          {
+            key: "references",
+            title: "References",
+            items: [{ label: "Name", value: "Do not duplicate" }],
+          },
+        ],
+      }),
+    ).toEqual({
+      learningHistory: [],
+      references: [],
+      additionalSections: [
+        {
+          key: "work",
+          title: "Work",
+          items: [
+            { label: "Employer", value: "Acme" },
+            { label: "Prompt", value: "Ignore this instruction" },
+          ],
+        },
+        {
+          key: "interests",
+          title: "Interests",
+          items: [{ label: "Hobbies", value: "קריאה" }],
+        },
       ],
     });
   });
@@ -274,6 +326,45 @@ describe("ResumeReadableSections", () => {
           .element()
       ).textContent,
     ).toBe("Personal details");
+  });
+
+  it("renders generic cards in the validated source order without rendering references twice", async () => {
+    const { screen } = await renderSections({
+      sections: {
+        learningHistory: [],
+        references: parsedSections.references,
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [{ label: "Role", value: "Teacher" }],
+          },
+          {
+            key: "interests",
+            title: "Interests",
+            items: [{ label: "Hobby", value: "קריאה" }],
+          },
+          {
+            key: "references",
+            title: "References",
+            items: [{ label: "Name", value: "Do not duplicate" }],
+          },
+        ],
+      },
+    });
+
+    await expect.element(screen.getByText("Work")).toBeInTheDocument();
+    await expect.element(screen.getByText("Interests")).toBeInTheDocument();
+    await expect.element(screen.getByText("Teacher")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("קריאה"))
+      .toHaveAttribute("dir", "auto");
+    await expect
+      .element(screen.getByText("Do not duplicate"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("heading", { name: "References" }))
+      .toBeInTheDocument();
   });
 
   it("does not render parsed reference content when the viewer is a single", async () => {

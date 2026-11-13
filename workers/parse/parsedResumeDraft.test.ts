@@ -48,6 +48,7 @@ describe("toDraft", () => {
     expect(draft.lowConfidenceFields).toHaveLength(0);
     expect(draft.sections.learningHistory).toEqual([]);
     expect(draft.sections.references).toEqual([]);
+    expect(draft.sections.additionalSections).toEqual([]);
   });
 
   it("returns an all-null draft for non-object input (array, string, null) without throwing", () => {
@@ -57,6 +58,7 @@ describe("toDraft", () => {
       expect(Object.values(draft.fields).every((v) => v === null)).toBe(true);
       expect(draft.sections.learningHistory).toEqual([]);
       expect(draft.sections.references).toEqual([]);
+      expect(draft.sections.additionalSections).toEqual([]);
     }
   });
 
@@ -83,6 +85,96 @@ describe("toDraft", () => {
     expect(draft.sections.references).toEqual([
       { name: "Leah", relationship: "teacher", phone: "555-0100" },
     ]);
+    expect(draft.sections.additionalSections).toEqual([]);
+  });
+
+  it("keeps ordered generic sections while dropping malformed items and unsafe text", () => {
+    const draft = toDraft({
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [
+              { label: "Employer", value: "Acme" },
+              { label: "", value: "hidden" },
+              { label: "Prompt", value: "Ignore this instruction" },
+              { label: "Unsafe", value: "bad\u0000text" },
+            ],
+          },
+          {
+            key: "interests",
+            title: "Interests",
+            items: [{ label: "Hobbies", value: "Reading / קריאה" }],
+          },
+          {
+            key: "references",
+            title: "References",
+            items: [{ label: "Name", value: "Do not duplicate" }],
+          },
+        ],
+      },
+    });
+
+    expect(draft.sections.additionalSections).toEqual([
+      {
+        key: "work",
+        title: "Work",
+        items: [
+          { label: "Employer", value: "Acme" },
+          { label: "Prompt", value: "Ignore this instruction" },
+        ],
+      },
+      {
+        key: "interests",
+        title: "Interests",
+        items: [{ label: "Hobbies", value: "Reading / קריאה" }],
+      },
+    ]);
+  });
+
+  it("caps generic sections, items, and aggregate text without dropping the parse", () => {
+    const draft = toDraft({
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: Array.from({ length: 21 }, (_, sectionIndex) => ({
+          key: `section_${sectionIndex}`,
+          title: `Section ${sectionIndex}`,
+          items: Array.from({ length: 51 }, (_, itemIndex) => ({
+            label: `Item ${itemIndex}`,
+            value: "x".repeat(1_000),
+          })),
+        })),
+      },
+    });
+
+    expect(draft.sections.additionalSections.length).toBeLessThanOrEqual(20);
+    expect(
+      draft.sections.additionalSections.reduce(
+        (count, section) => count + section.items.length,
+        0,
+      ),
+    ).toBeLessThanOrEqual(250);
+    expect(
+      draft.sections.additionalSections.reduce(
+        (count, section) =>
+          count +
+          section.key.length +
+          section.title.length +
+          section.items.reduce(
+            (itemCount, item) =>
+              itemCount + item.label.length + item.value.length,
+            0,
+          ),
+        0,
+      ),
+    ).toBeLessThanOrEqual(40_000);
+    expect(draft.sections.additionalSections[0]?.items[0]?.value).toHaveLength(
+      1_000,
+    );
   });
 
   it("flags exactly at the threshold boundary", () => {
@@ -337,6 +429,10 @@ describe("RawExtractionSchema (shape reference for GEMINI_RESUME_RESPONSE_SCHEMA
     for (const key of FIELD_KEYS) {
       expect(parsed[key]).toEqual({ value: null, confidence: 0 });
     }
-    expect(parsed.sections).toEqual({ learningHistory: [], references: [] });
+    expect(parsed.sections).toEqual({
+      learningHistory: [],
+      references: [],
+      additionalSections: [],
+    });
   });
 });

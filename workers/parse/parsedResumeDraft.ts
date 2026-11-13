@@ -19,6 +19,16 @@ const MAX_FIELD_VALUE_LENGTH = 500;
 const MAX_SECTION_TEXT_LENGTH = 1000;
 const MAX_SECTION_ARRAY_LENGTH = 50;
 
+/** Bounds for model-generated generic resume sections. These limits protect
+ * both the JSONB row and the read-only UI from an unexpectedly verbose or
+ * adversarial model response. */
+export const MAX_ADDITIONAL_SECTION_COUNT = 20;
+export const MAX_ADDITIONAL_SECTION_ITEMS = 50;
+export const MAX_ADDITIONAL_SECTION_ITEM_COUNT = 250;
+export const MAX_ADDITIONAL_SECTION_KEY_LENGTH = 80;
+export const MAX_ADDITIONAL_SECTION_TITLE_LENGTH = 120;
+export const MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH = 40_000;
+
 /**
  * Finding 13 (Epic 11 adversarial review): every field used to accept
  * `string | number` uniformly, so a model response that put a bare number
@@ -71,6 +81,42 @@ const ResumeReferenceSchema = z.object({
   phone: z.string().max(MAX_SECTION_TEXT_LENGTH),
 });
 
+const hasSafePlainText = (value: string): boolean =>
+  [...value].every((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return !(
+      (codePoint >= 0 && codePoint <= 8) ||
+      codePoint === 11 ||
+      codePoint === 12 ||
+      (codePoint >= 14 && codePoint <= 31) ||
+      codePoint === 127
+    );
+  });
+
+const additionalSectionTextSchema = (maxLength: number) =>
+  z.string().trim().min(1).max(maxLength).refine(hasSafePlainText);
+
+const AdditionalSectionItemSchema = z.object({
+  label: additionalSectionTextSchema(MAX_SECTION_TEXT_LENGTH),
+  value: additionalSectionTextSchema(MAX_SECTION_TEXT_LENGTH),
+});
+
+const AdditionalSectionKeySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_ADDITIONAL_SECTION_KEY_LENGTH)
+  .regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/u);
+
+const AdditionalSectionSchema = z.object({
+  key: AdditionalSectionKeySchema,
+  title: additionalSectionTextSchema(MAX_ADDITIONAL_SECTION_TITLE_LENGTH),
+  items: tolerantArray(
+    AdditionalSectionItemSchema,
+    MAX_ADDITIONAL_SECTION_ITEMS,
+  ),
+});
+
 /**
  * Finding 14 (Epic 11 adversarial review): validates an array PER ELEMENT
  * rather than as one array-level schema. `z.array(itemSchema)` fails the
@@ -101,6 +147,74 @@ function tolerantArray<Item extends z.ZodTypeAny>(
   }, z.array(itemSchema).max(maxLength));
 }
 
+/**
+ * Validate each generic section independently, then apply the aggregate item
+ * and character caps while preserving the model's source order. Once an
+ * item would cross either aggregate cap, all later output is trailing model
+ * output and is dropped rather than causing the whole parse to fail.
+ */
+const normalizeAdditionalSections = (
+  raw: unknown,
+): Array<z.infer<typeof AdditionalSectionSchema>> => {
+  if (!Array.isArray(raw)) return [];
+
+  const sections: Array<z.infer<typeof AdditionalSectionSchema>> = [];
+  let itemCount = 0;
+  let textLength = 0;
+
+  for (const entry of raw) {
+    if (sections.length >= MAX_ADDITIONAL_SECTION_COUNT) break;
+
+    const result = AdditionalSectionSchema.safeParse(entry);
+    if (!result.success || result.data.items.length === 0) continue;
+    if (
+      result.data.key === "references" ||
+      result.data.title.toLocaleLowerCase() === "references"
+    ) {
+      continue;
+    }
+
+    const sectionTextLength = result.data.key.length + result.data.title.length;
+    const items: z.infer<typeof AdditionalSectionItemSchema>[] = [];
+    let acceptedItemTextLength = 0;
+
+    for (const item of result.data.items) {
+      const itemTextLength = item.label.length + item.value.length;
+      if (
+        itemCount >= MAX_ADDITIONAL_SECTION_ITEM_COUNT ||
+        textLength +
+          sectionTextLength +
+          acceptedItemTextLength +
+          itemTextLength >
+          MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH
+      ) {
+        break;
+      }
+      items.push(item);
+      itemCount += 1;
+      acceptedItemTextLength += itemTextLength;
+    }
+
+    if (items.length === 0) break;
+
+    sections.push({
+      ...result.data,
+      items,
+    });
+    textLength += sectionTextLength + acceptedItemTextLength;
+
+    if (itemCount >= MAX_ADDITIONAL_SECTION_ITEM_COUNT) break;
+    if (textLength >= MAX_ADDITIONAL_SECTION_TOTAL_TEXT_LENGTH) break;
+  }
+
+  return sections;
+};
+
+const AdditionalSectionsSchema = z.preprocess(
+  normalizeAdditionalSections,
+  z.array(AdditionalSectionSchema).max(MAX_ADDITIONAL_SECTION_COUNT),
+);
+
 const SectionsSchema = z.object({
   learningHistory: tolerantArray(
     ResumeSectionSchema,
@@ -110,6 +224,7 @@ const SectionsSchema = z.object({
     ResumeReferenceSchema,
     MAX_SECTION_ARRAY_LENGTH,
   ).default([]),
+  additionalSections: AdditionalSectionsSchema.default([]),
 });
 
 /**
@@ -199,7 +314,11 @@ export const RawExtractionSchema = z.object({
     value: null,
     confidence: 0,
   }),
-  sections: SectionsSchema.default({ learningHistory: [], references: [] }),
+  sections: SectionsSchema.default({
+    learningHistory: [],
+    references: [],
+    additionalSections: [],
+  }),
 });
 
 export type RawExtraction = z.infer<typeof RawExtractionSchema>;
@@ -336,7 +455,7 @@ export function toDraft(raw: unknown): ParsedResumeDraft {
   const sectionsResult = SectionsSchema.safeParse(source.sections);
   const sections = sectionsResult.success
     ? sectionsResult.data
-    : { learningHistory: [], references: [] };
+    : { learningHistory: [], references: [], additionalSections: [] };
 
   return {
     fields: fields as unknown as ParsedResumeFields,

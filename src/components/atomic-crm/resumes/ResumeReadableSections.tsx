@@ -202,6 +202,7 @@ export function ResumeReadableSections({
   const hasReadableContent =
     detailGroups.length > 0 ||
     sections.learningHistory.length > 0 ||
+    sections.additionalSections.length > 0 ||
     (canViewReferences && sections.references.length > 0);
   const referenceRows = canViewReferences
     ? buildReferenceRows(sections.references, links ?? [])
@@ -260,6 +261,12 @@ export function ResumeReadableSections({
                 </div>
               </section>
             ) : null}
+            {sections.additionalSections.map((section, index) => (
+              <ReadableGroup
+                key={`${section.key}-${section.title}-${index}`}
+                group={{ heading: section.title, items: section.items }}
+              />
+            ))}
             {canViewReferences && sections.references.length > 0 ? (
               <ReferenceGroup
                 rows={referenceRows}

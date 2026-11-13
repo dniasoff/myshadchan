@@ -62,6 +62,25 @@ const learningHistoryEntrySchema: GeminiSchema = {
   required: ["label", "value"],
 };
 
+const additionalSectionItemSchema: GeminiSchema = {
+  type: "OBJECT",
+  properties: {
+    label: { type: "STRING" },
+    value: { type: "STRING" },
+  },
+  required: ["label", "value"],
+};
+
+const additionalSectionSchema: GeminiSchema = {
+  type: "OBJECT",
+  properties: {
+    key: { type: "STRING" },
+    title: { type: "STRING" },
+    items: { type: "ARRAY", items: additionalSectionItemSchema },
+  },
+  required: ["key", "title", "items"],
+};
+
 /**
  * The explicit structured-output schema sent as
  * `generationConfig.responseSchema` (`resumeExtractor.ts`). Field-for-field
@@ -95,6 +114,10 @@ export const GEMINI_RESUME_RESPONSE_SCHEMA: GeminiSchema = {
       properties: {
         learningHistory: { type: "ARRAY", items: learningHistoryEntrySchema },
         references: { type: "ARRAY", items: referenceEntrySchema },
+        additionalSections: {
+          type: "ARRAY",
+          items: additionalSectionSchema,
+        },
       },
     },
   },

@@ -14,11 +14,11 @@ import { RawExtractionSchema } from "./parsedResumeDraft";
  * already paid for one extraction of the document, and a re-parse forced by
  * OUR OWN contract change must not charge it again.
  *
- * Version 2 adds three optional, explicitly stated candidate facts used by
- * the app's narrow eligibility guard. Older cached results are deliberately
+ * Version 3 adds bounded, generic additional resume sections while retaining
+ * the legacy learningHistory/references keys. Older cached results are deliberately
  * re-parsed rather than guessed at.
  */
-export const CURRENT_PARSE_RESULT_SCHEMA_VERSION = 2;
+export const CURRENT_PARSE_RESULT_SCHEMA_VERSION = 3;
 
 /**
  * Mirrors `ParsedResumeFields` (`parsedResumeDraft.ts`, Finding 13 closure)

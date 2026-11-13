@@ -117,7 +117,7 @@ export function makeExtract(
     person_gender: { value: null, confidence: 0 },
     kohen_status: { value: null, confidence: 0 },
     marital_status: { value: null, confidence: 0 },
-    sections: { learningHistory: [], references: [] },
+    sections: { learningHistory: [], references: [], additionalSections: [] },
     ...overrides,
   };
 }
@@ -166,7 +166,7 @@ export function makeParseResultPayload(
   return {
     fields: makeParseResultFields(overrides.fields),
     lowConfidenceFields: overrides.lowConfidenceFields ?? [],
-    sections: { learningHistory: [], references: [] },
+    sections: { learningHistory: [], references: [], additionalSections: [] },
     rawDraft: {},
   };
 }
