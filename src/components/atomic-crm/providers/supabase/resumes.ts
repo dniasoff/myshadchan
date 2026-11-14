@@ -2,6 +2,7 @@ import {
   isSingleSubject,
   type ResumeSubject,
 } from "../../resumes/resumeSubject";
+import { buildResumeInboxStoragePath } from "../../resumes/resumeInbox";
 import type { InboxAttachment, Resume } from "../../types";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import { getSupabaseClient } from "./supabase";
@@ -112,12 +113,98 @@ export async function uploadResumeFile(
   }
 
   const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error(INBOX_RESUME_ATTACH_ERROR);
   return row as Resume;
 }
 
 export type CopyInboxAttachmentToResumeFileParams = ResumeSubject & {
   attachment: InboxAttachment;
 };
+
+export type AttachInboxAttachmentToResumeFileParams = ResumeSubject & {
+  inboxItemId: number | string;
+  attachment: InboxAttachment;
+};
+
+const INBOX_RESUME_ATTACH_ERROR =
+  "Could not attach this file. It may be too large or no longer available. The Inbox item was not changed.";
+
+function isExistingStorageObjectError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { statusCode?: string | number; message?: string };
+  return (
+    String(candidate.statusCode) === "409" ||
+    /already exists|duplicate/i.test(candidate.message ?? "")
+  );
+}
+
+/**
+ * Copies one still-unresolved Inbox attachment and appends it through the
+ * provenance-aware `add_resume_file` contract. The RPC repeats all account,
+ * role, target, status, and source-path checks; the client never treats the
+ * persisted signed URL as a source of authority.
+ */
+export async function attachInboxAttachmentToResumeFile(
+  params: AttachInboxAttachmentToResumeFileParams,
+): Promise<Resume> {
+  const { attachment, inboxItemId, ...subject } = params;
+  const sourcePath = attachment.path;
+  const accountId = await getCurrentAccountId();
+  const storagePath = await buildResumeInboxStoragePath(
+    accountId,
+    subject,
+    inboxItemId,
+    sourcePath,
+    attachment.title,
+  );
+
+  let copiedHere = false;
+  try {
+    const { data: blob, error: downloadError } = await getSupabaseClient()
+      .storage.from(ATTACHMENTS_BUCKET)
+      .download(sourcePath);
+    if (downloadError || !blob) throw new Error(INBOX_RESUME_ATTACH_ERROR);
+
+    const { error: uploadError } = await getSupabaseClient()
+      .storage.from(DOCUMENTS_BUCKET)
+      .upload(storagePath, blob);
+    if (uploadError && !isExistingStorageObjectError(uploadError)) {
+      throw new Error(INBOX_RESUME_ATTACH_ERROR);
+    }
+    copiedHere = !uploadError;
+
+    const { data, error: appendError } = await getSupabaseClient().rpc(
+      "add_resume_file",
+      {
+        p_path: storagePath,
+        p_filename: attachment.title,
+        p_mime_type: attachment.type || "application/octet-stream",
+        p_size: blob.size,
+        p_shidduchim_id: isSingleSubject(subject)
+          ? undefined
+          : subject.shidduchimId,
+        p_single_id: isSingleSubject(subject) ? subject.singleId : undefined,
+        p_source_inbox_item_id: inboxItemId,
+        p_source_inbox_attachment_path: sourcePath,
+      },
+    );
+    if (appendError) throw new Error(INBOX_RESUME_ATTACH_ERROR);
+
+    const row = Array.isArray(data) ? data[0] : data;
+    return row as Resume;
+  } catch (error) {
+    if (copiedHere) {
+      await getSupabaseClient()
+        .storage.from(DOCUMENTS_BUCKET)
+        .remove([storagePath])
+        .catch(() => undefined);
+    }
+    if (error instanceof Error && error.message === INBOX_RESUME_ATTACH_ERROR) {
+      throw error;
+    }
+    throw new Error(INBOX_RESUME_ATTACH_ERROR);
+  }
+}
 
 export type CopiedResumeFile = {
   storagePath: string;

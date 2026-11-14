@@ -117,7 +117,11 @@ sw.addEventListener("fetch", (event) => {
 /** One entry per shared file, alongside its bytes, so `ShareTarget.tsx` can
  * rebuild a real `File` (name + type) from what the Cache API gives back —
  * a stored `Response` carries bytes and a content-type, never a filename. */
-type SharedFileManifestEntry = { name: string; type: string };
+type SharedFileManifestEntry = {
+  name: string;
+  type: string;
+  kind: "image" | "resume";
+};
 
 /**
  * Review fix (F8, LOW, Story 10.1): this handler had no try/catch. A
@@ -155,6 +159,7 @@ async function handleShareTarget(event: FetchEvent): Promise<Response> {
         const manifest: SharedFileManifestEntry[] = files.map((file) => ({
           name: file.name,
           type: file.type,
+          kind: file.type.startsWith("image/") ? "image" : "resume",
         }));
         await Promise.all([
           cache.put(

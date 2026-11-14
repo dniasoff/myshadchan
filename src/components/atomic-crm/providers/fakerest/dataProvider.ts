@@ -69,10 +69,12 @@ import type {
   UploadEntityFileParams,
 } from "./internal/entityFiles";
 import {
+  attachInboxAttachmentToResumeFile as attachInboxAttachmentToResumeFileImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
   uploadResumeFile as uploadResumeFileImpl,
 } from "./internal/resumes";
 import type {
+  AttachInboxAttachmentToResumeFileParams,
   ResumeFileBlobUrls,
   UploadResumeFileParams,
 } from "./internal/resumes";
@@ -2820,6 +2822,22 @@ export const createDataProvider = ({
       const blobUrl = URL.createObjectURL(blob);
       resumeFileBlobUrls.set(storagePath, blobUrl);
       return { storagePath, size: blob.size };
+    },
+    attachInboxAttachmentToResumeFile: async (
+      params: AttachInboxAttachmentToResumeFileParams,
+    ): Promise<Resume> => {
+      const [accountId, caller] = await Promise.all([
+        resolveCurrentAccountId(),
+        resolveCallerMembership(),
+      ]);
+      return attachInboxAttachmentToResumeFileImpl(
+        baseDataProvider,
+        resumeFileBlobUrls,
+        accountId,
+        caller?.membership?.id ?? null,
+        caller?.membership?.role,
+        params,
+      );
     },
     removeResumeFileObjects: async (paths: string[]): Promise<void> => {
       for (const path of paths) {

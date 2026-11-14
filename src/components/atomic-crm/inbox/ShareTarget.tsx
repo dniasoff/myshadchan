@@ -51,8 +51,11 @@ const shareTargetFileKey = (shareKey: string, index: number) =>
 /** The three source choices AC 2 renders — a plain three-way toggle, not a
  * new resource. `InboxSource` also has `"email"`/`"upload"`/`"shadchan"`,
  * none reachable from a share sheet. */
-type ShareSourceTab = Extract<InboxSource, "whatsapp" | "sms" | "photo">;
-const SOURCE_TABS: ShareSourceTab[] = ["whatsapp", "sms", "photo"];
+type ShareSourceTab = Extract<
+  InboxSource,
+  "whatsapp" | "sms" | "photo" | "upload"
+>;
+const SOURCE_TABS: ShareSourceTab[] = ["whatsapp", "sms", "photo", "upload"];
 
 /** The exact `{title, type, path, src}` shape `postmark/
  * extractAndUploadAttachments.ts` writes for an emailed attachment (AD-6:
@@ -65,6 +68,7 @@ type SharedAttachment = {
   type: string;
   path: string;
   src: string;
+  size: number;
 };
 
 /** One image thumbnail in the preview panel. The filename travels WITH
@@ -73,7 +77,11 @@ type SharedAttachment = {
  * name cannot be recovered by position at render time. */
 type SharedImagePreview = { url: string; name: string };
 
-type SharedFileManifestEntry = { name: string; type: string };
+type SharedFileManifestEntry = {
+  name: string;
+  type: string;
+  kind?: "image" | "resume";
+};
 
 /** The result of trying to read back whatever `src/sw.ts` stashed in the
  * Cache API for one share. `failed` is true whenever the capture is
@@ -147,6 +155,7 @@ async function uploadSharedFiles(
         type: result.type ?? file.type,
         path: result.path ?? "",
         src: result.src,
+        size: file.size,
       });
     } finally {
       URL.revokeObjectURL(objectUrl);
@@ -221,12 +230,20 @@ export const ShareTarget = () => {
     });
   }, [shareKey, notify, translate]);
 
-  // AC 2: default to "Photo" when a file was shared, "WhatsApp" otherwise —
+  // AC 2: document shares are labelled as shared files, not photos. Images
+  // retain the existing Photo source, while a PDF/Word share is persisted as
+  // an Upload source and shown with the calm "Shared file" label below.
   // set once, the moment `files` first resolves; never overridden after,
   // so the user's own tab choice (AC 2: "changeable before saving") sticks.
   useEffect(() => {
     if (files === null || sourceTab !== null) return;
-    setSourceTab(files.length > 0 ? "photo" : "whatsapp");
+    setSourceTab(
+      files.length === 0
+        ? "whatsapp"
+        : files.some((file) => !file.type.startsWith("image/"))
+          ? "upload"
+          : "photo",
+    );
   }, [files, sourceTab]);
 
   // No worker/query-string share landed here at all (a direct, un-shared
@@ -436,6 +453,10 @@ export const ShareTarget = () => {
     }
   };
 
+  const sharedDocumentCount = (files ?? []).filter(
+    (file) => !file.type.startsWith("image/"),
+  ).length;
+
   if (files === null || sourceTab === null) {
     return (
       <div className="grid min-h-[40vh] place-items-center text-sm text-muted-foreground">
@@ -462,6 +483,7 @@ export const ShareTarget = () => {
           const meta = INBOX_SOURCE_META[tab];
           const Icon = meta.icon;
           const isActive = sourceTab === tab;
+          const sourceLabel = tab === "upload" ? "Shared file" : meta.label;
           return (
             <button
               key={tab}
@@ -477,7 +499,7 @@ export const ShareTarget = () => {
               )}
             >
               <Icon className="size-4" aria-hidden="true" />
-              {translate(`crm.inbox.source_${tab}`, { _: meta.label })}
+              {translate(`crm.inbox.source_${tab}`, { _: sourceLabel })}
               {isActive ? (
                 <Check className="size-3.5" aria-hidden="true" />
               ) : null}
@@ -497,6 +519,12 @@ export const ShareTarget = () => {
             {translate("crm.inbox.share.noPreview", {
               _: "No text — see the attached file.",
             })}
+          </p>
+        ) : null}
+        {sharedDocumentCount > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {sharedDocumentCount} shared file
+            {sharedDocumentCount === 1 ? "" : "s"} ready to file as a resume.
           </p>
         ) : null}
         {imagePreviews.length > 0 ? (

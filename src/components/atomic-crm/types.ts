@@ -619,6 +619,7 @@ export type InboxAttachment = {
   type: string;
   path: string;
   src: string;
+  size?: number | null;
 };
 
 /**
@@ -708,6 +709,8 @@ export type ResumeFileVersion = {
   uploaded_by: Identifier | null;
   mime_type: string;
   size: number;
+  source_inbox_item_id?: Identifier | null;
+  source_inbox_attachment_path?: string | null;
 };
 
 /**

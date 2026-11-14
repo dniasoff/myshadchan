@@ -2,14 +2,15 @@ import { z } from "zod";
 
 /**
  * The shape `extractAndUploadAttachments.ts` already writes into
- * `inbox_items.attachments`. `type` and `path` are required; `title` and `src`
- * are tolerated.
+ * `inbox_items.attachments`. `type` and `path` are required; `title`, `src`,
+ * and the optional stored byte `size` are tolerated.
  */
 export const InboxAttachmentSchema = z.object({
   type: z.string(),
   path: z.string(),
   title: z.string().optional(),
   src: z.string().optional(),
+  size: z.number().int().nonnegative().optional(),
 });
 
 export type InboxAttachment = z.infer<typeof InboxAttachmentSchema>;

@@ -247,6 +247,31 @@ describe("ResumeTab — reference privacy gate", () => {
           .element(screen.getByText("054-222-3344"))
           .toBeInTheDocument();
       }
+
+      expect(
+        getList.mock.calls.filter(([resource]) => resource === "inbox_items"),
+      ).toHaveLength(0);
+      if (role === "single" || role === "undefined") {
+        await expect
+          .element(
+            screen.getByRole("button", {
+              name: "Pick a resume from your Inbox",
+              exact: true,
+            }),
+          )
+          .not.toBeInTheDocument();
+      } else {
+        await expect
+          .element(
+            screen
+              .getByRole("button", {
+                name: "Pick a resume from your Inbox",
+                exact: true,
+              })
+              .first(),
+          )
+          .toBeInTheDocument();
+      }
     },
   );
 
@@ -262,5 +287,16 @@ describe("ResumeTab — reference privacy gate", () => {
       )
       .toBe(0);
     await expectReferenceContentHidden(screen);
+    expect(
+      getList.mock.calls.filter(([resource]) => resource === "inbox_items"),
+    ).toHaveLength(0);
+    await expect
+      .element(
+        screen.getByRole("button", {
+          name: "Pick a resume from your Inbox",
+          exact: true,
+        }),
+      )
+      .not.toBeInTheDocument();
   });
 });

@@ -70,12 +70,14 @@ import type { CopyInboxAttachmentsParams } from "./inboxAttachments";
 import { trustSenderAndRelease } from "./trustedSenders";
 import type { TrustSenderParams, TrustSenderResult } from "./trustedSenders";
 import {
+  attachInboxAttachmentToResumeFile as attachInboxAttachmentToResumeFileImpl,
   copyInboxAttachmentToResumeFile as copyInboxAttachmentToResumeFileImpl,
   removeResumeFileObjects as removeResumeFileObjectsImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
   uploadResumeFile as uploadResumeFileImpl,
 } from "./resumes";
 import type {
+  AttachInboxAttachmentToResumeFileParams,
   CopyInboxAttachmentToResumeFileParams,
   SignResumeFileUrlParams,
   UploadResumeFileParams,
@@ -1300,6 +1302,11 @@ export const getDataProviderWithCustomMethods = () => {
       params: CopyInboxAttachmentToResumeFileParams,
     ) {
       return copyInboxAttachmentToResumeFileImpl(params);
+    },
+    async attachInboxAttachmentToResumeFile(
+      params: AttachInboxAttachmentToResumeFileParams,
+    ) {
+      return attachInboxAttachmentToResumeFileImpl(params);
     },
     async removeResumeFileObjects(paths: string[]): Promise<void> {
       return removeResumeFileObjectsImpl(paths);

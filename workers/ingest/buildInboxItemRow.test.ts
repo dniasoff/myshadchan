@@ -87,6 +87,7 @@ describe("buildInboxItemRow", () => {
       type: "application/pdf",
       path: "1/abc.pdf",
       src: "https://example.supabase.co/signed/abc",
+      size: 1234,
     };
     const input = {
       textBody: "text",

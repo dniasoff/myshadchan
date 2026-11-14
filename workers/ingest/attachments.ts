@@ -11,12 +11,14 @@ export const ATTACHMENTS_BUCKET = "attachments";
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
 /** Exactly `InboxAttachment` (`src/components/atomic-crm/types.ts`) — the
- * shape the frontend already renders. */
+ * shape the frontend already renders, including the durable byte size used
+ * when a household files one attachment as a resume. */
 export interface UploadedAttachment {
   title: string;
   type: string;
   path: string;
   src: string;
+  size: number;
 }
 
 /**
@@ -36,8 +38,9 @@ function deriveSafeExtension(filename: string): string {
 
 /**
  * Upload every parsed attachment to the private `attachments` bucket and
- * return the same `{title, type, path, src}` shape the retired Postmark
- * path produced. Storage is the one documented exception `forAccount()`
+ * return the same `{title, type, path, src, size}` shape the retired Postmark
+ * path produced, with the byte size derived from the uploaded content.
+ * Storage is the one documented exception `forAccount()`
  * does not wrap (`serviceRoleClient.ts`), so this uses the raw service-role
  * client directly — the account-prefixed path (`{accountId}/{uuid}{ext}`) is
  * what makes that safe: the bucket is private and its RLS policies scope on
@@ -93,6 +96,7 @@ export async function uploadAttachments(
           type: attachment.mimeType,
           path,
           src: signed.signedUrl,
+          size: attachment.content.byteLength,
         };
         return entry;
       }),
