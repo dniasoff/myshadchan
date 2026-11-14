@@ -10,8 +10,8 @@ import {
   type RateLimitEnforcementEnv,
 } from "../shared/rateLimit";
 import {
+  applyRereadSections,
   claimRereadAttempt,
-  completeRereadAttempt,
   releaseRereadAttempt,
 } from "./rereadQuota";
 import {
@@ -88,29 +88,6 @@ function buildRereadSections(
   };
 }
 
-async function updateSectionsWithCas(
-  service: SupabaseClient,
-  resumeId: number,
-  accountId: number,
-  originalSections: unknown,
-  nextSections: Record<string, unknown>,
-): Promise<boolean> {
-  let update = service
-    .from("resumes")
-    .update({ sections: nextSections })
-    .eq("id", resumeId)
-    .eq("account_id", accountId);
-
-  if (originalSections === null) {
-    update = update.is("sections", null);
-  } else {
-    update = update.eq("sections", JSON.stringify(originalSections));
-  }
-
-  const { data, error } = await update.select("id").maybeSingle();
-  return !error && data != null;
-}
-
 async function verifyStorageMetadata(
   service: SupabaseClient,
   file: { path: string; mime_type: string; size: number },
@@ -143,8 +120,8 @@ async function verifyStorageMetadata(
 /**
  * Re-read an existing resume. All caller-scoped authorization and file-path
  * checks happen before this function creates or uses the service-role client
- * for storage. The only database write is a sections CAS that changes the
- * generic extras and its schema marker.
+ * for storage. The only resume write is the atomic sections CAS that changes
+ * the generic extras and its schema marker while consuming the ledger unit.
  */
 export async function rereadResume(
   body: RereadBody,
@@ -314,39 +291,35 @@ export async function rereadResume(
       return failure(dependencies);
     }
 
-    const casApplied = await updateSectionsWithCas(
-      service,
-      body.resume_id,
-      accountId,
-      resume.sections,
-      nextSections,
-    );
-    if (!casApplied) {
-      return failure(dependencies, REREAD_FAILURE_MESSAGE, 409);
-    }
-
-    const completed = await completeRereadAttempt(
+    const applied = await applyRereadSections(
       dependencies.env,
       accountId,
+      body.resume_id,
       attemptId,
       generation,
+      resume.sections,
+      nextSections,
       CURRENT_PARSE_RESULT_SCHEMA_VERSION,
     );
-    if (completed.outcome === "applied") {
-      attemptFinalized = true;
-      return response(REREAD_SUCCESS_STATUS, ok({ replayed: false }));
-    }
-    if (completed.outcome === "failed") {
+    if (applied.outcome === "cas_failed") {
       return failure(dependencies, REREAD_FAILURE_MESSAGE, 409);
     }
-    // A superseded generation belongs to the newer claimant. Its fenced
-    // release is intentionally skipped so it cannot release that claimant's
-    // reservation.
+    if (applied.outcome === "failed") {
+      return failure(dependencies);
+    }
+    if (applied.outcome === "superseded") {
+      // A superseded generation belongs to the newer claimant. Its fenced
+      // release is intentionally skipped so it cannot release that claimant's
+      // reservation.
+      attemptFinalized = true;
+      return response(
+        REREAD_RETRYABLE_STATUS,
+        fail(ALREADY_READING_MESSAGE, { code: "already_reading" }),
+      );
+    }
+
     attemptFinalized = true;
-    return response(
-      REREAD_RETRYABLE_STATUS,
-      fail(ALREADY_READING_MESSAGE, { code: "already_reading" }),
-    );
+    return response(REREAD_SUCCESS_STATUS, ok({ replayed: false }));
   } catch (error) {
     console.error("parse.reread.unexpected", summarizeErrorForLog(error));
     return failure(dependencies);

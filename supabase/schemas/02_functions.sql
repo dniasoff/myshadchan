@@ -6021,33 +6021,73 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."complete_ai_reread_attempt"("p_account_id" bigint, "p_attempt_id" bigint, "p_generation" bigint, "p_schema_version" smallint) RETURNS "jsonb"
+CREATE OR REPLACE FUNCTION "public"."apply_ai_reread_sections"("p_account_id" bigint, "p_resume_id" bigint, "p_attempt_id" bigint, "p_generation" bigint, "p_original_sections" jsonb, "p_next_sections" jsonb, "p_schema_version" smallint) RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
-  v_generation bigint;
-  v_status text;
+  v_attempt public.ai_reread_attempts;
 begin
+  if p_account_id is null or p_resume_id is null or p_attempt_id is null
+     or p_generation is null or p_next_sections is null
+     or p_schema_version is null then
+    raise exception 're-read apply requires account, resume, attempt, generation, sections and schema version'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  -- Lock the ledger generation before touching the resume. The sections CAS
+  -- and this completion update are one transaction, so an exception after
+  -- the row update rolls both changes back and release_ai_reread_attempt()
+  -- can safely refund the reservation.
+  select * into v_attempt
+  from public.ai_reread_attempts
+  where id = p_attempt_id
+    and account_id = p_account_id
+    and resume_id = p_resume_id
+  for update;
+  if not found then
+    raise exception 'ai_reread_attempts % is not applicable to account % and resume %',
+      p_attempt_id, p_account_id, p_resume_id;
+  end if;
+
+  if v_attempt.generation <> p_generation
+     or v_attempt.status <> 'in_progress' then
+    if v_attempt.generation = p_generation and v_attempt.status = 'completed' then
+      return jsonb_build_object('outcome', 'applied');
+    end if;
+    return jsonb_build_object('outcome', 'superseded');
+  end if;
+
+  if not exists (
+    select 1 from public.resumes
+    where id = p_resume_id and account_id = p_account_id
+  ) then
+    raise exception 're-read resume does not belong to account'
+      using errcode = 'foreign_key_violation';
+  end if;
+
+  update public.resumes
+  set sections = p_next_sections
+  where id = p_resume_id
+    and account_id = p_account_id
+    and sections is not distinct from p_original_sections;
+  if not found then
+    return jsonb_build_object('outcome', 'cas_failed');
+  end if;
+
   update public.ai_reread_attempts
   set status = 'completed', result_schema_version = p_schema_version,
       lease_expires_at = now(), updated_at = now()
   where id = p_attempt_id and account_id = p_account_id
-    and status = 'in_progress' and generation = p_generation
-  returning generation into v_generation;
-  if found then return jsonb_build_object('outcome', 'applied'); end if;
-
-  select generation, status into v_generation, v_status
-  from public.ai_reread_attempts
-  where id = p_attempt_id and account_id = p_account_id;
+    and resume_id = p_resume_id
+    and status = 'in_progress' and generation = p_generation;
   if not found then
-    raise exception 'ai_reread_attempts % is not confirmable for account %',
-      p_attempt_id, p_account_id;
+    -- The locked row should make this unreachable. Keep it fail-closed so a
+    -- future change cannot persist sections without consuming the unit.
+    raise exception 're-read completion fence changed';
   end if;
-  if v_generation = p_generation and v_status = 'completed' then
-    return jsonb_build_object('outcome', 'applied');
-  end if;
-  return jsonb_build_object('outcome', 'superseded');
+
+  return jsonb_build_object('outcome', 'applied');
 end;
 $$;
 

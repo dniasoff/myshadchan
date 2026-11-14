@@ -1,21 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  applyRereadSections,
   claimRereadAttempt,
-  completeRereadAttempt,
   releaseRereadAttempt,
 } from "./rereadQuota";
 import { rereadResume, REREAD_FAILURE_MESSAGE } from "./rereadRoute";
 import { makeExtract, TEST_ENV } from "./parseTestFixtures";
 
 vi.mock("./rereadQuota", () => ({
+  applyRereadSections: vi.fn(),
   claimRereadAttempt: vi.fn(),
-  completeRereadAttempt: vi.fn(),
   releaseRereadAttempt: vi.fn(),
 }));
 
 const claim = vi.mocked(claimRereadAttempt);
-const complete = vi.mocked(completeRereadAttempt);
+const apply = vi.mocked(applyRereadSections);
 const release = vi.mocked(releaseRereadAttempt);
 
 const requestId = "8f7d6f38-a1ea-4f04-9b14-1e68b2c9f4e3";
@@ -136,12 +136,12 @@ describe("re-read route", () => {
       ok: true,
       outcome: { outcome: "reserved", attempt_id: 41, generation: 1 },
     });
-    complete.mockResolvedValue({ outcome: "applied" });
+    apply.mockResolvedValue({ outcome: "applied" });
     release.mockResolvedValue({ outcome: "applied" });
   });
 
   it("writes only additionalSections and the schema marker, preserving legacy sections", async () => {
-    const { caller, service, updateBuilder } = makeClients();
+    const { caller, service } = makeClients();
     const references = [
       {
         name: "Reference",
@@ -187,13 +187,34 @@ describe("re-read route", () => {
 
     expect(result.status).toBe(200);
     expect(release).not.toHaveBeenCalled();
-    expect(complete).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1, 4);
-    const updatePayload = (
-      updateBuilder.update.mock.calls as unknown[][]
-    )[0]?.[0] as {
-      sections: Record<string, unknown>;
-    };
-    expect(updatePayload.sections).toMatchObject({
+    expect(apply).toHaveBeenCalledWith(
+      TEST_ENV,
+      10,
+      22,
+      41,
+      1,
+      {
+        learningHistory,
+        references,
+        additionalSections: [{ title: "Old", items: [] }],
+      },
+      {
+        learningHistory,
+        references,
+        schemaVersion: 4,
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [{ label: "Role", value: "Teacher" }],
+            order: 0,
+          },
+        ],
+      },
+      4,
+    );
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect((apply.mock.calls[0] as unknown[])[6]).toMatchObject({
       learningHistory,
       references,
       schemaVersion: 4,
@@ -206,8 +227,10 @@ describe("re-read route", () => {
         },
       ],
     });
-    expect(updatePayload.sections.learningHistory).toEqual(learningHistory);
-    expect(updatePayload.sections.references).toEqual(references);
+    expect((apply.mock.calls[0] as unknown[])[6]).toMatchObject({
+      learningHistory,
+      references,
+    });
   });
 
   it("releases the one reservation when the extractor fails", async () => {
@@ -234,13 +257,16 @@ describe("re-read route", () => {
       error: REREAD_FAILURE_MESSAGE,
     });
     expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
-    expect(complete).not.toHaveBeenCalled();
+    expect(apply).not.toHaveBeenCalled();
   });
 
   it.each(["metadata", "download", "arrayBuffer", "cas"] as const)(
     "releases when the %s await throws",
     async (throwPoint) => {
       const { caller, service } = makeClients(undefined, true, throwPoint);
+      if (throwPoint === "cas") {
+        apply.mockRejectedValueOnce(new Error("atomic apply unavailable"));
+      }
 
       const result = await rereadResume(
         { resume_id: 22, request_id: requestId },
@@ -254,13 +280,17 @@ describe("re-read route", () => {
 
       expect(result.status).toBe(422);
       expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
-      expect(complete).not.toHaveBeenCalled();
+      if (throwPoint === "cas") {
+        expect(apply).toHaveBeenCalledTimes(1);
+      } else {
+        expect(apply).not.toHaveBeenCalled();
+      }
     },
   );
 
-  it("releases when completing the reservation throws", async () => {
+  it("releases when the atomic apply RPC throws", async () => {
     const { caller, service } = makeClients();
-    complete.mockRejectedValueOnce(new Error("completion unavailable"));
+    apply.mockRejectedValueOnce(new Error("atomic apply unavailable"));
 
     const result = await rereadResume(
       { resume_id: 22, request_id: requestId },
@@ -277,7 +307,8 @@ describe("re-read route", () => {
   });
 
   it("releases on a compare-and-set miss and never overwrites newer edits", async () => {
-    const { caller, service } = makeClients({}, false);
+    const { caller, service } = makeClients();
+    apply.mockResolvedValueOnce({ outcome: "cas_failed" });
 
     const result = await rereadResume(
       { resume_id: 22, request_id: requestId },
@@ -291,7 +322,7 @@ describe("re-read route", () => {
 
     expect(result.status).toBe(409);
     expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
-    expect(complete).not.toHaveBeenCalled();
+    expect(apply).toHaveBeenCalledTimes(1);
   });
 
   it("does not touch service storage when the stored path is not owned by the account", async () => {

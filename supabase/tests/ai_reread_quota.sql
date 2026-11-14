@@ -103,16 +103,100 @@ select 'different request is busy without a second charge',
   and (select resumes_parsed from public.ai_usage where account_id = :account_id and period = to_char(now(), 'YYYY-MM')) = 1,
   :'other_live';
 
-select public.complete_ai_reread_attempt(:account_id, :attempt_id, :generation_one, 4::smallint) as completed \gset
+select public.apply_ai_reread_sections(
+  :account_id,
+  :resume_id,
+  :attempt_id,
+  :generation_one,
+  '{"learningHistory":[{"label":"old","value":"keep"}],"references":[],"additionalSections":[]}'::jsonb,
+  '{"learningHistory":[{"label":"old","value":"keep"}],"references":[],"additionalSections":[{"title":"Work","items":[]}]}'::jsonb,
+  4::smallint
+) as completed \gset
 select public.claim_ai_reread_attempt(:account_id, :resume_id, '10000000-0000-4000-8000-000000000001', 4::smallint) as replayed \gset
 select public.claim_ai_reread_attempt(:account_id, :resume_id, '10000000-0000-4000-8000-000000000001', 3::smallint) as replayed_old_schema \gset
+select public.apply_ai_reread_sections(
+  :account_id,
+  :resume_id,
+  :attempt_id,
+  :generation_one,
+  '{"learningHistory":[{"label":"old","value":"keep"}],"references":[],"additionalSections":[]}'::jsonb,
+  '{"learningHistory":[{"label":"old","value":"keep"}],"references":[],"additionalSections":[{"title":"Different","items":[]}]}'::jsonb,
+  4::smallint
+) as applied_retry \gset
 insert into results
 select 'completed request replays without a second charge',
   (:'completed'::jsonb ->> 'outcome') = 'applied'
   and (:'replayed'::jsonb ->> 'outcome') = 'replayed'
   and (:'replayed_old_schema'::jsonb ->> 'outcome') = 'replayed'
+  and (:'applied_retry'::jsonb ->> 'outcome') = 'applied'
+  and (select status from public.ai_reread_attempts where id = :attempt_id) = 'completed'
+  and (select sections -> 'additionalSections' from public.resumes where id = :resume_id)
+      = '[{"title":"Work","items":[]}]'::jsonb
   and (select resumes_parsed from public.ai_usage where account_id = :account_id and period = to_char(now(), 'YYYY-MM')) = 1,
   :'replayed';
+
+-- Force an exception from an AFTER UPDATE trigger after the CAS statement has
+-- run. The apply RPC must roll back both the sections update and the ledger
+-- completion, leaving release safe to refund exactly one unit.
+select public.claim_ai_reread_attempt(:account_id, :resume_id, '10000000-0000-4000-8000-000000000008', 4::smallint) as atomic_failure_claim \gset
+select (:'atomic_failure_claim'::jsonb ->> 'attempt_id')::bigint as atomic_failure_attempt \gset
+select (:'atomic_failure_claim'::jsonb ->> 'generation')::bigint as atomic_failure_generation \gset
+create or replace function public.test_ai_reread_atomic_failure(
+  p_account_id bigint,
+  p_resume_id bigint,
+  p_attempt_id bigint,
+  p_generation bigint
+)
+returns void
+language plpgsql
+as $$
+begin
+  begin
+    perform public.apply_ai_reread_sections(
+      p_account_id,
+      p_resume_id,
+      p_attempt_id,
+      p_generation,
+      '{"learningHistory":[{"label":"old","value":"keep"}],"references":[],"additionalSections":[{"title":"Work","items":[]}]}'::jsonb,
+      '{"learningHistory":[{"label":"old","value":"keep"}],"references":[],"additionalSections":[{"title":"New","items":[]}],"force_atomic_failure":true}'::jsonb,
+      4::smallint
+    );
+  exception when others then
+    null;
+  end;
+end;
+$$;
+create or replace function public.test_ai_reread_atomic_failure_trigger()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'forced re-read atomic failure';
+end;
+$$;
+create trigger zz_test_ai_reread_atomic_failure
+after update of sections on public.resumes
+for each row
+when ((new.sections ->> 'force_atomic_failure') = 'true')
+execute function public.test_ai_reread_atomic_failure_trigger();
+select public.test_ai_reread_atomic_failure(
+  :account_id,
+  :resume_id,
+  :atomic_failure_attempt,
+  :atomic_failure_generation
+);
+insert into results
+select 'atomic apply rolls back sections and completion together',
+  (select status from public.ai_reread_attempts where id = :atomic_failure_attempt) = 'in_progress'
+  and (select resumes_parsed from public.ai_usage where account_id = :account_id and period = to_char(now(), 'YYYY-MM')) = 2
+  and (select sections -> 'additionalSections' from public.resumes where id = :resume_id)
+      = '[{"title":"Work","items":[]}]'::jsonb
+  and not (select sections ? 'force_atomic_failure' from public.resumes where id = :resume_id),
+  'forced trigger rollback';
+drop trigger zz_test_ai_reread_atomic_failure on public.resumes;
+drop function public.test_ai_reread_atomic_failure(bigint, bigint, bigint, bigint);
+drop function public.test_ai_reread_atomic_failure_trigger();
+select public.release_ai_reread_attempt(:account_id, :atomic_failure_attempt, :atomic_failure_generation) as atomic_failure_release \gset
 
 -- Release refunds exactly once; retrying the failed request creates generation
 -- two and reserves one new unit, reusing the same ledger key.
@@ -234,6 +318,14 @@ begin
     insert into results values ('authenticated cannot execute re-read claim', false, 'unexpected success');
   exception when insufficient_privilege then
     insert into results values ('authenticated cannot execute re-read claim', true, sqlerrm);
+  end;
+  begin
+    perform public.apply_ai_reread_sections(
+      1, 1, 1, 1, '{}'::jsonb, '{}'::jsonb, 4::smallint
+    );
+    insert into results values ('authenticated cannot execute re-read apply', false, 'unexpected success');
+  exception when insufficient_privilege then
+    insert into results values ('authenticated cannot execute re-read apply', true, sqlerrm);
   end;
   begin
     perform count(*) from public.ai_reread_attempts;

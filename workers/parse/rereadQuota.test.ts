@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  applyRereadSections,
   claimRereadAttempt,
-  completeRereadAttempt,
   releaseRereadAttempt,
 } from "./rereadQuota";
 import { CURRENT_PARSE_RESULT_SCHEMA_VERSION } from "./parseResultPayload";
@@ -82,15 +82,27 @@ describe("re-read quota RPC wrappers", () => {
     rpc.mockResolvedValue({ data: { outcome: "applied" }, error: null });
 
     await expect(
-      completeRereadAttempt(TEST_ENV, 10, 41, 2, 4),
+      applyRereadSections(
+        TEST_ENV,
+        10,
+        22,
+        41,
+        2,
+        { references: [] },
+        { references: [], additionalSections: [] },
+        4,
+      ),
     ).resolves.toEqual({ outcome: "applied" });
     await expect(releaseRereadAttempt(TEST_ENV, 10, 41, 2)).resolves.toEqual({
       outcome: "applied",
     });
-    expect(rpc).toHaveBeenNthCalledWith(1, "complete_ai_reread_attempt", {
+    expect(rpc).toHaveBeenNthCalledWith(1, "apply_ai_reread_sections", {
       p_account_id: 10,
+      p_resume_id: 22,
       p_attempt_id: 41,
       p_generation: 2,
+      p_original_sections: { references: [] },
+      p_next_sections: { references: [], additionalSections: [] },
       p_schema_version: 4,
     });
     expect(rpc).toHaveBeenNthCalledWith(2, "release_ai_reread_attempt", {

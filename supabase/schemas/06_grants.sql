@@ -1057,8 +1057,8 @@ grant execute on function public.release_ai_parse_attempt(bigint, bigint, bigint
 revoke all on function public.claim_ai_reread_attempt(bigint, bigint, uuid, smallint) from public, anon, authenticated;
 grant execute on function public.claim_ai_reread_attempt(bigint, bigint, uuid, smallint) to service_role;
 
-revoke all on function public.complete_ai_reread_attempt(bigint, bigint, bigint, smallint) from public, anon, authenticated;
-grant execute on function public.complete_ai_reread_attempt(bigint, bigint, bigint, smallint) to service_role;
+revoke all on function public.apply_ai_reread_sections(bigint, bigint, bigint, bigint, jsonb, jsonb, smallint) from public, anon, authenticated;
+grant execute on function public.apply_ai_reread_sections(bigint, bigint, bigint, bigint, jsonb, jsonb, smallint) to service_role;
 
 revoke all on function public.release_ai_reread_attempt(bigint, bigint, bigint) from public, anon, authenticated;
 grant execute on function public.release_ai_reread_attempt(bigint, bigint, bigint) to service_role;
