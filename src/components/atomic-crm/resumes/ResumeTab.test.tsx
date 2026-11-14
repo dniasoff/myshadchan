@@ -54,6 +54,17 @@ describe("ResumeTab — real FakeRest round trip (AC 1 / AC 2 / AC 3)", () => {
       .element(screen.getByText("No resume uploaded yet."))
       .toBeInTheDocument();
 
+    const originalHeading = screen
+      .getByRole("heading", { name: "Original resume", exact: true })
+      .element();
+    const attachButton = screen
+      .getByRole("button", { name: "Attach resume", exact: true })
+      .element();
+    expect(
+      originalHeading.compareDocumentPosition(attachButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
     // Act
     await screen.getByLabelText("Attach resume").upload(file);
 

@@ -2,7 +2,10 @@ import {
   isSingleSubject,
   type ResumeSubject,
 } from "../../resumes/resumeSubject";
-import { buildResumeInboxStoragePath } from "../../resumes/resumeInbox";
+import {
+  buildResumeInboxStoragePath,
+  type ResumeInboxAttachment,
+} from "../../resumes/resumeInbox";
 import type { InboxAttachment, Resume } from "../../types";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import { getSupabaseClient } from "./supabase";
@@ -123,7 +126,7 @@ export type CopyInboxAttachmentToResumeFileParams = ResumeSubject & {
 
 export type AttachInboxAttachmentToResumeFileParams = ResumeSubject & {
   inboxItemId: number | string;
-  attachment: InboxAttachment;
+  attachment: ResumeInboxAttachment;
 };
 
 const INBOX_RESUME_ATTACH_ERROR =

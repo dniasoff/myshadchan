@@ -35,8 +35,43 @@ export type ResumeInboxRow = {
   sourceLabel: string;
   receivedAt: string;
   alreadyAttached: boolean;
-  attachment: InboxAttachment;
+  attachment: ResumeInboxAttachment;
 };
+
+/** The only attachment fields the picker needs. In particular, `src` is a
+ * signed URL and must never enter the picker's query data or selection state. */
+export type ResumeInboxAttachment = Pick<
+  InboxAttachment,
+  "title" | "type" | "path" | "size"
+>;
+
+/** Lean Inbox row shape used by the picker after its server response is
+ * projected. It intentionally has no raw message text or signed URLs. */
+export type ResumeInboxPickerItem = Pick<
+  InboxItem,
+  "id" | "created_at" | "sender" | "sender_email" | "status"
+> & {
+  attachments?: ResumeInboxAttachment[] | null;
+};
+
+export function toResumeInboxPickerItem(
+  item: InboxItem | ResumeInboxPickerItem,
+): ResumeInboxPickerItem {
+  return {
+    id: item.id,
+    created_at: item.created_at,
+    sender: item.sender,
+    sender_email: item.sender_email,
+    status: item.status,
+    attachments:
+      item.attachments?.map(({ title, type, path, size }) => ({
+        title,
+        type,
+        path,
+        size,
+      })) ?? null,
+  };
+}
 
 export function canPickResumeFromInbox(
   role: MemberRole | undefined,
@@ -52,7 +87,7 @@ function extensionOf(filename: string): string {
 
 /** The browser only uses this for display; the server repeats the checks. */
 export function isEligibleResumeAttachment(
-  attachment: InboxAttachment,
+  attachment: ResumeInboxAttachment,
 ): boolean {
   if (attachment.path.trim() === "") return false;
 
@@ -64,7 +99,9 @@ export function isEligibleResumeAttachment(
   );
 }
 
-function sourceLabelFor(item: InboxItem): string {
+function sourceLabelFor(
+  item: Pick<InboxItem, "sender" | "sender_email">,
+): string {
   return (
     item.sender?.trim() || item.sender_email?.trim() || "Shared from your phone"
   );
@@ -82,7 +119,7 @@ function sameSource(
 }
 
 export function flattenEligibleResumeAttachments(
-  items: InboxItem[],
+  items: ResumeInboxPickerItem[],
   existingFiles: ResumeFileVersion[],
 ): ResumeInboxRow[] {
   return items.flatMap((item) => {

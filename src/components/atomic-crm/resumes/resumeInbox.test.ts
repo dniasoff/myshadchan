@@ -4,6 +4,7 @@ import type { InboxAttachment, InboxItem, ResumeFileVersion } from "../types";
 import {
   flattenEligibleResumeAttachments,
   isEligibleResumeAttachment,
+  toResumeInboxPickerItem,
 } from "./resumeInbox";
 
 const attachment = (
@@ -29,6 +30,17 @@ const item = (overrides: Partial<InboxItem> = {}): InboxItem => ({
 });
 
 describe("resume Inbox eligibility", () => {
+  it("projects picker data without Inbox message text or signed URLs", () => {
+    const projected = toResumeInboxPickerItem(
+      item({ raw_text: "private message text" }),
+    );
+
+    expect(projected).not.toHaveProperty("raw_text");
+    expect(projected.attachments?.[0]).not.toHaveProperty("src");
+    expect(JSON.stringify(projected)).not.toContain("private message text");
+    expect(JSON.stringify(projected)).not.toContain("signed.example");
+  });
+
   it.each([
     ["application/pdf", "resume"],
     ["application/msword", "resume.doc"],

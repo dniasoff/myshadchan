@@ -8,6 +8,7 @@ import {
 import {
   buildResumeInboxStoragePath,
   isEligibleResumeAttachment,
+  type ResumeInboxAttachment,
 } from "../../../resumes/resumeInbox";
 import type { InboxItem, MemberRole } from "../../../types";
 import type { Resume, ResumeFileVersion } from "../../../types";
@@ -28,12 +29,7 @@ export type UploadResumeFileParams = ResumeSubject & {
 
 export type AttachInboxAttachmentToResumeFileParams = ResumeSubject & {
   inboxItemId: Identifier;
-  attachment: {
-    title: string;
-    type: string;
-    path: string;
-    src: string;
-  };
+  attachment: ResumeInboxAttachment;
 };
 
 const INBOX_RESUME_ATTACH_ERROR =

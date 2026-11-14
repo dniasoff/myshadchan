@@ -40,15 +40,6 @@ export function ResumeTab(): ReactNode {
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
-        <ResumeUpload shidduchimId={record.id} />
-        {canPickInboxResume ? (
-          <ResumeInboxPicker
-            shidduchimId={record.id}
-            targetLabel={targetLabel}
-          />
-        ) : null}
-      </div>
       <section
         aria-labelledby="resume-original-heading"
         className="flex min-w-0 flex-col gap-4 rounded-2xl border p-4 sm:p-6"
@@ -63,6 +54,15 @@ export function ResumeTab(): ReactNode {
         </div>
         <ResumeDocument shidduchimId={record.id} />
       </section>
+      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
+        <ResumeUpload shidduchimId={record.id} />
+        {canPickInboxResume ? (
+          <ResumeInboxPicker
+            shidduchimId={record.id}
+            targetLabel={targetLabel}
+          />
+        ) : null}
+      </div>
       <ResumeReadableSections
         record={record}
         canViewReferences={canViewReferences}

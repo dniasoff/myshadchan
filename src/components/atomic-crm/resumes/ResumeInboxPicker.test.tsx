@@ -118,7 +118,7 @@ async function renderPicker(withExisting = false) {
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
-  return { db, target, dataProvider, screen };
+  return { db, target, dataProvider, queryClient, screen };
 }
 
 describe("ResumeInboxPicker", () => {
@@ -132,7 +132,8 @@ describe("ResumeInboxPicker", () => {
   });
 
   it("shows one row per eligible attachment and attaches one copy while retaining the Inbox source", async () => {
-    const { db, target, dataProvider, screen } = await renderPicker();
+    const { db, target, dataProvider, queryClient, screen } =
+      await renderPicker();
 
     await screen
       .getByRole("button", {
@@ -149,6 +150,17 @@ describe("ResumeInboxPicker", () => {
     await expect
       .element(screen.getByText("private message text must not be shown"))
       .not.toBeInTheDocument();
+
+    const [inboxQuery] = queryClient.getQueryCache().findAll({
+      queryKey: ["inbox_items", "getList"],
+    });
+    expect(inboxQuery).toBeDefined();
+    expect(JSON.stringify(inboxQuery?.state.data)).not.toContain(
+      "private message text must not be shown",
+    );
+    expect(JSON.stringify(inboxQuery?.state.data)).not.toContain(
+      "data:application/pdf",
+    );
 
     await screen.getByText("resume.pdf").first().click();
     await expect

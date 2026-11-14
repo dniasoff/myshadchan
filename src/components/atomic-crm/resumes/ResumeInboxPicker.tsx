@@ -6,6 +6,7 @@ import {
   useNotify,
   useRefresh,
   useTranslate,
+  type GetListResult,
 } from "ra-core";
 
 import { Button } from "@/components/ui/button";
@@ -29,16 +30,13 @@ import {
 } from "@/components/ui/sheet";
 
 import type { CrmDataProvider } from "../providers/types";
-import type {
-  InboxItem,
-  Resume,
-  ResumeFileVersion,
-  ShidduchSummary,
-} from "../types";
+import type { Resume, ResumeFileVersion, ShidduchSummary } from "../types";
 import { formatTimelineDate } from "../entity360/tabs/interactionLabels";
 import {
   flattenEligibleResumeAttachments,
   formatResumeInboxSize,
+  toResumeInboxPickerItem,
+  type ResumeInboxPickerItem,
   type ResumeInboxRow,
 } from "./resumeInbox";
 
@@ -48,6 +46,15 @@ const SUCCESS_COPY =
   "Resume attached. It is now a new version. The file is still in your Inbox.";
 const FAILURE_COPY =
   "Could not attach this file. It may be too large or no longer available. The Inbox item was not changed.";
+
+const PICKER_INBOX_COLUMNS = [
+  "id",
+  "created_at",
+  "sender",
+  "sender_email",
+  "status",
+  "attachments",
+] as const;
 
 function PickerBody({
   rows,
@@ -200,14 +207,24 @@ export function ResumeInboxPicker({
     data: inboxItems,
     isPending: isInboxPending,
     error: inboxError,
-  } = useGetList<InboxItem>(
+  } = useGetList<ResumeInboxPickerItem>(
     "inbox_items",
     {
       filter: { status: "unresolved" },
       pagination: { page: 1, perPage: 100 },
       sort: { field: "created_at", order: "DESC" },
+      meta: {
+        columns: PICKER_INBOX_COLUMNS,
+        resumeInboxPicker: true,
+      },
     },
-    { enabled: open },
+    {
+      enabled: open,
+      select: (result: GetListResult<ResumeInboxPickerItem>) => ({
+        ...result,
+        data: result.data.map(toResumeInboxPickerItem),
+      }),
+    },
   );
   const { data: resumes } = useGetList<Resume>(
     "resumes",
