@@ -331,6 +331,43 @@ begin
             v_account_count, v_resume_count, v_candidate_count;
     end if;
 
+    -- These scale rows are inserted after the baseline reset, with triggers
+    -- disabled, so a backfill that is already deployed cannot have populated
+    -- them before this assertion runs. Apply the same bounded, idempotent
+    -- per-account reconciliation that 20261113130000 uses here. When that
+    -- migration is pending, its own backfill has already run before this
+    -- assertion and this pass proves the same work is safe to repeat; when it
+    -- is already in the baseline, this keeps the proof self-contained.
+    for v_account in
+        select id as account_id
+          from public.accounts
+         where id between 9100001 and 9100200 or id = 9101000
+         order by id
+    loop
+        v_account_lock := hashtextextended(
+            format('resume-reference-account:%s', v_account.account_id), 0
+        );
+        perform pg_advisory_lock(v_account_lock);
+        begin
+            for v_resume in
+                select r.id
+                  from public.resumes r
+                 where r.account_id = v_account.account_id
+                   and r.shidduchim_id is not null
+                 order by r.id
+                 limit 500
+            loop
+                perform public.reconcile_resume_references_for_account(
+                    v_resume.id, v_account.account_id
+                );
+            end loop;
+        exception when others then
+            perform pg_advisory_unlock(v_account_lock);
+            raise;
+        end;
+        perform pg_advisory_unlock(v_account_lock);
+    end loop;
+
     if (select count(*) from public."references"
         where account_id between 9100001 and 9100200 or account_id = 9101000) <> 201
        or (select count(*) from public.reference_links
