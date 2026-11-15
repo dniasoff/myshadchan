@@ -47,6 +47,13 @@ function hasMeaningfulValue(value: unknown): boolean {
 export function isResumeUnread(
   resume: Pick<Resume, "sections" | "extracted">,
 ): boolean {
+  const hasCompletedReadMarker =
+    typeof resume.sections === "object" &&
+    resume.sections !== null &&
+    !Array.isArray(resume.sections) &&
+    Object.prototype.hasOwnProperty.call(resume.sections, "schemaVersion");
+  if (hasCompletedReadMarker) return false;
+
   const sections = parseResumeSections(resume.sections, true);
   const hasSections =
     sections.learningHistory.length > 0 ||

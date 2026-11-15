@@ -304,4 +304,48 @@ describe("ResumeVersionList — unread read mode", () => {
       expect.objectContaining({ resumeId: 1, fileIdentity: version.path }),
     );
   });
+
+  it("does not offer another paid read after an accepted empty read", async () => {
+    const version = buildVersion();
+    const emptyReadRow = buildResumeRow({
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [],
+        schemaVersion: 4,
+      },
+      extracted: {},
+      files: [version],
+    });
+    expect(isResumeUnread(emptyReadRow)).toBe(false);
+    const reReadResume = vi.fn().mockResolvedValue("completed");
+    const { screen } = await renderList(
+      1,
+      {
+        getList: vi.fn().mockResolvedValue({
+          data: [emptyReadRow],
+          total: 1,
+        }),
+        reReadResume,
+      },
+      true,
+    );
+
+    await expect
+      .element(
+        screen.getByRole("button", {
+          name: "Re-read this resume",
+          exact: true,
+        }),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByRole("button", {
+          name: "Read this resume",
+          exact: true,
+        }),
+      )
+      .not.toBeInTheDocument();
+  });
 });

@@ -247,6 +247,26 @@ describe("ResumeRereadControl", () => {
     );
   });
 
+  it("closes the dialog and shows the static copy when an unread read is empty", async () => {
+    const readResume = vi.fn().mockResolvedValue("empty");
+    const { screen } = await renderControl(vi.fn(), 41, "current-41", {
+      isUnread: true,
+      readResume,
+    });
+
+    await screen
+      .getByRole("button", { name: REREAD_COPY.readTrigger, exact: true })
+      .click();
+    await screen
+      .getByRole("button", { name: REREAD_COPY.readConfirm, exact: true })
+      .click();
+
+    await expect
+      .poll(() => screen.getByRole("status").element().textContent)
+      .toBe(REREAD_COPY.readEmpty);
+    expect(openPanel()).toBeNull();
+  });
+
   it("times out a hung read, returns to idle, and retries with the same id", async () => {
     vi.useFakeTimers();
     const reReadResume = vi.fn().mockImplementation(

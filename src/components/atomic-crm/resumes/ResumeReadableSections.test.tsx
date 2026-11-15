@@ -490,6 +490,11 @@ describe("isResumeUnread", () => {
       },
       " \n\t",
     ],
+    [
+      "empty sections without a completed-read marker",
+      { learningHistory: [], references: [], additionalSections: [] },
+      null,
+    ],
   ])("treats %s as unread", (_label, sections, extracted) => {
     expect(isResumeUnread({ sections, extracted })).toBe(true);
   });
@@ -504,6 +509,16 @@ describe("isResumeUnread", () => {
       "a partial extracted draft",
       { learningHistory: [], references: [], additionalSections: [] },
       { fields: { name_en: "David" } },
+    ],
+    [
+      "an accepted empty read marked with the parser schema version",
+      {
+        learningHistory: [],
+        references: [],
+        additionalSections: [],
+        schemaVersion: 4,
+      },
+      {},
     ],
   ])("treats %s as already read", (_label, sections, extracted) => {
     expect(isResumeUnread({ sections, extracted })).toBe(false);
@@ -697,6 +712,7 @@ describe("ResumeReadableSections", () => {
       "Learning history",
       "Learning detail",
       "Other",
+      "References",
     ]);
   });
 
@@ -1542,6 +1558,33 @@ describe("ResumeReadableSections", () => {
     await expect
       .poll(() => screen.getByRole("status").element().textContent)
       .toBe("Resume read. The details are ready below.");
+  });
+
+  it("shows the static empty-read outcome in the Easy-to-read card", async () => {
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const readResume = vi.fn().mockResolvedValue("empty");
+    const { screen } = await renderSections({
+      canRead: true,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      files: [file],
+      sections: { learningHistory: [], references: [] },
+      withLinks: false,
+      readResume,
+    });
+
+    await screen
+      .getByRole("button", { name: "Read this resume", exact: true })
+      .click();
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("We could not find details in this resume.");
   });
 
   it("offers the full read under existing subject cards when the resume is unread", async () => {

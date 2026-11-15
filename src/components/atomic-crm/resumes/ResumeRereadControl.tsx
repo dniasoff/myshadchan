@@ -27,6 +27,7 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 
 import type { CrmDataProvider } from "../providers/types";
+import { RESUME_AUTO_READ_COPY } from "./resumeAutoReadHelpers";
 import {
   createResumeReadRequestId,
   resumeReadAttemptKey,
@@ -34,7 +35,12 @@ import {
 } from "./resumeReadRequest";
 
 type RereadFeedback =
-  "reading" | "completed" | "failed" | "no_allowance" | "not_entitled";
+  | "reading"
+  | "completed"
+  | "empty"
+  | "failed"
+  | "no_allowance"
+  | "not_entitled";
 
 export const REREAD_COPY = {
   trigger: "Re-read this resume",
@@ -46,6 +52,7 @@ export const REREAD_COPY = {
   reading: "Reading this resume. Please wait.",
   completed: "Resume read again. New sections are ready below.",
   readCompleted: "Resume read. The details are ready below.",
+  readEmpty: RESUME_AUTO_READ_COPY.empty,
   failed: "Could not read this resume. Nothing was changed.",
   noAllowance: "No resume reads left this month.",
   notEntitled: "AI reading is not switched on for your account yet.",
@@ -68,6 +75,8 @@ function feedbackText(feedback: RereadFeedback, isUnread: boolean): string {
       return REREAD_COPY.reading;
     case "completed":
       return isUnread ? REREAD_COPY.readCompleted : REREAD_COPY.completed;
+    case "empty":
+      return REREAD_COPY.readEmpty;
     case "no_allowance":
       return REREAD_COPY.noAllowance;
     case "not_entitled":
@@ -171,9 +180,15 @@ export function ResumeRereadControl({
             fileIdentity,
             signal: controller.signal,
           });
-      if (outcome === "completed" || (isUnread && outcome === "empty")) {
+      if (outcome === "completed") {
         unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("completed");
+        setOpen(false);
+        setRequestId(null);
+        refresh();
+      } else if (isUnread && outcome === "empty") {
+        unresolvedResumeReadAttempts.delete(rereadAttemptKey);
+        setFeedback("empty");
         setOpen(false);
         setRequestId(null);
         refresh();
@@ -206,7 +221,9 @@ export function ResumeRereadControl({
     ? translate(
         isUnread && feedback === "completed"
           ? "crm.entity360.resume.read.completed"
-          : `crm.entity360.resume.reread.${feedback}`,
+          : isUnread && feedback === "empty"
+            ? "crm.entity360.resume.read.empty"
+            : `crm.entity360.resume.reread.${feedback}`,
         {
           _: feedbackMessage ?? "",
         },
