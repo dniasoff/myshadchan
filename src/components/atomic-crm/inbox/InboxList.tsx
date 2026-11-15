@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { EmptyState } from "../misc/EmptyState";
+import { useViewerRole } from "../entity360/useViewerRole";
+import { canPickResumeFromInbox } from "../resumes/resumeInbox";
 import type { InboxItem } from "../types";
 import { formatRedtDate } from "../shidduchim/boardUtils";
 import { AddToInboxDialog } from "./AddToInboxDialog";
@@ -214,8 +216,8 @@ const InboxContent = () => {
             <CardGridSkeleton />
           ) : workingItems.length === 0 ? (
             <EmptyState
-              title="Nothing to confirm"
-              description="When a resume or redt arrives — shared, emailed, or pasted in — it lands here so nothing slips by. Use “Add to inbox” to drop one in."
+              title="No files or notes are waiting yet"
+              description="Paste a note, choose Add files or photos, or send an email to your household address. Files wait here until you decide what to do with them."
             />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -279,23 +281,32 @@ const InboxContent = () => {
   );
 };
 
-export const InboxList = () => (
-  <List
-    resource="inbox_items"
-    filter={{ status: "unresolved" }}
-    sort={{ field: "created_at", order: "DESC" }}
-    perPage={100}
-    pagination={false}
-    actions={false}
-    empty={false}
-    // `InboxContent` renders the page's own `<h1>Inbox</h1>`; without this,
-    // `<List>` renders a second "Inbox" heading above it, so the word was
-    // announced twice on every visit. (`title={false}` still leaves the
-    // empty `<h2>` `admin/list.tsx` emits — that renderer bug is shared with
-    // 4 other screens and is fixed centrally, not here. See ui-audit-plan
-    // §7.11: do not "fix" this by dropping the prop.)
-    title={false}
-  >
-    <InboxContent />
-  </List>
-);
+export const InboxList = () => {
+  const { role, isPending: isRolePending } = useViewerRole();
+
+  // Do not mount List (or its held-item query) until the role is known. This
+  // keeps single, pending, and no-membership viewers from fetching Inbox data
+  // even briefly; RLS remains the enforcement boundary.
+  if (!canPickResumeFromInbox(role, isRolePending)) return null;
+
+  return (
+    <List
+      resource="inbox_items"
+      filter={{ status: "unresolved" }}
+      sort={{ field: "created_at", order: "DESC" }}
+      perPage={100}
+      pagination={false}
+      actions={false}
+      empty={false}
+      // `InboxContent` renders the page's own `<h1>Inbox</h1>`; without this,
+      // `<List>` renders a second "Inbox" heading above it, so the word was
+      // announced twice on every visit. (`title={false}` still leaves the
+      // empty `<h2>` `admin/list.tsx` emits — that renderer bug is shared with
+      // 4 other screens and is fixed centrally, not here. See ui-audit-plan
+      // §7.11: do not "fix" this by dropping the prop.)
+      title={false}
+    >
+      <InboxContent />
+    </List>
+  );
+};

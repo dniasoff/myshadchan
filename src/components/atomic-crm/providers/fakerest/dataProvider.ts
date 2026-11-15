@@ -2798,6 +2798,7 @@ export const createDataProvider = ({
     uploadInboxAttachment: async (params: {
       file: File;
       inboxItemId: Identifier;
+      mimeType?: string;
     }): Promise<InboxAttachment> => {
       const accountId = await resolveCurrentAccountId();
       const path = `${accountId}/inbox/${params.inboxItemId}/${crypto.randomUUID()}-${params.file.name}`;
@@ -2805,9 +2806,13 @@ export const createDataProvider = ({
       inboxAttachmentBlobUrls.set(path, src);
       return {
         title: params.file.name,
-        type: params.file.type || "application/octet-stream",
+        type:
+          params.mimeType?.split(";", 1)[0].trim().toLowerCase() ||
+          params.file.type.split(";", 1)[0].trim().toLowerCase() ||
+          "application/octet-stream",
         path,
         src,
+        size: params.file.size,
       };
     },
     removeInboxAttachment: async (path: string): Promise<void> => {

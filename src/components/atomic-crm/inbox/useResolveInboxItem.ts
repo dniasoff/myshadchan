@@ -25,6 +25,38 @@ import {
 // (coding-style.md's ~400-line typical ceiling).
 export type { ResumeDraft };
 
+const SHARED_INBOX_DOCUMENT_MIME_BY_EXTENSION = new Map([
+  [".pdf", "application/pdf"],
+  [".doc", "application/msword"],
+  [
+    ".docx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ],
+]);
+const INBOX_IMAGE_EXTENSIONS = new Set([
+  ".gif",
+  ".heic",
+  ".heif",
+  ".jpeg",
+  ".jpg",
+  ".png",
+  ".webp",
+]);
+
+function attachmentExtension(title: string): string {
+  const dot = title.lastIndexOf(".");
+  return dot === -1 ? "" : title.slice(dot).toLowerCase();
+}
+
+/** Only affirmative, matching document MIME and extension evidence may become
+ * a shared Files-tab file. Everything else is parent-private by default. */
+function isAffirmativeInboxDocument(attachment: InboxAttachment): boolean {
+  const mimeType = (attachment.type ?? "").trim().toLowerCase();
+  const extension = attachmentExtension(attachment.title ?? "");
+  if (INBOX_IMAGE_EXTENSIONS.has(extension)) return false;
+  return SHARED_INBOX_DOCUMENT_MIME_BY_EXTENSION.get(extension) === mimeType;
+}
+
 /**
  * The three ways a captured `inbox_items` row stops being unresolved (Story
  * 10.1 Task 2). Extracted out of `InboxResolveDialog.tsx` — the only place
@@ -284,14 +316,30 @@ export function useResolveInboxItem() {
 
     // Story 10.4: carry any capture attachments into the linked shidduch's
     // Files tab so they remain reachable after the inbox item is resolved.
+    // Pictures are deliberately parent-private here: linking an Inbox item
+    // must not turn an unreviewed picture into a shared suggestion asset.
+    // Explicit photo flows are the only place that may promote a picture.
     const attachments = (item.attachments ?? []) as InboxAttachment[];
-    if (attachments.length > 0) {
+    const documentAttachments = attachments.filter(isAffirmativeInboxDocument);
+    const pictureAttachments = attachments.filter(
+      (attachment) => !isAffirmativeInboxDocument(attachment),
+    );
+    if (documentAttachments.length > 0) {
       await dataProvider.copyInboxAttachmentsToEntityFiles({
         baseDataProvider: dataProvider,
-        attachments,
+        attachments: documentAttachments,
         targetType: "shidduch",
         targetId: shidduchimId,
         visibility: "shared",
+      });
+    }
+    if (pictureAttachments.length > 0) {
+      await dataProvider.copyInboxAttachmentsToEntityFiles({
+        baseDataProvider: dataProvider,
+        attachments: pictureAttachments,
+        targetType: "shidduch",
+        targetId: shidduchimId,
+        visibility: "private_parent",
       });
     }
 

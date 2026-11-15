@@ -1,9 +1,41 @@
 import { describe, expect, it } from "vitest";
 import {
+  detectImageMimeType,
   findResumeAttachment,
   splitStoragePath,
   validateAttachmentMagic,
 } from "./inboxAttachment";
+
+describe("detectImageMimeType", () => {
+  it.each([
+    ["JPEG", [0xff, 0xd8, 0xff], "image/jpeg"],
+    ["PNG", [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], "image/png"],
+    ["GIF", [0x47, 0x49, 0x46, 0x38, 0x39, 0x61], "image/gif"],
+    ["BMP", [0x42, 0x4d], "image/bmp"],
+    ["TIFF little-endian", [0x49, 0x49, 0x2a, 0x00], "image/tiff"],
+    ["TIFF big-endian", [0x4d, 0x4d, 0x00, 0x2a], "image/tiff"],
+  ])("detects a leading %s signature", (_name, bytes, expected) => {
+    expect(detectImageMimeType(new Uint8Array(bytes))).toBe(expected);
+  });
+
+  it.each([
+    ["WebP", "WEBP", "image/webp"],
+    ["HEIC", "heic", "image/heic"],
+    ["HEIF", "heif", "image/heif"],
+    ["AVIF", "avif", "image/avif"],
+  ])("detects a leading %s container", (_name, brand, expected) => {
+    const bytes = new Uint8Array(12);
+    if (brand === "WEBP") {
+      bytes.set([0x52, 0x49, 0x46, 0x46], 0);
+      bytes.set([0x57, 0x45, 0x42, 0x50], 8);
+    } else {
+      bytes.set([0x00, 0x00, 0x00, 0x0c, 0x66, 0x74, 0x79, 0x70], 0);
+      bytes.set(new TextEncoder().encode(brand), 8);
+    }
+
+    expect(detectImageMimeType(bytes)).toBe(expected);
+  });
+});
 
 describe("findResumeAttachment", () => {
   it("finds a valid PDF entry", () => {
@@ -186,11 +218,21 @@ describe("validateAttachmentMagic", () => {
     ).toBe("password_protected");
   });
 
-  it("accepts a PDF header anywhere in the first 1024 bytes", () => {
+  it("accepts a PDF header after only a BOM and whitespace prefix", () => {
     const bytes = new Uint8Array(1024);
     bytes.set(new TextEncoder().encode("\ufeff\n%PDF-1.7"), 0);
 
     expect(validateAttachmentMagic(bytes.buffer, "application/pdf")).toBe("ok");
+  });
+
+  it("rejects a PDF marker hidden inside a JPEG polyglot", () => {
+    const bytes = new Uint8Array(128);
+    bytes.set([0xff, 0xd8, 0xff], 0);
+    bytes.set(new TextEncoder().encode("%PDF-1.7"), 100);
+
+    expect(validateAttachmentMagic(bytes.buffer, "application/pdf")).toBe(
+      "malformed",
+    );
   });
 
   it.each(["heim", "heis", "hevm", "hevs", "avif"])(

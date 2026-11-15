@@ -1656,6 +1656,10 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
   }
 
   const file = fi.rawFile;
+  const canonicalizeMimeType = (value: string | undefined) =>
+    value?.split(";", 1)[0].trim().toLowerCase() || "";
+  const canonicalMimeType =
+    canonicalizeMimeType(fi.type) || canonicalizeMimeType(file.type);
   const fileParts = file.name.split(".");
   const fileExt = fileParts.length > 1 ? `.${file.name.split(".").pop()}` : "";
   // Account-prefixed, CSPRNG key. The attachments bucket is private and its RLS
@@ -1665,7 +1669,9 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
   const filePath = `${accountId}/${prefix}${crypto.randomUUID()}${fileExt}`;
   const { error: uploadError } = await getSupabaseClient()
     .storage.from(ATTACHMENTS_BUCKET)
-    .upload(filePath, dataContent);
+    .upload(filePath, dataContent, {
+      contentType: canonicalMimeType || undefined,
+    });
 
   if (uploadError) {
     console.error("uploadError", uploadError);
@@ -1679,6 +1685,9 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
     .createSignedUrl(filePath, ATTACHMENT_URL_TTL_SECONDS);
 
   if (signError || !data) {
+    await getSupabaseClient()
+      .storage.from(ATTACHMENTS_BUCKET)
+      .remove([filePath]);
     console.error("signError", signError);
     throw new Error("Failed to sign attachment URL");
   }
@@ -1687,8 +1696,7 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
   fi.src = data.signedUrl;
 
   // save MIME type
-  const mimeType = file.type;
-  fi.type = mimeType;
+  fi.type = canonicalMimeType;
 
   return fi;
 };
@@ -1696,6 +1704,8 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
 export type UploadInboxAttachmentParams = {
   file: File;
   inboxItemId: Identifier;
+  /** Canonical MIME returned by the picker validator when available. */
+  mimeType?: string;
 };
 
 /** The manual resume picker uses the same private attachment primitive as the
@@ -1704,23 +1714,28 @@ export type UploadInboxAttachmentParams = {
 const uploadInboxAttachment = async ({
   file,
   inboxItemId,
+  mimeType,
 }: UploadInboxAttachmentParams): Promise<InboxAttachment> => {
   const src = URL.createObjectURL(file);
+  const normalizedMimeType =
+    mimeType?.split(";", 1)[0].trim().toLowerCase() ||
+    file.type.split(";", 1)[0].trim().toLowerCase();
   try {
     const uploaded: RAFile = await uploadToBucket(
       {
         src,
         title: file.name,
         rawFile: file,
-        type: file.type,
+        type: normalizedMimeType,
       },
       `inbox/${inboxItemId}`,
     );
     return {
       title: uploaded.title,
-      type: uploaded.type ?? file.type,
+      type: uploaded.type || normalizedMimeType,
       path: uploaded.path ?? "",
       src: uploaded.src,
+      size: file.size,
     };
   } finally {
     URL.revokeObjectURL(src);

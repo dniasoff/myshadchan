@@ -25,4 +25,17 @@ describe("FakeRest resume capture methods", () => {
     await dataProvider.removeResumeFileObjects([copied.storagePath]);
     await dataProvider.removeInboxAttachment(attachment.path);
   });
+
+  it("persists the canonical MIME supplied by the picker validator", async () => {
+    const dataProvider = createDataProvider({ latency: 0, silent: true });
+    const file = new File(["picture"], "picture.jpg");
+
+    const attachment = await dataProvider.uploadInboxAttachment({
+      file,
+      inboxItemId: 700,
+      mimeType: " IMAGE/JPEG ; charset=utf-8 ",
+    });
+
+    expect(attachment.type).toBe("image/jpeg");
+  });
 });

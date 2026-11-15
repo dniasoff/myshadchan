@@ -47,7 +47,10 @@ vi.mock("./supabase", () => ({
   getSupabaseClient: () => supabaseClient,
 }));
 
-import { getDataProviderWithCustomMethods } from "./dataProvider";
+import {
+  getDataProviderWithCustomMethods,
+  uploadToBucket,
+} from "./dataProvider";
 
 describe("Supabase resume capture provider methods", () => {
   beforeEach(() => {
@@ -100,6 +103,7 @@ describe("Supabase resume capture provider methods", () => {
       type: "application/pdf",
       path: storagePath,
       src: "https://signed.example/resume.pdf",
+      size: file.size,
     });
   });
 
@@ -116,5 +120,58 @@ describe("Supabase resume capture provider methods", () => {
     await expect(
       dataProvider.removeInboxAttachment("7/inbox/700/resume.pdf"),
     ).rejects.toThrow("Failed to remove the captured resume");
+  });
+
+  it("persists the canonical MIME supplied by the picker validator", async () => {
+    const dataProvider = getDataProviderWithCustomMethods();
+    const file = new File(["picture"], "picture.jpg");
+
+    const attachment = await dataProvider.uploadInboxAttachment({
+      file,
+      inboxItemId: 700,
+      mimeType: "image/jpeg",
+    });
+
+    expect(attachment.type).toBe("image/jpeg");
+  });
+
+  it("normalizes the supplied MIME instead of overwriting it with raw File.type", async () => {
+    const file = new File(["picture"], "picture.jpg", {
+      type: "application/pdf",
+    });
+
+    const uploaded = await uploadToBucket(
+      {
+        src: "blob:picture",
+        title: file.name,
+        rawFile: file,
+        type: " IMAGE/JPEG ; charset=utf-8 ",
+      },
+      "inbox/700",
+    );
+
+    expect(uploaded.type).toBe("image/jpeg");
+    expect(storageUpload).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Blob),
+      { contentType: "image/jpeg" },
+    );
+  });
+
+  it("removes the uploaded object when signed URL creation fails", async () => {
+    const dataProvider = getDataProviderWithCustomMethods();
+    storageSignedUrl.mockResolvedValue({
+      data: null,
+      error: { message: "signing failed" },
+    });
+    const file = new File(["resume"], "resume.pdf", {
+      type: "application/pdf",
+    });
+
+    await expect(
+      dataProvider.uploadInboxAttachment({ file, inboxItemId: 700 }),
+    ).rejects.toThrow("Failed to sign attachment URL");
+    const [storagePath] = storageUpload.mock.calls[0];
+    expect(storageRemove).toHaveBeenCalledWith([storagePath]);
   });
 });

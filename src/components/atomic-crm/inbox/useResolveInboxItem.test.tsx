@@ -564,6 +564,12 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
           path: "1/inbox-resume.pdf",
           src: "https://example.test/resume.pdf",
         },
+        {
+          title: "portrait.jpg",
+          type: "image/jpeg",
+          path: "1/inbox-portrait.jpg",
+          src: "https://example.test/portrait.jpg",
+        },
       ],
     });
     const { screen, dataProvider } = await renderProbe(item);
@@ -573,12 +579,160 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
       .click();
     await expect.element(screen.getByText("result:linked")).toBeInTheDocument();
 
-    expect(dataProvider.copyInboxAttachmentsToEntityFiles).toHaveBeenCalledWith(
+    expect(
+      dataProvider.copyInboxAttachmentsToEntityFiles,
+    ).toHaveBeenCalledTimes(2);
+    expect(
+      dataProvider.copyInboxAttachmentsToEntityFiles,
+    ).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
-        attachments: item.attachments,
+        attachments: [item.attachments![0]],
         targetType: "shidduch",
         targetId: 42,
         visibility: "shared",
+      }),
+    );
+    expect(
+      dataProvider.copyInboxAttachmentsToEntityFiles,
+    ).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        attachments: [item.attachments![1]],
+        targetType: "shidduch",
+        targetId: 42,
+        visibility: "private_parent",
+      }),
+    );
+  });
+
+  it("fails closed for ambiguous and image-shaped attachments, including missing MIME values", async () => {
+    const privateAttachments = [
+      {
+        title: "no-mime.jpg",
+        type: "",
+        path: "1/no-mime.jpg",
+        src: "https://example.test/no-mime.jpg",
+      },
+      {
+        title: "no-mime.heic",
+        type: "",
+        path: "1/no-mime.heic",
+        src: "https://example.test/no-mime.heic",
+      },
+      {
+        title: "octet-picture.jpg",
+        type: "application/octet-stream",
+        path: "1/octet-picture.jpg",
+        src: "https://example.test/octet-picture.jpg",
+      },
+      {
+        title: "renamed-picture.jpg",
+        type: "application/pdf",
+        path: "1/renamed-picture.jpg",
+        src: "https://example.test/renamed-picture.jpg",
+      },
+      {
+        title: "photo.jpg.",
+        type: "application/pdf",
+        path: "1/photo.jpg.",
+        src: "https://example.test/photo.jpg.",
+      },
+      {
+        title: "resume.pdf.jpg",
+        type: "application/pdf",
+        path: "1/resume.pdf.jpg",
+        src: "https://example.test/resume.pdf.jpg",
+      },
+      {
+        title: "no-extension",
+        type: "application/pdf",
+        path: "1/no-extension",
+        src: "https://example.test/no-extension",
+      },
+      {
+        title: "trailing-dot.pdf.",
+        type: "application/pdf",
+        path: "1/trailing-dot.pdf.",
+        src: "https://example.test/trailing-dot.pdf.",
+      },
+      {
+        title: "empty.pdf",
+        type: "",
+        path: "1/empty.pdf",
+        src: "https://example.test/empty.pdf",
+      },
+      {
+        title: "octet.pdf",
+        type: "application/octet-stream",
+        path: "1/octet.pdf",
+        src: "https://example.test/octet.pdf",
+      },
+      {
+        title: "word-mismatch.docx",
+        type: "application/msword",
+        path: "1/word-mismatch.docx",
+        src: "https://example.test/word-mismatch.docx",
+      },
+      {
+        title: "unknown.bin",
+        type: "application/octet-stream",
+        path: "1/unknown.bin",
+        src: "https://example.test/unknown.bin",
+      },
+    ] as const;
+    const sharedAttachments = [
+      {
+        title: "resume.pdf",
+        type: "application/pdf",
+        path: "1/resume.pdf",
+        src: "https://example.test/resume.pdf",
+      },
+      {
+        title: "resume.doc",
+        type: "application/msword",
+        path: "1/resume.doc",
+        src: "https://example.test/resume.doc",
+      },
+      {
+        title: "resume.docx",
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        path: "1/resume.docx",
+        src: "https://example.test/resume.docx",
+      },
+      {
+        title: "resume-uppercase.PDF",
+        type: "application/pdf",
+        path: "1/resume-uppercase.PDF",
+        src: "https://example.test/resume-uppercase.PDF",
+      },
+    ] as const;
+    const item = buildItem({
+      attachments: [...privateAttachments, ...sharedAttachments],
+    });
+    const { screen, dataProvider } = await renderProbe(item);
+
+    await screen
+      .getByRole("button", { name: "resolveAsLinkToExisting" })
+      .click();
+    await expect.element(screen.getByText("result:linked")).toBeInTheDocument();
+
+    expect(
+      dataProvider.copyInboxAttachmentsToEntityFiles,
+    ).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        attachments: sharedAttachments,
+        visibility: "shared",
+      }),
+    );
+    expect(
+      dataProvider.copyInboxAttachmentsToEntityFiles,
+    ).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        attachments: privateAttachments,
+        visibility: "private_parent",
       }),
     );
   });

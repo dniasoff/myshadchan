@@ -22,6 +22,9 @@ describe("React Query persistence privacy boundary", () => {
     queryClient.setQueryData(["interactions", "getOne"], {
       body: "write-resource note text",
     });
+    queryClient.setQueryData(["accounts", "getOne"], {
+      inbound_email_token: "private-household-token",
+    });
 
     const persisted = dehydrate(queryClient, {
       shouldDehydrateQuery: shouldPersistQuery,
@@ -35,6 +38,7 @@ describe("React Query persistence privacy boundary", () => {
     expect(JSON.stringify(persisted)).not.toContain("private note text");
     expect(JSON.stringify(persisted)).not.toContain("tab note text");
     expect(JSON.stringify(persisted)).not.toContain("write-resource note text");
+    expect(JSON.stringify(persisted)).not.toContain("private-household-token");
   });
 
   it("preserves TanStack's success-only default for pending and error queries", async () => {
