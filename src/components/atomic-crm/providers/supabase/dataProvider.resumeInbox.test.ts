@@ -61,7 +61,15 @@ describe("attachInboxAttachmentToResumeFile", () => {
                 data: targetExists ? { id: 42 } : null,
                 error: null,
               }
-            : { data: { files: existingFiles }, error: null },
+            : {
+                data: {
+                  id: 900,
+                  account_id: 7,
+                  shidduchim_id: 42,
+                  files: existingFiles,
+                },
+                error: null,
+              },
       );
       return builder;
     });
@@ -139,6 +147,33 @@ describe("attachInboxAttachmentToResumeFile", () => {
     ).rejects.toThrow("Could not attach this file");
 
     expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("returns an existing account-scoped row on a duplicate retry without copying", async () => {
+    existingFiles = [
+      {
+        path: "7/resumes/42/inbox-duplicate.docx",
+        filename: attachment.title,
+        source_inbox_item_id: 44,
+        source_inbox_attachment_path: attachment.path,
+      },
+    ];
+
+    const result = await attachInboxAttachmentToResumeFile({
+      shidduchimId: 42,
+      inboxItemId: 44,
+      attachment,
+    });
+
+    expect(result).toMatchObject({
+      id: 900,
+      account_id: 7,
+      shidduchim_id: 42,
+      files: existingFiles,
+    });
+    expect(download).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalledWith("add_resume_file", expect.anything());
   });
 
   it("rejects an already-resolved Inbox item before copying bytes", async () => {

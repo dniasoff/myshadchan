@@ -152,7 +152,7 @@ async function validateInboxResumeAttach(
   subject: ResumeSubject,
   inboxItemId: number | string,
   attachment: ResumeInboxAttachment,
-): Promise<void> {
+): Promise<Resume | null> {
   const client = getSupabaseClient();
   const { data: role, error: roleError } = await client.rpc(
     "current_member_role",
@@ -191,7 +191,7 @@ async function validateInboxResumeAttach(
 
   const { data: resume, error: resumeError } = await client
     .from("resumes")
-    .select("files")
+    .select("*")
     .eq("account_id", accountId)
     .eq(targetColumn, targetId)
     .maybeSingle();
@@ -201,7 +201,7 @@ async function validateInboxResumeAttach(
 
   const files = Array.isArray(resume?.files) ? resume.files : [];
   const alreadyAttached = files.some(
-    (file) =>
+    (file: unknown) =>
       file &&
       typeof file === "object" &&
       String(
@@ -211,8 +211,10 @@ async function validateInboxResumeAttach(
         .source_inbox_attachment_path === attachment.path,
   );
   if (alreadyAttached) {
-    throw new Error(INBOX_RESUME_ATTACH_ERROR);
+    return resume as Resume;
   }
+
+  return null;
 }
 
 /**
@@ -244,7 +246,13 @@ export async function attachInboxAttachmentToResumeFile(
     attachment.title,
   );
 
-  await validateInboxResumeAttach(accountId, subject, inboxItemId, attachment);
+  const existingResume = await validateInboxResumeAttach(
+    accountId,
+    subject,
+    inboxItemId,
+    attachment,
+  );
+  if (existingResume) return existingResume;
 
   try {
     const { data: blob, error: downloadError } = await getSupabaseClient()

@@ -95,7 +95,13 @@ export async function uploadResumeFile(
   return data;
 }
 
-/** FakeRest mirror of the server's provenance-validated, idempotent attach. */
+/**
+ * FakeRest mirror of the server's provenance-validated, idempotent attach.
+ * The destination key is deterministic and shared by retries. Once the blob
+ * is registered, never remove it from `blobUrls` on a write error: the row
+ * may already have committed while its response was lost, and a retry must
+ * still be able to view the committed file.
+ */
 export async function attachInboxAttachmentToResumeFile(
   baseDataProvider: DataProvider,
   blobUrls: ResumeFileBlobUrls,
@@ -163,13 +169,11 @@ export async function attachInboxAttachmentToResumeFile(
     sourceAttachment.title,
   );
 
-  let blobUrl: string | null = null;
   try {
     const response = await fetch(sourceAttachment.src);
     if (!response.ok) throw new Error(INBOX_RESUME_ATTACH_ERROR);
     const blob = await response.blob();
-    blobUrl = URL.createObjectURL(blob);
-    blobUrls.set(storagePath, blobUrl);
+    blobUrls.set(storagePath, URL.createObjectURL(blob));
     const entry: ResumeFileVersion = {
       path: storagePath,
       filename: sourceAttachment.title,
@@ -200,8 +204,6 @@ export async function attachInboxAttachmentToResumeFile(
     });
     return data;
   } catch {
-    if (blobUrl?.startsWith("blob:")) URL.revokeObjectURL(blobUrl);
-    blobUrls.delete(storagePath);
     throw new Error(INBOX_RESUME_ATTACH_ERROR);
   }
 }

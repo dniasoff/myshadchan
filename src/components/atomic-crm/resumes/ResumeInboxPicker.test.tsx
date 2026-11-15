@@ -66,7 +66,10 @@ function makeDb() {
   return { db, target };
 }
 
-async function renderPicker(withExisting = false) {
+async function renderPicker(
+  withExisting = false,
+  loseFirstAttachResponse = false,
+) {
   const { db, target } = makeDb();
   if (withExisting) {
     db.resumes = [
@@ -91,6 +94,16 @@ async function renderPicker(withExisting = false) {
     ];
   }
   const dataProvider = createDataProvider({ db, latency: 0, silent: true });
+  if (loseFirstAttachResponse) {
+    const attach = dataProvider.attachInboxAttachmentToResumeFile;
+    let attempts = 0;
+    dataProvider.attachInboxAttachmentToResumeFile = async (params) => {
+      const result = await attach(params);
+      attempts += 1;
+      if (attempts === 1) throw new Error("response lost after commit");
+      return result;
+    };
+  }
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
@@ -218,6 +231,56 @@ describe("ResumeInboxPicker", () => {
       .getByRole("button", { name: "Close", exact: true })
       .first()
       .click();
+  });
+
+  it("refreshes and closes after a retry finds the committed attach", async () => {
+    const { db, target, dataProvider, screen } = await renderPicker(
+      false,
+      true,
+    );
+
+    await screen
+      .getByRole("button", {
+        name: "Pick a resume from your Inbox",
+        exact: true,
+      })
+      .first()
+      .click();
+    await screen.getByText("resume.pdf").first().click();
+    await screen
+      .getByRole("button", { name: "Attach", exact: true })
+      .first()
+      .click();
+    await expect
+      .element(
+        screen.getByText(
+          "Could not attach this file. It may be too large or no longer available. The Inbox item was not changed.",
+        ),
+      )
+      .toBeInTheDocument();
+
+    await screen
+      .getByRole("button", { name: "Attach", exact: true })
+      .first()
+      .click();
+    await expect
+      .element(
+        screen.getByText(
+          "Resume attached. It is now a new version. The file is still in your Inbox.",
+        ),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Attach this file to David Levi's resume?"))
+      .not.toBeInTheDocument();
+
+    const { data: resumes } = await dataProvider.getList<Resume>("resumes", {
+      filter: { shidduchim_id: target.id },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(resumes[0]?.files).toHaveLength(1);
+    expect(db.inbox_items[0].status).toBe("unresolved");
   });
 
   it("shows the exact empty state", async () => {
