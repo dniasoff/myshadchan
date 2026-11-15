@@ -25,10 +25,13 @@ import {
 // (coding-style.md's ~400-line typical ceiling).
 export type { ResumeDraft };
 
-const SHARED_INBOX_DOCUMENT_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+const SHARED_INBOX_DOCUMENT_MIME_BY_EXTENSION = new Map([
+  [".pdf", "application/pdf"],
+  [".doc", "application/msword"],
+  [
+    ".docx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ],
 ]);
 const INBOX_IMAGE_EXTENSIONS = new Set([
   ".gif",
@@ -39,26 +42,19 @@ const INBOX_IMAGE_EXTENSIONS = new Set([
   ".png",
   ".webp",
 ]);
-const INBOX_DOCUMENT_EXTENSIONS = new Set([".doc", ".docx", ".pdf"]);
 
 function attachmentExtension(title: string): string {
   const dot = title.lastIndexOf(".");
   return dot === -1 ? "" : title.slice(dot).toLowerCase();
 }
 
-/** Only affirmative document evidence may become a shared Files-tab file.
- * Empty/octet-stream MIME values use the filename as a narrow fallback;
- * image extensions always remain private, even when a file is mislabeled as a
- * document MIME. Everything else is parent-private by default. */
+/** Only affirmative, matching document MIME and extension evidence may become
+ * a shared Files-tab file. Everything else is parent-private by default. */
 function isAffirmativeInboxDocument(attachment: InboxAttachment): boolean {
   const mimeType = (attachment.type ?? "").trim().toLowerCase();
   const extension = attachmentExtension(attachment.title ?? "");
   if (INBOX_IMAGE_EXTENSIONS.has(extension)) return false;
-  if (SHARED_INBOX_DOCUMENT_MIME_TYPES.has(mimeType)) return true;
-  if (mimeType === "" || mimeType === "application/octet-stream") {
-    return INBOX_DOCUMENT_EXTENSIONS.has(extension);
-  }
-  return false;
+  return SHARED_INBOX_DOCUMENT_MIME_BY_EXTENSION.get(extension) === mimeType;
 }
 
 /**

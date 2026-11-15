@@ -123,7 +123,7 @@ describe("InboxList — the working inbox tab (regression guard)", () => {
 
     // Assert
     await expect
-      .element(screen.getByText("Nothing to confirm"))
+      .element(screen.getByText("No files or notes are waiting yet"))
       .toBeInTheDocument();
   });
 });

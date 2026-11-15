@@ -62,23 +62,6 @@ function startsWith(bytes: Uint8Array, signature: number[]): boolean {
   return signature.every((byte, index) => bytes[index] === byte);
 }
 
-function hasSignatureWithin(
-  bytes: Uint8Array,
-  signature: number[],
-  maxOffsetExclusive: number,
-): boolean {
-  const lastOffset = Math.min(
-    maxOffsetExclusive - 1,
-    bytes.length - signature.length,
-  );
-  for (let offset = 0; offset <= lastOffset; offset += 1) {
-    if (signature.every((byte, index) => bytes[offset + index] === byte)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function hasEncryptedPackage(bytes: Uint8Array): boolean {
   const marker = new Uint8Array(
     Array.from("EncryptedPackage", (character) =>
@@ -98,6 +81,77 @@ function hasEncryptedPackage(bytes: Uint8Array): boolean {
   return false;
 }
 
+export type DetectedImageMimeType =
+  | "image/avif"
+  | "image/bmp"
+  | "image/gif"
+  | "image/heic"
+  | "image/heif"
+  | "image/jpeg"
+  | "image/png"
+  | "image/tiff"
+  | "image/webp";
+
+/** Detect image signatures at byte zero before trusting a sender-declared type. */
+export function detectImageMimeType(
+  bytes: ArrayBuffer | Uint8Array,
+): DetectedImageMimeType | null {
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  if (startsWith(data, [0xff, 0xd8, 0xff])) return "image/jpeg";
+  if (startsWith(data, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
+    return "image/png";
+  }
+  if (
+    startsWith(data, [0x47, 0x49, 0x46, 0x38, 0x37, 0x61]) ||
+    startsWith(data, [0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
+  ) {
+    return "image/gif";
+  }
+  if (
+    startsWith(data, [0x52, 0x49, 0x46, 0x46]) &&
+    startsWith(data.slice(8), [0x57, 0x45, 0x42, 0x50])
+  ) {
+    return "image/webp";
+  }
+  if (startsWith(data, [0x42, 0x4d])) return "image/bmp";
+  if (
+    startsWith(data, [0x49, 0x49, 0x2a, 0x00]) ||
+    startsWith(data, [0x4d, 0x4d, 0x00, 0x2a])
+  ) {
+    return "image/tiff";
+  }
+  if (startsWith(data.slice(4), [0x66, 0x74, 0x79, 0x70])) {
+    const brand = new TextDecoder().decode(data.slice(8, 12)).toLowerCase();
+    if (brand === "avif") return "image/avif";
+    if (["heic", "heix", "hevc", "hevx"].includes(brand)) {
+      return "image/heic";
+    }
+    if (
+      ["heif", "heim", "heis", "hevm", "hevs", "mif1", "msf1"].includes(brand)
+    ) {
+      return "image/heif";
+    }
+  }
+  return null;
+}
+
+/**
+ * PDF permits a small BOM/whitespace prefix in the existing picker fixtures,
+ * but the marker must still be the first meaningful bytes. Arbitrary bytes
+ * before `%PDF-` are not accepted because they allow image/document polyglots.
+ */
+function hasPdfHeaderAtAllowedPrefix(bytes: Uint8Array): boolean {
+  let offset = 0;
+  if (startsWith(bytes, [0xef, 0xbb, 0xbf])) offset = 3;
+  while (
+    offset < Math.min(bytes.length, 16) &&
+    [0x09, 0x0a, 0x0c, 0x0d, 0x20].includes(bytes[offset])
+  ) {
+    offset += 1;
+  }
+  return startsWith(bytes.slice(offset), [0x25, 0x50, 0x44, 0x46, 0x2d]);
+}
+
 /** Validate claimed MIME against bytes before any parser or model sees them. */
 export function validateAttachmentMagic(
   bytes: ArrayBuffer,
@@ -114,9 +168,7 @@ export function validateAttachmentMagic(
     return startsWith(data, [0x50, 0x4b, 0x03, 0x04]) ? "ok" : "malformed";
   }
   if (mimeType === "application/pdf") {
-    return hasSignatureWithin(data, [0x25, 0x50, 0x44, 0x46, 0x2d], 1024)
-      ? "ok"
-      : "malformed";
+    return hasPdfHeaderAtAllowedPrefix(data) ? "ok" : "malformed";
   }
   if (mimeType === "image/jpeg") {
     return startsWith(data, [0xff, 0xd8, 0xff]) ? "ok" : "malformed";

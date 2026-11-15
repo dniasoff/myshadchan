@@ -2807,8 +2807,8 @@ export const createDataProvider = ({
       return {
         title: params.file.name,
         type:
-          params.mimeType?.trim().toLowerCase() ||
-          params.file.type.trim().toLowerCase() ||
+          params.mimeType?.split(";", 1)[0].trim().toLowerCase() ||
+          params.file.type.split(";", 1)[0].trim().toLowerCase() ||
           "application/octet-stream",
         path,
         src,

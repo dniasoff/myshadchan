@@ -67,6 +67,22 @@ describe("validateInboxFile", () => {
     ).resolves.toEqual({ ok: false, reason: "malformed" });
   });
 
+  it("classifies declared PDFs with leading JPEG bytes as private pictures", async () => {
+    const bytes = new Uint8Array(128);
+    bytes.set([0xff, 0xd8, 0xff], 0);
+    bytes.set(new TextEncoder().encode("%PDF-1.7"), 100);
+
+    await expect(
+      validateInboxFile(
+        fileFromBytes([...bytes], "resume.pdf", "application/pdf"),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      kind: "Picture",
+      mimeType: "image/jpeg",
+    });
+  });
+
   it("rejects unsupported types and files over the named 8 MiB limit", async () => {
     await expect(
       validateInboxFile(

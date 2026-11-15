@@ -633,6 +633,48 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
         src: "https://example.test/renamed-picture.jpg",
       },
       {
+        title: "photo.jpg.",
+        type: "application/pdf",
+        path: "1/photo.jpg.",
+        src: "https://example.test/photo.jpg.",
+      },
+      {
+        title: "resume.pdf.jpg",
+        type: "application/pdf",
+        path: "1/resume.pdf.jpg",
+        src: "https://example.test/resume.pdf.jpg",
+      },
+      {
+        title: "no-extension",
+        type: "application/pdf",
+        path: "1/no-extension",
+        src: "https://example.test/no-extension",
+      },
+      {
+        title: "trailing-dot.pdf.",
+        type: "application/pdf",
+        path: "1/trailing-dot.pdf.",
+        src: "https://example.test/trailing-dot.pdf.",
+      },
+      {
+        title: "empty.pdf",
+        type: "",
+        path: "1/empty.pdf",
+        src: "https://example.test/empty.pdf",
+      },
+      {
+        title: "octet.pdf",
+        type: "application/octet-stream",
+        path: "1/octet.pdf",
+        src: "https://example.test/octet.pdf",
+      },
+      {
+        title: "word-mismatch.docx",
+        type: "application/msword",
+        path: "1/word-mismatch.docx",
+        src: "https://example.test/word-mismatch.docx",
+      },
+      {
         title: "unknown.bin",
         type: "application/octet-stream",
         path: "1/unknown.bin",
@@ -657,6 +699,12 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
         type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         path: "1/resume.docx",
         src: "https://example.test/resume.docx",
+      },
+      {
+        title: "resume-uppercase.PDF",
+        type: "application/pdf",
+        path: "1/resume-uppercase.PDF",
+        src: "https://example.test/resume-uppercase.PDF",
       },
     ] as const;
     const item = buildItem({

@@ -47,7 +47,10 @@ vi.mock("./supabase", () => ({
   getSupabaseClient: () => supabaseClient,
 }));
 
-import { getDataProviderWithCustomMethods } from "./dataProvider";
+import {
+  getDataProviderWithCustomMethods,
+  uploadToBucket,
+} from "./dataProvider";
 
 describe("Supabase resume capture provider methods", () => {
   beforeEach(() => {
@@ -130,6 +133,29 @@ describe("Supabase resume capture provider methods", () => {
     });
 
     expect(attachment.type).toBe("image/jpeg");
+  });
+
+  it("normalizes the supplied MIME instead of overwriting it with raw File.type", async () => {
+    const file = new File(["picture"], "picture.jpg", {
+      type: "application/pdf",
+    });
+
+    const uploaded = await uploadToBucket(
+      {
+        src: "blob:picture",
+        title: file.name,
+        rawFile: file,
+        type: " IMAGE/JPEG ; charset=utf-8 ",
+      },
+      "inbox/700",
+    );
+
+    expect(uploaded.type).toBe("image/jpeg");
+    expect(storageUpload).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Blob),
+      { contentType: "image/jpeg" },
+    );
   });
 
   it("removes the uploaded object when signed URL creation fails", async () => {

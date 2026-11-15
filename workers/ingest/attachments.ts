@@ -1,4 +1,5 @@
 import type { BaseEnv } from "../shared/env";
+import { detectImageMimeType } from "../parse/inboxAttachment";
 import type { ParsedEmailAttachment } from "./parseEmail";
 import { getServiceRoleClient } from "./serviceRoleClient";
 
@@ -71,11 +72,13 @@ export async function uploadAttachments(
 
         const fileExt = deriveSafeExtension(attachment.filename);
         const path = `${accountId}/${crypto.randomUUID()}${fileExt}`;
+        const storedMimeType =
+          detectImageMimeType(attachment.content) ?? attachment.mimeType;
 
         const { error: uploadError } = await client.storage
           .from(ATTACHMENTS_BUCKET)
           .upload(path, attachment.content, {
-            contentType: attachment.mimeType,
+            contentType: storedMimeType,
           });
         if (uploadError) {
           throw new Error(
@@ -93,7 +96,7 @@ export async function uploadAttachments(
 
         const entry: UploadedAttachment = {
           title: attachment.filename,
-          type: attachment.mimeType,
+          type: storedMimeType,
           path,
           src: signed.signedUrl,
           size: attachment.content.byteLength,

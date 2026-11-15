@@ -1656,6 +1656,10 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
   }
 
   const file = fi.rawFile;
+  const canonicalizeMimeType = (value: string | undefined) =>
+    value?.split(";", 1)[0].trim().toLowerCase() || "";
+  const canonicalMimeType =
+    canonicalizeMimeType(fi.type) || canonicalizeMimeType(file.type);
   const fileParts = file.name.split(".");
   const fileExt = fileParts.length > 1 ? `.${file.name.split(".").pop()}` : "";
   // Account-prefixed, CSPRNG key. The attachments bucket is private and its RLS
@@ -1665,7 +1669,9 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
   const filePath = `${accountId}/${prefix}${crypto.randomUUID()}${fileExt}`;
   const { error: uploadError } = await getSupabaseClient()
     .storage.from(ATTACHMENTS_BUCKET)
-    .upload(filePath, dataContent);
+    .upload(filePath, dataContent, {
+      contentType: canonicalMimeType || undefined,
+    });
 
   if (uploadError) {
     console.error("uploadError", uploadError);
@@ -1690,8 +1696,7 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
   fi.src = data.signedUrl;
 
   // save MIME type
-  const mimeType = file.type;
-  fi.type = mimeType;
+  fi.type = canonicalMimeType;
 
   return fi;
 };
@@ -1713,7 +1718,8 @@ const uploadInboxAttachment = async ({
 }: UploadInboxAttachmentParams): Promise<InboxAttachment> => {
   const src = URL.createObjectURL(file);
   const normalizedMimeType =
-    mimeType?.trim().toLowerCase() || file.type.trim().toLowerCase();
+    mimeType?.split(";", 1)[0].trim().toLowerCase() ||
+    file.type.split(";", 1)[0].trim().toLowerCase();
   try {
     const uploaded: RAFile = await uploadToBucket(
       {

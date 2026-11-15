@@ -316,11 +316,20 @@ export const AddToInboxDialog = ({
             htmlFor="inbox-files"
             className="flex min-h-12 cursor-pointer items-center justify-center rounded-xl border border-dashed border-primary/50 bg-primary/5 px-4 py-3 text-center text-sm font-semibold text-primary transition-colors hover:bg-primary/10 focus-within:ring-2 focus-within:ring-ring"
           >
-            Add files or photos
+            <span>
+              <strong>Add files or photos</strong>
+              <br />
+              <small>
+                {isMobile
+                  ? "Choose a resume and picture together"
+                  : "Choose more than one file"}
+              </small>
+            </span>
           </label>
           <p className="text-xs text-muted-foreground">
-            Choose a resume and picture together. Choose more than one file at
-            once.
+            {isMobile
+              ? "This opens Photos or Files on your phone. Each file should be 8 MiB or smaller."
+              : "On your computer this opens Explorer or Finder. Choose a resume and a picture together."}
           </p>
           <p className="text-xs text-muted-foreground">
             Images, PDF, or Word files · up to {MAX_INBOX_FILE_SIZE_LABEL} each
@@ -453,9 +462,7 @@ export const AddToInboxDialog = ({
           <SheetTitle className="font-display text-2xl font-semibold tracking-tight">
             Add to inbox
           </SheetTitle>
-          <SheetDescription>
-            Paste a message or note now. Who it is for can be set later.
-          </SheetDescription>
+          <SheetDescription>Add a note or files.</SheetDescription>
         </SheetHeader>
         {formBody}
       </SheetContent>

@@ -1,5 +1,6 @@
 import {
   ALLOWED_ATTACHMENT_MIME_TYPES,
+  detectImageMimeType,
   validateAttachmentMagic,
 } from "../../../../../workers/parse/inboxAttachment";
 
@@ -66,6 +67,16 @@ export async function validateInboxFile(
 
   const declaredType = file.type.trim().toLowerCase();
   const extensionType = EXTENSION_MIME_TYPES[extensionOf(file.name)];
+  const bytes = await file.arrayBuffer();
+  const detectedImageMimeType = detectImageMimeType(bytes);
+  if (detectedImageMimeType && PICKER_MIME_TYPES.has(detectedImageMimeType)) {
+    return {
+      ok: true,
+      kind: "Picture",
+      mimeType: detectedImageMimeType,
+    };
+  }
+
   const mimeType = PICKER_MIME_TYPES.has(declaredType)
     ? declaredType
     : declaredType === "" && extensionType
@@ -76,7 +87,6 @@ export async function validateInboxFile(
     return { ok: false, reason: "unsupported" };
   }
 
-  const bytes = await file.arrayBuffer();
   const magic =
     mimeType === MSWORD_MIME_TYPE
       ? validateOldWordDocument(bytes)

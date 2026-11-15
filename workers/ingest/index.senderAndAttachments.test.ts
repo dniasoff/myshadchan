@@ -104,6 +104,33 @@ describe("ingest worker: sender classification, attachments, forwarded-sender re
       expect(createSignedUrl).toHaveBeenCalledWith(attachment.path, 60 * 60);
     });
 
+    it("sniffs hostile JPEG bytes instead of preserving a declared PDF MIME", async () => {
+      // Arrange: the sender claims a PDF, but the bytes and trailing-dot
+      // filename identify a picture. The stored Inbox metadata must fail
+      // closed to the detected image MIME before any later resolver runs.
+      const jpegBytes = String.fromCharCode(0xff, 0xd8, 0xff, 0x00, 0x01);
+      const raw = buildRawEmail({
+        to: "abc123def456@myshadchan.space",
+        attachmentFilename: "photo.jpg.",
+        attachmentContent: jpegBytes,
+        attachmentContentType: "application/pdf",
+      });
+      const message = makeMessage({ raw });
+
+      // Act
+      await handleInboundEmail(message, TEST_ENV);
+
+      // Assert
+      const [row] = insertedRows.inbox_items;
+      const [attachment] = row.attachments as Array<Record<string, unknown>>;
+      expect(attachment.type).toBe("image/jpeg");
+      expect(upload).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(ArrayBuffer),
+        { contentType: "image/jpeg" },
+      );
+    });
+
     it("stores a message with no attachment with a null attachments field", async () => {
       // Arrange
       const raw = buildRawEmail({ attachmentFilename: null });

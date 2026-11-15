@@ -33,7 +33,7 @@ describe("FakeRest resume capture methods", () => {
     const attachment = await dataProvider.uploadInboxAttachment({
       file,
       inboxItemId: 700,
-      mimeType: "image/jpeg",
+      mimeType: " IMAGE/JPEG ; charset=utf-8 ",
     });
 
     expect(attachment.type).toBe("image/jpeg");

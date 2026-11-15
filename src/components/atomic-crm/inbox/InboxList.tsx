@@ -216,8 +216,8 @@ const InboxContent = () => {
             <CardGridSkeleton />
           ) : workingItems.length === 0 ? (
             <EmptyState
-              title="Nothing to confirm"
-              description="When a resume or redt arrives — shared, emailed, or pasted in — it lands here so nothing slips by. Use “Add to inbox” to drop one in."
+              title="No files or notes are waiting yet"
+              description="Paste a note, choose Add files or photos, or send an email to your household address. Files wait here until you decide what to do with them."
             />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

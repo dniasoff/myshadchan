@@ -277,6 +277,16 @@ describe("AddToInboxDialog — capture guidance", () => {
     await expect
       .poll(() => document.querySelector('[data-slot="sheet-content"]'))
       .toBeTruthy();
+    await expect
+      .element(mobileScreen.getByText("Add a note or files."))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        mobileScreen.getByText(
+          "This opens Photos or Files on your phone. Each file should be 8 MiB or smaller.",
+        ),
+      )
+      .toBeInTheDocument();
     mobileScreen.unmount();
 
     await page.viewport(1280, 844);
@@ -284,6 +294,13 @@ describe("AddToInboxDialog — capture guidance", () => {
     await expect
       .poll(() => document.querySelector('[data-slot="dialog-content"]'))
       .toBeTruthy();
+    await expect
+      .element(
+        desktopScreen.getByText(
+          "On your computer this opens Explorer or Finder. Choose a resume and a picture together.",
+        ),
+      )
+      .toBeInTheDocument();
     desktopScreen.unmount();
   });
 });
