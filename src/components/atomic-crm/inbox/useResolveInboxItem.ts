@@ -25,12 +25,40 @@ import {
 // (coding-style.md's ~400-line typical ceiling).
 export type { ResumeDraft };
 
-/** Inbox pictures are not suggestion photos yet. Keep them parent-private when
- * a capture is linked to an existing suggestion; only the explicit photo
- * flows may promote them to a shared photo. Non-picture documents retain the
- * existing shared Files-tab behavior. */
-function isInboxPicture(attachment: InboxAttachment): boolean {
-  return attachment.type.trim().toLowerCase().startsWith("image/");
+const SHARED_INBOX_DOCUMENT_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+const INBOX_IMAGE_EXTENSIONS = new Set([
+  ".gif",
+  ".heic",
+  ".heif",
+  ".jpeg",
+  ".jpg",
+  ".png",
+  ".webp",
+]);
+const INBOX_DOCUMENT_EXTENSIONS = new Set([".doc", ".docx", ".pdf"]);
+
+function attachmentExtension(title: string): string {
+  const dot = title.lastIndexOf(".");
+  return dot === -1 ? "" : title.slice(dot).toLowerCase();
+}
+
+/** Only affirmative document evidence may become a shared Files-tab file.
+ * Empty/octet-stream MIME values use the filename as a narrow fallback;
+ * image extensions always remain private, even when a file is mislabeled as a
+ * document MIME. Everything else is parent-private by default. */
+function isAffirmativeInboxDocument(attachment: InboxAttachment): boolean {
+  const mimeType = (attachment.type ?? "").trim().toLowerCase();
+  const extension = attachmentExtension(attachment.title ?? "");
+  if (INBOX_IMAGE_EXTENSIONS.has(extension)) return false;
+  if (SHARED_INBOX_DOCUMENT_MIME_TYPES.has(mimeType)) return true;
+  if (mimeType === "" || mimeType === "application/octet-stream") {
+    return INBOX_DOCUMENT_EXTENSIONS.has(extension);
+  }
+  return false;
 }
 
 /**
@@ -296,10 +324,10 @@ export function useResolveInboxItem() {
     // must not turn an unreviewed picture into a shared suggestion asset.
     // Explicit photo flows are the only place that may promote a picture.
     const attachments = (item.attachments ?? []) as InboxAttachment[];
-    const documentAttachments = attachments.filter(
-      (attachment) => !isInboxPicture(attachment),
+    const documentAttachments = attachments.filter(isAffirmativeInboxDocument);
+    const pictureAttachments = attachments.filter(
+      (attachment) => !isAffirmativeInboxDocument(attachment),
     );
-    const pictureAttachments = attachments.filter(isInboxPicture);
     if (documentAttachments.length > 0) {
       await dataProvider.copyInboxAttachmentsToEntityFiles({
         baseDataProvider: dataProvider,

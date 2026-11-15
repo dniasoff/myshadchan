@@ -33,6 +33,26 @@ describe("validateInboxFile", () => {
         fileFromBytes([0xff, 0xd8, 0xff], "picture.jpg", "image/jpeg"),
       ),
     ).resolves.toMatchObject({ ok: true, kind: "Picture" });
+    await expect(
+      validateInboxFile(fileFromBytes([0xff, 0xd8, 0xff], "picture.jpg", "")),
+    ).resolves.toMatchObject({
+      ok: true,
+      kind: "Picture",
+      mimeType: "image/jpeg",
+    });
+    await expect(
+      validateInboxFile(
+        fileFromBytes(
+          [0, 0, 0, 0, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63],
+          "picture.heic",
+          "",
+        ),
+      ),
+    ).resolves.toMatchObject({
+      ok: true,
+      kind: "Picture",
+      mimeType: "image/heic",
+    });
   });
 
   it("rejects a mislabeled file instead of trusting the MIME type", async () => {

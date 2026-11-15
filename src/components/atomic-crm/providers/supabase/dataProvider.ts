@@ -1699,6 +1699,8 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
 export type UploadInboxAttachmentParams = {
   file: File;
   inboxItemId: Identifier;
+  /** Canonical MIME returned by the picker validator when available. */
+  mimeType?: string;
 };
 
 /** The manual resume picker uses the same private attachment primitive as the
@@ -1707,21 +1709,24 @@ export type UploadInboxAttachmentParams = {
 const uploadInboxAttachment = async ({
   file,
   inboxItemId,
+  mimeType,
 }: UploadInboxAttachmentParams): Promise<InboxAttachment> => {
   const src = URL.createObjectURL(file);
+  const normalizedMimeType =
+    mimeType?.trim().toLowerCase() || file.type.trim().toLowerCase();
   try {
     const uploaded: RAFile = await uploadToBucket(
       {
         src,
         title: file.name,
         rawFile: file,
-        type: file.type,
+        type: normalizedMimeType,
       },
       `inbox/${inboxItemId}`,
     );
     return {
       title: uploaded.title,
-      type: uploaded.type ?? file.type,
+      type: uploaded.type || normalizedMimeType,
       path: uploaded.path ?? "",
       src: uploaded.src,
       size: file.size,

@@ -605,6 +605,89 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
       }),
     );
   });
+
+  it("fails closed for ambiguous and image-shaped attachments, including missing MIME values", async () => {
+    const privateAttachments = [
+      {
+        title: "no-mime.jpg",
+        type: "",
+        path: "1/no-mime.jpg",
+        src: "https://example.test/no-mime.jpg",
+      },
+      {
+        title: "no-mime.heic",
+        type: "",
+        path: "1/no-mime.heic",
+        src: "https://example.test/no-mime.heic",
+      },
+      {
+        title: "octet-picture.jpg",
+        type: "application/octet-stream",
+        path: "1/octet-picture.jpg",
+        src: "https://example.test/octet-picture.jpg",
+      },
+      {
+        title: "renamed-picture.jpg",
+        type: "application/pdf",
+        path: "1/renamed-picture.jpg",
+        src: "https://example.test/renamed-picture.jpg",
+      },
+      {
+        title: "unknown.bin",
+        type: "application/octet-stream",
+        path: "1/unknown.bin",
+        src: "https://example.test/unknown.bin",
+      },
+    ] as const;
+    const sharedAttachments = [
+      {
+        title: "resume.pdf",
+        type: "application/pdf",
+        path: "1/resume.pdf",
+        src: "https://example.test/resume.pdf",
+      },
+      {
+        title: "resume.doc",
+        type: "application/msword",
+        path: "1/resume.doc",
+        src: "https://example.test/resume.doc",
+      },
+      {
+        title: "resume.docx",
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        path: "1/resume.docx",
+        src: "https://example.test/resume.docx",
+      },
+    ] as const;
+    const item = buildItem({
+      attachments: [...privateAttachments, ...sharedAttachments],
+    });
+    const { screen, dataProvider } = await renderProbe(item);
+
+    await screen
+      .getByRole("button", { name: "resolveAsLinkToExisting" })
+      .click();
+    await expect.element(screen.getByText("result:linked")).toBeInTheDocument();
+
+    expect(
+      dataProvider.copyInboxAttachmentsToEntityFiles,
+    ).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        attachments: sharedAttachments,
+        visibility: "shared",
+      }),
+    );
+    expect(
+      dataProvider.copyInboxAttachmentsToEntityFiles,
+    ).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        attachments: privateAttachments,
+        visibility: "private_parent",
+      }),
+    );
+  });
 });
 
 describe("useResolveInboxItem — dismissInboxItem (InboxResolveDialog's Dismiss, never lets the item disappear)", () => {

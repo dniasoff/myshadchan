@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { page } from "@vitest/browser/context";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import fakeDataProvider from "ra-data-fakerest";
@@ -7,6 +8,10 @@ import fakeDataProvider from "ra-data-fakerest";
 import { Notification } from "@/components/admin/notification";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
+import {
+  MAX_INBOX_TOTAL_BYTES,
+  MAX_INBOX_FILES,
+} from "../providers/commons/inboxAttachmentValidation";
 import type { CrmDataProvider } from "../providers/types";
 import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import { AddToInboxDialog } from "./AddToInboxDialog";
@@ -20,6 +25,16 @@ const pictureFile = (name = "portrait.jpg") =>
   new File([new Uint8Array([0xff, 0xd8, 0xff])], name, {
     type: "image/jpeg",
   });
+
+const largePdfFile = (name: string) => {
+  const bytes = new Uint8Array(8 * 1024 * 1024);
+  bytes.set([0x25, 0x50, 0x44, 0x46, 0x2d]);
+  return new File([bytes], name, { type: "application/pdf" });
+};
+
+afterEach(async () => {
+  await page.viewport(1280, 720);
+});
 
 const buildProvider = () => {
   const dataProvider = fakeDataProvider({
@@ -104,6 +119,30 @@ describe("AddToInboxDialog — manual files", () => {
     await expect.element(screen.getByText("notes.txt")).not.toBeInTheDocument();
   });
 
+  it("limits one add to ten files and forty MiB in total", async () => {
+    const screen = await renderDialog(buildProvider());
+    const fileInput = screen.getByLabelText("Add files or photos");
+
+    await fileInput.upload(
+      Array.from({ length: MAX_INBOX_FILES + 1 }, (_, index) =>
+        pdfFile(`resume-${index}.pdf`),
+      ),
+    );
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("You can add up to 10 files at once");
+
+    await fileInput.upload(
+      Array.from({ length: 6 }, (_, index) =>
+        largePdfFile(`large-${index}.pdf`),
+      ),
+    );
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("Choose files totaling 40 MiB or less");
+    expect(MAX_INBOX_TOTAL_BYTES).toBe(40 * 1024 * 1024);
+  });
+
   it("cleans up the row and completed uploads when a later upload fails", async () => {
     const dataProvider = buildProvider();
     const upload = vi
@@ -141,6 +180,83 @@ describe("AddToInboxDialog — manual files", () => {
       )
       .toBeInTheDocument();
   });
+
+  it("retries cleanup once before reporting that nothing changed", async () => {
+    const dataProvider = buildProvider();
+    const upload = vi
+      .fn()
+      .mockResolvedValueOnce({
+        title: "resume.pdf",
+        type: "application/pdf",
+        path: "7/inbox/1/resume.pdf",
+        src: "blob:resume",
+        size: 5,
+      })
+      .mockRejectedValueOnce(new Error("upload failed"));
+    const remove = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary cleanup failure"))
+      .mockResolvedValue(undefined);
+    dataProvider.uploadInboxAttachment = upload;
+    dataProvider.removeInboxAttachment = remove;
+    const removeRow = vi
+      .spyOn(dataProvider, "delete")
+      .mockRejectedValueOnce(new Error("temporary row cleanup failure"))
+      .mockResolvedValue({ data: { id: 1 } });
+    const screen = await renderDialog(dataProvider);
+
+    await screen
+      .getByLabelText("Add files or photos")
+      .upload([pdfFile(), pictureFile()]);
+    await screen.getByRole("button", { name: "Add to inbox" }).click();
+
+    await expect.poll(() => upload.mock.calls.length).toBe(2);
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(removeRow).toHaveBeenCalledTimes(2);
+    await expect
+      .element(
+        screen.getByText(
+          "Could not add the files. Nothing was changed. Check the files and try again.",
+        ),
+      )
+      .toBeInTheDocument();
+  });
+
+  it("does not claim nothing changed when cleanup still fails after retry", async () => {
+    const dataProvider = buildProvider();
+    const upload = vi
+      .fn()
+      .mockResolvedValueOnce({
+        title: "resume.pdf",
+        type: "application/pdf",
+        path: "7/inbox/1/resume.pdf",
+        src: "blob:resume",
+        size: 5,
+      })
+      .mockRejectedValueOnce(new Error("upload failed"));
+    const remove = vi.fn().mockRejectedValue(new Error("cleanup failed"));
+    dataProvider.uploadInboxAttachment = upload;
+    dataProvider.removeInboxAttachment = remove;
+    const removeRow = vi
+      .spyOn(dataProvider, "delete")
+      .mockRejectedValue(new Error("row cleanup failed"));
+    const screen = await renderDialog(dataProvider);
+
+    await screen
+      .getByLabelText("Add files or photos")
+      .upload([pdfFile(), pictureFile()]);
+    await screen.getByRole("button", { name: "Add to inbox" }).click();
+
+    await expect.poll(() => remove.mock.calls.length).toBe(2);
+    expect(removeRow).toHaveBeenCalledTimes(2);
+    await expect
+      .element(
+        screen.getByText(
+          "Could not add the files. Please check the Inbox before trying again.",
+        ),
+      )
+      .toBeInTheDocument();
+  });
 });
 
 describe("AddToInboxDialog — capture guidance", () => {
@@ -153,5 +269,21 @@ describe("AddToInboxDialog — capture guidance", () => {
     await expect
       .element(screen.getByText(/Pictures stay private/))
       .toBeInTheDocument();
+  });
+
+  it("uses the bottom sheet at 390px and the dialog at 1280px", async () => {
+    await page.viewport(390, 844);
+    const mobileScreen = await renderDialog(buildProvider());
+    await expect
+      .poll(() => document.querySelector('[data-slot="sheet-content"]'))
+      .toBeTruthy();
+    mobileScreen.unmount();
+
+    await page.viewport(1280, 844);
+    const desktopScreen = await renderDialog(buildProvider());
+    await expect
+      .poll(() => document.querySelector('[data-slot="dialog-content"]'))
+      .toBeTruthy();
+    desktopScreen.unmount();
   });
 });

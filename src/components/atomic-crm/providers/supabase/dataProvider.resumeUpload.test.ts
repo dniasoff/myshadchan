@@ -119,6 +119,19 @@ describe("Supabase resume capture provider methods", () => {
     ).rejects.toThrow("Failed to remove the captured resume");
   });
 
+  it("persists the canonical MIME supplied by the picker validator", async () => {
+    const dataProvider = getDataProviderWithCustomMethods();
+    const file = new File(["picture"], "picture.jpg");
+
+    const attachment = await dataProvider.uploadInboxAttachment({
+      file,
+      inboxItemId: 700,
+      mimeType: "image/jpeg",
+    });
+
+    expect(attachment.type).toBe("image/jpeg");
+  });
+
   it("removes the uploaded object when signed URL creation fails", async () => {
     const dataProvider = getDataProviderWithCustomMethods();
     storageSignedUrl.mockResolvedValue({

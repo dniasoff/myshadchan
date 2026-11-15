@@ -5,6 +5,8 @@ import {
 
 /** The manual Inbox picker limit. Existing email ingestion is unchanged. */
 export const MAX_INBOX_FILE_BYTES = 8 * 1024 * 1024;
+export const MAX_INBOX_FILES = 10;
+export const MAX_INBOX_TOTAL_BYTES = 40 * 1024 * 1024;
 
 const MSWORD_MIME_TYPE = "application/msword";
 const DOCX_MIME_TYPE =

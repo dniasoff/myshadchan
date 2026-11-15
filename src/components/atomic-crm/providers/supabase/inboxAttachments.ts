@@ -96,18 +96,14 @@ async function copyOneAttachment(
     .storage.from(ATTACHMENTS_BUCKET)
     .download(attachment.path);
   if (downloadError || !blob) {
-    throw new Error(
-      `Failed to download attachment ${attachment.title}: ${downloadError?.message ?? "unknown"}`,
-    );
+    throw new Error("Failed to download the captured attachment");
   }
 
   const { error: uploadError } = await getSupabaseClient()
     .storage.from(ENTITY_FILES_BUCKET)
     .upload(storagePath, blob);
   if (uploadError) {
-    throw new Error(
-      `Failed to upload attachment ${attachment.title}: ${uploadError.message}`,
-    );
+    throw new Error("Failed to upload the captured attachment");
   }
 
   try {
@@ -123,16 +119,14 @@ async function copyOneAttachment(
       },
     });
     return data;
-  } catch (createError) {
+  } catch {
     // Best-effort cleanup: the catalog row is the source of truth, so if it
     // failed we remove the orphaned object and rethrow the original error.
     await getSupabaseClient()
       .storage.from(ENTITY_FILES_BUCKET)
       .remove([storagePath])
-      .catch((removeError) => {
-        console.error("copyOneAttachment.cleanup.error", removeError);
-      });
-    throw createError;
+      .catch(() => undefined);
+    throw new Error("Failed to save the captured attachment");
   }
 }
 
