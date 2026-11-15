@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { requestResumeReread } from "./rereadWorkerClient";
+import {
+  requestResumeReread,
+  REREAD_REQUEST_TIMEOUT_MS,
+} from "./rereadWorkerClient";
 
 const getSession = vi.fn();
 vi.mock("../supabase/supabase", () => ({
@@ -17,7 +20,10 @@ describe("requestResumeReread", () => {
     });
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it("calls the live parse route with only the numeric resume and opaque request id", async () => {
     vi.mocked(fetch).mockResolvedValue(
@@ -109,5 +115,49 @@ describe("requestResumeReread", () => {
         requestId: "00000000-0000-4000-8000-000000000001",
       }),
     ).resolves.toBe("failed");
+  });
+
+  it("aborts a hung fetch at the named client deadline", async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetch).mockImplementation(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+
+    const pending = requestResumeReread("http://parse.local", {
+      resumeId: 22,
+      requestId: "00000000-0000-4000-8000-000000000001",
+    });
+    await vi.advanceTimersByTimeAsync(REREAD_REQUEST_TIMEOUT_MS);
+    await expect(pending).resolves.toBe("failed");
+  });
+
+  it("honors an abort signal from the unmounted control", async () => {
+    vi.mocked(fetch).mockImplementation(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    const controller = new AbortController();
+    const pending = requestResumeReread("http://parse.local", {
+      resumeId: 22,
+      requestId: "00000000-0000-4000-8000-000000000001",
+      signal: controller.signal,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    controller.abort();
+    await expect(pending).resolves.toBe("failed");
   });
 });

@@ -27,6 +27,7 @@ const version = {
 
 async function renderForRole(
   role: MyContext["role"] | "pending" | "undefined",
+  files = [version],
 ) {
   const db = generateData();
   db.resumes = [
@@ -34,7 +35,7 @@ async function renderForRole(
       id: 77,
       account_id: 1,
       shidduchim_id: 1,
-      files: [version],
+      files,
       sections: { learningHistory: [], references: [] },
       created_at: "2026-01-01T00:00:00.000Z",
     } satisfies Resume,
@@ -105,4 +106,39 @@ describe("Resume re-read role gate", () => {
         .toBeVisible();
     },
   );
+
+  it("offers re-read only on the newest row that the route reads", async () => {
+    const older = {
+      ...version,
+      path: "1/resumes/1/older.pdf",
+      filename: "older.pdf",
+      uploaded_at: "2025-01-01T00:00:00.000Z",
+    };
+    const newest = {
+      ...version,
+      path: "1/resumes/1/newest.pdf",
+      filename: "newest.pdf",
+      uploaded_at: "2026-02-01T00:00:00.000Z",
+    };
+    const { screen, reReadResume } = await renderForRole("parent_admin", [
+      older,
+      newest,
+    ]);
+
+    const rereadButtons = screen.getByRole("button", {
+      name: "Re-read this resume",
+    });
+    await expect.element(rereadButtons.first()).toBeVisible();
+    expect(rereadButtons.all()).toHaveLength(1);
+    const olderRow = screen.getByText("older.pdf").element().closest("li");
+    const newestRow = screen.getByText("newest.pdf").element().closest("li");
+    expect(olderRow?.textContent).not.toContain("Re-read this resume");
+    expect(newestRow?.textContent).toContain("Re-read this resume");
+
+    await screen.getByRole("button", { name: "Re-read this resume" }).click();
+    await screen.getByRole("button", { name: "Re-read" }).click();
+    expect(reReadResume).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeId: 77 }),
+    );
+  });
 });

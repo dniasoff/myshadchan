@@ -7,13 +7,26 @@ import { Notification } from "@/components/admin/notification";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import { QueryClient } from "@tanstack/react-query";
+import { REREAD_REQUEST_TIMEOUT_MS } from "../providers/commons/rereadWorkerClient";
 import { REREAD_COPY, ResumeRereadControl } from "./ResumeRereadControl";
 
 const buildDataProvider = (
   reReadResume: CrmDataProvider["reReadResume"],
 ): CrmDataProvider => ({ reReadResume }) as unknown as CrmDataProvider;
 
-const renderControl = async (reReadResume: CrmDataProvider["reReadResume"]) => {
+const mountedScreens: Array<{ unmount: () => void }> = [];
+
+function unmountScreen(screen: { unmount: () => void }): void {
+  screen.unmount();
+  const index = mountedScreens.indexOf(screen);
+  if (index >= 0) mountedScreens.splice(index, 1);
+}
+
+const renderControl = async (
+  reReadResume: CrmDataProvider["reReadResume"],
+  resumeId = 22,
+  fileIdentity = `current-${resumeId}`,
+) => {
   const dataProvider = buildDataProvider(reReadResume);
   const queryClient = new QueryClient();
   const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
@@ -23,10 +36,11 @@ const renderControl = async (reReadResume: CrmDataProvider["reReadResume"]) => {
       queryClient={queryClient}
       i18nProvider={testI18nProvider}
     >
-      <ResumeRereadControl resumeId={22} />
+      <ResumeRereadControl resumeId={resumeId} fileIdentity={fileIdentity} />
       <Notification />
     </CoreAdminContext>,
   );
+  mountedScreens.push(screen);
   return { screen, invalidateQueries };
 };
 
@@ -52,14 +66,21 @@ describe("ResumeRereadControl", () => {
         removeEventListener: vi.fn(),
       }),
     });
+    let nextRequestId = 0;
     vi.stubGlobal("crypto", {
-      randomUUID: vi
-        .fn()
-        .mockReturnValue("00000000-0000-4000-8000-000000000001"),
+      randomUUID: vi.fn(() => {
+        nextRequestId += 1;
+        return `00000000-0000-4000-8000-00000000000${nextRequestId}`;
+      }),
     });
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    for (const screen of mountedScreens) screen.unmount();
+    mountedScreens.length = 0;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it("requires confirmation, shows the reading state, disables the control, and refreshes on success", async () => {
     let resolve: ((outcome: "completed") => void) | undefined;
@@ -95,10 +116,12 @@ describe("ResumeRereadControl", () => {
     expect(
       screen.container.querySelectorAll("button[disabled]").length,
     ).toBeGreaterThan(0);
-    expect(reReadResume).toHaveBeenCalledWith({
-      resumeId: 22,
-      requestId: "00000000-0000-4000-8000-000000000001",
-    });
+    expect(reReadResume).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeId: 22,
+        requestId: "00000000-0000-4000-8000-000000000001",
+      }),
+    );
 
     resolve?.("completed");
     await expect
@@ -117,7 +140,8 @@ describe("ResumeRereadControl", () => {
     ["already_reading", REREAD_COPY.failed],
   ] as const)("maps %s to static copy", async (outcome, copy) => {
     const reReadResume = vi.fn().mockResolvedValue(outcome);
-    const { screen } = await renderControl(reReadResume);
+    const ids = { failed: 31, no_allowance: 32, already_reading: 33 };
+    const { screen } = await renderControl(reReadResume, ids[outcome]);
     await screen.getByRole("button", { name: REREAD_COPY.trigger }).click();
     await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();
     await expect.poll(() => openPanelStatus()?.textContent).toBe(copy);
@@ -130,8 +154,9 @@ describe("ResumeRereadControl", () => {
     const reReadResume = vi
       .fn()
       .mockResolvedValueOnce("failed")
-      .mockResolvedValueOnce("completed");
-    const { screen } = await renderControl(reReadResume);
+      .mockResolvedValueOnce("completed")
+      .mockResolvedValueOnce("failed");
+    const { screen } = await renderControl(reReadResume, 34);
     await screen.getByRole("button", { name: REREAD_COPY.trigger }).click();
     await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();
     await expect
@@ -148,6 +173,94 @@ describe("ResumeRereadControl", () => {
     expect(reReadResume).toHaveBeenCalledTimes(2);
     expect(reReadResume.mock.calls[0][0].requestId).toBe(
       reReadResume.mock.calls[1][0].requestId,
+    );
+
+    await screen.getByRole("button", { name: REREAD_COPY.trigger }).click();
+    await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();
+    await expect
+      .poll(() => openPanelStatus()?.textContent)
+      .toBe(REREAD_COPY.failed);
+    expect(reReadResume.mock.calls[2][0].requestId).not.toBe(
+      reReadResume.mock.calls[0][0].requestId,
+    );
+  });
+
+  it("times out a hung read, returns to idle, and retries with the same id", async () => {
+    vi.useFakeTimers();
+    const reReadResume = vi.fn().mockImplementation(
+      ({ signal }: { signal?: AbortSignal }) =>
+        new Promise<"completed">((_resolve, reject) => {
+          const timeout = setTimeout(
+            () => reject(new Error("client timeout")),
+            REREAD_REQUEST_TIMEOUT_MS,
+          );
+          signal?.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timeout);
+              reject(new DOMException("aborted", "AbortError"));
+            },
+            { once: true },
+          );
+        }),
+    );
+    const { screen } = await renderControl(reReadResume, 36);
+
+    await screen.getByRole("button", { name: REREAD_COPY.trigger }).click();
+    await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();
+    await expect
+      .poll(() => openPanelStatus()?.textContent)
+      .toBe(REREAD_COPY.reading);
+
+    await vi.advanceTimersByTimeAsync(REREAD_REQUEST_TIMEOUT_MS);
+    await expect
+      .poll(() => openPanelStatus()?.textContent)
+      .toBe(REREAD_COPY.failed);
+    await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();
+    expect(reReadResume).toHaveBeenCalledTimes(2);
+    expect(reReadResume.mock.calls[1][0].requestId).toBe(
+      reReadResume.mock.calls[0][0].requestId,
+    );
+  });
+
+  it("keeps the unresolved id across unmount/remount, then clears it on success", async () => {
+    const reReadResume = vi
+      .fn()
+      .mockImplementation(({ signal }: { signal?: AbortSignal }) => {
+        if (reReadResume.mock.calls.length === 0) {
+          return new Promise<"completed">((_resolve, reject) => {
+            signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        }
+        return Promise.resolve<"failed">("failed");
+      });
+    const first = await renderControl(reReadResume, 37, "current-37");
+    await first.screen
+      .getByRole("button", { name: REREAD_COPY.trigger })
+      .click();
+    await first.screen
+      .getByRole("button", { name: REREAD_COPY.confirm })
+      .click();
+    unmountScreen(first.screen);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const second = await renderControl(reReadResume, 37, "current-37");
+    await second.screen
+      .getByRole("button", { name: REREAD_COPY.trigger })
+      .click();
+    await second.screen
+      .getByRole("button", { name: REREAD_COPY.confirm })
+      .click();
+    await expect
+      .poll(() => openPanelStatus()?.textContent)
+      .toBe(REREAD_COPY.failed);
+    expect(reReadResume.mock.calls[1][0].requestId).toBe(
+      reReadResume.mock.calls[0][0].requestId,
     );
   });
 

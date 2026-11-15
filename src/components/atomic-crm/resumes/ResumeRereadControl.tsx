@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import {
   useDataProvider,
@@ -30,6 +30,12 @@ import type { CrmDataProvider } from "../providers/types";
 
 type RereadFeedback = "reading" | "completed" | "failed" | "no_allowance";
 
+const unresolvedRereadAttempts = new Map<string, string>();
+
+function attemptKey(resumeId: Identifier, fileIdentity: string): string {
+  return `${String(resumeId)}\u0000${fileIdentity}`;
+}
+
 export const REREAD_COPY = {
   trigger: "Re-read this resume",
   title: "Read this resume again?",
@@ -45,6 +51,8 @@ export const REREAD_COPY = {
 
 export type ResumeRereadControlProps = {
   resumeId: Identifier;
+  /** Stable identity of the current file version, kept in memory only. */
+  fileIdentity: string;
 };
 
 function createRequestId(): string {
@@ -66,6 +74,7 @@ function feedbackText(feedback: RereadFeedback): string {
 
 export function ResumeRereadControl({
   resumeId,
+  fileIdentity,
 }: ResumeRereadControlProps): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const refresh = useRefresh();
@@ -75,6 +84,16 @@ export function ResumeRereadControl({
   const [feedback, setFeedback] = useState<RereadFeedback | null>(null);
   const [isReading, setIsReading] = useState(false);
   const [requestId, setRequestId] = useState<string | null>(null);
+  const activeController = useRef<AbortController | null>(null);
+  const rereadAttemptKey = attemptKey(resumeId, fileIdentity);
+
+  useEffect(
+    () => () => {
+      activeController.current?.abort();
+      activeController.current = null;
+    },
+    [],
+  );
 
   const triggerLabel = translate("crm.entity360.resume.reread.trigger", {
     _: REREAD_COPY.trigger,
@@ -97,7 +116,7 @@ export function ResumeRereadControl({
     setFeedback(null);
     // Allocate only after the user explicitly confirms. A cancelled dialog
     // must not consume an idempotency key that could be mistaken for a read.
-    setRequestId(null);
+    setRequestId(unresolvedRereadAttempts.get(rereadAttemptKey) ?? null);
     setOpen(true);
   };
 
@@ -110,20 +129,26 @@ export function ResumeRereadControl({
   const handleConfirm = async () => {
     if (isReading) return;
     const stableRequestId = requestId ?? createRequestId();
+    unresolvedRereadAttempts.set(rereadAttemptKey, stableRequestId);
     setRequestId(stableRequestId);
     setFeedback("reading");
     setIsReading(true);
+    const controller = new AbortController();
+    activeController.current = controller;
     try {
       const outcome = await dataProvider.reReadResume({
         resumeId,
         requestId: stableRequestId,
+        signal: controller.signal,
       });
       if (outcome === "completed") {
+        unresolvedRereadAttempts.delete(rereadAttemptKey);
         setFeedback("completed");
         setOpen(false);
         setRequestId(null);
         refresh();
       } else if (outcome === "no_allowance") {
+        unresolvedRereadAttempts.delete(rereadAttemptKey);
         setFeedback("no_allowance");
       } else {
         // "already_reading" and every transport/server failure intentionally
@@ -133,6 +158,9 @@ export function ResumeRereadControl({
     } catch {
       setFeedback("failed");
     } finally {
+      if (activeController.current === controller) {
+        activeController.current = null;
+      }
       setIsReading(false);
     }
   };

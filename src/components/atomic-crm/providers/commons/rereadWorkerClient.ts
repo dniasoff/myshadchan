@@ -1,9 +1,13 @@
 import { getSupabaseClient } from "../supabase/supabase";
 import type { Identifier } from "ra-core";
 
+export const REREAD_REQUEST_TIMEOUT_MS = 90_000;
+
 export type ResumeRereadParams = {
   resumeId: Identifier;
   requestId: string;
+  /** The control aborts this signal if its row unmounts. */
+  signal?: AbortSignal;
 };
 
 export type ResumeRereadOutcome =
@@ -27,36 +31,49 @@ export async function requestResumeReread(
   } = await getSupabaseClient().auth.getSession();
   if (sessionError || !session?.access_token) return "failed";
 
-  let response: Response;
+  const requestController = new AbortController();
+  const abortFromCaller = () => requestController.abort();
+  if (params.signal?.aborted) {
+    requestController.abort();
+  } else {
+    params.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
+  const timeout = setTimeout(
+    () => requestController.abort(),
+    REREAD_REQUEST_TIMEOUT_MS,
+  );
   try {
-    response = await fetch(`${url.replace(/\/$/, "")}/parse`, {
+    const response = await fetch(`${url.replace(/\/$/, "")}/parse`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${session.access_token}`,
         "Content-Type": "application/json",
       },
+      signal: requestController.signal,
       body: JSON.stringify({
         resume_id: Number(params.resumeId),
         request_id: params.requestId,
       }),
     });
+    let envelope: {
+      success?: unknown;
+      data?: unknown;
+      meta?: { code?: unknown };
+    };
+    try {
+      envelope = (await response.json()) as typeof envelope;
+    } catch {
+      return "failed";
+    }
+
+    if (response.ok && envelope.success === true) return "completed";
+    if (response.status === 402) return "no_allowance";
+    if (envelope.meta?.code === "already_reading") return "already_reading";
+    return "failed";
   } catch {
     return "failed";
+  } finally {
+    clearTimeout(timeout);
+    params.signal?.removeEventListener("abort", abortFromCaller);
   }
-
-  let envelope: {
-    success?: unknown;
-    data?: unknown;
-    meta?: { code?: unknown };
-  };
-  try {
-    envelope = (await response.json()) as typeof envelope;
-  } catch {
-    return "failed";
-  }
-
-  if (response.ok && envelope.success === true) return "completed";
-  if (response.status === 402) return "no_allowance";
-  if (envelope.meta?.code === "already_reading") return "already_reading";
-  return "failed";
 }

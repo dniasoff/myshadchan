@@ -127,7 +127,12 @@ function ResumeVersionRow({
         >
           {translate("crm.entity360.resume.download", { _: "Download" })}
         </Button>
-        {canReread ? <ResumeRereadControl resumeId={resumeId} /> : null}
+        {canReread ? (
+          <ResumeRereadControl
+            resumeId={resumeId}
+            fileIdentity={version.path}
+          />
+        ) : null}
       </div>
     </li>
   );
@@ -178,7 +183,11 @@ export function ResumeVersionList({
           version={version}
           isShown={version.path === shownPath}
           onShow={onShow}
-          canReread={canReread && data?.[0]?.id != null}
+          canReread={
+            canReread &&
+            data?.[0]?.id != null &&
+            version.path === versions[0]?.path
+          }
         />
       ))}
     </ul>
