@@ -173,10 +173,20 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
       return c.json(fail("invalid request body"), 400);
     }
     if ("resume_id" in bodyResult.data) {
+      let userId: string | undefined;
+      try {
+        const { data: userResult, error: userError } =
+          await supabase.auth.getUser();
+        if (!userError && userResult.user) userId = userResult.user.id;
+      } catch {
+        // The re-read route treats a missing user id as an authorization
+        // failure. Do not turn an auth lookup failure into a usable request.
+      }
       const reread = await rereadResume(bodyResult.data, {
         caller: supabase,
         env: c.env,
         extractor: extractor ?? geminiExtractor(c.env),
+        userId,
       });
       c.set(
         "traceOutcome",

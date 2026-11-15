@@ -52,6 +52,7 @@ export type RereadDependencies = {
   caller: SupabaseClient;
   service?: SupabaseClient;
   extractor: ResumeExtractor;
+  userId: string | undefined;
   env: BaseEnv &
     ParseEnv &
     RateLimitEnforcementEnv & {
@@ -136,21 +137,19 @@ export async function rereadResume(
   dependencies: RereadDependencies,
 ): Promise<RereadResponse> {
   const { caller } = dependencies;
-  const [contextResult, roleResult, memberResult] = await Promise.all([
+  const [contextResult, roleResult] = await Promise.all([
     caller.rpc("current_context_id"),
     caller.rpc("current_member_role"),
-    caller.rpc("current_member_id"),
   ]);
   const accountId = contextResult.data;
   const role = roleResult.data;
-  const memberId = memberResult.data;
   if (
     contextResult.error ||
     roleResult.error ||
-    memberResult.error ||
     typeof accountId !== "number" ||
     (role !== "parent_admin" && role !== "self_manager") ||
-    typeof memberId !== "number"
+    typeof dependencies.userId !== "string" ||
+    dependencies.userId.length === 0
   ) {
     return failure(dependencies, REREAD_FAILURE_MESSAGE, 403);
   }
@@ -174,7 +173,7 @@ export async function rereadResume(
   const memberResultRow = await caller
     .from("members")
     .select("id,disabled")
-    .eq("id", memberId)
+    .eq("user_id", dependencies.userId)
     .maybeSingle();
   if (
     memberResultRow.error ||
