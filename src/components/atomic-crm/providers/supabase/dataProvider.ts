@@ -56,6 +56,10 @@ import type { ConfigurationContextValue } from "../../root/ConfigurationContext"
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import {
+  requestResumeReread,
+  type ResumeRereadParams,
+} from "../commons/rereadWorkerClient";
+import {
   buildEntityFilesCleanupCallbacks,
   deleteEntityFile as deleteEntityFileImpl,
   signEntityFileUrl as signEntityFileUrlImpl,
@@ -1325,6 +1329,9 @@ export const getDataProviderWithCustomMethods = () => {
     },
     async signResumeFileUrl(params: SignResumeFileUrlParams): Promise<string> {
       return signResumeFileUrlImpl(params);
+    },
+    async reReadResume(params: ResumeRereadParams) {
+      return requestResumeReread(import.meta.env.VITE_PARSE_WORKER_URL, params);
     },
 
     // ---------------------------------------------------------------------

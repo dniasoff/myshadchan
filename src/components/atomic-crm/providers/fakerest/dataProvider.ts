@@ -73,6 +73,7 @@ import type {
 import {
   attachInboxAttachmentToResumeFile as attachInboxAttachmentToResumeFileImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
+  rereadResume as rereadResumeImpl,
   uploadResumeFile as uploadResumeFileImpl,
 } from "./internal/resumes";
 import type {
@@ -2864,6 +2865,8 @@ export const createDataProvider = ({
       inline?: boolean;
     }): Promise<string> =>
       signResumeFileUrlImpl(resumeFileBlobUrls, params.storagePath),
+    reReadResume: (params: { resumeId: Identifier; requestId: string }) =>
+      rereadResumeImpl(baseDataProvider, params),
     // ---------------------------------------------------------------------
     // Photo tab (Story 5.4) -- FakeRest mirrors of add_resume_photo /
     // hide_resume_photo / signed-URL minting, backed by

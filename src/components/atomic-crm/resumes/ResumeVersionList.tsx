@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatTimelineDate } from "../entity360/tabs/interactionLabels";
 import type { CrmDataProvider } from "../providers/types";
 import type { Resume, ResumeFileVersion } from "../types";
+import { ResumeRereadControl } from "./ResumeRereadControl";
 import { resumeSubjectFilter, type ResumeSubject } from "./resumeSubject";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 
@@ -53,13 +54,17 @@ function ResumeError(): ReactElement {
  * there is nothing to swap to, and a button that cannot change anything is
  * the same defect as pagination on a one-page list. */
 function ResumeVersionRow({
+  resumeId,
   version,
   isShown,
   onShow,
+  canReread,
 }: {
+  resumeId: Resume["id"];
   version: ResumeFileVersion;
   isShown: boolean;
   onShow?: (path: string) => void;
+  canReread: boolean;
 }): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
@@ -122,6 +127,7 @@ function ResumeVersionRow({
         >
           {translate("crm.entity360.resume.download", { _: "Download" })}
         </Button>
+        {canReread ? <ResumeRereadControl resumeId={resumeId} /> : null}
       </div>
     </li>
   );
@@ -140,11 +146,14 @@ export type ResumeVersionListProps = ResumeSubject & {
   shownPath?: string;
   /** Omitted when there is only one version — see `ResumeVersionRow`. */
   onShow?: (path: string) => void;
+  /** Only manager roles may invoke the deployed re-read route. */
+  canReread?: boolean;
 };
 
 export function ResumeVersionList({
   shownPath,
   onShow,
+  canReread = false,
   ...subject
 }: ResumeVersionListProps): ReactElement {
   const { data, error, isPending } = useGetList<Resume>("resumes", {
@@ -165,9 +174,11 @@ export function ResumeVersionList({
       {versions.map((version) => (
         <ResumeVersionRow
           key={version.path}
+          resumeId={data?.[0]?.id ?? ""}
           version={version}
           isShown={version.path === shownPath}
           onShow={onShow}
+          canReread={canReread && data?.[0]?.id != null}
         />
       ))}
     </ul>

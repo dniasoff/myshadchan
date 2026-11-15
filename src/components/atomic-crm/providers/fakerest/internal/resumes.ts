@@ -1,5 +1,9 @@
 import type { DataProvider, Identifier } from "ra-core";
 
+import type {
+  ResumeRereadOutcome,
+  ResumeRereadParams,
+} from "../../commons/rereadWorkerClient";
 import {
   isSingleSubject,
   resumeSubjectFilter,
@@ -34,6 +38,50 @@ export type AttachInboxAttachmentToResumeFileParams = ResumeSubject & {
 
 const INBOX_RESUME_ATTACH_ERROR =
   "Could not attach this file. It may be too large or no longer available. The Inbox item was not changed.";
+
+/** FakeRest mirror of the deployed re-read route. It never invokes Gemini or
+ * stores a request body: the demo only demonstrates the visible flow and the
+ * additive sections write. */
+export async function rereadResume(
+  baseDataProvider: DataProvider,
+  params: ResumeRereadParams,
+): Promise<ResumeRereadOutcome> {
+  const { data: resume } = await baseDataProvider.getOne<Resume>("resumes", {
+    id: params.resumeId,
+  });
+  if (!resume || !resume.files || resume.files.length === 0) return "failed";
+
+  const existingSections =
+    resume.sections &&
+    typeof resume.sections === "object" &&
+    !Array.isArray(resume.sections)
+      ? (resume.sections as Record<string, unknown>)
+      : {};
+  const existingAdditionalSections = Array.isArray(
+    existingSections.additionalSections,
+  )
+    ? existingSections.additionalSections
+    : [
+        {
+          key: "work",
+          title: "Work",
+          items: [{ label: "Demo", value: "Re-read preview" }],
+        },
+      ];
+
+  await baseDataProvider.update<Resume>("resumes", {
+    id: resume.id,
+    data: {
+      sections: {
+        ...existingSections,
+        additionalSections: existingAdditionalSections,
+        schemaVersion: 4,
+      },
+    },
+    previousData: resume,
+  });
+  return "completed";
+}
 
 /**
  * FakeRest mirror of `add_resume_file` (AC 2; widened to a single subject

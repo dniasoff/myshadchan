@@ -7,7 +7,10 @@ import { ResumeUpload } from "./ResumeUpload";
 import { ResumeInboxPicker } from "./ResumeInboxPicker";
 import { ResumeDocument } from "./ResumeDocument";
 import { ResumeReadableSections } from "./ResumeReadableSections";
-import { canViewResumeReferences } from "./resumeReferenceVisibility";
+import {
+  canRereadResume,
+  canViewResumeReferences,
+} from "./resumeReferenceVisibility";
 import { canPickResumeFromInbox } from "./resumeInbox";
 
 /**
@@ -30,6 +33,7 @@ export function ResumeTab(): ReactNode {
   // boundary, but never parsed references or candid reference-link content.
   // Fail closed while the active context is settling.
   const canViewReferences = canViewResumeReferences(role, isRolePending);
+  const canReread = canRereadResume(role, isRolePending);
   const canPickInboxResume = canPickResumeFromInbox(role, isRolePending);
   const targetLabel =
     record.name_en?.trim() ||
@@ -52,7 +56,7 @@ export function ResumeTab(): ReactNode {
             Keep the file exactly as it was uploaded.
           </p>
         </div>
-        <ResumeDocument shidduchimId={record.id} />
+        <ResumeDocument shidduchimId={record.id} canReread={canReread} />
       </section>
       <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
         <ResumeUpload shidduchimId={record.id} />
