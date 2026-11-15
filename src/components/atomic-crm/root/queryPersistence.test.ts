@@ -213,7 +213,10 @@ describe("React Query persistence privacy boundary", () => {
   });
 
   it("uses a cache buster that discards snapshots made before the filter", () => {
-    expect(REACT_QUERY_CACHE_BUSTER).toBe("crm-no-private-sensitive-cache-v2");
+    expect(REACT_QUERY_CACHE_BUSTER).toBe("crm-no-private-sensitive-cache-v3");
+    expect(REACT_QUERY_CACHE_BUSTER).not.toBe(
+      "crm-no-private-sensitive-cache-v2",
+    );
     expect(mobilePersistOptions).toMatchObject({
       buster: REACT_QUERY_CACHE_BUSTER,
       dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },

@@ -125,7 +125,7 @@ export const shouldPersistQuery = (query: Query): boolean => {
  * hydrate private text, signed URLs, or storage paths once after the filter
  * is deployed.
  */
-export const REACT_QUERY_CACHE_BUSTER = "crm-no-private-sensitive-cache-v2";
+export const REACT_QUERY_CACHE_BUSTER = "crm-no-private-sensitive-cache-v3";
 
 /** Shared mobile persistence policy. The persister itself is created where
  * the browser `localStorage` object is available, in `CRM.tsx`. */
