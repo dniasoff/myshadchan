@@ -512,6 +512,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/settings/captureEmail.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/settings/SingleListingSection.tsx",
           "type": "registry:component"
         },
@@ -664,6 +668,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/resumes/resumeInbox.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/resumes/photoUpload.ts",
           "type": "registry:component"
         },
@@ -680,7 +688,15 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/resumes/ResumeRereadControl.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/resumes/ResumeReadableSections.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/resumes/ResumeInboxPicker.tsx",
           "type": "registry:component"
         },
         {
@@ -1097,6 +1113,14 @@
         },
         {
           "path": "src/components/atomic-crm/providers/commons/roleAuthority.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/commons/rereadWorkerClient.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/commons/inboxAttachmentValidation.ts",
           "type": "registry:component"
         },
         {

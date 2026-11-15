@@ -16,12 +16,7 @@ import { pickActiveContext } from "../providers/commons/roleAuthority";
 import { useMyContexts } from "../root/useMyContexts";
 import type { Account } from "../types";
 import { SectionLabel } from "./SectionLabel";
-
-/** The live domain every household capture address is minted under
- * (`accounts.inbound_email_token` + this, `01_tables.sql`) — mirrors the
- * same literal `workers/ingest/resolveAccount.ts` and `DeleteDataDialog.tsx`
- * already hardcode. */
-const CAPTURE_EMAIL_DOMAIN = "myshadchan.space";
+import { buildCaptureEmail } from "./captureEmail";
 
 /**
  * Epic 11 (Story 10.3's successor): surfaces THIS household's own inbound
@@ -56,9 +51,7 @@ export const CaptureSection = () => {
 
   if (!isHousehold) return null;
 
-  const inboundEmail = account?.inbound_email_token
-    ? `${account.inbound_email_token}@${CAPTURE_EMAIL_DOMAIN}`
-    : null;
+  const inboundEmail = buildCaptureEmail(account?.inbound_email_token);
 
   // Fail closed: still loading, a malformed/blank token, or (defensively)
   // this branch somehow reached for a non-household account — render

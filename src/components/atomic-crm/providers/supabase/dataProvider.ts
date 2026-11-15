@@ -1679,6 +1679,9 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
     .createSignedUrl(filePath, ATTACHMENT_URL_TTL_SECONDS);
 
   if (signError || !data) {
+    await getSupabaseClient()
+      .storage.from(ATTACHMENTS_BUCKET)
+      .remove([filePath]);
     console.error("signError", signError);
     throw new Error("Failed to sign attachment URL");
   }
@@ -1721,6 +1724,7 @@ const uploadInboxAttachment = async ({
       type: uploaded.type ?? file.type,
       path: uploaded.path ?? "",
       src: uploaded.src,
+      size: file.size,
     };
   } finally {
     URL.revokeObjectURL(src);

@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, memoryStore, TestMemoryRouter } from "ra-core";
 import type { Store } from "ra-core";
 import fakeDataProvider from "ra-data-fakerest";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
-import type { InboxItem } from "../types";
+import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
+import type { InboxItem, MyContext } from "../types";
 import { InboxList } from "./InboxList";
 
 /**
@@ -54,27 +56,57 @@ const HELD_ITEM: InboxItem = {
   resolution_input: null,
 };
 
-const renderInboxList = (
+const renderInboxList = async (
   inboxItems: InboxItem[],
   initialEntries: string[] = ["/inbox_items"],
   store: Store = memoryStore(),
-) =>
-  render(
+  role: MyContext["role"] | null = "parent_admin",
+  pending = false,
+) => {
+  const dataProvider = fakeDataProvider({ inbox_items: inboxItems });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  if (pending) {
+    dataProvider.getMyContexts = vi.fn(
+      () => new Promise<MyContext[]>(() => undefined),
+    );
+  } else {
+    queryClient.setQueryData(
+      MY_CONTEXTS_QUERY_KEY,
+      role
+        ? [
+            {
+              account_id: 7,
+              kind: "household",
+              name: "Fixture household",
+              role,
+              is_active: true,
+            } satisfies MyContext,
+          ]
+        : [],
+    );
+  }
+  const getList = vi.spyOn(dataProvider, "getList");
+  const screen = await render(
     <TestMemoryRouter initialEntries={initialEntries}>
       <CoreAdminContext
         store={store}
-        dataProvider={fakeDataProvider({ inbox_items: inboxItems })}
+        dataProvider={dataProvider}
+        queryClient={queryClient}
         i18nProvider={testI18nProvider}
       >
         <InboxList />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
+  return { screen, getList, queryClient };
+};
 
 describe("InboxList — the working inbox tab (regression guard)", () => {
   it("shows an unresolved item and does NOT show a held item — the whole design depends on this", async () => {
     // Arrange / Act
-    const screen = await renderInboxList([UNRESOLVED_ITEM, HELD_ITEM]);
+    const { screen } = await renderInboxList([UNRESOLVED_ITEM, HELD_ITEM]);
 
     // Assert
     await expect
@@ -87,7 +119,7 @@ describe("InboxList — the working inbox tab (regression guard)", () => {
 
   it("shows the calm empty state when there is nothing unresolved, even while items are held", async () => {
     // Arrange / Act
-    const screen = await renderInboxList([HELD_ITEM]);
+    const { screen } = await renderInboxList([HELD_ITEM]);
 
     // Assert
     await expect
@@ -99,7 +131,7 @@ describe("InboxList — the working inbox tab (regression guard)", () => {
 describe("InboxList — the Needs-review tab", () => {
   it("shows held items and only held items once the tab is opened", async () => {
     // Arrange
-    const screen = await renderInboxList([UNRESOLVED_ITEM, HELD_ITEM]);
+    const { screen } = await renderInboxList([UNRESOLVED_ITEM, HELD_ITEM]);
 
     // Act
     await screen.getByRole("tab", { name: /Needs review/ }).click();
@@ -115,7 +147,7 @@ describe("InboxList — the Needs-review tab", () => {
 
   it("is directly reachable via ?tab=needs-review — URL as state survives a fresh load", async () => {
     // Arrange / Act
-    const screen = await renderInboxList(
+    const { screen } = await renderInboxList(
       [UNRESOLVED_ITEM, HELD_ITEM],
       ["/inbox_items?tab=needs-review"],
     );
@@ -128,7 +160,7 @@ describe("InboxList — the Needs-review tab", () => {
 
   it("shows its own calm empty state when there is nothing held", async () => {
     // Arrange
-    const screen = await renderInboxList(
+    const { screen } = await renderInboxList(
       [UNRESOLVED_ITEM],
       ["/inbox_items?tab=needs-review"],
     );
@@ -143,7 +175,7 @@ describe("InboxList — the Needs-review tab", () => {
 describe("InboxList — the Needs-review badge", () => {
   it("shows a count when held items exist", async () => {
     // Arrange / Act
-    const screen = await renderInboxList([UNRESOLVED_ITEM, HELD_ITEM]);
+    const { screen } = await renderInboxList([UNRESOLVED_ITEM, HELD_ITEM]);
 
     // Assert
     await expect
@@ -153,11 +185,38 @@ describe("InboxList — the Needs-review badge", () => {
 
   it("shows no count at all when there are no held items", async () => {
     // Arrange / Act
-    const screen = await renderInboxList([UNRESOLVED_ITEM]);
+    const { screen } = await renderInboxList([UNRESOLVED_ITEM]);
 
     // Assert — the tab's own label, with nothing appended.
     const tab = screen.getByRole("tab", { name: "Needs review" });
     await expect.element(tab).toBeInTheDocument();
     await expect.element(tab).not.toHaveTextContent(/\d/);
+  });
+});
+
+describe("InboxList — role and pending query gate", () => {
+  it.each(["single", null] as const)(
+    "does not mount Inbox queries for role=%s",
+    async (role) => {
+      const { getList } = await renderInboxList(
+        [],
+        ["/inbox_items"],
+        memoryStore(),
+        role,
+      );
+      expect(getList).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not mount Inbox queries while the active role is pending", async () => {
+    const { getList, queryClient } = await renderInboxList(
+      [],
+      ["/inbox_items"],
+      memoryStore(),
+      "parent_admin",
+      true,
+    );
+    expect(getList).not.toHaveBeenCalled();
+    await queryClient.cancelQueries({ queryKey: MY_CONTEXTS_QUERY_KEY });
   });
 });

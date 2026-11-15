@@ -6,6 +6,7 @@ const PRIVATE_QUERY_RESOURCES = new Set([
   "interactions_summary",
   "inbox_items",
   "inbox_items_summary",
+  "accounts",
   "resumes",
 ]);
 

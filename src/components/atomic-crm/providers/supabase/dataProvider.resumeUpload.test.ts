@@ -100,6 +100,7 @@ describe("Supabase resume capture provider methods", () => {
       type: "application/pdf",
       path: storagePath,
       src: "https://signed.example/resume.pdf",
+      size: file.size,
     });
   });
 
@@ -116,5 +117,22 @@ describe("Supabase resume capture provider methods", () => {
     await expect(
       dataProvider.removeInboxAttachment("7/inbox/700/resume.pdf"),
     ).rejects.toThrow("Failed to remove the captured resume");
+  });
+
+  it("removes the uploaded object when signed URL creation fails", async () => {
+    const dataProvider = getDataProviderWithCustomMethods();
+    storageSignedUrl.mockResolvedValue({
+      data: null,
+      error: { message: "signing failed" },
+    });
+    const file = new File(["resume"], "resume.pdf", {
+      type: "application/pdf",
+    });
+
+    await expect(
+      dataProvider.uploadInboxAttachment({ file, inboxItemId: 700 }),
+    ).rejects.toThrow("Failed to sign attachment URL");
+    const [storagePath] = storageUpload.mock.calls[0];
+    expect(storageRemove).toHaveBeenCalledWith([storagePath]);
   });
 });

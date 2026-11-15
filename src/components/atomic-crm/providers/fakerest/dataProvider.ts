@@ -2808,6 +2808,7 @@ export const createDataProvider = ({
         type: params.file.type || "application/octet-stream",
         path,
         src,
+        size: params.file.size,
       };
     },
     removeInboxAttachment: async (path: string): Promise<void> => {

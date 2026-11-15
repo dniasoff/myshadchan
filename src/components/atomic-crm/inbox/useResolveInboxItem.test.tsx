@@ -564,6 +564,12 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
           path: "1/inbox-resume.pdf",
           src: "https://example.test/resume.pdf",
         },
+        {
+          title: "portrait.jpg",
+          type: "image/jpeg",
+          path: "1/inbox-portrait.jpg",
+          src: "https://example.test/portrait.jpg",
+        },
       ],
     });
     const { screen, dataProvider } = await renderProbe(item);
@@ -573,12 +579,29 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
       .click();
     await expect.element(screen.getByText("result:linked")).toBeInTheDocument();
 
-    expect(dataProvider.copyInboxAttachmentsToEntityFiles).toHaveBeenCalledWith(
+    expect(
+      dataProvider.copyInboxAttachmentsToEntityFiles,
+    ).toHaveBeenCalledTimes(2);
+    expect(
+      dataProvider.copyInboxAttachmentsToEntityFiles,
+    ).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
-        attachments: item.attachments,
+        attachments: [item.attachments![0]],
         targetType: "shidduch",
         targetId: 42,
         visibility: "shared",
+      }),
+    );
+    expect(
+      dataProvider.copyInboxAttachmentsToEntityFiles,
+    ).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        attachments: [item.attachments![1]],
+        targetType: "shidduch",
+        targetId: 42,
+        visibility: "private_parent",
       }),
     );
   });

@@ -25,6 +25,14 @@ import {
 // (coding-style.md's ~400-line typical ceiling).
 export type { ResumeDraft };
 
+/** Inbox pictures are not suggestion photos yet. Keep them parent-private when
+ * a capture is linked to an existing suggestion; only the explicit photo
+ * flows may promote them to a shared photo. Non-picture documents retain the
+ * existing shared Files-tab behavior. */
+function isInboxPicture(attachment: InboxAttachment): boolean {
+  return attachment.type.trim().toLowerCase().startsWith("image/");
+}
+
 /**
  * The three ways a captured `inbox_items` row stops being unresolved (Story
  * 10.1 Task 2). Extracted out of `InboxResolveDialog.tsx` — the only place
@@ -284,14 +292,30 @@ export function useResolveInboxItem() {
 
     // Story 10.4: carry any capture attachments into the linked shidduch's
     // Files tab so they remain reachable after the inbox item is resolved.
+    // Pictures are deliberately parent-private here: linking an Inbox item
+    // must not turn an unreviewed picture into a shared suggestion asset.
+    // Explicit photo flows are the only place that may promote a picture.
     const attachments = (item.attachments ?? []) as InboxAttachment[];
-    if (attachments.length > 0) {
+    const documentAttachments = attachments.filter(
+      (attachment) => !isInboxPicture(attachment),
+    );
+    const pictureAttachments = attachments.filter(isInboxPicture);
+    if (documentAttachments.length > 0) {
       await dataProvider.copyInboxAttachmentsToEntityFiles({
         baseDataProvider: dataProvider,
-        attachments,
+        attachments: documentAttachments,
         targetType: "shidduch",
         targetId: shidduchimId,
         visibility: "shared",
+      });
+    }
+    if (pictureAttachments.length > 0) {
+      await dataProvider.copyInboxAttachmentsToEntityFiles({
+        baseDataProvider: dataProvider,
+        attachments: pictureAttachments,
+        targetType: "shidduch",
+        targetId: shidduchimId,
+        visibility: "private_parent",
       });
     }
 
