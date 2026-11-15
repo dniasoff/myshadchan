@@ -3,42 +3,63 @@ import { dehydrate, QueryClient } from "@tanstack/react-query";
 
 import {
   REACT_QUERY_CACHE_BUSTER,
+  PRIVATE_QUERY_KEYS,
+  PRIVATE_QUERY_RESOURCES,
+  PERSISTABLE_QUERY_KEYS,
   mobilePersistOptions,
   shouldPersistQuery,
 } from "./queryPersistence";
 
 describe("React Query persistence privacy boundary", () => {
-  it("excludes shadchan live-note results, including their private bodies", () => {
+  it("persists only the documented non-sensitive query roots", () => {
     const queryClient = new QueryClient();
+    for (const queryRoot of PERSISTABLE_QUERY_KEYS) {
+      queryClient.setQueryData([queryRoot, "probe"], {
+        value: `safe-${queryRoot}`,
+      });
+    }
+
+    const persisted = dehydrate(queryClient, {
+      shouldDehydrateQuery: shouldPersistQuery,
+    });
+
+    expect(persisted.queries.map(({ queryKey }) => queryKey[0])).toEqual(
+      PERSISTABLE_QUERY_KEYS,
+    );
+  });
+
+  it("excludes every inventoried private CRM resource", () => {
+    const queryClient = new QueryClient();
+    for (const resource of PRIVATE_QUERY_RESOURCES) {
+      queryClient.setQueryData([resource, "getList"], {
+        data: [
+          {
+            body: "private note text",
+            phone: "+1 555 0100",
+            src: "https://signed.example/private-photo",
+            path: "1/private/file.pdf",
+          },
+        ],
+      });
+    }
+    for (const queryRoot of PRIVATE_QUERY_KEYS) {
+      queryClient.setQueryData([queryRoot, "preview"], {
+        body: "private preview details",
+      });
+    }
     queryClient.setQueryData(["shadchanim", "live-note-indicators", ["7"]], {
-      body: "private note text",
-    });
-    queryClient.setQueryData(["shadchanim", "all-account-rows"], {
-      data: [{ id: 7, name: "Rivka" }],
-    });
-    queryClient.setQueryData(["interactions_summary", "getList"], {
-      data: [{ body: "tab note text" }],
-    });
-    queryClient.setQueryData(["interactions", "getOne"], {
-      body: "write-resource note text",
-    });
-    queryClient.setQueryData(["accounts", "getOne"], {
-      inbound_email_token: "private-household-token",
+      body: "private live note text",
     });
 
     const persisted = dehydrate(queryClient, {
       shouldDehydrateQuery: shouldPersistQuery,
     });
 
-    expect(persisted.queries).toHaveLength(1);
-    expect(persisted.queries[0]?.queryKey).toEqual([
-      "shadchanim",
-      "all-account-rows",
-    ]);
+    expect(persisted.queries).toEqual([]);
     expect(JSON.stringify(persisted)).not.toContain("private note text");
-    expect(JSON.stringify(persisted)).not.toContain("tab note text");
-    expect(JSON.stringify(persisted)).not.toContain("write-resource note text");
-    expect(JSON.stringify(persisted)).not.toContain("private-household-token");
+    expect(JSON.stringify(persisted)).not.toContain("555 0100");
+    expect(JSON.stringify(persisted)).not.toContain("signed.example");
+    expect(JSON.stringify(persisted)).not.toContain("private/file.pdf");
   });
 
   it("preserves TanStack's success-only default for pending and error queries", async () => {
@@ -71,8 +92,21 @@ describe("React Query persistence privacy boundary", () => {
     resolvePending("finished");
   });
 
-  it("does not dehydrate the Resume Inbox picker's sensitive queries", () => {
+  it("does not dehydrate a real QueryClient probe of private domain queries", () => {
     const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      ["reference_links", "getList", { filter: { shidduchim_id: 42 } }],
+      {
+        data: [
+          {
+            note: "private reference call notes",
+            name: "Private Reference",
+            phone: "+1 555 0101",
+          },
+        ],
+        total: 1,
+      },
+    );
     queryClient.setQueryData(
       [
         "inbox_items",
@@ -104,6 +138,13 @@ describe("React Query persistence privacy boundary", () => {
       },
     );
     queryClient.setQueryData(
+      ["interactions", "getList", { filter: { target_id: 42 } }],
+      {
+        data: [{ body: "private interaction note" }],
+        total: 1,
+      },
+    );
+    queryClient.setQueryData(
       [
         "resumes",
         "getList",
@@ -124,7 +165,13 @@ describe("React Query persistence privacy boundary", () => {
     });
 
     expect(persisted.queries).toEqual([]);
+    expect(JSON.stringify(persisted)).not.toContain(
+      "private reference call notes",
+    );
+    expect(JSON.stringify(persisted)).not.toContain("Private Reference");
+    expect(JSON.stringify(persisted)).not.toContain("555 0101");
     expect(JSON.stringify(persisted)).not.toContain("private Inbox message");
+    expect(JSON.stringify(persisted)).not.toContain("private interaction note");
     expect(JSON.stringify(persisted)).not.toContain("signed.example");
     expect(JSON.stringify(persisted)).not.toContain("private.pdf");
   });
