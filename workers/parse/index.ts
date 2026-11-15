@@ -40,6 +40,8 @@ const LegacyParseBodySchema = z.strictObject({
 const RereadParseBodySchema = z.strictObject({
   resume_id: z.number().int().positive(),
   request_id: z.string().uuid(),
+  mode: z.literal("fill_empty").optional(),
+  file_identity: z.string().min(1).optional(),
 });
 
 // The two routes intentionally share POST /parse for deployment compatibility,

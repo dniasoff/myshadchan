@@ -39,6 +39,10 @@ import {
   type ResumeInboxPickerItem,
   type ResumeInboxRow,
 } from "./resumeInbox";
+import {
+  resumeAutoReadFeedbackText,
+  useResumeAutoRead,
+} from "./resumeAutoRead";
 
 const EMPTY_COPY =
   "No resumes are waiting in your Inbox. On Android you can share a resume from WhatsApp, Messages or email to MyShadChan and it will appear here. On iPhone, save the file to your phone and use Attach resume.";
@@ -190,9 +194,11 @@ function PickerContent({
 export function ResumeInboxPicker({
   shidduchimId,
   targetLabel,
+  autoRead = false,
 }: {
   shidduchimId: ShidduchSummary["id"];
   targetLabel: string;
+  autoRead?: boolean;
 }): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
@@ -201,6 +207,7 @@ export function ResumeInboxPicker({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [selected, setSelected] = useState<ResumeInboxRow | null>(null);
   const [isAttaching, setIsAttaching] = useState(false);
+  const { feedback, readResume } = useResumeAutoRead();
   const open = dialogOpen || sheetOpen;
 
   const {
@@ -256,11 +263,20 @@ export function ResumeInboxPicker({
     if (!selected || isAttaching) return;
     setIsAttaching(true);
     try {
-      await dataProvider.attachInboxAttachmentToResumeFile({
+      const resume = await dataProvider.attachInboxAttachmentToResumeFile({
         shidduchimId,
         inboxItemId: selected.inboxItemId,
         attachment: selected.attachment,
       });
+      if (autoRead) {
+        const attached = resume.files?.find(
+          (file) =>
+            String(file.source_inbox_item_id) ===
+              String(selected.inboxItemId) &&
+            file.source_inbox_attachment_path === selected.attachment.path,
+        );
+        if (attached) await readResume(resume.id, attached);
+      }
       notify(SUCCESS_COPY, { type: "info" });
       refresh();
       setDialogOpen(false);
@@ -343,6 +359,15 @@ export function ResumeInboxPicker({
           </SheetContent>
         </Sheet>
       </div>
+      {feedback ? (
+        <p
+          role="status"
+          aria-live="polite"
+          className="mt-2 text-sm text-muted-foreground"
+        >
+          {resumeAutoReadFeedbackText(feedback)}
+        </p>
+      ) : null}
     </div>
   );
 }

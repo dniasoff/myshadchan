@@ -1,6 +1,8 @@
 import type { DataProvider, Identifier } from "ra-core";
 
 import type {
+  ResumeReadOutcome,
+  ResumeReadParams,
   ResumeRereadOutcome,
   ResumeRereadParams,
 } from "../../commons/rereadWorkerClient";
@@ -77,6 +79,84 @@ export async function rereadResume(
         additionalSections: existingAdditionalSections,
         schemaVersion: 4,
       },
+    },
+    previousData: resume,
+  });
+  return "completed";
+}
+
+/** FakeRest mirror of the fill-empty server operation. It applies the same
+ * never-overwrite rule and section merge so demo mode exercises the same UI
+ * contract without invoking a model. */
+export async function readResume(
+  baseDataProvider: DataProvider,
+  params: ResumeReadParams,
+): Promise<ResumeReadOutcome> {
+  const { data: resume } = await baseDataProvider.getOne<Resume>("resumes", {
+    id: params.resumeId,
+  });
+  const file = resume?.files?.find(
+    (candidate) => candidate.path === params.fileIdentity,
+  );
+  if (!resume || !file) return "failed";
+
+  const existingSections =
+    resume.sections &&
+    typeof resume.sections === "object" &&
+    !Array.isArray(resume.sections)
+      ? (resume.sections as Record<string, unknown>)
+      : {};
+  const existingExtracted = resume.extracted;
+  const sections = { ...existingSections };
+  const extractedSections: Record<string, unknown> = {
+    learningHistory: [],
+    references: [],
+    additionalSections: [],
+  };
+  for (const key of ["learningHistory", "references", "additionalSections"]) {
+    const current = sections[key];
+    if (current == null || (Array.isArray(current) && current.length === 0)) {
+      sections[key] = extractedSections[key];
+    }
+  }
+  sections.schemaVersion = 4;
+
+  const fields = {
+    name_en: "Demo resume",
+    father_en: "Demo father",
+    age: 25,
+  };
+  const { data: shidduch } = resume.shidduchim_id
+    ? await baseDataProvider.getOne<
+        Record<string, unknown> & { id: Identifier }
+      >("shidduchim", {
+        id: resume.shidduchim_id,
+      })
+    : { data: null };
+  if (shidduch) {
+    const fillable = (value: unknown): boolean =>
+      value == null || (typeof value === "string" && value.trim() === "");
+    const filledFields = Object.fromEntries(
+      Object.entries(fields).filter(([key]) => fillable(shidduch[key])),
+    );
+    if (Object.keys(filledFields).length > 0) {
+      await baseDataProvider.update("shidduchim", {
+        id: resume.shidduchim_id,
+        data: filledFields,
+        previousData: shidduch,
+      });
+    }
+  }
+  await baseDataProvider.update<Resume>("resumes", {
+    id: resume.id,
+    data: {
+      extracted:
+        existingExtracted == null ||
+        (typeof existingExtracted === "object" &&
+          Object.keys(existingExtracted as object).length === 0)
+          ? { fields }
+          : existingExtracted,
+      sections,
     },
     previousData: resume,
   });

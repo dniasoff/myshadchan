@@ -57,6 +57,9 @@ import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import {
   requestResumeReread,
+  requestResumeRead,
+  type ResumeReadParams,
+  type ResumeReadOutcome,
   type ResumeRereadParams,
 } from "../commons/rereadWorkerClient";
 import {
@@ -1332,6 +1335,9 @@ export const getDataProviderWithCustomMethods = () => {
     },
     async reReadResume(params: ResumeRereadParams) {
       return requestResumeReread(import.meta.env.VITE_PARSE_WORKER_URL, params);
+    },
+    async readResume(params: ResumeReadParams): Promise<ResumeReadOutcome> {
+      return requestResumeRead(import.meta.env.VITE_PARSE_WORKER_URL, params);
     },
 
     // ---------------------------------------------------------------------

@@ -56,6 +56,7 @@ function safeStoragePath(
 export function selectRereadFile(
   resume: RereadResumeRow,
   accountId: number,
+  fileIdentity?: string,
 ): { file: RereadResumeFile; dirPath: string; fileName: string } | null {
   const ownerSegment =
     resume.shidduchim_id != null && resume.single_id == null
@@ -70,20 +71,23 @@ export function selectRereadFile(
     const leftTime = Date.parse(left.uploaded_at);
     return rightTime - leftTime;
   })[0];
+  const selected = fileIdentity
+    ? resume.files.find((candidate) => candidate.path === fileIdentity)
+    : newest;
   if (
-    !newest ||
+    !selected ||
     !(ALLOWED_ATTACHMENT_MIME_TYPES as readonly string[]).includes(
-      newest.mime_type,
+      selected.mime_type,
     )
   ) {
     return null;
   }
-  if (newest.size > MAX_ATTACHMENT_BYTES) return null;
-  if (!safeStoragePath(newest.path, accountId, ownerSegment)) return null;
+  if (selected.size > MAX_ATTACHMENT_BYTES) return null;
+  if (!safeStoragePath(selected.path, accountId, ownerSegment)) return null;
 
-  const { dirPath, fileName } = splitStoragePath(newest.path);
-  if (fileName !== newest.path.split("/").at(-1)) return null;
-  return { file: newest, dirPath, fileName };
+  const { dirPath, fileName } = splitStoragePath(selected.path);
+  if (fileName !== selected.path.split("/").at(-1)) return null;
+  return { file: selected, dirPath, fileName };
 }
 
 export function validateDownloadedRereadFile(

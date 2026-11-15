@@ -120,6 +120,7 @@ describe("ResumeRereadControl", () => {
       expect.objectContaining({
         resumeId: 22,
         requestId: "00000000-0000-4000-8000-000000000001",
+        fileIdentity: "current-22",
       }),
     );
 
@@ -137,10 +138,16 @@ describe("ResumeRereadControl", () => {
   it.each([
     ["failed", REREAD_COPY.failed],
     ["no_allowance", REREAD_COPY.noAllowance],
+    ["not_entitled", REREAD_COPY.notEntitled],
     ["already_reading", REREAD_COPY.failed],
   ] as const)("maps %s to static copy", async (outcome, copy) => {
     const reReadResume = vi.fn().mockResolvedValue(outcome);
-    const ids = { failed: 31, no_allowance: 32, already_reading: 33 };
+    const ids = {
+      failed: 31,
+      no_allowance: 32,
+      not_entitled: 33,
+      already_reading: 34,
+    };
     const { screen } = await renderControl(reReadResume, ids[outcome]);
     await screen.getByRole("button", { name: REREAD_COPY.trigger }).click();
     await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();

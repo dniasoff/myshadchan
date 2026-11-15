@@ -72,6 +72,7 @@ import type {
 } from "./internal/entityFiles";
 import {
   attachInboxAttachmentToResumeFile as attachInboxAttachmentToResumeFileImpl,
+  readResume as readResumeImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
   rereadResume as rereadResumeImpl,
   uploadResumeFile as uploadResumeFileImpl,
@@ -2872,6 +2873,7 @@ export const createDataProvider = ({
       signResumeFileUrlImpl(resumeFileBlobUrls, params.storagePath),
     reReadResume: (params: { resumeId: Identifier; requestId: string }) =>
       rereadResumeImpl(baseDataProvider, params),
+    readResume: (params) => readResumeImpl(baseDataProvider, params),
     // ---------------------------------------------------------------------
     // Photo tab (Story 5.4) -- FakeRest mirrors of add_resume_photo /
     // hide_resume_photo / signed-URL minting, backed by

@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 
 import type { CrmDataProvider } from "../providers/types";
 import type { ResumeSubject } from "./resumeSubject";
+import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
+import {
+  resumeAutoReadFeedbackText,
+  useResumeAutoRead,
+} from "./resumeAutoRead";
 
 /**
  * The upload half of the Resume tab (Story 5.3, AC 1 / AC 2 / AC 5; widened
@@ -19,7 +24,10 @@ import type { ResumeSubject } from "./resumeSubject";
  * own — that is what makes a successful upload here show up in the sibling
  * `ResumeVersionList` without any prop-drilled callback between the two.
  */
-export function ResumeUpload(subject: ResumeSubject): ReactElement {
+export function ResumeUpload({
+  autoRead = false,
+  ...subject
+}: ResumeSubject & { autoRead?: boolean }): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const translate = useTranslate();
@@ -27,6 +35,7 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
   const uploadHintId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const { feedback, isReading, readResume } = useResumeAutoRead();
 
   const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -35,7 +44,11 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
 
     setIsUploading(true);
     try {
-      await dataProvider.uploadResumeFile({ ...subject, file });
+      const resume = await dataProvider.uploadResumeFile({ ...subject, file });
+      if (autoRead) {
+        const newest = sortResumeFilesNewestFirst(resume.files ?? [])[0];
+        if (newest) await readResume(resume.id, newest);
+      }
       refresh();
     } catch (error) {
       notify(
@@ -62,7 +75,7 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
     <div>
       <Button
         type="button"
-        disabled={isUploading}
+        disabled={isUploading || isReading}
         onClick={() => inputRef.current?.click()}
         aria-describedby={uploadHintId}
       >
@@ -74,6 +87,20 @@ export function ResumeUpload(subject: ResumeSubject): ReactElement {
       >
         {uploadHint}
       </p>
+      {autoRead ? (
+        <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+          Attaching a resume reads it and uses 1 of your monthly reads.
+        </p>
+      ) : null}
+      {feedback ? (
+        <p
+          role="status"
+          aria-live="polite"
+          className="mt-2 text-sm text-muted-foreground"
+        >
+          {resumeAutoReadFeedbackText(feedback)}
+        </p>
+      ) : null}
       <input
         ref={inputRef}
         type="file"

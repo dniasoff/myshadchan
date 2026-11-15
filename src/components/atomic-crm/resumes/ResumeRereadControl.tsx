@@ -27,14 +27,14 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 
 import type { CrmDataProvider } from "../providers/types";
+import {
+  createResumeReadRequestId,
+  resumeReadAttemptKey,
+  unresolvedResumeReadAttempts,
+} from "./resumeReadRequest";
 
-type RereadFeedback = "reading" | "completed" | "failed" | "no_allowance";
-
-const unresolvedRereadAttempts = new Map<string, string>();
-
-function attemptKey(resumeId: Identifier, fileIdentity: string): string {
-  return `${String(resumeId)}\u0000${fileIdentity}`;
-}
+type RereadFeedback =
+  "reading" | "completed" | "failed" | "no_allowance" | "not_entitled";
 
 export const REREAD_COPY = {
   trigger: "Re-read this resume",
@@ -45,6 +45,7 @@ export const REREAD_COPY = {
   completed: "Resume read again. New sections are ready below.",
   failed: "Could not read this resume. Nothing was changed.",
   noAllowance: "No resume reads left this month.",
+  notEntitled: "AI reading is not switched on for your account yet.",
   cancel: "Cancel",
   confirm: "Re-read",
 } as const;
@@ -55,10 +56,6 @@ export type ResumeRereadControlProps = {
   fileIdentity: string;
 };
 
-function createRequestId(): string {
-  return crypto.randomUUID();
-}
-
 function feedbackText(feedback: RereadFeedback): string {
   switch (feedback) {
     case "reading":
@@ -67,6 +64,8 @@ function feedbackText(feedback: RereadFeedback): string {
       return REREAD_COPY.completed;
     case "no_allowance":
       return REREAD_COPY.noAllowance;
+    case "not_entitled":
+      return REREAD_COPY.notEntitled;
     case "failed":
       return REREAD_COPY.failed;
   }
@@ -85,7 +84,7 @@ export function ResumeRereadControl({
   const [isReading, setIsReading] = useState(false);
   const [requestId, setRequestId] = useState<string | null>(null);
   const activeController = useRef<AbortController | null>(null);
-  const rereadAttemptKey = attemptKey(resumeId, fileIdentity);
+  const rereadAttemptKey = resumeReadAttemptKey(resumeId, fileIdentity);
 
   useEffect(
     () => () => {
@@ -116,7 +115,7 @@ export function ResumeRereadControl({
     setFeedback(null);
     // Allocate only after the user explicitly confirms. A cancelled dialog
     // must not consume an idempotency key that could be mistaken for a read.
-    setRequestId(unresolvedRereadAttempts.get(rereadAttemptKey) ?? null);
+    setRequestId(unresolvedResumeReadAttempts.get(rereadAttemptKey) ?? null);
     setOpen(true);
   };
 
@@ -128,8 +127,8 @@ export function ResumeRereadControl({
 
   const handleConfirm = async () => {
     if (isReading) return;
-    const stableRequestId = requestId ?? createRequestId();
-    unresolvedRereadAttempts.set(rereadAttemptKey, stableRequestId);
+    const stableRequestId = requestId ?? createResumeReadRequestId();
+    unresolvedResumeReadAttempts.set(rereadAttemptKey, stableRequestId);
     setRequestId(stableRequestId);
     setFeedback("reading");
     setIsReading(true);
@@ -139,17 +138,21 @@ export function ResumeRereadControl({
       const outcome = await dataProvider.reReadResume({
         resumeId,
         requestId: stableRequestId,
+        fileIdentity,
         signal: controller.signal,
       });
       if (outcome === "completed") {
-        unresolvedRereadAttempts.delete(rereadAttemptKey);
+        unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("completed");
         setOpen(false);
         setRequestId(null);
         refresh();
       } else if (outcome === "no_allowance") {
-        unresolvedRereadAttempts.delete(rereadAttemptKey);
+        unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("no_allowance");
+      } else if (outcome === "not_entitled") {
+        unresolvedResumeReadAttempts.delete(rereadAttemptKey);
+        setFeedback("not_entitled");
       } else {
         // "already_reading" and every transport/server failure intentionally
         // share the calm, non-sensitive retryable copy.

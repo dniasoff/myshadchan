@@ -10,6 +10,7 @@ import {
   type RateLimitEnforcementEnv,
 } from "../shared/rateLimit";
 import {
+  applyResumeRead,
   applyRereadSections,
   claimRereadAttempt,
   releaseRereadAttempt,
@@ -30,6 +31,8 @@ import {
 
 export const REREAD_FAILURE_MESSAGE =
   "Could not read this resume. Nothing was changed.";
+export const REREAD_STALE_FILE_MESSAGE =
+  "This resume changed while it was being read. Please try again.";
 const ALREADY_READING_MESSAGE =
   "This resume is already being read. Please try again shortly.";
 const DOCUMENTS_BUCKET = "documents";
@@ -37,7 +40,12 @@ const REREAD_SUCCESS_STATUS = 200;
 const REREAD_RETRYABLE_STATUS = 409;
 const REREAD_FAILURE_STATUS = 422;
 
-type RereadBody = { resume_id: number; request_id: string };
+type RereadBody = {
+  resume_id: number;
+  request_id: string;
+  mode?: "fill_empty";
+  file_identity?: string;
+};
 type RereadResult = Envelope<unknown>;
 
 export type RereadDependencies = {
@@ -185,8 +193,11 @@ export async function rereadResume(
   if (resumeResult.error || !resume || resume.account_id !== accountId) {
     return failure(dependencies);
   }
+  if (body.mode === "fill_empty" && !body.file_identity) {
+    return failure(dependencies);
+  }
 
-  const selectedFile = selectRereadFile(resume, accountId);
+  const selectedFile = selectRereadFile(resume, accountId, body.file_identity);
   if (!selectedFile) return failure(dependencies);
 
   const service = dependencies.service ?? getParseQuotaClient(dependencies.env);
@@ -211,11 +222,17 @@ export async function rereadResume(
       fail(ALREADY_READING_MESSAGE, { code: "already_reading" }),
     );
   }
-  if (
-    claim.outcome.outcome === "no_allowance" ||
-    claim.outcome.outcome === "not_entitled"
-  ) {
-    return failure(dependencies, REREAD_FAILURE_MESSAGE, 402);
+  if (claim.outcome.outcome === "no_allowance") {
+    return response(
+      402,
+      fail(REREAD_FAILURE_MESSAGE, { code: "no_allowance" }),
+    );
+  }
+  if (claim.outcome.outcome === "not_entitled") {
+    return response(
+      402,
+      fail(REREAD_FAILURE_MESSAGE, { code: "not_entitled" }),
+    );
   }
 
   const { attempt_id: attemptId, generation } = claim.outcome;
@@ -291,16 +308,36 @@ export async function rereadResume(
       return failure(dependencies);
     }
 
-    const applied = await applyRereadSections(
-      dependencies.env,
-      accountId,
-      body.resume_id,
-      attemptId,
-      generation,
-      resume.sections,
-      nextSections,
-      CURRENT_PARSE_RESULT_SCHEMA_VERSION,
-    );
+    const applied =
+      body.mode === "fill_empty"
+        ? await applyResumeRead(
+            dependencies.env,
+            accountId,
+            body.resume_id,
+            attemptId,
+            generation,
+            selectedFile.file.path,
+            draft.fields as unknown as Record<string, unknown>,
+            raw,
+            draft.sections,
+            CURRENT_PARSE_RESULT_SCHEMA_VERSION,
+          )
+        : await applyRereadSections(
+            dependencies.env,
+            accountId,
+            body.resume_id,
+            attemptId,
+            generation,
+            resume.sections,
+            nextSections,
+            CURRENT_PARSE_RESULT_SCHEMA_VERSION,
+          );
+    if (applied.outcome === "stale_file") {
+      return response(
+        REREAD_RETRYABLE_STATUS,
+        fail(REREAD_STALE_FILE_MESSAGE, { code: "stale_file" }),
+      );
+    }
     if (applied.outcome === "cas_failed") {
       return failure(dependencies, REREAD_FAILURE_MESSAGE, 409);
     }
@@ -319,7 +356,19 @@ export async function rereadResume(
     }
 
     attemptFinalized = true;
-    return response(REREAD_SUCCESS_STATUS, ok({ replayed: false }));
+    const isEmptyRead =
+      body.mode === "fill_empty" &&
+      Object.values(draft.fields).every(
+        (value) =>
+          value == null || (typeof value === "string" && value.trim() === ""),
+      ) &&
+      draft.sections.learningHistory.length === 0 &&
+      draft.sections.references.length === 0 &&
+      draft.sections.additionalSections.length === 0;
+    return response(
+      REREAD_SUCCESS_STATUS,
+      ok({ replayed: false, ...(isEmptyRead ? { empty: true } : {}) }),
+    );
   } catch (error) {
     console.error("parse.reread.unexpected", summarizeErrorForLog(error));
     return failure(dependencies);

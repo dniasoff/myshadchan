@@ -101,6 +101,70 @@ export type RereadApplySectionsOutcome =
   | { outcome: "superseded" }
   | { outcome: "failed" };
 
+const ApplyResumeReadOutcomeSchema = z.object({
+  outcome: z.enum(["applied", "superseded", "stale_file"]),
+});
+
+export type ResumeReadApplyOutcome =
+  | { outcome: "applied" }
+  | { outcome: "superseded" }
+  | { outcome: "stale_file" }
+  | { outcome: "failed" };
+
+export function applyResumeRead(
+  env: BaseEnv,
+  accountId: number,
+  resumeId: number,
+  attemptId: number,
+  generation: number,
+  fileIdentity: string,
+  fields: Record<string, unknown>,
+  extracted: unknown,
+  sections: unknown,
+  schemaVersion: number,
+): Promise<ResumeReadApplyOutcome> {
+  const client = getParseQuotaClient(env);
+  const totalAttempts = RETRY_DELAYS_MS.length + 1;
+
+  return (async () => {
+    for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
+      try {
+        const { data, error } = await client.rpc("apply_ai_resume_read", {
+          p_account_id: accountId,
+          p_resume_id: resumeId,
+          p_attempt_id: attemptId,
+          p_generation: generation,
+          p_file_identity: fileIdentity,
+          p_fields: fields,
+          p_extracted: extracted,
+          p_sections: sections,
+          p_schema_version: schemaVersion,
+        });
+        if (!error) {
+          const parsed = ApplyResumeReadOutcomeSchema.safeParse(data);
+          if (parsed.success) return parsed.data;
+          console.error(
+            "parse.applyResumeRead.unexpectedShape",
+            summarizeErrorForLog(parsed.error),
+          );
+          return { outcome: "failed" };
+        }
+        console.error(
+          "parse.applyResumeRead.rpcError",
+          summarizeErrorForLog(error),
+        );
+      } catch (error) {
+        console.error(
+          "parse.applyResumeRead.threw",
+          summarizeErrorForLog(error),
+        );
+      }
+      if (attempt < totalAttempts) await delay(RETRY_DELAYS_MS[attempt - 1]);
+    }
+    return { outcome: "failed" };
+  })();
+}
+
 async function fencedRereadRpc(
   env: BaseEnv,
   functionName: "release_ai_reread_attempt",
