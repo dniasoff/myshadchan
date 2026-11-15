@@ -55,6 +55,10 @@ begin
       using errcode = 'foreign_key_violation';
   end if;
 
+  -- The caller names the uploaded version it displayed. A later upload must
+  -- not let this inference write into whichever file happens to be newest by
+  -- the time the model returns. Array position breaks ties, so an append with
+  -- the same timestamp is still detected as a newer version.
   select (entry.value ->> 'uploaded_at')::timestamptz, entry.ordinality
     into v_selected_uploaded_at, v_selected_position
   from jsonb_array_elements(

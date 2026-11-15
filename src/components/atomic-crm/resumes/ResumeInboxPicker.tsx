@@ -39,10 +39,8 @@ import {
   type ResumeInboxPickerItem,
   type ResumeInboxRow,
 } from "./resumeInbox";
-import {
-  resumeAutoReadFeedbackText,
-  useResumeAutoRead,
-} from "./resumeAutoRead";
+import { resumeAutoReadFeedbackText } from "./resumeAutoReadHelpers";
+import { useResumeAutoRead } from "./resumeAutoRead";
 
 const EMPTY_COPY =
   "No resumes are waiting in your Inbox. On Android you can share a resume from WhatsApp, Messages or email to MyShadChan and it will appear here. On iPhone, save the file to your phone and use Attach resume.";

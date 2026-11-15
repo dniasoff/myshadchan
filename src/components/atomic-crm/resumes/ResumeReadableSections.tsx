@@ -33,8 +33,8 @@ import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 import {
   isAutomaticallyReadableResume,
   resumeAutoReadFeedbackText,
-  useResumeAutoRead,
-} from "./resumeAutoRead";
+} from "./resumeAutoReadHelpers";
+import { useResumeAutoRead } from "./resumeAutoRead";
 import {
   matchResumeReferenceLinks,
   parseResumeSections,

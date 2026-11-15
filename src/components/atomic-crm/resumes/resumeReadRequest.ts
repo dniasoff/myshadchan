@@ -7,6 +7,11 @@ import type { Identifier } from "ra-core";
  */
 export const unresolvedResumeReadAttempts = new Map<string, string>();
 
+/** Clears in-memory request ids between tests; production never calls this. */
+export function resetResumeReadAttemptsForTests(): void {
+  unresolvedResumeReadAttempts.clear();
+}
+
 export function resumeReadAttemptKey(
   resumeId: Identifier,
   fileIdentity: string,

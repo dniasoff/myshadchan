@@ -7,10 +7,8 @@ import { Button } from "@/components/ui/button";
 import type { CrmDataProvider } from "../providers/types";
 import type { ResumeSubject } from "./resumeSubject";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
-import {
-  resumeAutoReadFeedbackText,
-  useResumeAutoRead,
-} from "./resumeAutoRead";
+import { resumeAutoReadFeedbackText } from "./resumeAutoReadHelpers";
+import { useResumeAutoRead } from "./resumeAutoRead";
 
 /**
  * The upload half of the Resume tab (Story 5.3, AC 1 / AC 2 / AC 5; widened
@@ -40,7 +38,7 @@ export function ResumeUpload({
   const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file) return;
+    if (!file || isUploading || isReading) return;
 
     setIsUploading(true);
     try {

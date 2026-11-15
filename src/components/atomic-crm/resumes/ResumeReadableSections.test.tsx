@@ -10,6 +10,7 @@ import {
 import { Notification } from "@/components/admin/notification";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
+import type { CrmDataProvider } from "../providers/types";
 import { createDataProvider } from "../providers/fakerest/dataProvider";
 import generateData from "../providers/fakerest/dataGenerator";
 import type { ReferenceLinkSummary, Resume, ShidduchSummary } from "../types";
@@ -63,21 +64,27 @@ const parsedSections = {
 
 function renderSections({
   canViewReferences = true,
+  canRead = false,
   withLinks = true,
   sections = parsedSections,
   fixtureRecord = record,
+  files = [],
   addManualLink = false,
   hebrewChaim = false,
   latency = 0,
+  readResume,
 }: {
   canViewReferences?: boolean;
+  canRead?: boolean;
   withLinks?: boolean;
   sections?: Omit<typeof parsedSections, "additionalSections"> &
     Partial<Pick<typeof parsedSections, "additionalSections">>;
   fixtureRecord?: ShidduchSummary;
+  files?: Resume["files"];
   addManualLink?: boolean;
   hebrewChaim?: boolean;
   latency?: number;
+  readResume?: CrmDataProvider["readResume"];
 } = {}) {
   const db = generateData();
   if (hebrewChaim) {
@@ -89,7 +96,7 @@ function renderSections({
       id: 9001,
       account_id: 1,
       shidduchim_id: 1,
-      files: [],
+      files,
       sections,
       created_at: "2026-01-01T00:00:00.000Z",
     } satisfies Resume,
@@ -121,6 +128,7 @@ function renderSections({
     });
   }
   const dataProvider = createDataProvider({ db, latency, silent: true });
+  if (readResume) dataProvider.readResume = readResume;
   const getList = vi.spyOn(dataProvider, "getList");
 
   return render(
@@ -133,6 +141,7 @@ function renderSections({
           <ResumeReadableSections
             record={fixtureRecord}
             canViewReferences={canViewReferences}
+            canRead={canRead}
           />
         </RecordContextProvider>
         <Notification />
@@ -1446,4 +1455,78 @@ describe("ResumeReadableSections", () => {
       .toBeInTheDocument();
     await expect.element(screen.getByText("Family")).not.toBeInTheDocument();
   });
+
+  it("shows the empty-state read control, passes the exact file, and stays busy until completion", async () => {
+    let resolve: ((outcome: "completed") => void) | undefined;
+    const readResume = vi.fn().mockReturnValue(
+      new Promise<"completed">((promiseResolve) => {
+        resolve = promiseResolve;
+      }),
+    );
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const { screen } = await renderSections({
+      canRead: true,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      files: [file],
+      sections: { learningHistory: [], references: [] },
+      readResume,
+    });
+
+    const button = screen.getByRole("button", {
+      name: "Read this resume",
+      exact: true,
+    });
+    await expect.element(button).toBeInTheDocument();
+    await button.click();
+    await expect.poll(() => readResume.mock.calls.length).toBe(1);
+    expect(readResume).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeId: 9001,
+        mode: "fill_empty",
+        fileIdentity: file.path,
+      }),
+    );
+    await expect
+      .element(screen.getByRole("button", { name: "Reading…" }))
+      .toBeDisabled();
+
+    resolve?.("completed");
+    await expect
+      .poll(() => screen.getByRole("status").element().textContent)
+      .toBe("Resume read. The details are ready below.");
+  });
+
+  it.each(["single", "pending", "undefined"] as const)(
+    "does not offer a read control when the %s role gate is closed",
+    async () => {
+      const file = {
+        path: "1/resumes/1/current.pdf",
+        filename: "current.pdf",
+        uploaded_at: "2026-11-15T12:00:00.000Z",
+        uploaded_by: 7,
+        mime_type: "application/pdf",
+        size: 10,
+      };
+      const readResume = vi.fn();
+      const { screen } = await renderSections({
+        canRead: false,
+        fixtureRecord: { id: 1 } as ShidduchSummary,
+        files: [file],
+        sections: { learningHistory: [], references: [] },
+        readResume,
+      });
+
+      await expect
+        .element(screen.getByRole("button", { name: "Read this resume" }))
+        .not.toBeInTheDocument();
+      expect(readResume).not.toHaveBeenCalled();
+    },
+  );
 });

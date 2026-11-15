@@ -9,6 +9,7 @@ import type { CrmDataProvider } from "../providers/types";
 import { QueryClient } from "@tanstack/react-query";
 import { REREAD_REQUEST_TIMEOUT_MS } from "../providers/commons/rereadWorkerClient";
 import { REREAD_COPY, ResumeRereadControl } from "./ResumeRereadControl";
+import { resetResumeReadAttemptsForTests } from "./resumeReadRequest";
 
 const buildDataProvider = (
   reReadResume: CrmDataProvider["reReadResume"],
@@ -54,6 +55,7 @@ const openPanelStatus = () =>
 
 describe("ResumeRereadControl", () => {
   beforeEach(() => {
+    resetResumeReadAttemptsForTests();
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
       value: 1024,
