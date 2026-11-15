@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+import { QueryClient } from "@tanstack/react-query";
 
 import { Notification } from "@/components/admin/notification";
 
@@ -8,6 +9,7 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type { Resume } from "../types";
 import { ResumeUpload } from "./ResumeUpload";
+import { resetResumeReadAttemptsForTests } from "./resumeReadRequest";
 
 /**
  * Story 5.3's falsifiable claims for `ResumeUpload`: the upload happy path
@@ -35,25 +37,32 @@ const buildDataProvider = (
 const renderUpload = async (
   shidduchimId: number,
   dataProviderOverrides: Partial<CrmDataProvider> = {},
+  autoRead = false,
 ) => {
   const dataProvider = buildDataProvider(dataProviderOverrides);
+  const queryClient = new QueryClient();
+  const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 
   const screen = await render(
     <TestMemoryRouter>
       <CoreAdminContext
         dataProvider={dataProvider}
+        queryClient={queryClient}
         i18nProvider={testI18nProvider}
       >
-        <ResumeUpload shidduchimId={shidduchimId} />
+        <ResumeUpload shidduchimId={shidduchimId} autoRead={autoRead} />
         <Notification />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
 
-  return { screen, dataProvider };
+  return { screen, dataProvider, invalidateQueries };
 };
 
 describe("ResumeUpload — upload (AC 1 / AC 2)", () => {
+  beforeEach(() => {
+    resetResumeReadAttemptsForTests();
+  });
   it("exposes the exact attach label and hint without narrowing the picker", async () => {
     // Arrange
     const hint =
@@ -138,5 +147,238 @@ describe("ResumeUpload — upload (AC 1 / AC 2)", () => {
     await expect
       .element(screen.getByText("Failed to upload the resume"))
       .toBeInTheDocument();
+  });
+
+  it("auto-reads the newest uploaded file, refreshes on success, and reports the request identity", async () => {
+    const fileVersion = {
+      path: "1/resumes/42/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const uploadResumeFile = vi
+      .fn()
+      .mockResolvedValue(buildResume({ files: [fileVersion] }));
+    const readResume = vi.fn().mockResolvedValue("completed");
+    const { screen, invalidateQueries } = await renderUpload(
+      42,
+      { uploadResumeFile, readResume },
+      true,
+    );
+    await screen
+      .getByLabelText("Attach resume", { exact: true })
+      .upload(new File(["hello"], "current.pdf", { type: "application/pdf" }));
+
+    await expect
+      .element(screen.getByText("Resume read. The details are ready below."))
+      .toBeInTheDocument();
+    expect(readResume).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        resumeId: 1,
+        fileIdentity: fileVersion.path,
+        mode: "fill_empty",
+      }),
+    );
+    expect(invalidateQueries).toHaveBeenCalled();
+  });
+
+  it("keeps the uploaded file when reading fails and uses stable static copy", async () => {
+    const fileVersion = {
+      path: "1/resumes/42/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const uploadResumeFile = vi
+      .fn()
+      .mockResolvedValue(buildResume({ files: [fileVersion] }));
+    const readResume = vi.fn().mockRejectedValue(new Error("private detail"));
+    const { screen } = await renderUpload(
+      42,
+      { uploadResumeFile, readResume },
+      true,
+    );
+    await screen
+      .getByLabelText("Attach resume", { exact: true })
+      .upload(new File(["hello"], "current.pdf", { type: "application/pdf" }));
+
+    await expect
+      .element(
+        screen.getByText(
+          'Could not read this resume. The file was saved; you can try "Read this resume" again.',
+        ),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("private detail"))
+      .not.toBeInTheDocument();
+    expect(uploadResumeFile).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["no_allowance", "No resume reads left this month. The file was saved."],
+    [
+      "not_entitled",
+      "AI reading is not switched on for your account yet. The file was saved.",
+    ],
+  ] as const)(
+    "shows distinct %s copy without a raw server detail",
+    async (outcome, copy) => {
+      const fileVersion = {
+        path: "1/resumes/42/current.pdf",
+        filename: "current.pdf",
+        uploaded_at: "2026-11-15T12:00:00.000Z",
+        uploaded_by: 7,
+        mime_type: "application/pdf",
+        size: 10,
+      };
+      const uploadResumeFile = vi
+        .fn()
+        .mockResolvedValue(buildResume({ files: [fileVersion] }));
+      const readResume = vi.fn().mockResolvedValue(outcome);
+      const { screen } = await renderUpload(
+        42,
+        { uploadResumeFile, readResume },
+        true,
+      );
+      await screen
+        .getByLabelText("Attach resume", { exact: true })
+        .upload(
+          new File(["hello"], "current.pdf", { type: "application/pdf" }),
+        );
+
+      await expect.element(screen.getByText(copy)).toBeInTheDocument();
+    },
+  );
+
+  it("keeps an unsupported file attached without starting an AI read", async () => {
+    const fileVersion = {
+      path: "1/resumes/42/current.doc",
+      filename: "current.doc",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/msword",
+      size: 10,
+    };
+    const uploadResumeFile = vi
+      .fn()
+      .mockResolvedValue(buildResume({ files: [fileVersion] }));
+    const readResume = vi.fn();
+    const { screen } = await renderUpload(
+      42,
+      { uploadResumeFile, readResume },
+      true,
+    );
+    await screen
+      .getByLabelText("Attach resume", { exact: true })
+      .upload(
+        new File(["hello"], "current.doc", { type: "application/msword" }),
+      );
+
+    await expect
+      .element(screen.getByText("This file type cannot be read automatically."))
+      .toBeInTheDocument();
+    expect(readResume).not.toHaveBeenCalled();
+    expect(uploadResumeFile).toHaveBeenCalledOnce();
+  });
+
+  it("does not start a second upload/read while the first auto-read is busy", async () => {
+    let resolve: ((outcome: "completed") => void) | undefined;
+    const fileVersion = {
+      path: "1/resumes/42/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const uploadResumeFile = vi
+      .fn()
+      .mockResolvedValue(buildResume({ files: [fileVersion] }));
+    const readResume = vi.fn().mockReturnValue(
+      new Promise<"completed">((promiseResolve) => {
+        resolve = promiseResolve;
+      }),
+    );
+    const { screen } = await renderUpload(
+      42,
+      { uploadResumeFile, readResume },
+      true,
+    );
+    const input = screen.getByLabelText("Attach resume", { exact: true });
+    const attachButton = screen.getByRole("button", {
+      name: "Attach resume",
+      exact: true,
+    });
+    const file = new File(["hello"], "current.pdf", {
+      type: "application/pdf",
+    });
+
+    await input.upload(file);
+    await expect.poll(() => readResume.mock.calls.length).toBe(1);
+    await expect.element(attachButton).toBeDisabled();
+    await input.upload(file);
+    expect(uploadResumeFile).toHaveBeenCalledOnce();
+    expect(readResume).toHaveBeenCalledOnce();
+
+    resolve?.("completed");
+  });
+  it("reuses an auto-read id for a failed retry and allocates a new id after completion", async () => {
+    const fileVersion = {
+      path: "1/resumes/42/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const uploadResumeFile = vi
+      .fn()
+      .mockResolvedValue(buildResume({ files: [fileVersion] }));
+    const readResume = vi
+      .fn()
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("completed")
+      .mockResolvedValueOnce("failed");
+    const { screen } = await renderUpload(
+      42,
+      { uploadResumeFile, readResume },
+      true,
+    );
+    const input = screen.getByLabelText("Attach resume", { exact: true });
+    const attachButton = screen.getByRole("button", {
+      name: "Attach resume",
+      exact: true,
+    });
+    const file = new File(["hello"], "current.pdf", {
+      type: "application/pdf",
+    });
+
+    await input.upload(file);
+    await expect.poll(() => readResume.mock.calls.length).toBe(1);
+    await expect.element(attachButton).not.toBeDisabled();
+    await input.upload(file);
+    await expect.poll(() => readResume.mock.calls.length).toBe(2);
+    await expect.element(attachButton).not.toBeDisabled();
+    expect(readResume.mock.calls[1][0].requestId).toBe(
+      readResume.mock.calls[0][0].requestId,
+    );
+
+    await input.upload(file);
+    await expect.poll(() => readResume.mock.calls.length).toBe(3);
+    await expect.element(attachButton).not.toBeDisabled();
+    await input.upload(file);
+    await expect.poll(() => readResume.mock.calls.length).toBe(4);
+    expect(readResume.mock.calls[2][0].requestId).toBe(
+      readResume.mock.calls[1][0].requestId,
+    );
+    expect(readResume.mock.calls[3][0].requestId).not.toBe(
+      readResume.mock.calls[2][0].requestId,
+    );
   });
 });

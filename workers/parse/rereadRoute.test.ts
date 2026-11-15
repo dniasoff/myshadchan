@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  applyResumeRead,
   applyRereadSections,
   claimRereadAttempt,
   releaseRereadAttempt,
@@ -9,11 +10,13 @@ import { rereadResume, REREAD_FAILURE_MESSAGE } from "./rereadRoute";
 import { makeExtract, TEST_ENV } from "./parseTestFixtures";
 
 vi.mock("./rereadQuota", () => ({
+  applyResumeRead: vi.fn(),
   applyRereadSections: vi.fn(),
   claimRereadAttempt: vi.fn(),
   releaseRereadAttempt: vi.fn(),
 }));
 
+const applyResume = vi.mocked(applyResumeRead);
 const claim = vi.mocked(claimRereadAttempt);
 const apply = vi.mocked(applyRereadSections);
 const release = vi.mocked(releaseRereadAttempt);
@@ -137,6 +140,7 @@ describe("re-read route", () => {
       outcome: { outcome: "reserved", attempt_id: 41, generation: 1 },
     });
     apply.mockResolvedValue({ outcome: "applied" });
+    applyResume.mockResolvedValue({ outcome: "applied" });
     release.mockResolvedValue({ outcome: "applied" });
   });
 
@@ -230,6 +234,97 @@ describe("re-read route", () => {
     expect((apply.mock.calls[0] as unknown[])[6]).toMatchObject({
       learningHistory,
       references,
+    });
+  });
+
+  it("fill-empty mode applies the exact uploaded file and the validated draft", async () => {
+    const { caller, service } = makeClients();
+    const raw = makeExtract({
+      father_en: { value: "Yosef", confidence: 0.9 },
+      sections: {
+        learningHistory: [{ label: "Learning", value: "Lakewood" }],
+        references: [],
+        additionalSections: [],
+      },
+    });
+
+    const result = await rereadResume(
+      {
+        resume_id: 22,
+        request_id: requestId,
+        mode: "fill_empty",
+        file_identity: file.path,
+      },
+      {
+        caller: caller as never,
+        service: service as never,
+        extractor: { extract: vi.fn(async () => raw) },
+        env: TEST_ENV,
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(applyResume).toHaveBeenCalledWith(
+      TEST_ENV,
+      10,
+      22,
+      41,
+      1,
+      file.path,
+      expect.objectContaining({
+        name_en: "Rivky",
+        father_en: "Yosef",
+        age: 24,
+      }),
+      raw,
+      raw.sections,
+      4,
+    );
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it("maps entitlement outcomes to distinct static response codes", async () => {
+    const { caller, service } = makeClients();
+    claim.mockResolvedValueOnce({
+      ok: true,
+      outcome: { outcome: "not_entitled" },
+    });
+
+    const notEntitled = await rereadResume(
+      { resume_id: 22, request_id: requestId },
+      {
+        caller: caller as never,
+        service: service as never,
+        extractor: { extract: vi.fn() },
+        env: TEST_ENV,
+      },
+    );
+    expect(notEntitled).toEqual({
+      status: 402,
+      body: {
+        success: false,
+        error: REREAD_FAILURE_MESSAGE,
+        meta: { code: "not_entitled" },
+      },
+    });
+
+    claim.mockResolvedValueOnce({
+      ok: true,
+      outcome: { outcome: "no_allowance" },
+    });
+    const noAllowance = await rereadResume(
+      { resume_id: 22, request_id: requestId },
+      {
+        caller: caller as never,
+        service: service as never,
+        extractor: { extract: vi.fn() },
+        env: TEST_ENV,
+      },
+    );
+    expect(noAllowance.body).toEqual({
+      success: false,
+      error: REREAD_FAILURE_MESSAGE,
+      meta: { code: "no_allowance" },
     });
   });
 

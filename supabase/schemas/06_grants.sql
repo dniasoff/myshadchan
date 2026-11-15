@@ -1060,6 +1060,9 @@ grant execute on function public.claim_ai_reread_attempt(bigint, bigint, uuid, s
 revoke all on function public.apply_ai_reread_sections(bigint, bigint, bigint, bigint, jsonb, jsonb, smallint) from public, anon, authenticated;
 grant execute on function public.apply_ai_reread_sections(bigint, bigint, bigint, bigint, jsonb, jsonb, smallint) to service_role;
 
+revoke all on function public.apply_ai_resume_read(bigint, bigint, bigint, bigint, text, jsonb, jsonb, jsonb, smallint) from public, anon, authenticated;
+grant execute on function public.apply_ai_resume_read(bigint, bigint, bigint, bigint, text, jsonb, jsonb, jsonb, smallint) to service_role;
+
 revoke all on function public.release_ai_reread_attempt(bigint, bigint, bigint) from public, anon, authenticated;
 grant execute on function public.release_ai_reread_attempt(bigint, bigint, bigint) to service_role;
 

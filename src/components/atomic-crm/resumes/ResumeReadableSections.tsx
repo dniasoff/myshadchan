@@ -29,6 +29,12 @@ import type {
 } from "../types";
 import type { CrmDataProvider } from "../providers/types";
 import { resumeSubjectFilter } from "./resumeSubject";
+import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
+import {
+  isAutomaticallyReadableResume,
+  resumeAutoReadFeedbackText,
+} from "./resumeAutoReadHelpers";
+import { useResumeAutoRead } from "./resumeAutoRead";
 import {
   matchResumeReferenceLinks,
   parseResumeSections,
@@ -315,9 +321,11 @@ function buildReferenceRows(
 export function ResumeReadableSections({
   record,
   canViewReferences,
+  canRead = false,
 }: {
   record: ShidduchSummary;
   canViewReferences: boolean;
+  canRead?: boolean;
 }): ReactElement | null {
   const translate = useTranslate();
   const { data: resumes, isPending: isResumePending } = useGetList<Resume>(
@@ -329,6 +337,8 @@ export function ResumeReadableSections({
     },
   );
   const resume = resumes?.[0];
+  const { feedback, isReading, readResume } = useResumeAutoRead();
+  const newestFile = sortResumeFilesNewestFirst(resume?.files ?? [])[0] ?? null;
   const sections = useMemo(
     () => parseResumeSections(resume?.sections, canViewReferences === true),
     [resume?.sections, canViewReferences],
@@ -404,6 +414,19 @@ export function ResumeReadableSections({
                   _: "You can still read or download the original file above.",
                 })}
               </p>
+              {canRead &&
+              newestFile &&
+              isAutomaticallyReadableResume(newestFile) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4"
+                  disabled={isReading}
+                  onClick={() => void readResume(resume.id, newestFile)}
+                >
+                  {isReading ? "Reading…" : "Read this resume"}
+                </Button>
+              ) : null}
             </div>
           </div>
         ) : (
@@ -424,6 +447,15 @@ export function ResumeReadableSections({
             ) : null}
           </>
         )}
+        {feedback ? (
+          <p
+            role="status"
+            aria-live="polite"
+            className="border-t py-3 text-sm text-muted-foreground"
+          >
+            {resumeAutoReadFeedbackText(feedback)}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

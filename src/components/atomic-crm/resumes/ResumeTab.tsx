@@ -59,17 +59,19 @@ export function ResumeTab(): ReactNode {
         <ResumeDocument shidduchimId={record.id} canReread={canReread} />
       </section>
       <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
-        <ResumeUpload shidduchimId={record.id} />
+        <ResumeUpload shidduchimId={record.id} autoRead={canReread} />
         {canPickInboxResume ? (
           <ResumeInboxPicker
             shidduchimId={record.id}
             targetLabel={targetLabel}
+            autoRead={canReread}
           />
         ) : null}
       </div>
       <ResumeReadableSections
         record={record}
         canViewReferences={canViewReferences}
+        canRead={canReread}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { QueryClient } from "@tanstack/react-query";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
@@ -10,6 +10,7 @@ import { createDataProvider } from "../providers/fakerest/dataProvider";
 import generateData from "../providers/fakerest/dataGenerator";
 import type { MyContext, Resume } from "../types";
 import { ResumeInboxPicker } from "./ResumeInboxPicker";
+import { resetResumeReadAttemptsForTests } from "./resumeReadRequest";
 import { canPickResumeFromInbox } from "./resumeInbox";
 
 const EMPTY_COPY =
@@ -41,6 +42,12 @@ function makeDb() {
           path: "1/inbox/44/notes.txt",
           src: "data:text/plain;base64,bm90ZXM=",
         },
+        {
+          title: "legacy.doc",
+          type: "application/msword",
+          path: "1/inbox/44/legacy.doc",
+          src: "data:application/msword;base64,bGVnYWN5",
+        },
       ],
       status: "unresolved",
     },
@@ -69,6 +76,8 @@ function makeDb() {
 async function renderPicker(
   withExisting = false,
   loseFirstAttachResponse = false,
+  autoRead = false,
+  readOutcome = "completed",
 ) {
   const { db, target } = makeDb();
   if (withExisting) {
@@ -107,6 +116,7 @@ async function renderPicker(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
+  const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
   queryClient.setQueryData(
     ["myContexts"],
     [
@@ -126,15 +136,33 @@ async function renderPicker(
         queryClient={queryClient}
         i18nProvider={testI18nProvider}
       >
-        <ResumeInboxPicker shidduchimId={target.id} targetLabel="David Levi" />
+        <ResumeInboxPicker
+          shidduchimId={target.id}
+          targetLabel="David Levi"
+          autoRead={autoRead}
+        />
         <Notification />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
-  return { db, target, dataProvider, queryClient, screen };
+  const readResume = vi.fn().mockResolvedValue(readOutcome);
+  if (autoRead) dataProvider.readResume = readResume;
+
+  return {
+    db,
+    target,
+    dataProvider,
+    queryClient,
+    invalidateQueries,
+    screen,
+    readResume,
+  };
 }
 
 describe("ResumeInboxPicker", () => {
+  beforeEach(() => {
+    resetResumeReadAttemptsForTests();
+  });
   it.each([
     ["single", false, false],
     [undefined, false, false],
@@ -192,7 +220,7 @@ describe("ResumeInboxPicker", () => {
       )
       .toBeInTheDocument();
     expect(db.inbox_items[0].status).toBe("unresolved");
-    expect(db.inbox_items[0].attachments).toHaveLength(2);
+    expect(db.inbox_items[0].attachments).toHaveLength(3);
     const { data: resumes } = await dataProvider.getList<Resume>("resumes", {
       filter: { shidduchim_id: target.id },
       pagination: { page: 1, perPage: 1 },
@@ -312,5 +340,137 @@ describe("ResumeInboxPicker", () => {
     await expect
       .element(emptyScreen.getByText(EMPTY_COPY).first())
       .toBeInTheDocument();
+  });
+
+  it("auto-reads the attached Inbox file and refreshes on success", async () => {
+    const { target, dataProvider, screen, readResume, invalidateQueries } =
+      await renderPicker(false, false, true, "completed");
+    await screen
+      .getByRole("button", {
+        name: "Pick a resume from your Inbox",
+        exact: true,
+      })
+      .first()
+      .click();
+    await screen.getByText("resume.pdf").first().click();
+    await screen
+      .getByRole("button", { name: "Attach", exact: true })
+      .first()
+      .click();
+
+    await expect
+      .element(screen.getByText("Resume read. The details are ready below."))
+      .toBeInTheDocument();
+    const { data: attachedResumes } = await dataProvider.getList<Resume>(
+      "resumes",
+      {
+        filter: { shidduchim_id: target.id },
+        pagination: { page: 1, perPage: 1 },
+        sort: { field: "id", order: "ASC" },
+      },
+    );
+    expect(readResume).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        mode: "fill_empty",
+        fileIdentity: attachedResumes[0]?.files?.[0]?.path,
+      }),
+    );
+    expect(invalidateQueries).toHaveBeenCalled();
+  });
+
+  it("keeps the Inbox attachment when auto-read fails", async () => {
+    const { db, screen, target, dataProvider, readResume } = await renderPicker(
+      false,
+      false,
+      true,
+      "failed",
+    );
+    await screen
+      .getByRole("button", {
+        name: "Pick a resume from your Inbox",
+        exact: true,
+      })
+      .first()
+      .click();
+    await screen.getByText("resume.pdf").first().click();
+    await screen
+      .getByRole("button", { name: "Attach", exact: true })
+      .first()
+      .click();
+
+    await expect
+      .element(
+        screen.getByText(
+          'Could not read this resume. The file was saved; you can try "Read this resume" again.',
+        ),
+      )
+      .toBeInTheDocument();
+    expect(readResume).toHaveBeenCalledOnce();
+    expect(db.inbox_items[0].status).toBe("unresolved");
+    const { data: resumes } = await dataProvider.getList<Resume>("resumes", {
+      filter: { shidduchim_id: target.id },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(resumes[0]?.files).toHaveLength(1);
+  });
+
+  it.each([
+    ["no_allowance", "No resume reads left this month. The file was saved."],
+    [
+      "not_entitled",
+      "AI reading is not switched on for your account yet. The file was saved.",
+    ],
+  ] as const)(
+    "shows static %s copy after the Inbox file is attached",
+    async (outcome, copy) => {
+      const { screen } = await renderPicker(false, false, true, outcome);
+      await screen
+        .getByRole("button", {
+          name: "Pick a resume from your Inbox",
+          exact: true,
+        })
+        .first()
+        .click();
+      await screen.getByText("resume.pdf").first().click();
+      await screen
+        .getByRole("button", { name: "Attach", exact: true })
+        .first()
+        .click();
+
+      await expect.element(screen.getByText(copy)).toBeInTheDocument();
+    },
+  );
+
+  it("keeps an unsupported legacy file attached without starting a read", async () => {
+    const { screen, target, dataProvider, readResume } = await renderPicker(
+      false,
+      false,
+      true,
+      "completed",
+    );
+    await screen
+      .getByRole("button", {
+        name: "Pick a resume from your Inbox",
+        exact: true,
+      })
+      .first()
+      .click();
+    await screen.getByText("legacy.doc").click();
+    await screen
+      .getByRole("button", { name: "Attach", exact: true })
+      .first()
+      .click();
+
+    await expect
+      .element(screen.getByText("This file type cannot be read automatically."))
+      .toBeInTheDocument();
+    expect(readResume).not.toHaveBeenCalled();
+    const { data: resumes } = await dataProvider.getList<Resume>("resumes", {
+      filter: { shidduchim_id: target.id },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(resumes[0]?.files).toHaveLength(1);
   });
 });

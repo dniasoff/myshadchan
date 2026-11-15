@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  requestResumeRead,
   requestResumeReread,
   REREAD_REQUEST_TIMEOUT_MS,
 } from "./rereadWorkerClient";
@@ -56,8 +57,37 @@ describe("requestResumeReread", () => {
     );
   });
 
+  it("sends the exact file identity for fill-empty reads", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { empty: true } }), {
+        status: 200,
+      }),
+    );
+
+    await expect(
+      requestResumeRead("http://parse.local", {
+        resumeId: 22,
+        requestId: "00000000-0000-4000-8000-000000000002",
+        mode: "fill_empty",
+        fileIdentity: "10/resumes/22/current.pdf",
+      }),
+    ).resolves.toBe("empty");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://parse.local/parse",
+      expect.objectContaining({
+        body: JSON.stringify({
+          resume_id: 22,
+          request_id: "00000000-0000-4000-8000-000000000002",
+          mode: "fill_empty",
+          file_identity: "10/resumes/22/current.pdf",
+        }),
+      }),
+    );
+  });
+
   it.each([
     [402, {}, "no_allowance"],
+    [402, { code: "not_entitled" }, "not_entitled"],
     [409, { code: "already_reading" }, "already_reading"],
     [409, {}, "failed"],
     [503, {}, "failed"],
