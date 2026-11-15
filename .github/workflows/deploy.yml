@@ -765,11 +765,35 @@ jobs:
       - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse' || matrix.worker == 'cron' || matrix.worker == 'billing' || matrix.worker == 'email') }}
         name: 🚀 Upload Worker version (code + every secret, bundled atomically)
         working-directory: workers/${{ matrix.worker }}
+        env:
+          # These optional switchboard secrets are scoped to this step and
+          # resolve to empty for every non-email matrix leg. The committed
+          # [vars] values remain the default when either secret is unset.
+          OUTBOUND_EMAIL_ENABLED: ${{ matrix.worker == 'email' && secrets.OUTBOUND_EMAIL_ENABLED || '' }}
+          OUTBOUND_EMAIL_ACCOUNT_IDS: ${{ matrix.worker == 'email' && secrets.OUTBOUND_EMAIL_ACCOUNT_IDS || '' }}
         run: |
           set -euo pipefail
           secrets_file="$(mktemp)"
           upload_log="$(mktemp)"
           trap 'rm -f "$secrets_file" "$upload_log"' EXIT
+          email_var_args=()
+          if [ "${{ matrix.worker }}" = "email" ]; then
+            # Validate before any value reaches a workflow command. The
+            # helper rejects CR/LF/% and mirrors workers/email's trimming,
+            # duplicate and safe-integer rules. Its third output line escapes
+            # GitHub command data (% -> %25, CR -> %0D, LF -> %0A).
+            email_config_output="$(node "$GITHUB_WORKSPACE/scripts/outbound-email-config.mjs")"
+            mapfile -t email_config_lines <<< "$email_config_output"
+            email_enabled="${email_config_lines[0]:-false}"
+            email_account_ids="${email_config_lines[1]:-}"
+            masked_email_account_ids="${email_config_lines[2]:-}"
+            echo "::add-mask::$email_enabled"
+            if [ -n "$masked_email_account_ids" ]; then
+              echo "::add-mask::$masked_email_account_ids"
+            fi
+            email_var_args+=(--var "OUTBOUND_EMAIL_ENABLED:$email_enabled")
+            email_var_args+=(--var "OUTBOUND_EMAIL_ACCOUNT_IDS:$email_account_ids")
+          fi
           {
             printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"
             printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
@@ -804,6 +828,7 @@ jobs:
           npx wrangler versions upload \
             --message "CI deploy $GITHUB_SHA" \
             --secrets-file "$secrets_file" \
+            "${email_var_args[@]}" \
             | tee "$upload_log"
 
           version_id=$(sed -n 's/^Worker Version ID: *//p' "$upload_log" | tail -n1)
