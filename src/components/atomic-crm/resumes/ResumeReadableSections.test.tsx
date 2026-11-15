@@ -1625,7 +1625,7 @@ describe("ResumeReadableSections", () => {
     );
   });
 
-  it("hides the unread read action once sections or extracted data exist", async () => {
+  it("does not show a full-read control in the Easy-to-read card for a read resume", async () => {
     const file = {
       path: "1/resumes/1/current.pdf",
       filename: "current.pdf",
@@ -1642,6 +1642,9 @@ describe("ResumeReadableSections", () => {
       readResume,
     });
 
+    await expect
+      .element(screen.getByRole("heading", { name: "Easy-to-read resume" }))
+      .toBeInTheDocument();
     await expect
       .element(screen.getByRole("button", { name: "Read this resume" }))
       .not.toBeInTheDocument();

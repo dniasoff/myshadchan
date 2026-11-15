@@ -85,6 +85,73 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function hasMeaningfulValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number" || typeof value === "boolean") return true;
+  if (Array.isArray(value)) return value.some(hasMeaningfulValue);
+  if (!isObject(value)) return false;
+
+  return Object.entries(value).some(
+    ([key, entry]) => key !== "schemaVersion" && hasMeaningfulValue(entry),
+  );
+}
+
+function hasMeaningfulSections(value: unknown): boolean {
+  if (!isObject(value)) return false;
+
+  const learningHistory = Array.isArray(value.learningHistory)
+    ? value.learningHistory.some(
+        (entry) =>
+          isObject(entry) &&
+          hasMeaningfulValue(entry.label) &&
+          hasMeaningfulValue(entry.value),
+      )
+    : false;
+  const references = Array.isArray(value.references)
+    ? value.references.some(
+        (entry) => isObject(entry) && hasMeaningfulValue(entry.name),
+      )
+    : false;
+  const additionalSections = Array.isArray(value.additionalSections)
+    ? value.additionalSections.some(
+        (entry) =>
+          isObject(entry) &&
+          hasMeaningfulValue(entry.key) &&
+          hasMeaningfulValue(entry.title) &&
+          Array.isArray(entry.items) &&
+          entry.items.some(
+            (item) =>
+              isObject(item) &&
+              hasMeaningfulValue(item.label) &&
+              hasMeaningfulValue(item.value),
+          ),
+      )
+    : false;
+
+  return learningHistory || references || additionalSections;
+}
+
+/**
+ * Keep the legacy request upgrade in one pure predicate. The browser mirrors
+ * this definition in `resumeReadableSections.ts`; the route cannot trust a
+ * client-provided mode when an old bundle omits `fill_empty`.
+ */
+export function isResumeUnread(resume: {
+  sections: unknown;
+  extracted: unknown;
+}): boolean {
+  const hasCompletedReadMarker =
+    isObject(resume.sections) &&
+    Object.prototype.hasOwnProperty.call(resume.sections, "schemaVersion");
+  if (hasCompletedReadMarker) return false;
+
+  return (
+    !hasMeaningfulSections(resume.sections) &&
+    !hasMeaningfulValue(resume.extracted)
+  );
+}
+
 function buildRereadSections(
   original: unknown,
   additionalSections: unknown,
@@ -185,7 +252,7 @@ export async function rereadResume(
 
   const resumeResult = await caller
     .from("resumes")
-    .select("id,account_id,shidduchim_id,single_id,files,sections")
+    .select("id,account_id,shidduchim_id,single_id,files,sections,extracted")
     .eq("id", body.resume_id)
     .maybeSingle();
   const resume = readRereadResumeRow(resumeResult.data);
@@ -196,7 +263,19 @@ export async function rereadResume(
     return failure(dependencies);
   }
 
-  const selectedFile = selectRereadFile(resume, accountId, body.file_identity);
+  const extracted = isObject(resumeResult.data)
+    ? resumeResult.data.extracted
+    : null;
+  const shouldUpgradeLegacyRead =
+    body.mode !== "fill_empty" &&
+    isResumeUnread({ sections: resume.sections, extracted });
+  const effectiveMode = shouldUpgradeLegacyRead ? "fill_empty" : body.mode;
+
+  const selectedFile = selectRereadFile(
+    resume,
+    accountId,
+    shouldUpgradeLegacyRead ? undefined : body.file_identity,
+  );
   if (!selectedFile) return failure(dependencies);
 
   const service = dependencies.service ?? getParseQuotaClient(dependencies.env);
@@ -308,7 +387,7 @@ export async function rereadResume(
     }
 
     const applied =
-      body.mode === "fill_empty"
+      effectiveMode === "fill_empty"
         ? await applyResumeRead(
             dependencies.env,
             accountId,
@@ -356,7 +435,7 @@ export async function rereadResume(
 
     attemptFinalized = true;
     const isEmptyRead =
-      body.mode === "fill_empty" &&
+      effectiveMode === "fill_empty" &&
       Object.values(draft.fields).every(
         (value) =>
           value == null || (typeof value === "string" && value.trim() === ""),
