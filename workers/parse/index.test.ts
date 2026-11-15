@@ -13,6 +13,10 @@ import {
   makeExtract,
 } from "./parseTestFixtures";
 
+const AUTH_USER_ID = "auth-user-42";
+const ACCOUNT_MEMBER_ID = 7;
+const PROFILE_MEMBER_ID = 700;
+
 // Finding 8 (idempotency), Finding 9 (attachment size guard), and Findings
 // 6/7's own quota-enforcement branches (cap reached at the atomic claim,
 // fail-closed on an RPC error, release-on-extractor-failure) each moved to
@@ -31,7 +35,35 @@ const single = vi.fn();
 const storageFrom = vi.fn();
 const download = vi.fn();
 const list = vi.fn();
-const from = vi.fn(() => ({ select, eq, single }));
+const getUser = vi.fn();
+const memberMaybeSingle = vi.fn();
+const resumeMaybeSingle = vi.fn();
+let memberRow: {
+  id: number;
+  user_id: string;
+  disabled: boolean;
+} | null;
+let memberUserIdFilter: string | undefined;
+const memberBuilder = {
+  select: vi.fn(() => memberBuilder),
+  eq: vi.fn((field: string, value: unknown) => {
+    if (field === "user_id") {
+      memberUserIdFilter = typeof value === "string" ? value : undefined;
+    }
+    return memberBuilder;
+  }),
+  maybeSingle: memberMaybeSingle,
+};
+const resumeBuilder = {
+  select: vi.fn(() => resumeBuilder),
+  eq: vi.fn(() => resumeBuilder),
+  maybeSingle: resumeMaybeSingle,
+};
+const from = vi.fn((table: string) => {
+  if (table === "members") return memberBuilder;
+  if (table === "resumes") return resumeBuilder;
+  return { select, eq, single };
+});
 
 // Findings 6/7/8 closure: the monthly-cap reservation and the idempotency
 // check are now the single atomic `claimParseAttempt()` call
@@ -42,11 +74,16 @@ const claimParseAttempt = vi.fn();
 const confirmParseAttempt = vi.fn();
 const releaseParseAttempt = vi.fn();
 const forceReclaimParseAttempt = vi.fn();
+const claimRereadAttempt = vi.fn();
+const applyRereadSections = vi.fn();
+const applyResumeRead = vi.fn();
+const releaseRereadAttempt = vi.fn();
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     rpc,
     from,
+    auth: { getUser },
     storage: { from: storageFrom },
   }),
 }));
@@ -60,6 +97,13 @@ vi.mock("./parseQuotaRecovery", () => ({
   releaseParseAttempt: (...args: unknown[]) => releaseParseAttempt(...args),
   forceReclaimParseAttempt: (...args: unknown[]) =>
     forceReclaimParseAttempt(...args),
+}));
+
+vi.mock("./rereadQuota", () => ({
+  claimRereadAttempt: (...args: unknown[]) => claimRereadAttempt(...args),
+  applyRereadSections: (...args: unknown[]) => applyRereadSections(...args),
+  applyResumeRead: (...args: unknown[]) => applyResumeRead(...args),
+  releaseRereadAttempt: (...args: unknown[]) => releaseRereadAttempt(...args),
 }));
 
 function postParse(app: ReturnType<typeof createParseApp>) {
@@ -114,13 +158,157 @@ function arrangeEntitledItemWithAttachment(
   storageFrom.mockReturnValue({ download, list });
 }
 
+function arrangeReread() {
+  rpc.mockImplementation(async (name: string) => {
+    if (name === "ai_entitlement") {
+      return { data: ENTITLED_PAYLOAD, error: null };
+    }
+    if (name === "current_context_id") return { data: 10, error: null };
+    if (name === "current_member_role") {
+      return { data: "parent_admin", error: null };
+    }
+    if (name === "current_member_id") {
+      return { data: ACCOUNT_MEMBER_ID, error: null };
+    }
+    return { data: null, error: null };
+  });
+  list.mockResolvedValue({
+    data: [
+      {
+        name: "current.pdf",
+        metadata: { size: 8, mimetype: "application/pdf" },
+      },
+    ],
+    error: null,
+  });
+  download.mockResolvedValue({
+    data: new Blob(["%PDF-1.7"]),
+    error: null,
+  });
+  storageFrom.mockReturnValue({ download, list });
+}
+
 describe("parse worker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     select.mockReturnThis();
     eq.mockReturnThis();
+    memberRow = {
+      id: PROFILE_MEMBER_ID,
+      user_id: AUTH_USER_ID,
+      disabled: false,
+    };
+    memberUserIdFilter = undefined;
+    memberMaybeSingle.mockImplementation(async () => ({
+      data:
+        memberRow && memberUserIdFilter === memberRow.user_id
+          ? { id: memberRow.id, disabled: memberRow.disabled }
+          : null,
+      error: null,
+    }));
+    resumeMaybeSingle.mockResolvedValue({
+      data: {
+        id: 22,
+        account_id: 10,
+        shidduchim_id: 33,
+        single_id: null,
+        files: [
+          {
+            path: "10/resumes/33/current.pdf",
+            filename: "current.pdf",
+            uploaded_at: "2026-02-01T00:00:00.000Z",
+            mime_type: "application/pdf",
+            size: 8,
+          },
+        ],
+        sections: {
+          learningHistory: [],
+          references: [],
+          additionalSections: [],
+        },
+      },
+      error: null,
+    });
+    getUser.mockResolvedValue({
+      data: { user: { id: AUTH_USER_ID } },
+      error: null,
+    });
+    claimRereadAttempt.mockResolvedValue({
+      ok: true,
+      outcome: { outcome: "reserved", attempt_id: 41, generation: 1 },
+    });
+    applyRereadSections.mockResolvedValue({ outcome: "applied" });
+    applyResumeRead.mockResolvedValue({ outcome: "applied" });
+    releaseRereadAttempt.mockResolvedValue({ outcome: "applied" });
     confirmParseAttempt.mockResolvedValue(APPLIED_CONFIRM_OUTCOME);
     releaseParseAttempt.mockResolvedValue(APPLIED_RELEASE_OUTCOME);
+  });
+
+  it("plumbs the verified caller user id into the real re-read route", async () => {
+    const extract = vi.fn(async () => makeExtract());
+    const app = createParseApp({ extract });
+    arrangeReread();
+
+    const res = await postParseBody(app, {
+      resume_id: 22,
+      request_id: crypto.randomUUID(),
+    });
+
+    expect(res.status).toBe(200);
+    expect(getUser).toHaveBeenCalledTimes(1);
+    expect(memberBuilder.eq).toHaveBeenCalledWith("user_id", AUTH_USER_ID);
+    expect(claimRereadAttempt).toHaveBeenCalledTimes(1);
+    expect(storageFrom).toHaveBeenCalled();
+    expect(extract).toHaveBeenCalledTimes(1);
+    // The profile id is intentionally unrelated to the legacy account-member
+    // id returned by the fixture's unused current_member_id RPC.
+    expect(memberRow?.id).not.toBe(ACCOUNT_MEMBER_ID);
+  });
+
+  it.each(["getUser error", "null user"])(
+    "returns 403 without side effects on %s",
+    async (authFailure) => {
+      const extract = vi.fn(async () => makeExtract());
+      const app = createParseApp({ extract });
+      arrangeReread();
+      if (authFailure === "getUser error") {
+        getUser.mockResolvedValue({ data: { user: null }, error: new Error() });
+      } else {
+        getUser.mockResolvedValue({ data: { user: null }, error: null });
+      }
+
+      const res = await postParseBody(app, {
+        resume_id: 22,
+        request_id: crypto.randomUUID(),
+      });
+
+      expect(res.status).toBe(403);
+      expect(claimRereadAttempt).not.toHaveBeenCalled();
+      expect(storageFrom).not.toHaveBeenCalled();
+      expect(extract).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns 403 when members has a row for a different user", async () => {
+    const extract = vi.fn(async () => makeExtract());
+    const app = createParseApp({ extract });
+    memberRow = {
+      id: PROFILE_MEMBER_ID,
+      user_id: "another-auth-user",
+      disabled: false,
+    };
+    arrangeReread();
+
+    const res = await postParseBody(app, {
+      resume_id: 22,
+      request_id: crypto.randomUUID(),
+    });
+
+    expect(res.status).toBe(403);
+    expect(memberBuilder.eq).toHaveBeenCalledWith("user_id", AUTH_USER_ID);
+    expect(claimRereadAttempt).not.toHaveBeenCalled();
+    expect(storageFrom).not.toHaveBeenCalled();
+    expect(extract).not.toHaveBeenCalled();
   });
 
   it.each([
