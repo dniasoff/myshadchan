@@ -32,20 +32,27 @@ describe("outbound email deploy plumbing", () => {
     );
   });
 
-  it("normalizes the enable switch, masks inputs, and leaves bootstrap untouched", () => {
+  it("validates and safely masks inputs while leaving bootstrap untouched", () => {
     expect(uploadStep).toContain(
       'if [ "${{ matrix.worker }}" = "email" ]; then',
     );
-    expect(uploadStep).toContain('echo "::add-mask::$1"');
     expect(uploadStep).toContain(
-      'if [ "${OUTBOUND_EMAIL_ENABLED:-}" = "true" ]; then',
+      'node "$GITHUB_WORKSPACE/scripts/outbound-email-config.mjs"',
+    );
+    expect(uploadStep).toContain('echo "::add-mask::$email_enabled"');
+    expect(uploadStep).toContain(
+      'echo "::add-mask::$masked_email_account_ids"',
+    );
+    expect(uploadStep).toContain(
+      'email_account_ids="${email_config_lines[1]:-}"',
     );
     expect(uploadStep).toContain(
       'email_var_args+=(--var "OUTBOUND_EMAIL_ENABLED:$email_enabled")',
     );
     expect(uploadStep).toContain(
-      'email_var_args+=(--var "OUTBOUND_EMAIL_ACCOUNT_IDS:${OUTBOUND_EMAIL_ACCOUNT_IDS:-}")',
+      'email_var_args+=(--var "OUTBOUND_EMAIL_ACCOUNT_IDS:$email_account_ids")',
     );
+    expect(uploadStep).not.toContain("::add-mask::$OUTBOUND_EMAIL_ACCOUNT_IDS");
     expect(uploadStep).toContain('"${email_var_args[@]}"');
 
     const bootstrapStepStart = workflow.indexOf(

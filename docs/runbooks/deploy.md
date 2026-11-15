@@ -72,17 +72,23 @@ values are never written to the repository.
 
 To switch on the approved household, set the GitHub Actions secrets
 `OUTBOUND_EMAIL_ACCOUNT_IDS` and `OUTBOUND_EMAIL_ENABLED`, then run `Deploy`
-with `workflow_dispatch` on `main`. Authenticate to the email Worker and
-verify `/config` before testing: it must report the intended enabled state and
-account allowlist. The existing frontend equality check with
-`VITE_OUTBOUND_EMAIL_REPLY_TO` is unchanged; keep the Email action unavailable
-if the reply-to value is unset or does not match.
+with `workflow_dispatch` on `main`. As a member of the allowlisted account,
+make an authenticated GET request to the email Worker `/config` before
+testing. A successful 200 response contains the expected `reply_to`; `/config`
+does not expose the enabled flag or account allowlist. The frontend Email
+action should appear for that account. A generic 503 means the feature is off,
+the account is not allowlisted, or the Worker is misconfigured. The existing
+frontend equality check with `VITE_OUTBOUND_EMAIL_REPLY_TO` is unchanged; keep
+the Email action unavailable if the reply-to value is unset or does not match.
 
 To switch off, unset `OUTBOUND_EMAIL_ACCOUNT_IDS` and set
 `OUTBOUND_EMAIL_ENABLED` to anything other than `true` (or unset it), then
-redeploy with `workflow_dispatch`. Verify `/config` reports the feature off
-and an empty allowlist. Do not edit the committed defaults to perform either
-switch.
+redeploy with `workflow_dispatch`. Verify the authenticated `/config` request
+returns the generic 503 and the Email action is absent. The Deploy agent has no
+member token, so the live proof is the approved account's authenticated check
+and Concierge/Ronit's view of the frontend action; do not infer switch state
+from the unauthenticated Worker smoke alone. Do not edit the committed
+defaults to perform either switch.
 
 `OUTBOUND_EMAIL_GLOBAL_DAILY_CAP` defaults to 40 and may only be lowered or
 raised deliberately with the shared Resend plan budget in view. The global
