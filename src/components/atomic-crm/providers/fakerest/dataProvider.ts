@@ -1,5 +1,6 @@
 import {
   withLifecycleCallbacks,
+  type GetListResult,
   type Identifier,
   type RaRecord,
   type ResourceCallbacks,
@@ -57,6 +58,7 @@ import type {
   ThreadVisibility,
 } from "../../types";
 import { ENTITY_TARGET_TYPES } from "../../types";
+import { toResumeInboxPickerItem } from "../../resumes/resumeInbox";
 import {
   deleteEntityFile as deleteEntityFileImpl,
   signEntityFileUrl as signEntityFileUrlImpl,
@@ -69,10 +71,12 @@ import type {
   UploadEntityFileParams,
 } from "./internal/entityFiles";
 import {
+  attachInboxAttachmentToResumeFile as attachInboxAttachmentToResumeFileImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
   uploadResumeFile as uploadResumeFileImpl,
 } from "./internal/resumes";
 import type {
+  AttachInboxAttachmentToResumeFileParams,
   ResumeFileBlobUrls,
   UploadResumeFileParams,
 } from "./internal/resumes";
@@ -1425,6 +1429,16 @@ export const createDataProvider = ({
   const dataProviderWithCustomMethod: CrmDataProvider = {
     ...baseDataProvider,
     async getList(resource: string, params: any) {
+      if (resource === "inbox_items" && params.meta?.resumeInboxPicker) {
+        const result = await baseDataProvider.getList<InboxItem>(
+          resource,
+          params,
+        );
+        return {
+          ...result,
+          data: result.data.map(toResumeInboxPickerItem),
+        } as GetListResult<any>;
+      }
       if (resource === "single_notes" || resource === "single_preferences") {
         const page = params.pagination?.page ?? 1;
         const perPage = params.pagination?.perPage ?? 25;
@@ -2820,6 +2834,22 @@ export const createDataProvider = ({
       const blobUrl = URL.createObjectURL(blob);
       resumeFileBlobUrls.set(storagePath, blobUrl);
       return { storagePath, size: blob.size };
+    },
+    attachInboxAttachmentToResumeFile: async (
+      params: AttachInboxAttachmentToResumeFileParams,
+    ): Promise<Resume> => {
+      const [accountId, caller] = await Promise.all([
+        resolveCurrentAccountId(),
+        resolveCallerMembership(),
+      ]);
+      return attachInboxAttachmentToResumeFileImpl(
+        baseDataProvider,
+        resumeFileBlobUrls,
+        accountId,
+        caller?.membership?.id ?? null,
+        caller?.membership?.role,
+        params,
+      );
     },
     removeResumeFileObjects: async (paths: string[]): Promise<void> => {
       for (const path of paths) {

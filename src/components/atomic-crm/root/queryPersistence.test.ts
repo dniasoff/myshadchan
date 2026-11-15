@@ -67,8 +67,66 @@ describe("React Query persistence privacy boundary", () => {
     resolvePending("finished");
   });
 
+  it("does not dehydrate the Resume Inbox picker's sensitive queries", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      [
+        "inbox_items",
+        "getList",
+        {
+          pagination: { page: 1, perPage: 100 },
+          sort: { field: "created_at", order: "DESC" },
+          filter: { status: "unresolved" },
+          meta: {
+            columns: ["id", "created_at", "sender", "status", "attachments"],
+            resumeInboxPicker: true,
+          },
+        },
+      ],
+      {
+        data: [
+          {
+            id: 44,
+            raw_text: "private Inbox message",
+            attachments: [
+              {
+                path: "1/inbox/44/resume.pdf",
+                src: "https://signed.example/private-resume",
+              },
+            ],
+          },
+        ],
+        total: 1,
+      },
+    );
+    queryClient.setQueryData(
+      [
+        "resumes",
+        "getList",
+        {
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "id", order: "ASC" },
+          filter: { shidduchim_id: 42 },
+        },
+      ],
+      {
+        data: [{ id: 900, files: [{ path: "1/resumes/42/private.pdf" }] }],
+        total: 1,
+      },
+    );
+
+    const persisted = dehydrate(queryClient, {
+      shouldDehydrateQuery: shouldPersistQuery,
+    });
+
+    expect(persisted.queries).toEqual([]);
+    expect(JSON.stringify(persisted)).not.toContain("private Inbox message");
+    expect(JSON.stringify(persisted)).not.toContain("signed.example");
+    expect(JSON.stringify(persisted)).not.toContain("private.pdf");
+  });
+
   it("uses a cache buster that discards snapshots made before the filter", () => {
-    expect(REACT_QUERY_CACHE_BUSTER).toBe("crm-no-private-note-cache-v1");
+    expect(REACT_QUERY_CACHE_BUSTER).toBe("crm-no-private-sensitive-cache-v2");
     expect(mobilePersistOptions).toMatchObject({
       buster: REACT_QUERY_CACHE_BUSTER,
       dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },

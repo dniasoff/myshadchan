@@ -54,6 +54,17 @@ describe("ResumeTab — real FakeRest round trip (AC 1 / AC 2 / AC 3)", () => {
       .element(screen.getByText("No resume uploaded yet."))
       .toBeInTheDocument();
 
+    const originalHeading = screen
+      .getByRole("heading", { name: "Original resume", exact: true })
+      .element();
+    const attachButton = screen
+      .getByRole("button", { name: "Attach resume", exact: true })
+      .element();
+    expect(
+      originalHeading.compareDocumentPosition(attachButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
     // Act
     await screen.getByLabelText("Attach resume").upload(file);
 
@@ -247,6 +258,31 @@ describe("ResumeTab — reference privacy gate", () => {
           .element(screen.getByText("054-222-3344"))
           .toBeInTheDocument();
       }
+
+      expect(
+        getList.mock.calls.filter(([resource]) => resource === "inbox_items"),
+      ).toHaveLength(0);
+      if (role === "single" || role === "undefined") {
+        await expect
+          .element(
+            screen.getByRole("button", {
+              name: "Pick a resume from your Inbox",
+              exact: true,
+            }),
+          )
+          .not.toBeInTheDocument();
+      } else {
+        await expect
+          .element(
+            screen
+              .getByRole("button", {
+                name: "Pick a resume from your Inbox",
+                exact: true,
+              })
+              .first(),
+          )
+          .toBeInTheDocument();
+      }
     },
   );
 
@@ -262,5 +298,16 @@ describe("ResumeTab — reference privacy gate", () => {
       )
       .toBe(0);
     await expectReferenceContentHidden(screen);
+    expect(
+      getList.mock.calls.filter(([resource]) => resource === "inbox_items"),
+    ).toHaveLength(0);
+    await expect
+      .element(
+        screen.getByRole("button", {
+          name: "Pick a resume from your Inbox",
+          exact: true,
+        }),
+      )
+      .not.toBeInTheDocument();
   });
 });

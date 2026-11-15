@@ -2,6 +2,11 @@ import {
   isSingleSubject,
   type ResumeSubject,
 } from "../../resumes/resumeSubject";
+import {
+  buildResumeInboxStoragePath,
+  isEligibleResumeAttachment,
+  type ResumeInboxAttachment,
+} from "../../resumes/resumeInbox";
 import type { InboxAttachment, Resume } from "../../types";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import { getSupabaseClient } from "./supabase";
@@ -112,12 +117,182 @@ export async function uploadResumeFile(
   }
 
   const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error(INBOX_RESUME_ATTACH_ERROR);
   return row as Resume;
 }
 
 export type CopyInboxAttachmentToResumeFileParams = ResumeSubject & {
   attachment: InboxAttachment;
 };
+
+export type AttachInboxAttachmentToResumeFileParams = ResumeSubject & {
+  inboxItemId: number | string;
+  attachment: ResumeInboxAttachment;
+};
+
+const INBOX_RESUME_ATTACH_ERROR =
+  "Could not attach this file. It may be too large or no longer available. The Inbox item was not changed.";
+
+function isExistingStorageObjectError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { statusCode?: string | number; message?: string };
+  return (
+    String(candidate.statusCode) === "409" ||
+    /already exists|duplicate/i.test(candidate.message ?? "")
+  );
+}
+
+/**
+ * The read-only checks keep common rejections out of the copy window. The
+ * provenance-aware RPC remains the final authority because the Inbox,
+ * target, and resume can change between this check and the append.
+ */
+async function validateInboxResumeAttach(
+  accountId: number,
+  subject: ResumeSubject,
+  inboxItemId: number | string,
+  attachment: ResumeInboxAttachment,
+): Promise<Resume | null> {
+  const client = getSupabaseClient();
+  const { data: role, error: roleError } = await client.rpc(
+    "current_member_role",
+  );
+  if (roleError || role == null || role === "single") {
+    throw new Error(INBOX_RESUME_ATTACH_ERROR);
+  }
+
+  const { data: inboxItem, error: inboxError } = await client
+    .from("inbox_items")
+    .select("id,status")
+    .eq("account_id", accountId)
+    .eq("id", inboxItemId)
+    .maybeSingle();
+  if (inboxError || !inboxItem || inboxItem.status !== "unresolved") {
+    throw new Error(INBOX_RESUME_ATTACH_ERROR);
+  }
+  if (!isEligibleResumeAttachment(attachment)) {
+    throw new Error(INBOX_RESUME_ATTACH_ERROR);
+  }
+
+  const targetTable = isSingleSubject(subject) ? "singles" : "shidduchim";
+  const targetColumn = isSingleSubject(subject) ? "single_id" : "shidduchim_id";
+  const targetId = isSingleSubject(subject)
+    ? subject.singleId
+    : subject.shidduchimId;
+  const { data: target, error: targetError } = await client
+    .from(targetTable)
+    .select("id")
+    .eq("account_id", accountId)
+    .eq("id", targetId)
+    .maybeSingle();
+  if (targetError || !target) {
+    throw new Error(INBOX_RESUME_ATTACH_ERROR);
+  }
+
+  const { data: resume, error: resumeError } = await client
+    .from("resumes")
+    .select("*")
+    .eq("account_id", accountId)
+    .eq(targetColumn, targetId)
+    .maybeSingle();
+  if (resumeError) {
+    throw new Error(INBOX_RESUME_ATTACH_ERROR);
+  }
+
+  const files = Array.isArray(resume?.files) ? resume.files : [];
+  const alreadyAttached = files.some(
+    (file: unknown) =>
+      file &&
+      typeof file === "object" &&
+      String(
+        (file as { source_inbox_item_id?: unknown }).source_inbox_item_id,
+      ) === String(inboxItemId) &&
+      (file as { source_inbox_attachment_path?: unknown })
+        .source_inbox_attachment_path === attachment.path,
+  );
+  if (alreadyAttached) {
+    return resume as Resume;
+  }
+
+  return null;
+}
+
+/**
+ * Copies one still-unresolved Inbox attachment and appends it through the
+ * provenance-aware `add_resume_file` contract. The RPC repeats all account,
+ * role, target, status, and source-path checks; the client never treats the
+ * persisted signed URL as a source of authority.
+ *
+ * The destination key is deterministic and shared by retries. If the RPC
+ * fails after the copy, this function deliberately leaves the private object
+ * in place: a lost response can race with a retry that commits the same
+ * object, so deleting it here could remove bytes referenced by a committed
+ * resume. Common rejections are prevalidated above; an ambiguous failure can
+ * therefore leave at most one bounded, private, deterministic object for this
+ * account/target/source tuple, which a retry reuses. Orphan GC is a separate
+ * follow-up.
+ */
+export async function attachInboxAttachmentToResumeFile(
+  params: AttachInboxAttachmentToResumeFileParams,
+): Promise<Resume> {
+  const { attachment, inboxItemId, ...subject } = params;
+  const sourcePath = attachment.path;
+  const accountId = await getCurrentAccountId();
+  const storagePath = await buildResumeInboxStoragePath(
+    accountId,
+    subject,
+    inboxItemId,
+    sourcePath,
+    attachment.title,
+  );
+
+  const existingResume = await validateInboxResumeAttach(
+    accountId,
+    subject,
+    inboxItemId,
+    attachment,
+  );
+  if (existingResume) return existingResume;
+
+  try {
+    const { data: blob, error: downloadError } = await getSupabaseClient()
+      .storage.from(ATTACHMENTS_BUCKET)
+      .download(sourcePath);
+    if (downloadError || !blob) throw new Error(INBOX_RESUME_ATTACH_ERROR);
+
+    const { error: uploadError } = await getSupabaseClient()
+      .storage.from(DOCUMENTS_BUCKET)
+      .upload(storagePath, blob);
+    if (uploadError && !isExistingStorageObjectError(uploadError)) {
+      throw new Error(INBOX_RESUME_ATTACH_ERROR);
+    }
+
+    const { data, error: appendError } = await getSupabaseClient().rpc(
+      "add_resume_file",
+      {
+        p_path: storagePath,
+        p_filename: attachment.title,
+        p_mime_type: attachment.type || "application/octet-stream",
+        p_size: blob.size,
+        p_shidduchim_id: isSingleSubject(subject)
+          ? undefined
+          : subject.shidduchimId,
+        p_single_id: isSingleSubject(subject) ? subject.singleId : undefined,
+        p_source_inbox_item_id: inboxItemId,
+        p_source_inbox_attachment_path: sourcePath,
+      },
+    );
+    if (appendError) throw new Error(INBOX_RESUME_ATTACH_ERROR);
+
+    const row = Array.isArray(data) ? data[0] : data;
+    return row as Resume;
+  } catch (error) {
+    if (error instanceof Error && error.message === INBOX_RESUME_ATTACH_ERROR) {
+      throw error;
+    }
+    throw new Error(INBOX_RESUME_ATTACH_ERROR);
+  }
+}
 
 export type CopiedResumeFile = {
   storagePath: string;

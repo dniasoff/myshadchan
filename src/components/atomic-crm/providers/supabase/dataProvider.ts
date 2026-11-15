@@ -2,6 +2,7 @@ import { supabaseDataProvider } from "ra-supabase-core";
 import {
   withLifecycleCallbacks,
   type DataProvider,
+  type GetListResult,
   type GetListParams,
   type Identifier,
   type ResourceCallbacks,
@@ -70,12 +71,14 @@ import type { CopyInboxAttachmentsParams } from "./inboxAttachments";
 import { trustSenderAndRelease } from "./trustedSenders";
 import type { TrustSenderParams, TrustSenderResult } from "./trustedSenders";
 import {
+  attachInboxAttachmentToResumeFile as attachInboxAttachmentToResumeFileImpl,
   copyInboxAttachmentToResumeFile as copyInboxAttachmentToResumeFileImpl,
   removeResumeFileObjects as removeResumeFileObjectsImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
   uploadResumeFile as uploadResumeFileImpl,
 } from "./resumes";
 import type {
+  AttachInboxAttachmentToResumeFileParams,
   CopyInboxAttachmentToResumeFileParams,
   SignResumeFileUrlParams,
   UploadResumeFileParams,
@@ -101,6 +104,7 @@ import type {
   AnalyticsEventsSummaryRow,
   CounterMetrics,
 } from "../../analytics/types";
+import { toResumeInboxPickerItem } from "../../resumes/resumeInbox";
 
 // Story 9.3: `public.listing_withdrawal_locks` deliberately has no `id`
 // column at all (Dev Notes "Why a lock table, not a column on `singles`" —
@@ -529,6 +533,16 @@ export const getDataProviderWithCustomMethods = () => {
   return {
     ...baseDataProvider,
     async getList(resource: string, params: GetListParams) {
+      if (resource === "inbox_items" && params.meta?.resumeInboxPicker) {
+        const result = await baseDataProvider.getList<InboxItem>(
+          resource,
+          params,
+        );
+        return {
+          ...result,
+          data: result.data.map(toResumeInboxPickerItem),
+        } as GetListResult<any>;
+      }
       if (resource === "shidduchim") {
         // Board list/detail reads go through the summary view (AD-10).
         return baseDataProvider.getList("shidduchim_summary", params);
@@ -1300,6 +1314,11 @@ export const getDataProviderWithCustomMethods = () => {
       params: CopyInboxAttachmentToResumeFileParams,
     ) {
       return copyInboxAttachmentToResumeFileImpl(params);
+    },
+    async attachInboxAttachmentToResumeFile(
+      params: AttachInboxAttachmentToResumeFileParams,
+    ) {
+      return attachInboxAttachmentToResumeFileImpl(params);
     },
     async removeResumeFileObjects(paths: string[]): Promise<void> {
       return removeResumeFileObjectsImpl(paths);

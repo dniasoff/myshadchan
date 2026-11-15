@@ -4,9 +4,11 @@ import { useRecordContext } from "ra-core";
 import type { ShidduchSummary } from "../types";
 import { useViewerRole } from "../entity360/useViewerRole";
 import { ResumeUpload } from "./ResumeUpload";
+import { ResumeInboxPicker } from "./ResumeInboxPicker";
 import { ResumeDocument } from "./ResumeDocument";
 import { ResumeReadableSections } from "./ResumeReadableSections";
 import { canViewResumeReferences } from "./resumeReferenceVisibility";
+import { canPickResumeFromInbox } from "./resumeInbox";
 
 /**
  * The shidduch descriptor's `resume` tab entry point (Story 5.3, AC 1 / AC 3
@@ -28,10 +30,16 @@ export function ResumeTab(): ReactNode {
   // boundary, but never parsed references or candid reference-link content.
   // Fail closed while the active context is settling.
   const canViewReferences = canViewResumeReferences(role, isRolePending);
+  const canPickInboxResume = canPickResumeFromInbox(role, isRolePending);
+  const targetLabel =
+    record.name_en?.trim() ||
+    [record.single_first_name_en, record.single_last_name_en]
+      .filter(Boolean)
+      .join(" ") ||
+    "this suggestion";
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <ResumeUpload shidduchimId={record.id} />
       <section
         aria-labelledby="resume-original-heading"
         className="flex min-w-0 flex-col gap-4 rounded-2xl border p-4 sm:p-6"
@@ -46,6 +54,15 @@ export function ResumeTab(): ReactNode {
         </div>
         <ResumeDocument shidduchimId={record.id} />
       </section>
+      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
+        <ResumeUpload shidduchimId={record.id} />
+        {canPickInboxResume ? (
+          <ResumeInboxPicker
+            shidduchimId={record.id}
+            targetLabel={targetLabel}
+          />
+        ) : null}
+      </div>
       <ResumeReadableSections
         record={record}
         canViewReferences={canViewReferences}

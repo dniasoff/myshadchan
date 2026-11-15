@@ -48,6 +48,19 @@ describe("findResumeAttachment", () => {
     expect(findResumeAttachment([])).toBeNull();
   });
 
+  it("preserves an optional stored byte size", () => {
+    const result = findResumeAttachment([
+      {
+        title: "resume.pdf",
+        type: "application/pdf",
+        path: "42/resume.pdf",
+        size: 2048,
+      },
+    ]);
+
+    expect(result?.size).toBe(2048);
+  });
+
   it("returns null for malformed jsonb without throwing", () => {
     // Arrange
     const attachments = [

@@ -556,9 +556,9 @@ grant execute on function public.add_education(bigint, text, text, text, integer
 -- p_single_id, both defaulted) — a signature change is a DROP FUNCTION +
 -- CREATE FUNCTION under the hood, which drops the function's grants, so
 -- these are re-issued against the new signature in the same diff.
-revoke all on function public.add_resume_file(text, text, text, bigint, bigint, bigint) from public, anon;
-grant execute on function public.add_resume_file(text, text, text, bigint, bigint, bigint) to authenticated;
-grant execute on function public.add_resume_file(text, text, text, bigint, bigint, bigint) to service_role;
+revoke all on function public.add_resume_file(text, text, text, bigint, bigint, bigint, bigint, text) from public, anon;
+grant execute on function public.add_resume_file(text, text, text, bigint, bigint, bigint, bigint, text) to authenticated;
+grant execute on function public.add_resume_file(text, text, text, bigint, bigint, bigint, bigint, text) to service_role;
 
 -- Story 5.4: the two write paths into resume_photos (AC 2). Story 5.8
 -- widened add_resume_photo the same way as add_resume_file above.

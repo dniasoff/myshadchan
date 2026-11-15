@@ -91,6 +91,7 @@ describe("uploadAttachments", () => {
     expect(result.src).toBe(
       `https://example.supabase.co/signed/${result.path}`,
     );
+    expect(result.size).toBe(new TextEncoder().encode("PDF-DATA").byteLength);
   });
 
   it("keeps only a short alphanumeric extension for a normal filename", async () => {
