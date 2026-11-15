@@ -37,6 +37,7 @@ async function renderForRole(
       shidduchim_id: 1,
       files,
       sections: { learningHistory: [], references: [] },
+      extracted: { fields: { name_en: "already read" } },
       created_at: "2026-01-01T00:00:00.000Z",
     } satisfies Resume,
   ];
@@ -140,5 +141,25 @@ describe("Resume re-read role gate", () => {
     expect(reReadResume).toHaveBeenCalledWith(
       expect.objectContaining({ resumeId: 77 }),
     );
+  });
+
+  it("shows a static unsupported message for legacy .doc files", async () => {
+    const legacyDoc = {
+      ...version,
+      filename: "legacy.doc",
+      path: "1/resumes/1/legacy.doc",
+      mime_type: "application/msword",
+    };
+    const { screen, reReadResume } = await renderForRole("parent_admin", [
+      legacyDoc,
+    ]);
+
+    await expect
+      .element(screen.getByText("This file type cannot be read automatically."))
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: /read this resume/i }))
+      .not.toBeInTheDocument();
+    expect(reReadResume).not.toHaveBeenCalled();
   });
 });

@@ -32,6 +32,7 @@ import { resumeSubjectFilter } from "./resumeSubject";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 import {
   isAutomaticallyReadableResume,
+  RESUME_AUTO_READ_COPY,
   resumeAutoReadFeedbackText,
 } from "./resumeAutoReadHelpers";
 import { useResumeAutoRead } from "./resumeAutoRead";
@@ -41,6 +42,7 @@ import {
   type ParsedAdditionalSection,
   type ParsedAdditionalSectionItem,
   type ParsedResumeReference,
+  isResumeUnread,
 } from "./resumeReadableSections";
 
 type DetailItem = { label: string; value: string };
@@ -339,6 +341,7 @@ export function ResumeReadableSections({
   const resume = resumes?.[0];
   const { feedback, isReading, readResume } = useResumeAutoRead();
   const newestFile = sortResumeFilesNewestFirst(resume?.files ?? [])[0] ?? null;
+  const isUnread = resume != null && isResumeUnread(resume);
   const sections = useMemo(
     () => parseResumeSections(resume?.sections, canViewReferences === true),
     [resume?.sections, canViewReferences],
@@ -368,19 +371,22 @@ export function ResumeReadableSections({
         sort: { field: "created_at", order: "ASC" },
       },
       {
-        enabled:
-          canViewReferences && resume != null && sections.references.length > 0,
+        enabled: canViewReferences && resume != null,
       },
     );
 
   if (isResumePending || !resume) return null;
 
-  const hasReadableContent =
-    readableGroups.length > 0 ||
-    (canViewReferences && sections.references.length > 0);
+  const hasReferenceContent =
+    canViewReferences &&
+    (sections.references.length > 0 ||
+      (links?.length ?? 0) > 0 ||
+      areLinksPending);
+  const hasReadableContent = readableGroups.length > 0 || hasReferenceContent;
   const referenceRows = canViewReferences
     ? buildReferenceRows(sections.references, links ?? [])
     : [];
+  const canOfferRead = canRead && isUnread && newestFile != null;
 
   return (
     <Card className="gap-0 overflow-hidden rounded-2xl">
@@ -397,6 +403,35 @@ export function ResumeReadableSections({
         </p>
       </CardHeader>
       <CardContent className="flex flex-col gap-0 px-4 py-0 sm:px-6">
+        {canOfferRead && newestFile ? (
+          <div className="my-5 flex items-start gap-3 rounded-xl border border-dashed p-4 text-sm">
+            <StickyNote
+              className="mt-0.5 size-5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <div>
+              <p className="font-medium">
+                This resume has not been read yet. Read it to fill in the
+                details.
+              </p>
+              {isAutomaticallyReadableResume(newestFile) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4"
+                  disabled={isReading}
+                  onClick={() => void readResume(resume.id, newestFile)}
+                >
+                  {isReading ? "Reading…" : "Read this resume"}
+                </Button>
+              ) : (
+                <p className="mt-1 text-muted-foreground">
+                  {RESUME_AUTO_READ_COPY.unsupported}
+                </p>
+              )}
+            </div>
+          </div>
+        ) : null}
         {!hasReadableContent ? (
           <div className="my-5 flex items-start gap-3 rounded-xl border border-dashed p-4 text-sm">
             <StickyNote
@@ -414,19 +449,6 @@ export function ResumeReadableSections({
                   _: "You can still read or download the original file above.",
                 })}
               </p>
-              {canRead &&
-              newestFile &&
-              isAutomaticallyReadableResume(newestFile) ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="mt-4"
-                  disabled={isReading}
-                  onClick={() => void readResume(resume.id, newestFile)}
-                >
-                  {isReading ? "Reading…" : "Read this resume"}
-                </Button>
-              ) : null}
             </div>
           </div>
         ) : (
@@ -438,7 +460,7 @@ export function ResumeReadableSections({
                 stacked={entry.stacked}
               />
             ))}
-            {canViewReferences && sections.references.length > 0 ? (
+            {hasReferenceContent ? (
               <ReferenceGroup
                 rows={referenceRows}
                 isPending={areLinksPending}

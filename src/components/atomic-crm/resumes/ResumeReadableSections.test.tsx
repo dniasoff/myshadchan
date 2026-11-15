@@ -21,6 +21,7 @@ import {
   normalizeResumeReferenceName,
   normalizeResumeReferencePhone,
   parseResumeSections,
+  isResumeUnread,
   type ParsedAdditionalSection,
 } from "./resumeReadableSections";
 
@@ -70,6 +71,7 @@ function renderSections({
   fixtureRecord = record,
   files = [],
   addManualLink = false,
+  manualLinkNote,
   hebrewChaim = false,
   latency = 0,
   readResume,
@@ -82,6 +84,7 @@ function renderSections({
   fixtureRecord?: ShidduchSummary;
   files?: Resume["files"];
   addManualLink?: boolean;
+  manualLinkNote?: string;
   hebrewChaim?: boolean;
   latency?: number;
   readResume?: CrmDataProvider["readResume"];
@@ -121,7 +124,7 @@ function renderSections({
       shidduchim_id: 1,
       resume_id: null,
       call_status: "not_started",
-      what_they_said: null,
+      what_they_said: manualLinkNote ?? null,
       conversation_log: [],
       relationship_override: null,
       created_at: "2026-02-01T00:00:00.000Z",
@@ -468,6 +471,42 @@ describe("resume reference matching", () => {
       [link(), link({ id: 2, reference_id: 2 })],
     );
     expect(matches).toEqual([null]);
+  });
+});
+
+describe("isResumeUnread", () => {
+  it.each([
+    ["NULL sections and extracted", null, null],
+    ["empty objects", {}, {}],
+    ["empty arrays", [], []],
+    [
+      "whitespace-only values",
+      {
+        learningHistory: [{ label: "  ", value: "\n\t" }],
+        references: [{ name: " ", relationship: "\t", phone: "  " }],
+        additionalSections: [
+          { key: "work", title: " ", items: [{ label: " ", value: " " }] },
+        ],
+      },
+      " \n\t",
+    ],
+  ])("treats %s as unread", (_label, sections, extracted) => {
+    expect(isResumeUnread({ sections, extracted })).toBe(true);
+  });
+
+  it.each([
+    [
+      "a partial learning section",
+      { learningHistory: [{ label: "Yeshiva", value: "Or HaChaim" }] },
+      null,
+    ],
+    [
+      "a partial extracted draft",
+      { learningHistory: [], references: [], additionalSections: [] },
+      { fields: { name_en: "David" } },
+    ],
+  ])("treats %s as already read", (_label, sections, extracted) => {
+    expect(isResumeUnread({ sections, extracted })).toBe(false);
   });
 });
 
@@ -1442,6 +1481,7 @@ describe("ResumeReadableSections", () => {
     const { screen } = await renderSections({
       fixtureRecord: { id: 1 } as ShidduchSummary,
       sections: { learningHistory: [], references: [] },
+      withLinks: false,
     });
     await expect
       .element(screen.getByText("No sections were found in this resume."))
@@ -1476,6 +1516,7 @@ describe("ResumeReadableSections", () => {
       fixtureRecord: { id: 1 } as ShidduchSummary,
       files: [file],
       sections: { learningHistory: [], references: [] },
+      withLinks: false,
       readResume,
     });
 
@@ -1501,6 +1542,94 @@ describe("ResumeReadableSections", () => {
     await expect
       .poll(() => screen.getByRole("status").element().textContent)
       .toBe("Resume read. The details are ready below.");
+  });
+
+  it("offers the full read under existing subject cards when the resume is unread", async () => {
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const readResume = vi.fn().mockResolvedValue("completed");
+    const { screen } = await renderSections({
+      canRead: true,
+      files: [file],
+      sections: { learningHistory: [], references: [] },
+      readResume,
+    });
+
+    await expect
+      .element(screen.getByText("Personal details"))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "This resume has not been read yet. Read it to fill in the details.",
+        ),
+      )
+      .toBeInTheDocument();
+    const button = screen.getByRole("button", {
+      name: "Read this resume",
+      exact: true,
+    });
+    await expect.element(button).toBeInTheDocument();
+    await button.click();
+    expect(readResume).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeId: 9001, mode: "fill_empty" }),
+    );
+  });
+
+  it("hides the unread read action once sections or extracted data exist", async () => {
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const readResume = vi.fn();
+    const { screen } = await renderSections({
+      canRead: true,
+      files: [file],
+      sections: parsedSections,
+      readResume,
+    });
+
+    await expect
+      .element(screen.getByRole("button", { name: "Read this resume" }))
+      .not.toBeInTheDocument();
+    expect(readResume).not.toHaveBeenCalled();
+  });
+
+  it("shows orphan reference links and preserves their notes", async () => {
+    const { screen } = await renderSections({
+      sections: { learningHistory: [], references: [] },
+      addManualLink: true,
+      manualLinkNote: "answered call back",
+    });
+
+    await expect
+      .element(screen.getByRole("heading", { name: "References" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Manual Diligence reference"))
+      .toBeInTheDocument();
+    const noteButton = screen.getByRole("button", {
+      name: /Open note for Manual/,
+    });
+    await expect.element(noteButton).toBeInTheDocument();
+    await noteButton.click();
+    await expect
+      .element(
+        screen.getByRole("textbox", {
+          name: "What Manual Diligence reference said",
+        }),
+      )
+      .toHaveValue("answered call back");
   });
 
   it.each(["single", "pending", "undefined"] as const)(

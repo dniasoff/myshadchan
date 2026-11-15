@@ -1,4 +1,4 @@
-import type { ReferenceLinkSummary } from "../types";
+import type { ReferenceLinkSummary, Resume } from "../types";
 
 type ParsedLearningItem = { label: string; value: string };
 
@@ -26,6 +26,35 @@ export type ParsedResumeSections = {
   references: ParsedResumeReference[];
   additionalSections: ParsedAdditionalSection[];
 };
+
+function hasMeaningfulValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number" || typeof value === "boolean") return true;
+  if (Array.isArray(value)) return value.some(hasMeaningfulValue);
+  if (typeof value !== "object") return false;
+
+  return Object.entries(value).some(
+    ([key, entry]) => key !== "schemaVersion" && hasMeaningfulValue(entry),
+  );
+}
+
+/**
+ * A stored resume can have a row and an uploaded file before the parser has
+ * ever produced a draft. Ignore parser metadata and malformed/blank section
+ * entries so every entry point makes the same unread/read decision.
+ */
+export function isResumeUnread(
+  resume: Pick<Resume, "sections" | "extracted">,
+): boolean {
+  const sections = parseResumeSections(resume.sections, true);
+  const hasSections =
+    sections.learningHistory.length > 0 ||
+    sections.references.length > 0 ||
+    sections.additionalSections.length > 0;
+
+  return !hasSections && !hasMeaningfulValue(resume.extracted);
+}
 
 const MAX_ADDITIONAL_SECTION_COUNT = 20;
 const MAX_ADDITIONAL_SECTION_ITEMS = 50;

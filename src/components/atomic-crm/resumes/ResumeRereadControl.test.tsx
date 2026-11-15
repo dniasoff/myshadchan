@@ -13,7 +13,9 @@ import { resetResumeReadAttemptsForTests } from "./resumeReadRequest";
 
 const buildDataProvider = (
   reReadResume: CrmDataProvider["reReadResume"],
-): CrmDataProvider => ({ reReadResume }) as unknown as CrmDataProvider;
+  readResume: CrmDataProvider["readResume"] = vi.fn(),
+): CrmDataProvider =>
+  ({ reReadResume, readResume }) as unknown as CrmDataProvider;
 
 const mountedScreens: Array<{ unmount: () => void }> = [];
 
@@ -27,8 +29,12 @@ const renderControl = async (
   reReadResume: CrmDataProvider["reReadResume"],
   resumeId = 22,
   fileIdentity = `current-${resumeId}`,
+  options: {
+    isUnread?: boolean;
+    readResume?: CrmDataProvider["readResume"];
+  } = {},
 ) => {
-  const dataProvider = buildDataProvider(reReadResume);
+  const dataProvider = buildDataProvider(reReadResume, options.readResume);
   const queryClient = new QueryClient();
   const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
   const screen = await render(
@@ -37,7 +43,11 @@ const renderControl = async (
       queryClient={queryClient}
       i18nProvider={testI18nProvider}
     >
-      <ResumeRereadControl resumeId={resumeId} fileIdentity={fileIdentity} />
+      <ResumeRereadControl
+        resumeId={resumeId}
+        fileIdentity={fileIdentity}
+        isUnread={options.isUnread}
+      />
       <Notification />
     </CoreAdminContext>,
   );
@@ -191,6 +201,49 @@ describe("ResumeRereadControl", () => {
       .toBe(REREAD_COPY.failed);
     expect(reReadResume.mock.calls[2][0].requestId).not.toBe(
       reReadResume.mock.calls[0][0].requestId,
+    );
+  });
+
+  it("uses fill-empty read mode and reuses its idempotency key for an unread retry", async () => {
+    const readResume = vi
+      .fn()
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("completed");
+    const { screen } = await renderControl(vi.fn(), 40, "current-40", {
+      isUnread: true,
+      readResume,
+    });
+
+    await screen
+      .getByRole("button", { name: REREAD_COPY.readTrigger, exact: true })
+      .click();
+    await screen
+      .getByRole("button", { name: REREAD_COPY.readConfirm, exact: true })
+      .click();
+    await expect
+      .poll(() => openPanelStatus()?.textContent)
+      .toBe(REREAD_COPY.failed);
+    await screen
+      .getByRole("button", { name: REREAD_COPY.readConfirm, exact: true })
+      .click();
+    await expect
+      .poll(
+        () =>
+          screen.container.querySelector<HTMLElement>('[role="status"]')
+            ?.textContent,
+      )
+      .toBe(REREAD_COPY.readCompleted);
+
+    expect(readResume).toHaveBeenCalledTimes(2);
+    expect(readResume.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        resumeId: 40,
+        fileIdentity: "current-40",
+        mode: "fill_empty",
+      }),
+    );
+    expect(readResume.mock.calls[1][0].requestId).toBe(
+      readResume.mock.calls[0][0].requestId,
     );
   });
 
