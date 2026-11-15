@@ -47,10 +47,6 @@ describe("React Query persistence privacy boundary", () => {
         body: "private preview details",
       });
     }
-    queryClient.setQueryData(["shadchanim", "live-note-indicators", ["7"]], {
-      body: "private live note text",
-    });
-
     const persisted = dehydrate(queryClient, {
       shouldDehydrateQuery: shouldPersistQuery,
     });
@@ -174,6 +170,68 @@ describe("React Query persistence privacy boundary", () => {
     expect(JSON.stringify(persisted)).not.toContain("private interaction note");
     expect(JSON.stringify(persisted)).not.toContain("signed.example");
     expect(JSON.stringify(persisted)).not.toContain("private.pdf");
+  });
+
+  it("rejects successful non-string roots before string coercion can allow them", () => {
+    const roots: unknown[] = [
+      ["configuration"],
+      [{ toString: () => "configuration" }],
+      [null],
+      [undefined],
+      [0],
+    ];
+
+    for (const [index, root] of roots.entries()) {
+      const queryClient = new QueryClient();
+      const queryKey = [root, "private", index];
+      queryClient.setQueryData(queryKey, {
+        body: "private non-string-root payload",
+      });
+
+      expect(queryClient.getQueryState(queryKey)?.status).toBe("success");
+      const persisted = dehydrate(
+        queryClient,
+        mobilePersistOptions.dehydrateOptions,
+      );
+
+      expect(persisted.queries).toEqual([]);
+    }
+  });
+
+  it("denies successful unknown string roots", () => {
+    const queryClient = new QueryClient();
+    const queryKey = ["unknown-private-resource", "getList"];
+    queryClient.setQueryData(queryKey, {
+      body: "private unknown-root payload",
+    });
+
+    expect(queryClient.getQueryState(queryKey)?.status).toBe("success");
+    const persisted = dehydrate(
+      queryClient,
+      mobilePersistOptions.dehydrateOptions,
+    );
+
+    expect(persisted.queries).toEqual([]);
+  });
+
+  it("keeps live-note indicators private without filtering the same purpose on safe roots", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["shadchanim", "live-note-indicators", ["7"]], {
+      body: "private live note text",
+    });
+    queryClient.setQueryData(["configuration", "live-note-indicators", ["7"]], {
+      value: "safe configuration",
+    });
+
+    const persisted = dehydrate(
+      queryClient,
+      mobilePersistOptions.dehydrateOptions,
+    );
+
+    expect(persisted.queries.map(({ queryKey }) => queryKey)).toEqual([
+      ["configuration", "live-note-indicators", ["7"]],
+    ]);
+    expect(JSON.stringify(persisted)).not.toContain("private live note text");
   });
 
   it("does not persist sections returned by a successful re-read refresh", () => {

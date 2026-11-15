@@ -109,12 +109,13 @@ export const PRIVATE_QUERY_KEYS = new Set([
  */
 export const shouldPersistQuery = (query: Query): boolean => {
   const [resource, purpose] = query.queryKey;
-  const queryRoot = String(resource);
   return (
     defaultShouldDehydrateQuery(query) &&
-    PERSISTABLE_QUERY_KEYS_SET.has(queryRoot) &&
-    !PRIVATE_QUERY_RESOURCES.has(queryRoot) &&
-    !PRIVATE_QUERY_KEYS.has(queryRoot) &&
+    typeof resource === "string" &&
+    resource.length > 0 &&
+    PERSISTABLE_QUERY_KEYS_SET.has(resource) &&
+    !PRIVATE_QUERY_RESOURCES.has(resource) &&
+    !PRIVATE_QUERY_KEYS.has(resource) &&
     !(resource === "shadchanim" && purpose === "live-note-indicators")
   );
 };
