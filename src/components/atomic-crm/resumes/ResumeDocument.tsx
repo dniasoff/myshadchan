@@ -44,7 +44,9 @@ const EMBED_HEIGHT = "h-[60svh] min-h-[18rem] md:h-[70vh] md:min-h-[24rem]";
  * — the dedupe this folder already relies on (`useLatestResumeFile`'s own
  * doc comment).
  */
-export function ResumeDocument(subject: ResumeSubject): ReactElement | null {
+export function ResumeDocument(
+  subject: ResumeSubject & { canReread?: boolean },
+): ReactElement | null {
   const { data } = useGetList<Resume>("resumes", {
     filter: resumeSubjectFilter(subject),
     pagination: { page: 1, perPage: 1 },
@@ -69,6 +71,7 @@ export function ResumeDocument(subject: ResumeSubject): ReactElement | null {
       {shown ? <ResumeEmbed version={shown} /> : null}
       <ResumeVersionList
         {...subject}
+        canReread={subject.canReread}
         shownPath={shown?.path}
         onShow={versions.length > 1 ? setSelectedPath : undefined}
       />

@@ -125,6 +125,42 @@ describe("React Query persistence privacy boundary", () => {
     expect(JSON.stringify(persisted)).not.toContain("private.pdf");
   });
 
+  it("does not persist sections returned by a successful re-read refresh", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      [
+        "resumes",
+        "getList",
+        {
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "id", order: "ASC" },
+          filter: { shidduchim_id: 77 },
+        },
+      ],
+      {
+        data: [
+          {
+            id: 77,
+            sections: {
+              additionalSections: [
+                { title: "Work", items: [{ value: "Freshly extracted" }] },
+              ],
+            },
+          },
+        ],
+        total: 1,
+      },
+    );
+
+    const persisted = dehydrate(queryClient, {
+      shouldDehydrateQuery: shouldPersistQuery,
+    });
+
+    expect(persisted.queries).toEqual([]);
+    expect(JSON.stringify(persisted)).not.toContain("Freshly extracted");
+    expect(JSON.stringify(persisted)).not.toContain("re-read");
+  });
+
   it("uses a cache buster that discards snapshots made before the filter", () => {
     expect(REACT_QUERY_CACHE_BUSTER).toBe("crm-no-private-sensitive-cache-v2");
     expect(mobilePersistOptions).toMatchObject({
