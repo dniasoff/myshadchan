@@ -765,11 +765,34 @@ jobs:
       - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse' || matrix.worker == 'cron' || matrix.worker == 'billing' || matrix.worker == 'email') }}
         name: 🚀 Upload Worker version (code + every secret, bundled atomically)
         working-directory: workers/${{ matrix.worker }}
+        env:
+          # These optional switchboard secrets are scoped to this step and
+          # resolve to empty for every non-email matrix leg. The committed
+          # [vars] values remain the default when either secret is unset.
+          OUTBOUND_EMAIL_ENABLED: ${{ matrix.worker == 'email' && secrets.OUTBOUND_EMAIL_ENABLED || '' }}
+          OUTBOUND_EMAIL_ACCOUNT_IDS: ${{ matrix.worker == 'email' && secrets.OUTBOUND_EMAIL_ACCOUNT_IDS || '' }}
         run: |
           set -euo pipefail
           secrets_file="$(mktemp)"
           upload_log="$(mktemp)"
           trap 'rm -f "$secrets_file" "$upload_log"' EXIT
+          email_var_args=()
+          if [ "${{ matrix.worker }}" = "email" ]; then
+            mask_if_set() {
+              if [ -n "${1:-}" ]; then
+                echo "::add-mask::$1"
+              fi
+            }
+            mask_if_set "${OUTBOUND_EMAIL_ENABLED:-}"
+            mask_if_set "${OUTBOUND_EMAIL_ACCOUNT_IDS:-}"
+
+            email_enabled="false"
+            if [ "${OUTBOUND_EMAIL_ENABLED:-}" = "true" ]; then
+              email_enabled="true"
+            fi
+            email_var_args+=(--var "OUTBOUND_EMAIL_ENABLED:$email_enabled")
+            email_var_args+=(--var "OUTBOUND_EMAIL_ACCOUNT_IDS:${OUTBOUND_EMAIL_ACCOUNT_IDS:-}")
+          fi
           {
             printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"
             printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SUPABASE_SERVICE_ROLE_KEY"
@@ -804,6 +827,7 @@ jobs:
           npx wrangler versions upload \
             --message "CI deploy $GITHUB_SHA" \
             --secrets-file "$secrets_file" \
+            "${email_var_args[@]}" \
             | tee "$upload_log"
 
           version_id=$(sed -n 's/^Worker Version ID: *//p' "$upload_log" | tail -n1)

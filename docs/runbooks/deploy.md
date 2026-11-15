@@ -62,19 +62,36 @@ Outbound email remains off until Captain/ops has confirmed the Resend sender,
 plan and retention posture. The controlled switch-on sets the existing Worker
 secret `OUTBOUND_EMAIL_REPLY_TO` and the Vercel build variable
 `VITE_OUTBOUND_EMAIL_REPLY_TO` to the same approved address, without committing
-the address. It also sets the existing Worker variable
-`OUTBOUND_EMAIL_ACCOUNT_IDS` to the explicitly approved account ids and turns
-`OUTBOUND_EMAIL_ENABLED` on. The authenticated email Worker `/config` response
-is the runtime source of truth; the frontend checks that its build value
-exactly matches the Worker value and keeps the Email action unavailable on any
-mismatch or unset value. `OUTBOUND_EMAIL_GLOBAL_DAILY_CAP` defaults to 40 and
-may only be lowered or raised deliberately with the shared Resend plan budget
-in view. The global count-then-send check is intentionally a best-effort
-cross-account budget rather than an atomic reservation: 40 leaves 60 sends of
-the Resend Free plan's 100/day allowance for reminders and a bounded amount of
-concurrency overshoot. Treat the cap as an operational guard, not a hard
-provider ceiling; a hard ceiling would require a durable atomic reservation
-follow-up before changing this policy.
+the address. The deploy workflow reads the optional GitHub Actions secrets
+`OUTBOUND_EMAIL_ACCOUNT_IDS` and `OUTBOUND_EMAIL_ENABLED` only for the email
+Worker's atomic version upload. The account secret is comma-separated. The
+enabled secret activates the feature only when its value is exactly `true`;
+unset or any other value keeps the committed `false` default. The committed
+Worker config therefore remains safe for a first bootstrap, and the secret
+values are never written to the repository.
+
+To switch on the approved household, set the GitHub Actions secrets
+`OUTBOUND_EMAIL_ACCOUNT_IDS` and `OUTBOUND_EMAIL_ENABLED`, then run `Deploy`
+with `workflow_dispatch` on `main`. Authenticate to the email Worker and
+verify `/config` before testing: it must report the intended enabled state and
+account allowlist. The existing frontend equality check with
+`VITE_OUTBOUND_EMAIL_REPLY_TO` is unchanged; keep the Email action unavailable
+if the reply-to value is unset or does not match.
+
+To switch off, unset `OUTBOUND_EMAIL_ACCOUNT_IDS` and set
+`OUTBOUND_EMAIL_ENABLED` to anything other than `true` (or unset it), then
+redeploy with `workflow_dispatch`. Verify `/config` reports the feature off
+and an empty allowlist. Do not edit the committed defaults to perform either
+switch.
+
+`OUTBOUND_EMAIL_GLOBAL_DAILY_CAP` defaults to 40 and may only be lowered or
+raised deliberately with the shared Resend plan budget in view. The global
+count-then-send check is intentionally a best-effort cross-account budget
+rather than an atomic reservation: 40 leaves 60 sends of the Resend Free
+plan's 100/day allowance for reminders and a bounded amount of concurrency
+overshoot. Treat the cap as an operational guard, not a hard provider ceiling;
+a hard ceiling would require a durable atomic reservation follow-up before
+changing this policy.
 
 ## Safe rollback
 
