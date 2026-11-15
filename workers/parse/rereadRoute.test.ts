@@ -22,6 +22,8 @@ const apply = vi.mocked(applyRereadSections);
 const release = vi.mocked(releaseRereadAttempt);
 
 const requestId = "8f7d6f38-a1ea-4f04-9b14-1e68b2c9f4e3";
+const AUTH_USER_ID = "auth-user-42";
+const PROFILE_MEMBER_ID = 700;
 
 type TestFile = {
   path: string;
@@ -42,10 +44,21 @@ const file: TestFile = {
 };
 
 function selectBuilder(data: unknown, error: unknown = null) {
+  let selectedData = data;
   const builder = {
     select: vi.fn(() => builder),
-    eq: vi.fn(() => builder),
-    maybeSingle: vi.fn(async () => ({ data, error })),
+    eq: vi.fn((field: string, value: unknown) => {
+      if (
+        selectedData &&
+        typeof selectedData === "object" &&
+        field in selectedData &&
+        (selectedData as Record<string, unknown>)[field] !== value
+      ) {
+        selectedData = null;
+      }
+      return builder;
+    }),
+    maybeSingle: vi.fn(async () => ({ data: selectedData, error })),
   };
   return builder;
 }
@@ -60,8 +73,15 @@ function makeClients(
   },
   casApplied = true,
   throwPoint?: ThrowPoint,
+  userId: string | undefined = AUTH_USER_ID,
+  memberRow: unknown = {
+    id: PROFILE_MEMBER_ID,
+    user_id: AUTH_USER_ID,
+    disabled: false,
+  },
+  memberError: unknown = null,
 ) {
-  const memberBuilder = selectBuilder({ id: 7, disabled: false });
+  const memberBuilder = selectBuilder(memberRow, memberError);
   const resumeBuilder = selectBuilder({
     id: 22,
     account_id: 10,
@@ -129,7 +149,49 @@ function makeClients(
     from: vi.fn(() => updateBuilder),
     storage,
   };
-  return { caller, service, updateBuilder };
+  return { caller, service, updateBuilder, memberBuilder, userId };
+}
+
+async function expectForbidden(
+  options: {
+    userId?: string | undefined;
+    memberRow?: unknown;
+    memberError?: unknown;
+  } = {},
+) {
+  const userId = Object.prototype.hasOwnProperty.call(options, "userId")
+    ? options.userId
+    : AUTH_USER_ID;
+  const memberRow = Object.prototype.hasOwnProperty.call(options, "memberRow")
+    ? options.memberRow
+    : { id: PROFILE_MEMBER_ID, user_id: AUTH_USER_ID, disabled: false };
+  const { caller, service, memberBuilder } = makeClients(
+    undefined,
+    true,
+    undefined,
+    userId,
+    memberRow,
+    options.memberError,
+  );
+  const extractor = { extract: vi.fn() };
+
+  const result = await rereadResume(
+    { resume_id: 22, request_id: requestId },
+    {
+      caller: caller as never,
+      service: service as never,
+      extractor,
+      env: TEST_ENV,
+      userId,
+    },
+  );
+
+  expect(result.status).toBe(403);
+  expect(claim).not.toHaveBeenCalled();
+  expect(service.from).not.toHaveBeenCalled();
+  expect(service.storage.from).not.toHaveBeenCalled();
+  expect(extractor.extract).not.toHaveBeenCalled();
+  return { memberBuilder };
 }
 
 describe("re-read route", () => {
@@ -142,6 +204,68 @@ describe("re-read route", () => {
     apply.mockResolvedValue({ outcome: "applied" });
     applyResume.mockResolvedValue({ outcome: "applied" });
     release.mockResolvedValue({ outcome: "applied" });
+  });
+
+  it("uses the authenticated user id for a distinct member profile", async () => {
+    const { caller, service, memberBuilder } = makeClients();
+
+    const result = await rereadResume(
+      { resume_id: 22, request_id: requestId },
+      {
+        caller: caller as never,
+        service: service as never,
+        extractor: { extract: vi.fn(async () => makeExtract()) },
+        env: TEST_ENV,
+        userId: AUTH_USER_ID,
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(memberBuilder.eq).toHaveBeenCalledWith("user_id", AUTH_USER_ID);
+  });
+
+  it("returns 403 for a disabled login before service work", async () => {
+    const { memberBuilder } = await expectForbidden({
+      memberRow: {
+        id: PROFILE_MEMBER_ID,
+        user_id: AUTH_USER_ID,
+        disabled: true,
+      },
+    });
+
+    expect(memberBuilder.maybeSingle).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 403 when the login has no member profile", async () => {
+    const { memberBuilder } = await expectForbidden({ memberRow: null });
+
+    expect(memberBuilder.maybeSingle).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 403 when the member profile belongs to another user", async () => {
+    const { memberBuilder } = await expectForbidden({
+      memberRow: {
+        id: PROFILE_MEMBER_ID,
+        user_id: "another-auth-user",
+        disabled: false,
+      },
+    });
+
+    expect(memberBuilder.maybeSingle).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 403 when the member lookup errors", async () => {
+    const { memberBuilder } = await expectForbidden({
+      memberError: new Error("member lookup unavailable"),
+    });
+
+    expect(memberBuilder.maybeSingle).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 403 when authentication provides no user id", async () => {
+    const { memberBuilder } = await expectForbidden({ userId: undefined });
+
+    expect(memberBuilder.maybeSingle).not.toHaveBeenCalled();
   });
 
   it("writes only additionalSections and the schema marker, preserving legacy sections", async () => {
@@ -186,6 +310,7 @@ describe("re-read route", () => {
         service: service as never,
         extractor,
         env: TEST_ENV,
+        userId: AUTH_USER_ID,
       },
     );
 
@@ -260,6 +385,7 @@ describe("re-read route", () => {
         service: service as never,
         extractor: { extract: vi.fn(async () => raw) },
         env: TEST_ENV,
+        userId: AUTH_USER_ID,
       },
     );
 
@@ -297,6 +423,7 @@ describe("re-read route", () => {
         service: service as never,
         extractor: { extract: vi.fn() },
         env: TEST_ENV,
+        userId: AUTH_USER_ID,
       },
     );
     expect(notEntitled).toEqual({
@@ -319,6 +446,7 @@ describe("re-read route", () => {
         service: service as never,
         extractor: { extract: vi.fn() },
         env: TEST_ENV,
+        userId: AUTH_USER_ID,
       },
     );
     expect(noAllowance.body).toEqual({
@@ -343,6 +471,7 @@ describe("re-read route", () => {
         service: service as never,
         extractor,
         env: TEST_ENV,
+        userId: AUTH_USER_ID,
       },
     );
 
@@ -370,6 +499,7 @@ describe("re-read route", () => {
           service: service as never,
           extractor: { extract: vi.fn(async () => makeExtract()) },
           env: TEST_ENV,
+          userId: AUTH_USER_ID,
         },
       );
 
@@ -394,6 +524,7 @@ describe("re-read route", () => {
         service: service as never,
         extractor: { extract: vi.fn(async () => makeExtract()) },
         env: TEST_ENV,
+        userId: AUTH_USER_ID,
       },
     );
 
@@ -412,6 +543,7 @@ describe("re-read route", () => {
         service: service as never,
         extractor: { extract: vi.fn(async () => makeExtract()) },
         env: TEST_ENV,
+        userId: AUTH_USER_ID,
       },
     );
 
@@ -426,7 +558,11 @@ describe("re-read route", () => {
       ...caller,
       from: vi.fn((table: string) => {
         if (table === "members")
-          return selectBuilder({ id: 7, disabled: false });
+          return selectBuilder({
+            id: PROFILE_MEMBER_ID,
+            user_id: AUTH_USER_ID,
+            disabled: false,
+          });
         return selectBuilder({
           id: 22,
           account_id: 10,
@@ -445,6 +581,7 @@ describe("re-read route", () => {
         service: service as never,
         extractor: { extract: vi.fn() },
         env: TEST_ENV,
+        userId: AUTH_USER_ID,
       },
     );
 
@@ -468,6 +605,7 @@ describe("re-read route", () => {
         service: service as never,
         extractor,
         env: TEST_ENV,
+        userId: AUTH_USER_ID,
       },
     );
 
@@ -496,6 +634,7 @@ describe("re-read route", () => {
           RATE_LIMITING_ENFORCED: "true",
           PARSE_USER_RATE_LIMITER: { limit },
         },
+        userId: AUTH_USER_ID,
       },
     );
 
