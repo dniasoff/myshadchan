@@ -49,7 +49,7 @@ describe("FakeRest re-read wiring", () => {
       {
         key: "work",
         title: "Work",
-        items: [{ label: "Demo", value: "Re-read preview" }],
+        items: [{ label: "Demo", value: "Make it easy to read" }],
       },
     ]);
   });
