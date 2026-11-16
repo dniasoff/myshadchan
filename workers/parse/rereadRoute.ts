@@ -22,9 +22,11 @@ import {
   validateDownloadedRereadFile,
 } from "./rereadFile";
 import { CURRENT_PARSE_RESULT_SCHEMA_VERSION } from "./parseResultPayload";
-import { toDraft } from "./parsedResumeDraft";
+import { buildResumeShapeCounts, toDraft } from "./parsedResumeDraft";
 import {
+  getExtractorShapeMetadata,
   logRereadFailure,
+  logExtractorShape,
   type RereadFailureReason,
 } from "./rereadDiagnostics";
 import {
@@ -440,6 +442,10 @@ export async function rereadResume(
       console.error("parse.reread.draft.failed", summarizeErrorForLog(error));
       return failure(dependencies, "draft");
     }
+    logExtractorShape(
+      buildResumeShapeCounts(raw, draft),
+      getExtractorShapeMetadata(raw),
+    );
     const nextSections = buildRereadSections(
       resume.sections,
       draft.sections.additionalSections,

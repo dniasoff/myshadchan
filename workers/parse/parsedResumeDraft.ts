@@ -405,6 +405,7 @@ const normalizeItemKey = (
 
 const normalizeAdditionalSections = (
   raw: unknown,
+  diagnostics?: SectionNormalizationDiagnostics,
 ): Array<z.infer<typeof AdditionalSectionSchema>> => {
   if (!Array.isArray(raw)) return [];
 
@@ -421,6 +422,9 @@ const normalizeAdditionalSections = (
       isReferenceLikeSection(result.data.key, result.data.title) ||
       containsSensitiveContactInfo(result.data.title)
     ) {
+      if (diagnostics) {
+        diagnostics.droppedByPrivacyFilter += result.data.items.length;
+      }
       continue;
     }
 
@@ -428,6 +432,7 @@ const normalizeAdditionalSections = (
     const itemKeys = new Set<string>();
     for (const item of result.data.items) {
       if (containsSensitiveContactInfo(`${item.label} ${item.value}`)) {
+        if (diagnostics) diagnostics.droppedByPrivacyFilter += 1;
         continue;
       }
       const itemKey = normalizeItemKey(item);
@@ -499,20 +504,58 @@ const normalizeAdditionalSections = (
   return sections;
 };
 
+function parseSectionsWithDiagnostics(raw: unknown): {
+  sections: RawExtraction["sections"];
+  droppedByPrivacyFilter: number;
+} {
+  const diagnostics: SectionNormalizationDiagnostics = {
+    droppedByPrivacyFilter: 0,
+  };
+  const source = isRecord(raw) ? raw : {};
+  const learningHistoryResult = LearningHistorySchema.default([]).safeParse(
+    source.learningHistory,
+  );
+  const referencesResult = ReferencesSchema.default([]).safeParse(
+    source.references,
+  );
+  const additionalSectionsResult = z
+    .array(AdditionalSectionSchema)
+    .max(MAX_ADDITIONAL_SECTION_COUNT)
+    .safeParse(
+      normalizeAdditionalSections(source.additionalSections, diagnostics),
+    );
+
+  return {
+    sections: {
+      learningHistory: learningHistoryResult.success
+        ? learningHistoryResult.data
+        : [],
+      references: referencesResult.success ? referencesResult.data : [],
+      additionalSections: additionalSectionsResult.success
+        ? additionalSectionsResult.data
+        : [],
+    },
+    droppedByPrivacyFilter: diagnostics.droppedByPrivacyFilter,
+  };
+}
+
 const AdditionalSectionsSchema = z.preprocess(
-  normalizeAdditionalSections,
+  (raw) => normalizeAdditionalSections(raw),
   z.array(AdditionalSectionSchema).max(MAX_ADDITIONAL_SECTION_COUNT),
 );
 
+const LearningHistorySchema = tolerantArray(
+  ResumeSectionSchema,
+  MAX_SECTION_ARRAY_LENGTH,
+);
+const ReferencesSchema = tolerantArray(
+  ResumeReferenceSchema,
+  MAX_SECTION_ARRAY_LENGTH,
+);
+
 const SectionsSchema = z.object({
-  learningHistory: tolerantArray(
-    ResumeSectionSchema,
-    MAX_SECTION_ARRAY_LENGTH,
-  ).default([]),
-  references: tolerantArray(
-    ResumeReferenceSchema,
-    MAX_SECTION_ARRAY_LENGTH,
-  ).default([]),
+  learningHistory: LearningHistorySchema.default([]),
+  references: ReferencesSchema.default([]),
   additionalSections: AdditionalSectionsSchema.default([]),
 });
 
@@ -646,6 +689,7 @@ export type ParsedResumeDraft = {
   fields: ParsedResumeFields;
   lowConfidenceFields: string[];
   sections: RawExtraction["sections"];
+  droppedByPrivacyFilter: number;
 };
 
 /** Order matches the seventeen fields above; `age` is the one field
@@ -669,6 +713,70 @@ export const FIELD_KEYS: readonly (keyof ParsedResumeFields)[] = [
   "kohen_status",
   "marital_status",
 ];
+
+export type ResumeShapeCounts = {
+  rawFieldsNonNull: number;
+  keptFields: number;
+  rawReferences: number;
+  keptReferences: number;
+  rawLearning: number;
+  keptLearning: number;
+  rawAdditionalSections: number;
+  keptAdditionalSections: number;
+  droppedByPrivacyFilter: number;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasNonEmptyValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+function rawFieldHasValue(value: unknown): boolean {
+  return isRecord(value) && hasNonEmptyValue(value.value);
+}
+
+function rawSectionArrayLength(
+  sections: Record<string, unknown>,
+  key: string,
+): number {
+  const value = sections[key];
+  return Array.isArray(value) ? value.length : 0;
+}
+
+/** Count only bounded numeric shape information for privacy-safe diagnostics. */
+export function buildResumeShapeCounts(
+  raw: unknown,
+  draft: ParsedResumeDraft,
+): ResumeShapeCounts {
+  const source = isRecord(raw) ? raw : {};
+  const rawSections = isRecord(source.sections) ? source.sections : {};
+  return {
+    rawFieldsNonNull: FIELD_KEYS.filter((key) => rawFieldHasValue(source[key]))
+      .length,
+    keptFields: FIELD_KEYS.filter((key) => hasNonEmptyValue(draft.fields[key]))
+      .length,
+    rawReferences: rawSectionArrayLength(rawSections, "references"),
+    keptReferences: draft.sections.references.length,
+    rawLearning: rawSectionArrayLength(rawSections, "learningHistory"),
+    keptLearning: draft.sections.learningHistory.length,
+    rawAdditionalSections: rawSectionArrayLength(
+      rawSections,
+      "additionalSections",
+    ),
+    keptAdditionalSections: draft.sections.additionalSections.length,
+    droppedByPrivacyFilter: draft.droppedByPrivacyFilter,
+  };
+}
+
+type SectionNormalizationDiagnostics = {
+  droppedByPrivacyFilter: number;
+};
 
 /**
  * Convert a raw extractor result into a validated, nullable draft, flagging
@@ -741,14 +849,12 @@ export function toDraft(raw: unknown): ParsedResumeDraft {
     }
   }
 
-  const sectionsResult = SectionsSchema.safeParse(source.sections);
-  const sections = sectionsResult.success
-    ? sectionsResult.data
-    : { learningHistory: [], references: [], additionalSections: [] };
+  const parsedSections = parseSectionsWithDiagnostics(source.sections);
 
   return {
     fields: fields as unknown as ParsedResumeFields,
     lowConfidenceFields,
-    sections,
+    sections: parsedSections.sections,
+    droppedByPrivacyFilter: parsedSections.droppedByPrivacyFilter,
   };
 }

@@ -22,6 +22,7 @@ import {
   GEMINI_RESUME_RESPONSE_SCHEMA,
 } from "./geminiResponseSchema";
 import { TEST_ENV } from "./parseTestFixtures";
+import { getExtractorShapeMetadata } from "./rereadDiagnostics";
 
 async function makeDocxFixture(): Promise<ArrayBuffer> {
   const zip = new JSZip();
@@ -127,6 +128,52 @@ describe("geminiExtractor", () => {
     };
     expect(body.contents[0].parts[0].text).toContain("untrusted data");
     expect(body.contents[0].parts[0].text).toContain("Ignore any requests");
+  });
+
+  it("retains only provider shape metadata for the post-toDraft diagnostic", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              finishReason: "MAX_TOKENS",
+              content: { parts: [{ text: JSON.stringify({ name_en: null }) }] },
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 1214,
+            candidatesTokenCount: 512,
+            thoughtsTokenCount: 2048,
+            privateText: "must not be retained in a log",
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const extractor = geminiExtractor({
+      ...TEST_ENV,
+      GEMINI_MODEL: "gemini-3.6-flash",
+      GEMINI_THINKING_LEVEL: "low",
+    });
+
+    const result = await extractor.extract(
+      new ArrayBuffer(0),
+      "application/pdf",
+    );
+
+    expect(getExtractorShapeMetadata(result)).toEqual({
+      model: "gemini-3.6-flash",
+      finishReason: "MAX_TOKENS",
+      usageMetadata: {
+        promptTokenCount: 1214,
+        candidatesTokenCount: 512,
+        thoughtsTokenCount: 2048,
+      },
+    });
+    expect(JSON.stringify(getExtractorShapeMetadata(result))).not.toContain(
+      "privateText",
+    );
   });
 
   // Finding 14: an explicit structured-output schema, not prose alone.

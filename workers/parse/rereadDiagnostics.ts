@@ -195,6 +195,47 @@ export type ExtractorAttemptLog = {
   thinkingLevel?: ExtractorThinkingLevel;
 };
 
+export type ExtractorShapeMetadata = {
+  model: unknown;
+  finishReason: unknown;
+  usageMetadata: unknown;
+};
+
+const extractorShapeMetadata = new WeakMap<object, ExtractorShapeMetadata>();
+
+export function rememberExtractorShapeMetadata(
+  raw: unknown,
+  metadata: ExtractorShapeMetadata,
+): void {
+  if (typeof raw === "object" && raw !== null) {
+    const usageMetadata =
+      typeof metadata.usageMetadata === "object" &&
+      metadata.usageMetadata !== null &&
+      !Array.isArray(metadata.usageMetadata)
+        ? (metadata.usageMetadata as Record<string, unknown>)
+        : undefined;
+    extractorShapeMetadata.set(raw, {
+      model: metadata.model,
+      finishReason: metadata.finishReason,
+      usageMetadata: usageMetadata
+        ? {
+            promptTokenCount: usageMetadata.promptTokenCount,
+            candidatesTokenCount: usageMetadata.candidatesTokenCount,
+            thoughtsTokenCount: usageMetadata.thoughtsTokenCount,
+          }
+        : undefined,
+    });
+  }
+}
+
+export function getExtractorShapeMetadata(
+  raw: unknown,
+): ExtractorShapeMetadata | undefined {
+  return typeof raw === "object" && raw !== null
+    ? extractorShapeMetadata.get(raw)
+    : undefined;
+}
+
 function safeModel(value: unknown): string {
   return typeof value === "string" && GEMINI_MODEL_PATTERN.test(value)
     ? value
@@ -240,6 +281,66 @@ export function logExtractorAttempt(
     "parse.extract.attempt",
     buildExtractorAttemptLog(model, attempt, fallbackReason, thinkingLevel),
   );
+}
+
+export type ExtractorShapeCounts = {
+  rawFieldsNonNull: unknown;
+  keptFields: unknown;
+  rawReferences: unknown;
+  keptReferences: unknown;
+  rawLearning: unknown;
+  keptLearning: unknown;
+  rawAdditionalSections: unknown;
+  keptAdditionalSections: unknown;
+  droppedByPrivacyFilter: unknown;
+};
+
+export type ExtractorShapeLog = {
+  rawFieldsNonNull: number;
+  keptFields: number;
+  rawReferences: number;
+  keptReferences: number;
+  rawLearning: number;
+  keptLearning: number;
+  rawAdditionalSections: number;
+  keptAdditionalSections: number;
+  droppedByPrivacyFilter: number;
+  finishReason: GeminiFinishReason;
+  promptTokens: number;
+  candidateTokens: number;
+  thoughtTokens: number;
+  model: string;
+};
+
+export function buildExtractorShapeLog(
+  counts: ExtractorShapeCounts,
+  metadata?: ExtractorShapeMetadata,
+): ExtractorShapeLog {
+  return {
+    rawFieldsNonNull: safeCount(counts.rawFieldsNonNull) ?? 0,
+    keptFields: safeCount(counts.keptFields) ?? 0,
+    rawReferences: safeCount(counts.rawReferences) ?? 0,
+    keptReferences: safeCount(counts.keptReferences) ?? 0,
+    rawLearning: safeCount(counts.rawLearning) ?? 0,
+    keptLearning: safeCount(counts.keptLearning) ?? 0,
+    rawAdditionalSections: safeCount(counts.rawAdditionalSections) ?? 0,
+    keptAdditionalSections: safeCount(counts.keptAdditionalSections) ?? 0,
+    droppedByPrivacyFilter: safeCount(counts.droppedByPrivacyFilter) ?? 0,
+    finishReason: safeFinishReason(metadata?.finishReason) ?? "UNKNOWN",
+    promptTokens: usageCount(metadata?.usageMetadata, "promptTokenCount") ?? 0,
+    candidateTokens:
+      usageCount(metadata?.usageMetadata, "candidatesTokenCount") ?? 0,
+    thoughtTokens:
+      usageCount(metadata?.usageMetadata, "thoughtsTokenCount") ?? 0,
+    model: safeModel(metadata?.model),
+  };
+}
+
+export function logExtractorShape(
+  counts: ExtractorShapeCounts,
+  metadata?: ExtractorShapeMetadata,
+): void {
+  console.warn("parse.extract.shape", buildExtractorShapeLog(counts, metadata));
 }
 
 function safeStatusClass(value: unknown): ExtractorStatusClass | undefined {

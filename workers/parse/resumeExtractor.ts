@@ -6,6 +6,7 @@ import { DocxExtractionError, extractDocxText } from "./docxExtractor";
 import {
   type ExtractorThinkingLevel,
   type ExtractorFallbackReason,
+  rememberExtractorShapeMetadata,
   logExtractorAttempt,
   logExtractorFailure,
 } from "./rereadDiagnostics";
@@ -465,7 +466,13 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
           // other good ones. A SyntaxError is handled by the one legacy-shape
           // recovery request below; any second failure propagates to index.ts's
           // existing extractor catch, which releases the reservation.
-          return JSON.parse(text) as unknown;
+          const raw = JSON.parse(text) as unknown;
+          rememberExtractorShapeMetadata(raw, {
+            model,
+            finishReason,
+            usageMetadata,
+          });
+          return raw;
         } catch (error) {
           logExtractorFailure(error, {
             durationMs: Date.now() - requestStartedAt,
