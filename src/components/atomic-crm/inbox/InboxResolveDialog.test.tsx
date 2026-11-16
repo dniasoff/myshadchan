@@ -77,8 +77,38 @@ const buildDataProvider = (
   linkedShadchanim: Shadchan[],
   item: InboxItem,
   overrides: Partial<CrmDataProvider> = {},
-): CrmDataProvider =>
-  ({
+): CrmDataProvider => {
+  const update = vi.fn(
+    (_resource: string, params: { data: Record<string, unknown> }) => {
+      Object.assign(item, params.data);
+      return Promise.resolve({ data: item });
+    },
+  );
+
+  const updateInboxItemResolution = vi.fn(async (params: any) => {
+    const lockAcquiredAt = (
+      item.resolution_input as { lock_acquired_at?: unknown } | null
+    )?.lock_acquired_at;
+    if (
+      item.status !== params.status ||
+      (params.expectedResolutionAttemptId !== undefined &&
+        item.resolution_attempt_id !== params.expectedResolutionAttemptId) ||
+      (params.expectedLockAcquiredAt !== undefined &&
+        lockAcquiredAt !== params.expectedLockAcquiredAt) ||
+      (params.expectedLockAcquiredAtIsNull && lockAcquiredAt != null) ||
+      (params.staleBefore !== undefined &&
+        (typeof lockAcquiredAt !== "string" ||
+          lockAcquiredAt >= params.staleBefore))
+    ) {
+      return null;
+    }
+    const result = await update("inbox_items", {
+      data: params.data,
+    });
+    return result.data;
+  });
+
+  return {
     // ShidduchInputs' two ReferenceInputs (single_id, shadchan_id) fetch
     // their own choice lists via a plain getList (no connection_id filter)
     // — stubbed empty, since no test asserts on them. InboxResolveDialog's
@@ -118,10 +148,8 @@ const buildDataProvider = (
       resumes_limit: 0,
     }),
     create: vi.fn().mockResolvedValue({ data: {} }),
-    update: vi.fn(
-      (_resource: string, params: { data: Record<string, unknown> }) =>
-        Promise.resolve({ data: params.data }),
-    ),
+    update,
+    updateInboxItemResolution,
     copyInboxAttachmentsToEntityFiles: vi.fn().mockResolvedValue([]),
     copyInboxAttachmentToResumeFile: vi.fn().mockResolvedValue({
       storagePath: "1/resumes/99/copied-resume.pdf",
@@ -130,7 +158,8 @@ const buildDataProvider = (
     removeResumeFileObjects: vi.fn(),
     removeInboxAttachment: vi.fn(),
     ...overrides,
-  }) as unknown as CrmDataProvider;
+  } as unknown as CrmDataProvider;
+};
 
 const renderDialog = async (
   item: InboxItem,

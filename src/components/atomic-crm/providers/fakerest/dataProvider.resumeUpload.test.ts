@@ -22,6 +22,9 @@ describe("FakeRest resume capture methods", () => {
     });
     expect(copied.size).toBe(file.size);
 
+    await dataProvider.removeResumeFileObjectsStrict([copied.storagePath]);
+    // The historical lifecycle helper remains available separately; strict
+    // compensation cleanup is the method the Inbox resolver selects.
     await dataProvider.removeResumeFileObjects([copied.storagePath]);
     await dataProvider.removeInboxAttachment(attachment.path);
   });

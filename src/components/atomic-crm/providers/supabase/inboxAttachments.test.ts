@@ -7,13 +7,16 @@ import type { DataProvider } from "ra-core";
  * `vi.hoisted` is required because `vi.mock`'s factory itself is hoisted
  * above every import/declaration.
  */
-const { createSignedUrl, download, upload, remove, rpc } = vi.hoisted(() => ({
-  createSignedUrl: vi.fn(),
-  download: vi.fn(),
-  upload: vi.fn(),
-  remove: vi.fn(),
-  rpc: vi.fn(),
-}));
+const { createSignedUrl, download, upload, remove, rpc, getList, create } =
+  vi.hoisted(() => ({
+    createSignedUrl: vi.fn(),
+    download: vi.fn(),
+    upload: vi.fn(),
+    remove: vi.fn(),
+    rpc: vi.fn(),
+    getList: vi.fn(),
+    create: vi.fn(),
+  }));
 
 vi.mock("./supabase", () => ({
   getSupabaseClient: () => ({
@@ -37,6 +40,8 @@ describe("signInboxAttachmentUrl (Story 10.3 review fix F-B)", () => {
     upload.mockReset();
     remove.mockReset().mockResolvedValue({ error: null });
     rpc.mockReset().mockResolvedValue({ data: 7, error: null });
+    getList.mockReset();
+    create.mockReset();
   });
 
   it("signs the given path with the short, minted-per-click TTL and returns the signed URL", async () => {
@@ -99,7 +104,6 @@ describe("signInboxAttachmentUrl (Story 10.3 review fix F-B)", () => {
       path: "7/inbox/family-secret.pdf",
       src: "https://signed.example/family-secret.pdf",
     };
-    const create = vi.fn();
     const baseDataProvider = { create } as unknown as DataProvider;
 
     download.mockResolvedValueOnce({
@@ -141,5 +145,69 @@ describe("signInboxAttachmentUrl (Story 10.3 review fix F-B)", () => {
         targetId: 42,
       }),
     ).rejects.toThrow("Failed to save the captured attachment");
+  });
+
+  it("copies pictures as private_parent with a deterministic retry key", async () => {
+    const picture = {
+      title: "family-photo.jpg",
+      type: "image/jpeg",
+      path: "7/inbox/family-photo.jpg",
+      src: "https://signed.example/family-photo.jpg",
+    };
+    const copied = {
+      id: 91,
+      account_id: 7,
+      target_type: "shidduch",
+      target_id: 42,
+      storage_path: "",
+      file_name: picture.title,
+      mime_type: picture.type,
+      size_bytes: 4,
+      visibility: "private_parent",
+      created_at: "2026-01-01T00:00:00Z",
+    };
+    const baseDataProvider = {
+      getList,
+      create,
+    } as unknown as DataProvider;
+    let existing: typeof copied | undefined;
+    getList.mockImplementation(async () => ({
+      data: existing ? [existing] : [],
+      total: existing ? 1 : 0,
+    }));
+    create.mockImplementation(async (_resource, params) => {
+      existing = {
+        ...copied,
+        storage_path: (params as { data: { storage_path: string } }).data
+          .storage_path,
+      };
+      return { data: existing };
+    });
+    download.mockResolvedValue({ data: new Blob(["bytes"]), error: null });
+    upload.mockResolvedValue({ error: null });
+
+    const first = await copyInboxAttachmentsToEntityFiles({
+      baseDataProvider,
+      attachments: [picture],
+      targetType: "shidduch",
+      targetId: 42,
+      visibility: "private_parent",
+      sourceInboxItemId: 44,
+    });
+    const second = await copyInboxAttachmentsToEntityFiles({
+      baseDataProvider,
+      attachments: [picture],
+      targetType: "shidduch",
+      targetId: 42,
+      visibility: "private_parent",
+      sourceInboxItemId: 44,
+    });
+
+    expect(first[0].visibility).toBe("private_parent");
+    expect(second[0].visibility).toBe("private_parent");
+    expect(first[0].storage_path).toBe(second[0].storage_path);
+    expect(first[0].visibility).not.toBe("shared");
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(upload).toHaveBeenCalledTimes(1);
   });
 });

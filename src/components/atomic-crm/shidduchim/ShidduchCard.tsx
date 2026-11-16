@@ -12,6 +12,7 @@ import { getAvatarIndex, getMonogram } from "../entity360/avatar";
 import { RecordLink } from "../entity360/RecordLink";
 import { formatRedtDate } from "./boardUtils";
 import { ClockIcon } from "./ClockIcon";
+import { getTransientSuggestionName } from "./transientSuggestionDisplay";
 
 /** The calm recognition glyph on the "Suggested before" catch chip (E3). */
 const SparkleIcon = () => (
@@ -61,7 +62,14 @@ export const ShidduchCardContent = ({
   shidduch: ShidduchSummary;
   tourAnchor?: boolean;
 }) => {
-  const name = shidduch.name_en ?? shidduch.single_first_name_en ?? "Unnamed";
+  // Preserve the established name -> single-name -> empty-state chain. A
+  // just-created resume suggestion may add a process-local page/card label at
+  // the final fallback only; it is never persisted or sent to a notification.
+  const name =
+    shidduch.name_en ??
+    shidduch.single_first_name_en ??
+    getTransientSuggestionName(shidduch.id) ??
+    "Unnamed";
   const monogram = getMonogram(shidduch.name_en);
   const avatarIndex = getAvatarIndex(shidduch.name_en ?? String(shidduch.id));
   const meta = [shidduch.location_en, shidduch.seminary_en]

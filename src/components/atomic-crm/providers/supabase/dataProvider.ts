@@ -81,6 +81,7 @@ import {
   attachInboxAttachmentToResumeFile as attachInboxAttachmentToResumeFileImpl,
   copyInboxAttachmentToResumeFile as copyInboxAttachmentToResumeFileImpl,
   removeResumeFileObjects as removeResumeFileObjectsImpl,
+  removeResumeFileObjectsOrThrow as removeResumeFileObjectsOrThrowImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
   uploadResumeFile as uploadResumeFileImpl,
 } from "./resumes";
@@ -102,6 +103,14 @@ import type {
 } from "./resumePhotos";
 import { buildResumeStorageCleanupCallbacks } from "./resumeStorageCleanup";
 import { getSupabaseClient } from "./supabase";
+import {
+  deleteOwnedInboxResume,
+  deleteOwnedInboxShidduch,
+  updateInboxItemResolution,
+  type OwnedResumeDeleteParams,
+  type OwnedShidduchDeleteParams,
+  type InboxResolutionUpdateParams,
+} from "./inboxResolution";
 import {
   getAnalyticsSummary,
   getCounterMetrics,
@@ -1297,6 +1306,21 @@ export const getDataProviderWithCustomMethods = () => {
     ): Promise<EntityFile[]> {
       return copyInboxAttachmentsToEntityFilesImpl(params);
     },
+    async updateInboxItemResolution(
+      params: InboxResolutionUpdateParams,
+    ): Promise<InboxItem | null> {
+      return updateInboxItemResolution(params);
+    },
+    async deleteOwnedInboxResume(
+      params: OwnedResumeDeleteParams,
+    ): Promise<boolean> {
+      return deleteOwnedInboxResume(params);
+    },
+    async deleteOwnedInboxShidduch(
+      params: OwnedShidduchDeleteParams,
+    ): Promise<boolean> {
+      return deleteOwnedInboxShidduch(params);
+    },
     /** Delete/queue the Inbox row in one server transaction, then make a
      * best-effort pass over the durable Storage purge queue. A Storage error
      * never turns a committed row delete into a false failure. */
@@ -1353,6 +1377,9 @@ export const getDataProviderWithCustomMethods = () => {
     },
     async removeResumeFileObjects(paths: string[]): Promise<void> {
       return removeResumeFileObjectsImpl(paths);
+    },
+    async removeResumeFileObjectsStrict(paths: string[]): Promise<void> {
+      return removeResumeFileObjectsOrThrowImpl(paths);
     },
     async signResumeFileUrl(params: SignResumeFileUrlParams): Promise<string> {
       return signResumeFileUrlImpl(params);

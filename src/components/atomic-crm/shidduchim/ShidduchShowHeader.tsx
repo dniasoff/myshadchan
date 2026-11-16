@@ -5,6 +5,7 @@ import { StateChip } from "../misc/StateChip";
 import type { ShidduchSummary } from "../types";
 import { ClockIcon } from "./ClockIcon";
 import { formatRedtDate } from "./boardUtils";
+import { getTransientSuggestionName } from "./transientSuggestionDisplay";
 
 /** Format an ISO timestamp (e.g. first_suggested_at) as "9 Jul 2026". */
 const formatSuggestedAt = (iso: string): string => {
@@ -29,7 +30,11 @@ export const ShidduchShowHeader = ({
    * against the shadchanim list it already fetches for the redt history). */
   firstSuggestedByName?: string | null;
 }) => {
-  const name = shidduch.name_en ?? shidduch.single_first_name_en ?? "Shidduch";
+  const name =
+    shidduch.name_en ??
+    shidduch.single_first_name_en ??
+    getTransientSuggestionName(shidduch.id) ??
+    "Shidduch";
   const meta = [shidduch.location_en, shidduch.seminary_en]
     .filter(Boolean)
     .join(" · ");

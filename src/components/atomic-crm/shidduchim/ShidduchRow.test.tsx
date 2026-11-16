@@ -8,6 +8,7 @@ import "./entityDescriptor";
 import { buildRecordPath } from "../entity360/entityPaths";
 import type { ShidduchSummary } from "../types";
 import { ShidduchRow } from "./ShidduchRow";
+import { rememberTransientSuggestionName } from "./transientSuggestionDisplay";
 
 const buildShidduch = (
   overrides: Partial<ShidduchSummary> = {},
@@ -107,5 +108,29 @@ describe("ShidduchRow — RecordLink mention, Move as a sibling (AC-12)", () => 
     await expect
       .element(screen.getByText("Suggested before"))
       .not.toBeInTheDocument();
+  });
+
+  it("keeps the established single-name fallback when name_en is NULL", async () => {
+    const { screen } = await renderRow({
+      name_en: null,
+      single_first_name_en: "Malka E2E",
+    });
+
+    await expect.element(screen.getByText("Malka E2E")).toBeInTheDocument();
+  });
+
+  it("uses the transient filename label only after established fallbacks", async () => {
+    rememberTransientSuggestionName(43, "resume.pdf");
+    const { screen } = await renderRow({ id: 43, name_en: null });
+
+    await expect
+      .element(screen.getByText("New suggestion (from resume.pdf)"))
+      .toBeInTheDocument();
+  });
+
+  it("keeps the previous Unnamed empty-state text when no fallback exists", async () => {
+    const { screen } = await renderRow({ name_en: null });
+
+    await expect.element(screen.getByText("Unnamed")).toBeInTheDocument();
   });
 });

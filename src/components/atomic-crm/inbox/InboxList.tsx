@@ -24,6 +24,10 @@ import { AddToInboxDialog } from "./AddToInboxDialog";
 import { INBOX_DELETE_UNDO_MS, canDeleteInboxItem } from "./inboxDelete";
 import { InboxDeleteDialog } from "./InboxDeleteDialog";
 import { InboxResolveDialog } from "./InboxResolveDialog";
+import {
+  InboxResumeActionButtons,
+  type InboxResumeAction,
+} from "./InboxResumeActions";
 import { NeedsReviewDialog } from "./NeedsReviewDialog";
 import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
 
@@ -41,11 +45,17 @@ const InboxCard = ({
   item,
   ctaLabel,
   onOpen,
+  onFileAction,
+  showFileActions,
+  canUseFileActions,
   onDelete,
 }: {
   item: InboxItem;
   ctaLabel: string;
   onOpen: (item: InboxItem) => void;
+  onFileAction: (item: InboxItem, action: InboxResumeAction) => void;
+  showFileActions: boolean;
+  canUseFileActions: boolean;
   onDelete: (item: InboxItem, trigger: HTMLButtonElement) => void;
 }) => {
   const meta = INBOX_SOURCE_META[item.source];
@@ -107,13 +117,23 @@ const InboxCard = ({
         ) : null}
       </button>
       <div className="flex flex-col gap-2 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <button
-          type="button"
-          onClick={() => onOpen(item)}
-          className="text-start text-sm font-medium text-primary outline-none focus-visible:underline"
-        >
-          {ctaLabel}
-        </button>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {showFileActions ? (
+            <InboxResumeActionButtons
+              item={item}
+              enabled={canUseFileActions && item.status === "unresolved"}
+              onChoose={(action) => onFileAction(item, action)}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => onOpen(item)}
+              className="text-start text-sm font-medium text-primary outline-none focus-visible:underline"
+            >
+              {ctaLabel}
+            </button>
+          )}
+        </div>
         {canDeleteInboxItem(item) ? (
           <Button
             type="button"
@@ -193,7 +213,10 @@ const InboxContent = () => {
   const activeTab = readActiveTab(searchParams);
 
   const [addOpen, setAddOpen] = useState(false);
-  const [resolving, setResolving] = useState<InboxItem | null>(null);
+  const [resolving, setResolving] = useState<{
+    item: InboxItem;
+    action: InboxResumeAction;
+  } | null>(null);
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<InboxItem | null>(
     null,
@@ -211,6 +234,12 @@ const InboxContent = () => {
   const deleteTrigger = useRef<HTMLButtonElement | null>(null);
   const inboxHeading = useRef<HTMLHeadingElement | null>(null);
   const [deleteClock, setDeleteClock] = useState(() => Date.now());
+  const { role, isPending: isRolePending } = useViewerRole();
+  const canUseFileActions =
+    !isRolePending && (role === "parent_admin" || role === "self_manager");
+
+  const openResolve = (item: InboxItem, action: InboxResumeAction = "attach") =>
+    setResolving({ item, action });
 
   useEffect(() => {
     try {
@@ -488,7 +517,10 @@ const InboxContent = () => {
                   key={item.id}
                   item={item}
                   ctaLabel="Confirm the details →"
-                  onOpen={setResolving}
+                  onOpen={(nextItem) => openResolve(nextItem)}
+                  onFileAction={openResolve}
+                  showFileActions={canUseFileActions}
+                  canUseFileActions={canUseFileActions}
                   onDelete={handleDeleteRequested}
                 />
               ))}
@@ -518,6 +550,12 @@ const InboxContent = () => {
                     _: "Review this sender →",
                   })}
                   onOpen={setReviewing}
+                  onFileAction={openResolve}
+                  // Held mail must keep its Trust/Discard review CTA visible;
+                  // the resume actions only appear after the sender is
+                  // released into the working inbox.
+                  showFileActions={false}
+                  canUseFileActions={false}
                   onDelete={handleDeleteRequested}
                 />
               ))}
@@ -529,7 +567,9 @@ const InboxContent = () => {
       <AddToInboxDialog open={addOpen} onClose={() => setAddOpen(false)} />
       {resolving ? (
         <InboxResolveDialog
-          item={resolving}
+          item={resolving.item}
+          initialAction={resolving.action}
+          fileActionsEnabled={canUseFileActions}
           open={!!resolving}
           onClose={() => setResolving(null)}
         />

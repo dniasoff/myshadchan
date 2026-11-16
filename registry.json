@@ -228,6 +228,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/transientSuggestionDisplay.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/shidduchAge.ts",
           "type": "registry:component"
         },
@@ -920,6 +924,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/supabase/inboxResolution.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/supabase/inboxAttachments.ts",
           "type": "registry:component"
         },
@@ -1609,6 +1617,10 @@
         },
         {
           "path": "src/components/atomic-crm/inbox/LinkToShidduchSearch.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/inbox/InboxResumeActions.tsx",
           "type": "registry:component"
         },
         {
