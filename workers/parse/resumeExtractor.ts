@@ -3,7 +3,11 @@ import {
   GEMINI_RESUME_RESPONSE_SCHEMA,
 } from "./geminiResponseSchema";
 import { DocxExtractionError, extractDocxText } from "./docxExtractor";
-import { logExtractorAttempt, logExtractorFailure } from "./rereadDiagnostics";
+import {
+  type ExtractorFallbackReason,
+  logExtractorAttempt,
+  logExtractorFailure,
+} from "./rereadDiagnostics";
 
 export const DOCX_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -32,7 +36,7 @@ export type ParseEnv = {
   GOOGLE_AI_STUDIO_API_KEY: string;
   /** Optional model override; invalid values fall back to the default. */
   GEMINI_MODEL?: string;
-  /** Optional one-shot fallback after primary transient exhaustion. */
+  /** Optional one-shot fallback after primary transient exhaustion or 404. */
   GEMINI_FALLBACK_MODEL?: string;
   /** Optional integer string: -1 or 0..24576; unset sends no thinking config. */
   GEMINI_THINKING_BUDGET?: string;
@@ -306,6 +310,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         responseSchema: typeof GEMINI_RESUME_RESPONSE_SCHEMA,
         attempt: number,
         budget: ProviderRequestBudget,
+        fallbackReason?: ExtractorFallbackReason,
       ): Promise<unknown> => {
         const requestStartedAt = Date.now();
         const remainingMs = deadline - requestStartedAt;
@@ -317,7 +322,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
           GEMINI_EXTRACT_TIMEOUT_MS,
           remainingMs,
         );
-        logExtractorAttempt(model, attempt);
+        logExtractorAttempt(model, attempt, fallbackReason);
         const baseUrl = `https://gateway.ai.cloudflare.com/v1/${env.AI_GATEWAY_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/google-ai-studio/v1beta/models/${model}:generateContent`;
         let httpStatus: number | undefined;
         let finishReason: unknown;
@@ -424,6 +429,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         responseSchema: typeof GEMINI_RESUME_RESPONSE_SCHEMA,
         maxAttempts: number,
         budget: ProviderRequestBudget,
+        fallbackReason?: ExtractorFallbackReason,
       ): Promise<unknown> => {
         let lastError: unknown;
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -435,6 +441,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
               responseSchema,
               attempt,
               budget,
+              fallbackReason,
             );
           } catch (error) {
             lastError = error;
@@ -459,6 +466,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         budget: ProviderRequestBudget,
         maxAttempts = GEMINI_RETRY_MAX_ATTEMPTS,
         allowLegacyRecovery = true,
+        fallbackReason?: ExtractorFallbackReason,
       ): Promise<unknown> => {
         try {
           return await requestWithRetries(
@@ -467,6 +475,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             GEMINI_RESUME_RESPONSE_SCHEMA,
             maxAttempts,
             budget,
+            fallbackReason,
           );
         } catch (error) {
           if (
@@ -485,6 +494,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA,
             1,
             budget,
+            fallbackReason,
           );
         }
       };
@@ -508,14 +518,17 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
       try {
         return await runModel(primaryModel, primaryBudget);
       } catch (error) {
-        if (!(error instanceof ExtractorProviderBusyError)) {
-          // A later permanent provider response does not erase an earlier
-          // timeout. The permanent status remains in its attempt diagnostic,
-          // while the user gets the retryable timeout outcome.
-          if (sawTimeout) throw timeoutFailure();
-          throw error;
-        }
-        if (fallbackModel && fallbackModel !== primaryModel) {
+        const fallbackReason: ExtractorFallbackReason | undefined =
+          error instanceof ExtractorProviderBusyError
+            ? "transient_exhausted"
+            : error instanceof ExtractorProviderError && error.status === 404
+              ? "model_not_found"
+              : undefined;
+        if (
+          fallbackReason !== undefined &&
+          fallbackModel &&
+          fallbackModel !== primaryModel
+        ) {
           const fallbackBudget: ProviderRequestBudget = {
             max: GEMINI_FALLBACK_MAX_PROVIDER_REQUESTS,
             used: 0,
@@ -524,11 +537,24 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             // The fallback is a single bounded rescue attempt, not a second
             // full retry or legacy-recovery sequence. It shares the primary's
             // overall deadline.
-            return await runModel(fallbackModel, fallbackBudget, 1, false);
+            return await runModel(
+              fallbackModel,
+              fallbackBudget,
+              1,
+              false,
+              fallbackReason,
+            );
           } catch (fallbackError) {
             if (sawTimeout) throw timeoutFailure();
             throw fallbackError;
           }
+        }
+        if (!(error instanceof ExtractorProviderBusyError)) {
+          // A later permanent provider response does not erase an earlier
+          // timeout. The permanent status remains in its attempt diagnostic,
+          // while the user gets the retryable timeout outcome.
+          if (sawTimeout) throw timeoutFailure();
+          throw error;
         }
         if (sawTimeout) throw timeoutFailure();
         throw error;

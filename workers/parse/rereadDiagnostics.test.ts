@@ -96,6 +96,26 @@ describe("re-read diagnostics", () => {
       model: "unknown",
       attempt: 0,
     });
+    expect(
+      buildExtractorAttemptLog("gemini-3.6-flash", 1, "model_not_found"),
+    ).toEqual({
+      model: "gemini-3.6-flash",
+      attempt: 1,
+      fallbackReason: "model_not_found",
+    });
+    expect(
+      buildExtractorAttemptLog("gemini-3.6-flash", 1, "transient_exhausted"),
+    ).toEqual({
+      model: "gemini-3.6-flash",
+      attempt: 1,
+      fallbackReason: "transient_exhausted",
+    });
+    expect(
+      buildExtractorAttemptLog("gemini-3.6-flash", 1, "private detail"),
+    ).toEqual({
+      model: "gemini-3.6-flash",
+      attempt: 1,
+    });
   });
 
   it("logs only the sanitized payloads", () => {

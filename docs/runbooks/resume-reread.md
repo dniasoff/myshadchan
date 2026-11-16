@@ -14,8 +14,10 @@ and per-attempt timeouts, with bounded jittered backoff. A later success is
 still one ledger unit. Exhaustion returns the static busy outcome; if any
 attempt timed out, the existing timeout outcome wins even if a later attempt
 returns a permanent 4xx or another transient error; that later status remains
-in the privacy-safe diagnostics. The fallback model is used only after
-transient exhaustion, never after a permanent primary response. The primary
+in the privacy-safe diagnostics. The fallback model is used after transient
+exhaustion or a primary HTTP 404 (model not found/unsupported), but never after
+primary HTTP 400/401/403. Each fallback attempt logs only the static
+`fallbackReason` enum (`transient_exhausted` or `model_not_found`). The primary
 has at most 3 provider requests total, including its one legacy JSON-recovery
 request; the fallback has at most 1 provider request and no recovery, so one
 read can make at most 4 provider requests. When enough budget remains to start
@@ -50,7 +52,7 @@ steady-state path.
 
 Model ids must match `gemini-[a-z0-9.-]{1,60}`; invalid values are ignored and
 logged with a static configuration marker. `GEMINI_FALLBACK_MODEL` is unset by
-default and is tried once only after the primary exhausts transient attempts.
+default and is tried once only after transient exhaustion or a primary 404.
 `GEMINI_THINKING_BUDGET` accepts `-1` or an integer from `0` through `24576`.
 Unset or `-1` sends no thinking configuration. A set budget is sent only for
 model ids containing `flash`; other model ids ignore it. Keep these vars out of
