@@ -216,7 +216,7 @@ describe("ResumeVersionList — signed URL minted per click, never cached (AC 5)
 });
 
 describe("ResumeVersionList — unread read mode", () => {
-  it("uses the full read for an unread resume and keeps re-read for a read resume", async () => {
+  it("uses the full read for an unread resume and the easy-to-read action for a read resume", async () => {
     const version = buildVersion();
     const readResume = vi.fn().mockResolvedValue("completed");
     const reReadResume = vi.fn().mockResolvedValue("completed");
@@ -239,16 +239,17 @@ describe("ResumeVersionList — unread read mode", () => {
     await expect
       .element(
         unread.screen.getByRole("button", {
-          name: "Read this resume",
+          name: "Make it easy to read",
           exact: true,
         }),
       )
       .toBeInTheDocument();
     await unread.screen
-      .getByRole("button", { name: "Read this resume", exact: true })
+      .getByRole("button", { name: "Make it easy to read", exact: true })
       .click();
     await unread.screen
-      .getByRole("button", { name: "Read", exact: true })
+      .getByRole("button", { name: "Make it easy to read", exact: true })
+      .last()
       .click();
     await expect.poll(() => readResume.mock.calls.length).toBe(1);
     expect(readResume).toHaveBeenCalledWith(
@@ -284,24 +285,23 @@ describe("ResumeVersionList — unread read mode", () => {
     await expect
       .element(
         alreadyRead.screen.getByRole("button", {
-          name: "Re-read this resume",
+          name: "Make it easy to read",
           exact: true,
         }),
       )
       .toBeInTheDocument();
-    await expect
-      .element(
-        alreadyRead.screen.getByRole("button", {
-          name: "Read this resume",
-          exact: true,
-        }),
-      )
-      .not.toBeInTheDocument();
+    expect(
+      alreadyRead.screen
+        .getByRole("button", { name: "Make it easy to read", exact: true })
+        .all(),
+    ).toHaveLength(1);
     await alreadyRead.screen
-      .getByRole("button", { name: "Re-read this resume", exact: true })
+      .getByRole("button", { name: "Make it easy to read", exact: true })
+      .last()
       .click();
     await alreadyRead.screen
-      .getByRole("button", { name: "Re-read", exact: true })
+      .getByRole("button", { name: "Make it easy to read", exact: true })
+      .last()
       .click();
     await expect.poll(() => reReadResume.mock.calls.length).toBe(1);
     expect(reReadResume).toHaveBeenCalledWith(

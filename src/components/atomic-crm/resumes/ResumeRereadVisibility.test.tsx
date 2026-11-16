@@ -82,14 +82,14 @@ async function renderForRole(
   return { screen, reReadResume };
 }
 
-describe("Resume re-read role gate", () => {
+describe("Resume easy-to-read role gate", () => {
   it.each(["single", "undefined", "pending"] as const)(
-    "%s sees no re-read control and cannot call the mutation",
+    "%s sees no easy-to-read control and cannot call the mutation",
     async (role) => {
       const { screen, reReadResume } = await renderForRole(role);
       await expect.element(screen.getByText("demo.pdf")).toBeVisible();
       await expect
-        .element(screen.getByRole("button", { name: "Re-read this resume" }))
+        .element(screen.getByRole("button", { name: "Make it easy to read" }))
         .not.toBeInTheDocument();
       expect(reReadResume).not.toHaveBeenCalled();
     },
@@ -103,12 +103,12 @@ describe("Resume re-read role gate", () => {
         .element(screen.getByRole("button", { name: "Download", exact: true }))
         .toBeVisible();
       await expect
-        .element(screen.getByRole("button", { name: "Re-read this resume" }))
+        .element(screen.getByRole("button", { name: "Make it easy to read" }))
         .toBeVisible();
     },
   );
 
-  it("offers re-read only on the newest row that the route reads", async () => {
+  it("offers easy-to-read only on the newest row that the route reads", async () => {
     const older = {
       ...version,
       path: "1/resumes/1/older.pdf",
@@ -127,17 +127,20 @@ describe("Resume re-read role gate", () => {
     ]);
 
     const rereadButtons = screen.getByRole("button", {
-      name: "Re-read this resume",
+      name: "Make it easy to read",
     });
     await expect.element(rereadButtons.first()).toBeVisible();
     expect(rereadButtons.all()).toHaveLength(1);
     const olderRow = screen.getByText("older.pdf").element().closest("li");
     const newestRow = screen.getByText("newest.pdf").element().closest("li");
-    expect(olderRow?.textContent).not.toContain("Re-read this resume");
-    expect(newestRow?.textContent).toContain("Re-read this resume");
+    expect(olderRow?.textContent).not.toContain("Make it easy to read");
+    expect(newestRow?.textContent).toContain("Make it easy to read");
 
-    await screen.getByRole("button", { name: "Re-read this resume" }).click();
-    await screen.getByRole("button", { name: "Re-read" }).click();
+    await screen.getByRole("button", { name: "Make it easy to read" }).click();
+    await screen
+      .getByRole("button", { name: "Make it easy to read" })
+      .last()
+      .click();
     expect(reReadResume).toHaveBeenCalledWith(
       expect.objectContaining({ resumeId: 77 }),
     );
@@ -158,7 +161,7 @@ describe("Resume re-read role gate", () => {
       .element(screen.getByText("This file type cannot be read automatically."))
       .toBeVisible();
     await expect
-      .element(screen.getByRole("button", { name: /read this resume/i }))
+      .element(screen.getByRole("button", { name: /make it easy to read/i }))
       .not.toBeInTheDocument();
     expect(reReadResume).not.toHaveBeenCalled();
   });

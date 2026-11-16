@@ -13,6 +13,7 @@ import {
 } from "./rereadRoute";
 import { makeExtract, TEST_ENV } from "./parseTestFixtures";
 import { RESUME_UNREAD_PARITY_FIXTURES } from "./resumeUnreadFixtures";
+import { ExtractorTimeoutError } from "./resumeExtractor";
 
 vi.mock("./rereadQuota", () => ({
   applyResumeRead: vi.fn(),
@@ -560,6 +561,36 @@ describe("re-read route", () => {
     });
     expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
     expect(apply).not.toHaveBeenCalled();
+  });
+
+  it("returns a static timeout code while releasing the reservation", async () => {
+    const { caller, service } = makeClients();
+    const extractor = {
+      extract: vi.fn(async () => {
+        throw new ExtractorTimeoutError(60_000);
+      }),
+    };
+
+    const result = await rereadResume(
+      { resume_id: 22, request_id: requestId },
+      {
+        caller: caller as never,
+        service: service as never,
+        extractor,
+        env: TEST_ENV,
+        userId: AUTH_USER_ID,
+      },
+    );
+
+    expect(result).toEqual({
+      status: 422,
+      body: {
+        success: false,
+        error: REREAD_FAILURE_MESSAGE,
+        meta: { code: "timeout" },
+      },
+    });
+    expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
   });
 
   it.each(["metadata", "download", "arrayBuffer", "cas"] as const)(

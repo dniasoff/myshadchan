@@ -419,8 +419,8 @@ export function ResumeReadableSections({
             />
             <div>
               <p className="font-medium">
-                This resume has not been read yet. Read it to fill in the
-                details.
+                This resume is not easy to read yet. Tap "Make it easy to read"
+                to fill in the details.
               </p>
               {isAutomaticallyReadableResume(newestFile) ? (
                 <Button
@@ -430,7 +430,9 @@ export function ResumeReadableSections({
                   disabled={isReading}
                   onClick={() => void readResume(resume.id, newestFile)}
                 >
-                  {isReading ? "Reading…" : "Read this resume"}
+                  {isReading
+                    ? "Making it easy to read…"
+                    : "Make it easy to read"}
                 </Button>
               ) : (
                 <p className="mt-1 text-muted-foreground">

@@ -87,7 +87,8 @@ export function ResumeUpload({
       </p>
       {autoRead ? (
         <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-          Attaching a resume reads it and uses 1 of your monthly reads.
+          Attaching a resume also makes it easy to read and uses 1 of your
+          monthly reads.
         </p>
       ) : null}
       {feedback ? (

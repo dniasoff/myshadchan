@@ -79,6 +79,9 @@ export function useResumeAutoRead(): {
         } else if (outcome === "not_entitled") {
           unresolvedResumeReadAttempts.delete(attemptKey);
           setFeedback("not_entitled");
+        } else if (outcome === "timeout") {
+          unresolvedResumeReadAttempts.delete(attemptKey);
+          setFeedback("timeout");
         } else if (outcome === "stale_file") {
           unresolvedResumeReadAttempts.delete(attemptKey);
           setFeedback("stale_file");

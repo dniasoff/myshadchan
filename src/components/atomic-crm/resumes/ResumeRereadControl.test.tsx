@@ -94,6 +94,15 @@ describe("ResumeRereadControl", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps the approved easy-to-read user-visible vocabulary", () => {
+    const copy = JSON.stringify(REREAD_COPY);
+    expect(copy).not.toContain("Re-read");
+    expect(copy).not.toContain("Read this resume");
+    expect(REREAD_COPY.trigger).toBe("Make it easy to read");
+    expect(REREAD_COPY.confirm).toBe("Make it easy to read");
+    expect(REREAD_COPY.readConfirm).toBe("Make it easy to read");
+  });
+
   it("requires confirmation, shows the reading state, disables the control, and refreshes on success", async () => {
     let resolve: ((outcome: "completed") => void) | undefined;
     const reReadResume = vi.fn().mockReturnValue(
@@ -115,15 +124,18 @@ describe("ResumeRereadControl", () => {
       .element(screen.getByRole("button", { name: REREAD_COPY.cancel }))
       .toBeVisible();
     await expect
-      .element(screen.getByRole("button", { name: REREAD_COPY.confirm }))
+      .element(screen.getByRole("button", { name: REREAD_COPY.confirm }).last())
       .toBeVisible();
 
-    await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();
+    await screen
+      .getByRole("button", { name: REREAD_COPY.confirm })
+      .last()
+      .click();
     await expect
       .poll(() => openPanelStatus()?.textContent)
       .toBe(REREAD_COPY.reading);
     await expect
-      .element(screen.getByRole("button", { name: REREAD_COPY.confirm }))
+      .element(screen.getByRole("button", { name: REREAD_COPY.confirm }).last())
       .toBeDisabled();
     expect(
       screen.container.querySelectorAll("button[disabled]").length,
@@ -149,6 +161,7 @@ describe("ResumeRereadControl", () => {
 
   it.each([
     ["failed", REREAD_COPY.failed],
+    ["timeout", REREAD_COPY.timeout],
     ["no_allowance", REREAD_COPY.noAllowance],
     ["not_entitled", REREAD_COPY.notEntitled],
     ["already_reading", REREAD_COPY.failed],
@@ -156,20 +169,24 @@ describe("ResumeRereadControl", () => {
     const reReadResume = vi.fn().mockResolvedValue(outcome);
     const ids = {
       failed: 31,
+      timeout: 35,
       no_allowance: 32,
       not_entitled: 33,
       already_reading: 34,
     };
     const { screen } = await renderControl(reReadResume, ids[outcome]);
     await screen.getByRole("button", { name: REREAD_COPY.trigger }).click();
-    await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();
+    await screen
+      .getByRole("button", { name: REREAD_COPY.confirm })
+      .last()
+      .click();
     await expect.poll(() => openPanelStatus()?.textContent).toBe(copy);
     await expect
       .element(screen.getByText("private server detail must not reach the UI"))
       .not.toBeInTheDocument();
   });
 
-  it("reuses the same idempotency key when Re-read is retried in the same confirmation", async () => {
+  it("reuses the same idempotency key when easy-to-read is retried in the same confirmation", async () => {
     const reReadResume = vi
       .fn()
       .mockResolvedValueOnce("failed")
@@ -177,11 +194,17 @@ describe("ResumeRereadControl", () => {
       .mockResolvedValueOnce("failed");
     const { screen } = await renderControl(reReadResume, 34);
     await screen.getByRole("button", { name: REREAD_COPY.trigger }).click();
-    await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();
+    await screen
+      .getByRole("button", { name: REREAD_COPY.confirm })
+      .last()
+      .click();
     await expect
       .poll(() => openPanelStatus()?.textContent)
       .toBe(REREAD_COPY.failed);
-    await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();
+    await screen
+      .getByRole("button", { name: REREAD_COPY.confirm })
+      .last()
+      .click();
     await expect
       .poll(
         () =>
@@ -195,7 +218,10 @@ describe("ResumeRereadControl", () => {
     );
 
     await screen.getByRole("button", { name: REREAD_COPY.trigger }).click();
-    await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();
+    await screen
+      .getByRole("button", { name: REREAD_COPY.confirm })
+      .last()
+      .click();
     await expect
       .poll(() => openPanelStatus()?.textContent)
       .toBe(REREAD_COPY.failed);
@@ -219,12 +245,14 @@ describe("ResumeRereadControl", () => {
       .click();
     await screen
       .getByRole("button", { name: REREAD_COPY.readConfirm, exact: true })
+      .last()
       .click();
     await expect
       .poll(() => openPanelStatus()?.textContent)
       .toBe(REREAD_COPY.failed);
     await screen
       .getByRole("button", { name: REREAD_COPY.readConfirm, exact: true })
+      .last()
       .click();
     await expect
       .poll(
@@ -259,6 +287,7 @@ describe("ResumeRereadControl", () => {
       .click();
     await screen
       .getByRole("button", { name: REREAD_COPY.readConfirm, exact: true })
+      .last()
       .click();
 
     await expect
@@ -289,7 +318,10 @@ describe("ResumeRereadControl", () => {
     const { screen } = await renderControl(reReadResume, 36);
 
     await screen.getByRole("button", { name: REREAD_COPY.trigger }).click();
-    await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();
+    await screen
+      .getByRole("button", { name: REREAD_COPY.confirm })
+      .last()
+      .click();
     await expect
       .poll(() => openPanelStatus()?.textContent)
       .toBe(REREAD_COPY.reading);
@@ -298,7 +330,10 @@ describe("ResumeRereadControl", () => {
     await expect
       .poll(() => openPanelStatus()?.textContent)
       .toBe(REREAD_COPY.failed);
-    await screen.getByRole("button", { name: REREAD_COPY.confirm }).click();
+    await screen
+      .getByRole("button", { name: REREAD_COPY.confirm })
+      .last()
+      .click();
     expect(reReadResume).toHaveBeenCalledTimes(2);
     expect(reReadResume.mock.calls[1][0].requestId).toBe(
       reReadResume.mock.calls[0][0].requestId,
@@ -326,6 +361,7 @@ describe("ResumeRereadControl", () => {
       .click();
     await first.screen
       .getByRole("button", { name: REREAD_COPY.confirm })
+      .last()
       .click();
     unmountScreen(first.screen);
     await Promise.resolve();
@@ -337,6 +373,7 @@ describe("ResumeRereadControl", () => {
       .click();
     await second.screen
       .getByRole("button", { name: REREAD_COPY.confirm })
+      .last()
       .click();
     await expect
       .poll(() => openPanelStatus()?.textContent)
