@@ -16,6 +16,29 @@ export type InboxAttachmentPurge = {
 /** The approved time in which an Inbox deletion can be undone. */
 export const INBOX_DELETE_UNDO_MS = 10_000;
 
+const INBOX_ATTACHMENT_UUID_V4 =
+  "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&");
+
+/**
+ * G1 — browser uploads: `{account}/inbox/{item}/{uuid-v4}{extension}`.
+ * G2 — email ingest: `{account}/{uuid-v4}{extension}`. The worker preserves
+ * extension case and accepts one to ten ASCII letters/digits, or no extension.
+ * Retired/unknown path shapes fail closed rather than guessing ownership.
+ */
+const inboxAttachmentPathRegex = (accountId: Identifier) => {
+  const account = escapeRegExp(String(accountId));
+  const extension = "(?:\\.[A-Za-z0-9]{1,10})?";
+  return [
+    new RegExp(
+      `^${account}/inbox/[0-9]+/${INBOX_ATTACHMENT_UUID_V4}${extension}$`,
+    ),
+    new RegExp(`^${account}/${INBOX_ATTACHMENT_UUID_V4}${extension}$`),
+  ];
+};
+
 /** The only object-key shape the Inbox purge client is allowed to pass to
  * Storage. The server is authoritative; this is a second bucket/path guard
  * so a malformed queue row can never turn into a broad cleanup request. */
@@ -32,15 +55,18 @@ export function isInboxAttachmentPurgePath(
   if (hasControlCharacter || path.includes("\\")) {
     return false;
   }
-  const prefix = `${accountId}/inbox/`;
-  if (!path.startsWith(prefix)) return false;
-  const segments = path.slice(prefix.length).split("/");
+  return inboxAttachmentPathRegex(accountId).some((regex) => regex.test(path));
+}
+
+export function isInboxAttachmentOwnedByItem(
+  path: unknown,
+  accountId: Identifier,
+  itemId: Identifier,
+): path is string {
+  if (!isInboxAttachmentPurgePath(path, accountId)) return false;
   return (
-    segments.length >= 2 &&
-    /^\d+$/.test(segments[0]) &&
-    segments.every(
-      (segment) => segment.length > 0 && segment !== "." && segment !== "..",
-    )
+    path.startsWith(`${accountId}/inbox/${itemId}/`) ||
+    !path.startsWith(`${accountId}/inbox/`)
   );
 }
 
@@ -86,7 +112,6 @@ export function getRemovableInboxAttachmentPaths(
   accountId: Identifier,
   otherItems: Array<Pick<InboxItem, "id" | "attachments">>,
 ): string[] {
-  const prefix = `${accountId}/inbox/${item.id}/`;
   const sharedPaths = new Set(
     otherItems.flatMap(
       (otherItem) =>
@@ -99,20 +124,8 @@ export function getRemovableInboxAttachmentPaths(
 
   for (const attachment of item.attachments ?? []) {
     const path = attachment.path;
-    const relativePath =
-      typeof path === "string" && path.startsWith(prefix)
-        ? path.slice(prefix.length)
-        : "";
-    const safeRelativePath =
-      relativePath.length > 0 &&
-      relativePath
-        .split("/")
-        .every(
-          (segment) => segment !== "" && segment !== "." && segment !== "..",
-        );
     if (
-      typeof path === "string" &&
-      safeRelativePath &&
+      isInboxAttachmentOwnedByItem(path, accountId, item.id) &&
       !sharedPaths.has(path)
     ) {
       paths.add(path);

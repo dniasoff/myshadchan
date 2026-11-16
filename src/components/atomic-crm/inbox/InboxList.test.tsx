@@ -142,6 +142,7 @@ describe("InboxList — delete and undo", () => {
       .element(screen.getByText("A working-inbox suggestion"))
       .not.toBeInTheDocument();
     await expect.element(screen.getByText("Item deleted.")).toBeInTheDocument();
+    await expect.poll(() => document.activeElement?.id).toBe("inbox-heading");
 
     await screen.getByRole("button", { name: "Undo" }).click();
 
@@ -152,6 +153,25 @@ describe("InboxList — delete and undo", () => {
       .element(screen.getByText("Item restored."))
       .toBeInTheDocument();
     expect(deleteInboxItem).not.toHaveBeenCalled();
+  });
+
+  it("keeps Undo cancelled after the full 10-second window has elapsed", async () => {
+    const { screen, deleteInboxItem } = await renderInboxList([
+      UNRESOLVED_ITEM,
+    ]);
+    vi.useFakeTimers();
+
+    await screen
+      .getByRole("button", { name: "Delete A working-inbox suggestion" })
+      .click();
+    await screen.getByRole("button", { name: "Delete", exact: true }).click();
+    await screen.getByRole("button", { name: "Undo" }).click();
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(deleteInboxItem).not.toHaveBeenCalled();
+    await expect
+      .element(screen.getByText("A working-inbox suggestion"))
+      .toBeInTheDocument();
   });
 
   it("does not finalize before 10 seconds and finalizes exactly once at expiry", async () => {
@@ -194,13 +214,10 @@ describe("InboxList — delete and undo", () => {
     await expect
       .element(
         screen.getByText(
-          "Could not delete automatically. The item is still here.",
+          "Could not delete. Nothing was changed. The item and its files stay in the Inbox.",
         ),
       )
       .toBeInTheDocument();
-    await expect
-      .element(screen.getByText("Nothing was changed."))
-      .not.toBeInTheDocument();
   });
 
   it("finalizes a held item after its own 10-second window", async () => {

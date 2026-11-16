@@ -49,7 +49,7 @@ values (
 )
 returning id as item_private \gset
 update public.inbox_items
-set attachments = jsonb_build_array(jsonb_build_object('path', :account_a::text || '/inbox/' || :item_private::text || '/private.pdf'))
+set attachments = jsonb_build_array(jsonb_build_object('path', :account_a::text || '/inbox/' || :item_private::text || '/11111111-1111-4111-8111-111111111111.pdf'))
 where id = :item_private;
 insert into public.inbox_items (account_id, source, status, attachments)
 values (
@@ -93,13 +93,13 @@ insert into public.inbox_items (account_id, source, status, attachments)
 values (:account_a, 'upload', 'unresolved', null)
 returning id as item_shared_one \gset
 update public.inbox_items
-set attachments = jsonb_build_array(jsonb_build_object('path', :account_a::text || '/inbox/' || :item_shared_one::text || '/shared.pdf'))
+set attachments = jsonb_build_array(jsonb_build_object('path', :account_a::text || '/inbox/' || :item_shared_one::text || '/22222222-2222-4222-8222-222222222222.pdf'))
 where id = :item_shared_one;
 insert into public.inbox_items (account_id, source, status, attachments)
 values (:account_a, 'upload', 'unresolved', null)
 returning id as item_shared_two \gset
 update public.inbox_items
-set attachments = jsonb_build_array(jsonb_build_object('path', :account_a::text || '/inbox/' || :item_shared_one::text || '/shared.pdf'))
+set attachments = jsonb_build_array(jsonb_build_object('path', :account_a::text || '/inbox/' || :item_shared_one::text || '/22222222-2222-4222-8222-222222222222.pdf'))
 where id = :item_shared_two;
 
 insert into public.inbox_items (account_id, source, status, attachments)
@@ -196,6 +196,80 @@ select pg_temp.expect_delete_error('encoded separator path is refused', :item_en
 select pg_temp.expect_delete_error('double-encoded path is refused', :item_double_encoded, 'This item cannot be deleted automatically.');
 select pg_temp.expect_delete_error('control-character path is refused', :item_control, 'This item cannot be deleted automatically.');
 
+-- G2 is the live email-ingest grammar: account + lowercase UUID v4 + the
+-- worker's optional case-preserving ten-character extension.
+insert into public.inbox_items (account_id, source, status, attachments)
+values (:account_a, 'email', 'unresolved', jsonb_build_array(jsonb_build_object(
+  'path', :account_a::text || '/33333333-3333-4333-8333-333333333333.PDF'
+))) returning id as item_ingest_private \gset
+insert into public.inbox_items (account_id, source, status, attachments)
+values (:account_a, 'email', 'unresolved', jsonb_build_array(jsonb_build_object(
+  'path', :account_a::text || '/44444444-4444-4444-8444-444444444444.1234567890'
+))) returning id as item_ingest_shared_one \gset
+insert into public.inbox_items (account_id, source, status, attachments)
+values (:account_a, 'email', 'unresolved', jsonb_build_array(jsonb_build_object(
+  'path', :account_a::text || '/44444444-4444-4444-8444-444444444444.1234567890'
+))) returning id as item_ingest_shared_two \gset
+
+select public.delete_inbox_item(:item_ingest_private) as ingest_deleted_count \gset
+set local role service_role;
+insert into results
+select 'email-ingest G2 object is deleted and queued',
+       :'ingest_deleted_count'::integer = 1
+       and not exists (select 1 from public.inbox_items where id = :item_ingest_private)
+       and exists (
+         select 1 from public.inbox_attachment_purge
+         where account_id = :account_a
+           and storage_path = :account_a::text || '/33333333-3333-4333-8333-333333333333.PDF'
+       ),
+       null;
+set local role authenticated;
+select public.ack_inbox_attachment_purge(array[
+  :'account_a'::text || '/33333333-3333-4333-8333-333333333333.PDF'
+]);
+
+select public.delete_inbox_item(:item_ingest_shared_one) as ingest_shared_deleted_count \gset
+set local role service_role;
+insert into results
+select 'shared email-ingest G2 object is preserved',
+       :'ingest_shared_deleted_count'::integer = 0
+       and not exists (select 1 from public.inbox_items where id = :item_ingest_shared_one)
+       and exists (select 1 from public.inbox_items where id = :item_ingest_shared_two)
+       and not exists (
+         select 1 from public.inbox_attachment_purge
+         where account_id = :account_a
+           and storage_path = :account_a::text || '/44444444-4444-4444-8444-444444444444.1234567890'
+       ),
+       null;
+set local role authenticated;
+
+insert into public.inbox_items (account_id, source, status, attachments)
+values (:account_a, 'email', 'unresolved', jsonb_build_array(jsonb_build_object(
+  'path', :account_b::text || '/77777777-7777-4777-8777-777777777777.pdf'
+))) returning id as item_ingest_wrong_account \gset
+select pg_temp.expect_delete_error('G2 wrong-account prefix is refused', :item_ingest_wrong_account, 'This item cannot be deleted automatically.');
+
+insert into public.inbox_items (account_id, source, status, attachments)
+values (:account_a, 'email', 'unresolved', jsonb_build_array(jsonb_build_object(
+  'path', :account_a::text || '/AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA.pdf'
+))) returning id as item_ingest_upper_uuid \gset
+insert into public.inbox_items (account_id, source, status, attachments)
+values (:account_a, 'email', 'unresolved', jsonb_build_array(jsonb_build_object(
+  'path', :account_a::text || '/55555555-5555-4555-8555-555555555555/extra.pdf'
+))) returning id as item_ingest_extra_segment \gset
+insert into public.inbox_items (account_id, source, status, attachments)
+values (:account_a, 'email', 'unresolved', jsonb_build_array(jsonb_build_object(
+  'path', :account_a::text || '/66666666-6666-4666-8666-666666666666.odd-extension-too-long'
+))) returning id as item_ingest_weird_extension \gset
+insert into public.inbox_items (account_id, source, status, attachments)
+values (:account_a, 'email', 'unresolved', jsonb_build_array(jsonb_build_object(
+  'path', :account_a::text || '/88888888-8888-4888-8888-888888888888%2ePDF'
+))) returning id as item_ingest_encoded \gset
+select pg_temp.expect_delete_error('G2 uppercase UUID is refused', :item_ingest_upper_uuid, 'This item cannot be deleted automatically.');
+select pg_temp.expect_delete_error('G2 extra segment is refused', :item_ingest_extra_segment, 'This item cannot be deleted automatically.');
+select pg_temp.expect_delete_error('G2 weird extension is refused', :item_ingest_weird_extension, 'This item cannot be deleted automatically.');
+select pg_temp.expect_delete_error('G2 encoded path is refused', :item_ingest_encoded, 'This item cannot be deleted automatically.');
+
 insert into results (name, passed, detail)
 select 'add_resume_file holds the source Inbox row with FOR SHARE',
        pg_get_functiondef('public.add_resume_file(text,text,text,bigint,bigint,bigint,bigint,text)'::regprocedure) ~* 'for share',
@@ -215,9 +289,13 @@ where id = :item_race;
 select pg_temp.delete_then_check_resolver_cas('delete-wins interleaving deletes exactly once and resolver CAS fails', :item_race);
 select pg_temp.expect_attach_source_missing('attach-after-delete fails at the source fence before a destination row', :item_race);
 
--- Shared-path scan and purge claim race. The second row is inserted after the
--- delete transaction's scan/queue step, so claim must drop the queue entry
--- without returning it for Storage deletion.
+-- Shared-path scan and purge claim recheck. The second row is inserted before
+-- claim runs, so claim must drop the queue entry without returning it for
+-- Storage deletion. App-minted paths always include their own Inbox item id,
+-- so a cross-row shared path is unreachable through supported writers. A true
+-- concurrent insert-after-claim fence is a follow-up trigger/interleaving
+-- concern, deliberately outside this PR; the claim recheck still protects
+-- every path referenced before the claim call.
 select public.delete_inbox_item(:item_shared_one) as shared_deleted_count \gset
 insert into results
 select 'shared path is preserved when another Inbox row references it',
@@ -234,7 +312,7 @@ select 'private path is queued after the row delete',
        null;
 
 insert into public.inbox_items (account_id, source, status, attachments)
-values (:account_a, 'upload', 'unresolved', jsonb_build_array(jsonb_build_object('path', :account_a::text || '/inbox/' || :item_private::text || '/private.pdf')))
+values (:account_a, 'upload', 'unresolved', jsonb_build_array(jsonb_build_object('path', :account_a::text || '/inbox/' || :item_private::text || '/11111111-1111-4111-8111-111111111111.pdf')))
 returning id as item_shared_after_delete \gset
 select count(*) as claim_count from public.claim_inbox_attachment_purge() \gset
 insert into results

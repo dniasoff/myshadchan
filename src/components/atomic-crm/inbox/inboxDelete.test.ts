@@ -36,10 +36,12 @@ describe("Inbox delete safety", () => {
   });
 
   it("removes only this item's private attachment paths and preserves shared paths", () => {
-    const privatePath = "7/inbox/42/private.pdf";
-    const sharedPath = "7/inbox/42/shared.pdf";
-    const otherItemPath = "7/inbox/99/other.pdf";
-    const unsafePath = "7/inbox/42/../entity-files/destination.pdf";
+    const privatePath = "7/inbox/42/11111111-1111-4111-8111-111111111111.pdf";
+    const sharedPath = "7/inbox/42/22222222-2222-4222-8222-222222222222.pdf";
+    const otherItemPath = "7/inbox/99/33333333-3333-4333-8333-333333333333.pdf";
+    const unsafePath =
+      "7/inbox/42/44444444-4444-4444-8444-444444444444/../destination.pdf";
+    const ingestPath = "7/55555555-5555-4555-8555-555555555555.1234567890";
 
     expect(
       getRemovableInboxAttachmentPaths(
@@ -50,6 +52,12 @@ describe("Inbox delete safety", () => {
               type: "application/pdf",
               path: privatePath,
               src: "private",
+            },
+            {
+              title: "email.pdf",
+              type: "application/pdf",
+              path: ingestPath,
+              src: "email",
             },
             {
               title: "shared.pdf",
@@ -92,19 +100,25 @@ describe("Inbox delete safety", () => {
           }),
         ],
       ),
-    ).toEqual([privatePath]);
+    ).toEqual([privatePath, ingestPath]);
   });
 
   it("rejects encoded traversal, separators, controls, and backslashes", () => {
-    const valid = "7/inbox/42/private.pdf";
-    expect(isInboxAttachmentPurgePath(valid, 7)).toBe(true);
+    const validG1 = "7/inbox/42/11111111-1111-4111-8111-111111111111.private";
+    const validG2 = "7/22222222-2222-4222-8222-222222222222.PDF";
+    expect(isInboxAttachmentPurgePath(validG1, 7)).toBe(true);
+    expect(isInboxAttachmentPurgePath(validG2, 7)).toBe(true);
     for (const unsafe of [
-      "7/inbox/42/%2e%2e/private.pdf",
-      "7/inbox/42/%2Fother.pdf",
-      "7/inbox/42/%5cother.pdf",
-      "7/inbox/42/%25path.pdf",
-      "7/inbox/42/line\nfeed.pdf",
-      "7/inbox/42/other\\file.pdf",
+      "7/inbox/42/11111111-1111-4111-8111-111111111111/%2e%2e/private.pdf",
+      "7/inbox/42/11111111-1111-4111-8111-111111111111%2Fother.pdf",
+      "7/inbox/42/11111111-1111-4111-8111-111111111111%5cother.pdf",
+      "7/inbox/42/11111111-1111-4111-8111-111111111111%25path.pdf",
+      "7/inbox/42/11111111-1111-4111-8111-111111111111/line\nfeed.pdf",
+      "7/inbox/42/11111111-1111-4111-8111-111111111111\\file.pdf",
+      "7/AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA.pdf",
+      "7/22222222-2222-4222-8222-222222222222/extra.pdf",
+      "7/22222222-2222-4222-8222-222222222222.weird-extension-too-long",
+      "8/22222222-2222-4222-8222-222222222222.pdf",
     ]) {
       expect(isInboxAttachmentPurgePath(unsafe, 7)).toBe(false);
     }

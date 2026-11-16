@@ -209,6 +209,7 @@ const InboxContent = () => {
   const finalizingDeletes = useRef(new Set<string>());
   const confirmingDelete = useRef(false);
   const deleteTrigger = useRef<HTMLButtonElement | null>(null);
+  const inboxHeading = useRef<HTMLHeadingElement | null>(null);
   const [deleteClock, setDeleteClock] = useState(() => Date.now());
 
   useEffect(() => {
@@ -280,7 +281,7 @@ const InboxContent = () => {
         error instanceof Error &&
         error.message === "This item cannot be deleted automatically."
           ? error.message
-          : "Could not delete automatically. The item is still here.";
+          : "Could not delete. Nothing was changed. The item and its files stay in the Inbox.";
       setNotice(message);
       notify(message, { type: "error" });
     } finally {
@@ -299,7 +300,10 @@ const InboxContent = () => {
     confirmingDelete.current = true;
     const item = deleteCandidate;
     const key = String(item.id);
-    closeDeleteDialog();
+    // The card is filtered out immediately below, so its Delete trigger is no
+    // longer a stable focus target after confirmation. Keep focus in the page
+    // on the persistent Inbox heading; Cancel still returns to its trigger.
+    closeDeleteDialog("heading");
     setNotice(null);
     setDeleteDeadlines((current) => {
       const next = new Map(current);
@@ -338,10 +342,18 @@ const InboxContent = () => {
     setDeleteCandidate(item);
   };
 
-  const closeDeleteDialog = () => {
+  const closeDeleteDialog = (
+    focusTarget: "trigger" | "heading" = "trigger",
+  ) => {
     confirmingDelete.current = false;
     setDeleteCandidate(null);
-    window.requestAnimationFrame(() => deleteTrigger.current?.focus());
+    window.requestAnimationFrame(() => {
+      if (focusTarget === "heading") {
+        inboxHeading.current?.focus();
+      } else {
+        deleteTrigger.current?.focus();
+      }
+    });
   };
 
   const isPendingDelete = (item: InboxItem) =>
@@ -371,7 +383,12 @@ const InboxContent = () => {
           <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             Capture
           </p>
-          <h1 className="font-display text-2xl font-bold tracking-tight">
+          <h1
+            ref={inboxHeading}
+            id="inbox-heading"
+            tabIndex={-1}
+            className="font-display text-2xl font-bold tracking-tight"
+          >
             Inbox
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">

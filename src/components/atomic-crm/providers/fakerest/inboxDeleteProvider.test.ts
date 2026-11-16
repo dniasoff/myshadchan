@@ -34,7 +34,7 @@ const makeProvider = (items: InboxItem[], configure?: (db: Db) => void) => {
 
 describe("FakeRest Inbox delete provider", () => {
   it("deletes atomically and preserves a path referenced by another Inbox row", async () => {
-    const sharedPath = "1/inbox/42/shared.pdf";
+    const sharedPath = "1/inbox/42/11111111-1111-4111-8111-111111111111.pdf";
     const provider = makeProvider([
       inboxItem(42, [
         {
@@ -130,7 +130,7 @@ describe("FakeRest Inbox delete provider", () => {
   });
 
   it("fails cleanly when an attachment is attached after the Inbox row was deleted", async () => {
-    const sourcePath = "1/inbox/42/resume.pdf";
+    const sourcePath = "1/inbox/42/22222222-2222-4222-8222-222222222222.pdf";
     const provider = makeProvider([
       inboxItem(42, [
         {
@@ -155,5 +155,64 @@ describe("FakeRest Inbox delete provider", () => {
       }),
     ).rejects.toThrow("Could not attach this file");
     await expect(provider.getOne("inbox_items", { id: 42 })).rejects.toThrow();
+  });
+
+  it("accepts email-ingest G2 paths and refuses lookalikes", async () => {
+    const validIngestPath = "1/33333333-3333-4333-8333-333333333333.1234567890";
+    const provider = makeProvider([
+      inboxItem(42, [
+        {
+          title: "email.pdf",
+          type: "application/pdf",
+          path: validIngestPath,
+          src: "email",
+        },
+      ]),
+    ]);
+
+    await expect(provider.deleteInboxItem(42)).resolves.toEqual({
+      purgePending: false,
+    });
+
+    const sharedIngestPath = "1/66666666-6666-4666-8666-666666666666.PDF";
+    const sharedProvider = makeProvider([
+      inboxItem(42, [
+        {
+          title: "shared",
+          type: "application/pdf",
+          path: sharedIngestPath,
+          src: "shared",
+        },
+      ]),
+      inboxItem(43, [
+        {
+          title: "shared",
+          type: "application/pdf",
+          path: sharedIngestPath,
+          src: "shared",
+        },
+      ]),
+    ]);
+    await expect(sharedProvider.deleteInboxItem(42)).resolves.toEqual({
+      purgePending: false,
+    });
+    await expect(
+      sharedProvider.getOne("inbox_items", { id: 43 }),
+    ).resolves.toMatchObject({
+      data: { id: 43 },
+    });
+
+    for (const path of [
+      "1/AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA.pdf",
+      "1/44444444-4444-4444-8444-444444444444/extra.pdf",
+      "1/55555555-5555-4555-8555-555555555555.odd-extension-too-long",
+    ]) {
+      const invalidProvider = makeProvider([
+        inboxItem(42, [{ title: "bad", type: "text/plain", path, src: "bad" }]),
+      ]);
+      await expect(invalidProvider.deleteInboxItem(42)).rejects.toThrow(
+        "This item cannot be deleted automatically.",
+      );
+    }
   });
 });

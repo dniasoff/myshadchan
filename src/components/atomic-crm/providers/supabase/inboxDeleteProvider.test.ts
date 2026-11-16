@@ -62,7 +62,9 @@ describe("Supabase Inbox delete provider", () => {
   });
 
   it("uses the atomic delete RPC, attachments bucket only, then acks successful paths", async () => {
-    configureSuccessfulDelete(["7/inbox/41/resume.pdf"]);
+    configureSuccessfulDelete([
+      "7/inbox/41/11111111-1111-4111-8111-111111111111.pdf",
+    ]);
     const provider = getDataProviderWithCustomMethods();
 
     await expect(provider.deleteInboxItem(41)).resolves.toEqual({
@@ -76,14 +78,19 @@ describe("Supabase Inbox delete provider", () => {
       "ack_inbox_attachment_purge",
     ]);
     expect(storageFrom).toHaveBeenCalledWith("attachments");
-    expect(remove).toHaveBeenCalledWith(["7/inbox/41/resume.pdf"]);
+    expect(remove).toHaveBeenCalledWith([
+      "7/inbox/41/11111111-1111-4111-8111-111111111111.pdf",
+    ]);
     expect(rpc).toHaveBeenCalledWith("ack_inbox_attachment_purge", {
-      p_paths: ["7/inbox/41/resume.pdf"],
+      p_paths: ["7/inbox/41/11111111-1111-4111-8111-111111111111.pdf"],
     });
   });
 
   it("leaves failed paths queued while a later drain can finish them", async () => {
-    const paths = ["7/inbox/41/first.pdf", "7/inbox/41/second.pdf"];
+    const paths = [
+      "7/inbox/41/22222222-2222-4222-8222-222222222222.pdf",
+      "7/inbox/41/33333333-3333-4333-8333-333333333333.pdf",
+    ];
     let pendingPaths = [...paths];
     rpc.mockImplementation((name: string, args?: { p_paths?: string[] }) => {
       if (name === "delete_inbox_item") {
@@ -124,21 +131,21 @@ describe("Supabase Inbox delete provider", () => {
       purgePending: true,
     });
     expect(rpc).toHaveBeenCalledWith("ack_inbox_attachment_purge", {
-      p_paths: ["7/inbox/41/first.pdf"],
+      p_paths: [paths[0]],
     });
     expect(remove).toHaveBeenCalledTimes(2);
-    expect(remove.mock.calls[1]).toEqual([["7/inbox/41/second.pdf"]]);
+    expect(remove.mock.calls[1]).toEqual([[paths[1]]]);
 
     remove.mockResolvedValue({ data: [], error: null });
     await expect(provider.drainInboxAttachmentPurge()).resolves.toEqual({
       purgePending: false,
     });
     expect(remove).toHaveBeenCalledTimes(3);
-    expect(remove.mock.calls[2]).toEqual([["7/inbox/41/second.pdf"]]);
+    expect(remove.mock.calls[2]).toEqual([[paths[1]]]);
   });
 
   it("treats a missing object as success and never touches destination buckets", async () => {
-    configureSuccessfulDelete(["7/inbox/41/photo.jpg"]);
+    configureSuccessfulDelete(["7/44444444-4444-4444-8444-444444444444.JPG"]);
     remove.mockResolvedValue({
       data: null,
       error: { statusCode: 404, message: "object not found" },
@@ -174,12 +181,16 @@ describe("Supabase Inbox delete provider", () => {
   });
 
   it("drains only the claim RPC result, preserving paths the server dequeued as shared", async () => {
-    configureSuccessfulDelete(["7/inbox/41/unique.pdf"]);
+    configureSuccessfulDelete([
+      "7/55555555-5555-4555-8555-555555555555.1234567890",
+    ]);
     const provider = getDataProviderWithCustomMethods();
 
     await expect(provider.drainInboxAttachmentPurge()).resolves.toEqual({
       purgePending: false,
     });
-    expect(remove).toHaveBeenCalledWith(["7/inbox/41/unique.pdf"]);
+    expect(remove).toHaveBeenCalledWith([
+      "7/55555555-5555-4555-8555-555555555555.1234567890",
+    ]);
   });
 });

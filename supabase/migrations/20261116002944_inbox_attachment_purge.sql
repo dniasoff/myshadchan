@@ -40,6 +40,33 @@ create policy "Inbox attachment purge queue scoped to account"
         and public.current_member_role() <> 'single'
     );
 
+set check_function_bodies = off;
+
+CREATE OR REPLACE FUNCTION "public"."account_has_domain_data"("p_account_id" bigint) RETURNS boolean
+    LANGUAGE "sql" STABLE
+    SET "search_path" TO ''
+    AS $function$
+  select
+       exists (select 1 from public.singles where account_id = p_account_id)
+    or exists (select 1 from public.shadchanim where account_id = p_account_id)
+    or exists (select 1 from public."references" where account_id = p_account_id)
+    or exists (select 1 from public.shidduchim where account_id = p_account_id)
+    or exists (select 1 from public.resumes where account_id = p_account_id)
+    or exists (select 1 from public.reference_links where account_id = p_account_id)
+    or exists (select 1 from public.date_records where account_id = p_account_id)
+    or exists (select 1 from public.redts where account_id = p_account_id)
+    or exists (select 1 from public.shidduch_education where account_id = p_account_id)
+    or exists (select 1 from public.shidduchim_external_links where account_id = p_account_id)
+    or exists (select 1 from public.interactions where account_id = p_account_id)
+    or exists (select 1 from public.identity_signals where account_id = p_account_id)
+    or exists (select 1 from public.inbox_items where account_id = p_account_id)
+    -- A queued Inbox object is a live cleanup obligation. Letting account
+    -- disposal cascade this row would orphan the Storage object permanently.
+    or exists (select 1 from public.inbox_attachment_purge where account_id = p_account_id)
+    or exists (select 1 from public.tasks where account_id = p_account_id)
+    or exists (select 1 from public.outbound_share_history where account_id = p_account_id);
+$function$;
+
 revoke all on table public.inbox_attachment_purge from anon, authenticated;
 grant select on table public.inbox_attachment_purge to authenticated;
 grant all on table public.inbox_attachment_purge to service_role;
@@ -89,14 +116,27 @@ begin
     raise exception 'This item cannot be deleted automatically.';
   end if;
 
+  -- Storage ownership grammars (also mirrored by the client/FakeRest guard):
+  -- G1 browser uploads are account/inbox/item/UUID-v4 plus an optional
+  -- one-to-ten-character ASCII alphanumeric extension; G2 email ingest is
+  -- account/UUID-v4 with the same extension rule. Both account prefixes must
+  -- equal this row's account. Retired or unknown shapes fail closed.
   if exists (
     select 1
     from jsonb_array_elements(coalesce(v_item.attachments, '[]'::jsonb)) as attachment(value)
     where jsonb_typeof(attachment.value) <> 'object'
        or attachment.value ->> 'path' is null
-       or attachment.value ->> 'path' !~ (
-         '^' || v_account_id::text || '/inbox/' || p_item_id::text
-         || '/[^/]+(/[^/]+)*$'
+       or (
+         attachment.value ->> 'path' !~ (
+           '^' || v_account_id::text || '/inbox/' || p_item_id::text
+           || '/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+           || '(\.[A-Za-z0-9]{1,10})?$'
+         )
+         and attachment.value ->> 'path' !~ (
+           '^' || v_account_id::text
+           || '/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+           || '(\.[A-Za-z0-9]{1,10})?$'
+         )
        )
        or attachment.value ->> 'path' ~* '%(2e|2f|5c|25)'
        or attachment.value ->> 'path' ~ '[[:cntrl:]]'
@@ -167,7 +207,11 @@ begin
 
   -- A path that has become referenced by another Inbox row is removed from
   -- the queue without touching Storage. The exact JSONB scan is intentionally
-  -- unbounded: this is the race-safe purge fence, not a paginated UI read.
+  -- unbounded: this is the purge recheck, not a paginated UI read. G1 browser
+  -- paths carry their Inbox item id and G2 ingest paths are random UUIDs, so
+  -- supported writers cannot create a cross-row shared path. A concurrent
+  -- insert after this recheck remains a follow-up trigger/interleaving concern;
+  -- this PR deliberately avoids adding a writer lock or trigger.
   delete from public.inbox_attachment_purge q
   where q.account_id = v_account_id
     and exists (
