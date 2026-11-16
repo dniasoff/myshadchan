@@ -96,7 +96,65 @@ type ResumeReadProgress = {
   resume_read_completed_file_path?: string;
   resume_read_pending_file_path?: string;
   resume_read_pending?: boolean;
+  resume_read_pre_content_fingerprint?: string;
+  resume_read_pre_had_content?: boolean;
 };
+
+const RESUME_READ_FIXED_FIELDS = [
+  "name_en",
+  "name_he",
+  "father_en",
+  "father_he",
+  "mother_en",
+  "mother_he",
+  "seminary_en",
+  "seminary_he",
+  "shul_en",
+  "shul_he",
+  "location_en",
+  "location_he",
+  "age",
+  "height",
+  "person_gender",
+  "kohen_status",
+  "marital_status",
+] as const;
+
+function canonicalResumeReadValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalResumeReadValue);
+  if (value == null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => [key, canonicalResumeReadValue(child)]),
+  );
+}
+
+function stableResumeReadFingerprint(value: unknown): string {
+  const canonical = JSON.stringify(canonicalResumeReadValue(value));
+  let hash = 2_166_136_261;
+  for (let index = 0; index < canonical.length; index += 1) {
+    hash ^= canonical.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function resumeReadContentFingerprint(
+  resume: Resume,
+  shidduch: Shidduch,
+): string {
+  // The Worker can fill both the resume JSON and empty shidduch fields. Keep
+  // this snapshot content-only: file identity and request ownership are
+  // tracked separately in the resolution stash.
+  return stableResumeReadFingerprint({
+    sections: resume.sections ?? null,
+    extracted: resume.extracted ?? null,
+    fields: Object.fromEntries(
+      RESUME_READ_FIXED_FIELDS.map((field) => [field, shidduch[field] ?? null]),
+    ),
+  });
+}
 
 function readPendingForFile(
   progress: ResumeReadProgress,
@@ -1065,6 +1123,8 @@ export function useResolveInboxItem() {
       resume_read_file_path?: string;
       resume_read_completed_file_path?: string;
       resume_read_pending_file_path?: string;
+      resume_read_pre_content_fingerprint?: string;
+      resume_read_pre_had_content?: boolean;
     };
     let resumeFromProvenance: Resume | undefined;
     if (action === "new" && !stashed.resolved_shidduchim_id) {
@@ -1360,6 +1420,14 @@ export function useResolveInboxItem() {
                 resume_read_file_path: preparation.file.path,
                 resume_read_pending_file_path: preparation.file.path,
                 resume_read_pending: true,
+                resume_read_pre_content_fingerprint:
+                  resumeReadContentFingerprint(
+                    preparation.resume,
+                    preparation.shidduch,
+                  ),
+                resume_read_pre_had_content: readHasCompleted(
+                  preparation.resume,
+                ),
               },
             },
             attemptId,
@@ -1375,9 +1443,12 @@ export function useResolveInboxItem() {
           ambiguousRead = true;
           // The Worker ledger is service-role-only in this deployment, so the
           // durable resume row is the client-visible reconciliation point. For
-          // this attempt, content is trusted only when the pending marker names
-          // this file and it is the newest file in the row; older parsed
-          // content must not satisfy a newly attached file.
+          // this attempt, content is trusted only when the pending marker
+          // names this file, it is the newest file in the row, and the
+          // pre-read content fingerprint changed (or an unread resume gained
+          // content). Older parsed content must not satisfy a newly attached
+          // file. A legitimate no-op read is settled by the same request's
+          // definite replay on retry.
           const { data: reconciledResume } = await dataProvider
             .getOne<Resume>("resumes", {
               id: preparation.resume.id,
@@ -1391,11 +1462,32 @@ export function useResolveInboxItem() {
           const pendingSelectedFile =
             currentInput != null &&
             readPendingForFile(currentInput, preparation.file.path);
+          const { data: reconciledShidduch } = await dataProvider
+            .getOne<Shidduch>("shidduchim", { id: preparation.shidduch.id })
+            .catch(() => ({ data: undefined }));
+          const reconciledContentFingerprint =
+            reconciledResume && reconciledShidduch
+              ? resumeReadContentFingerprint(
+                  reconciledResume,
+                  reconciledShidduch,
+                )
+              : undefined;
+          const preReadContentFingerprint =
+            currentInput?.resume_read_pre_content_fingerprint;
+          const contentChanged =
+            preReadContentFingerprint != null &&
+            reconciledContentFingerprint != null &&
+            reconciledContentFingerprint !== preReadContentFingerprint;
+          const unreadResumeGainedContent =
+            currentInput?.resume_read_pre_had_content === false &&
+            reconciledResume != null &&
+            readHasCompleted(reconciledResume);
           if (
             reconciledResume &&
             pendingSelectedFile &&
             isNewestResumeFile(reconciledResume, preparation.file) &&
-            readHasCompleted(reconciledResume)
+            readHasCompleted(reconciledResume) &&
+            (contentChanged || unreadResumeGainedContent)
           ) {
             preparation = {
               ...preparation,
