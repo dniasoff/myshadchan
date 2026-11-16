@@ -75,12 +75,20 @@ const buildResume = (overrides: Partial<Resume> = {}): Resume =>
     ...overrides,
   }) as Resume;
 
+type ReadOutcome =
+  | "completed"
+  | "empty"
+  | "no_allowance"
+  | "failed"
+  | "ambiguous"
+  | "already_reading";
+
 type ResumeProviderOptions = {
-  readOutcome?: "completed" | "empty" | "no_allowance" | "failed" | "ambiguous";
-  readOutcomeSequence?: Array<
-    "completed" | "empty" | "no_allowance" | "failed" | "ambiguous"
-  >;
+  readOutcome?: ReadOutcome;
+  readOutcomeSequence?: ReadOutcome[];
   commitReadBeforeAmbiguousResponse?: boolean;
+  commitReadOnCompletedResponse?: boolean;
+  editSuggestionOnAmbiguous?: Partial<Shidduch>;
   applyEmptyReadState?: boolean;
   initialItem?: InboxItem;
   initialResume?: Resume;
@@ -98,6 +106,8 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
     : [];
   const readOutcome = options.readOutcome ?? "completed";
   let readCalls = 0;
+  let readCharges = 0;
+  const chargedRequestIds = new Set<string>();
   const removeResumeFileObjects =
     options.removeResumeFileObjects ?? vi.fn().mockResolvedValue(undefined);
   const removeResumeFileObjectsStrict =
@@ -229,17 +239,31 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
     getList,
     createShidduch,
     attachInboxAttachmentToResumeFile,
-    readResume: vi.fn(async () => {
+    readResume: vi.fn(async (params: { requestId: string }) => {
       const outcome = options.readOutcomeSequence?.[readCalls] ?? readOutcome;
       readCalls += 1;
-      if (
-        outcome === "ambiguous" &&
-        options.commitReadBeforeAmbiguousResponse
-      ) {
+      const requestWasCharged = chargedRequestIds.has(params.requestId);
+      const shouldCommit =
+        (outcome === "ambiguous" &&
+          options.commitReadBeforeAmbiguousResponse) ||
+        (outcome === "completed" &&
+          options.commitReadOnCompletedResponse &&
+          !requestWasCharged);
+      if (outcome === "ambiguous" && options.editSuggestionOnAmbiguous) {
+        suggestion = buildSuggestion({
+          ...suggestion,
+          ...options.editSuggestionOnAmbiguous,
+        });
+      }
+      if (shouldCommit) {
         const resume = resumes[0];
         if (resume) {
           resume.sections = { schemaVersion: 4 };
           resume.extracted = { fields: { name_en: "Committed" } };
+        }
+        if (!requestWasCharged) {
+          chargedRequestIds.add(params.requestId);
+          readCharges += 1;
         }
       }
       if (outcome === "empty" && options.applyEmptyReadState) {
@@ -270,6 +294,7 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
     getCurrentItem: () => currentItem,
     resumes,
     createShidduch,
+    getReadCharges: () => readCharges,
   };
 };
 
@@ -425,7 +450,7 @@ describe("resume-first Inbox resolution", () => {
     expect(readResume).toHaveBeenCalledTimes(1);
   });
 
-  it("reconciles an ambiguous read against the newly selected file, not old resume content", async () => {
+  it("replays an ambiguous read for the newly selected file", async () => {
     const newAttachment = {
       title: "new-resume.pdf",
       type: "application/pdf",
@@ -449,15 +474,16 @@ describe("resume-first Inbox resolution", () => {
       sections: { learningHistory: [{ school: "Already parsed" }] },
       extracted: { fields: { name_en: "Existing person" } },
     });
-    const { screen, dataProvider, getCurrentItem } = await renderProbe(
-      item,
-      {
-        initialResume,
-        readOutcome: "ambiguous",
-        commitReadBeforeAmbiguousResponse: true,
-      },
-      "attach",
-    );
+    const { screen, dataProvider, getCurrentItem, getReadCharges } =
+      await renderProbe(
+        item,
+        {
+          initialResume,
+          readOutcomeSequence: ["ambiguous", "completed"],
+          commitReadBeforeAmbiguousResponse: true,
+        },
+        "attach",
+      );
 
     await screen.getByRole("button", { name: "resolve resume" }).click();
     await expect
@@ -465,20 +491,25 @@ describe("resume-first Inbox resolution", () => {
       .toBeInTheDocument();
 
     const readResume = dataProvider.readResume as ReturnType<typeof vi.fn>;
-    expect(readResume).toHaveBeenCalledOnce();
+    expect(readResume).toHaveBeenCalledTimes(2);
     expect(readResume.mock.calls[0]?.[0]).toMatchObject({
       fileIdentity: "1/resumes/99/new-resume.pdf",
       mode: "fill_empty",
     });
+    expect(readResume.mock.calls[1]?.[0].requestId).toBe(
+      readResume.mock.calls[0]?.[0].requestId,
+    );
+    expect(getReadCharges()).toBe(1);
     expect(getCurrentItem().status).toBe("resolved");
   });
 
-  it("reconciles a committed read after a lost response and never compensates it", async () => {
+  it("replays a committed read after a lost response without a second charge", async () => {
     const item = buildItem();
-    const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
-      readOutcome: "ambiguous",
-      commitReadBeforeAmbiguousResponse: true,
-    });
+    const { screen, dataProvider, getCurrentItem, getReadCharges } =
+      await renderProbe(item, {
+        readOutcomeSequence: ["ambiguous", "completed"],
+        commitReadBeforeAmbiguousResponse: true,
+      });
 
     await screen.getByRole("button", { name: "resolve resume" }).click();
     await expect
@@ -487,10 +518,11 @@ describe("resume-first Inbox resolution", () => {
 
     expect(dataProvider.removeResumeFileObjects).not.toHaveBeenCalled();
     expect(dataProvider.delete).not.toHaveBeenCalled();
+    expect(getReadCharges()).toBe(1);
     expect(getCurrentItem()).toMatchObject({ status: "resolved" });
   });
 
-  it("does not trust old parsed content after an ambiguous new-file read, then retries the same request", async () => {
+  it("keeps a parsed existing resume pending after two ambiguous new-file reads", async () => {
     const newAttachment = {
       title: "new-resume.pdf",
       type: "application/pdf",
@@ -514,14 +546,16 @@ describe("resume-first Inbox resolution", () => {
       sections: { learningHistory: [{ school: "Already parsed" }] },
       extracted: { fields: { name_en: "Existing person" } },
     });
-    const { screen, dataProvider, getCurrentItem } = await renderProbe(
-      item,
-      {
-        initialResume,
-        readOutcomeSequence: ["ambiguous", "completed"],
-      },
-      "attach",
-    );
+    const { screen, dataProvider, getCurrentItem, getReadCharges } =
+      await renderProbe(
+        item,
+        {
+          initialResume,
+          readOutcomeSequence: ["ambiguous", "ambiguous", "completed"],
+          commitReadOnCompletedResponse: true,
+        },
+        "attach",
+      );
 
     await screen.getByRole("button", { name: "resolve resume" }).click();
     await expect
@@ -536,17 +570,19 @@ describe("resume-first Inbox resolution", () => {
       resolution_input: {
         resume_read_request_id: firstRequestId,
         resume_read_pending: true,
-        resume_read_pre_content_fingerprint: expect.stringMatching(/^fnv1a:/),
-        resume_read_pre_had_content: true,
       },
     });
+    expect(readResume).toHaveBeenCalledTimes(2);
+    expect(readResume.mock.calls[1]?.[0].requestId).toBe(firstRequestId);
+    expect(getReadCharges()).toBe(0);
 
     await screen.getByRole("button", { name: "resolve resume" }).click();
     await expect
       .element(screen.getByText("result:completed:99:true"))
       .toBeInTheDocument();
-    expect(readResume).toHaveBeenCalledTimes(2);
-    expect(readResume.mock.calls[1]?.[0].requestId).toBe(firstRequestId);
+    expect(readResume).toHaveBeenCalledTimes(3);
+    expect(readResume.mock.calls[2]?.[0].requestId).toBe(firstRequestId);
+    expect(getReadCharges()).toBe(1);
     expect(getCurrentItem().status).toBe("resolved");
   });
 
@@ -573,14 +609,63 @@ describe("resume-first Inbox resolution", () => {
     });
     expect(dataProvider.removeResumeFileObjects).not.toHaveBeenCalled();
     expect(dataProvider.delete).not.toHaveBeenCalled();
+    expect(readResume).toHaveBeenCalledTimes(2);
 
     await screen.getByRole("button", { name: "resolve resume" }).click();
     await expect
       .element(screen.getByText("result:ambiguous:none:true"))
       .toBeInTheDocument();
+    expect(readResume).toHaveBeenCalledTimes(4);
+    expect(readResume.mock.calls[3]?.[0].requestId).toBe(firstRequestId);
+    expect(getCurrentItem().status).toBe("resolving");
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:ambiguous:none:true"))
+      .toBeInTheDocument();
+    expect(readResume).toHaveBeenCalledTimes(6);
+    expect(readResume.mock.calls[5]?.[0].requestId).toBe(firstRequestId);
+    expect(getCurrentItem().status).toBe("resolving");
+  });
+
+  it("does not finalize from a concurrent fixed-field edit after an ambiguous read", async () => {
+    const item = buildItem();
+    const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
+      readOutcomeSequence: ["ambiguous", "ambiguous"],
+      editSuggestionOnAmbiguous: { name_en: "Edited by parent" },
+    });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:ambiguous:none:true"))
+      .toBeInTheDocument();
+
+    expect(dataProvider.readResume).toHaveBeenCalledTimes(2);
+    expect(getCurrentItem()).toMatchObject({ status: "resolving" });
+  });
+
+  it("keeps the lock pending when the Worker reports already_reading", async () => {
+    const item = buildItem();
+    const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
+      readOutcomeSequence: ["ambiguous", "already_reading"],
+    });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:ambiguous:none:true"))
+      .toBeInTheDocument();
+
+    const readResume = dataProvider.readResume as ReturnType<typeof vi.fn>;
+    const firstRequestId = readResume.mock.calls[0]?.[0].requestId;
     expect(readResume).toHaveBeenCalledTimes(2);
     expect(readResume.mock.calls[1]?.[0].requestId).toBe(firstRequestId);
-    expect(getCurrentItem().status).toBe("resolving");
+    expect(getCurrentItem()).toMatchObject({
+      status: "resolving",
+      resolution_input: {
+        resume_read_request_id: firstRequestId,
+        resume_read_pending: true,
+      },
+    });
   });
 
   it("takes over an aged pending read with a new attempt while reusing its request id", async () => {

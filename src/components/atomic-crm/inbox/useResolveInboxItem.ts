@@ -96,65 +96,7 @@ type ResumeReadProgress = {
   resume_read_completed_file_path?: string;
   resume_read_pending_file_path?: string;
   resume_read_pending?: boolean;
-  resume_read_pre_content_fingerprint?: string;
-  resume_read_pre_had_content?: boolean;
 };
-
-const RESUME_READ_FIXED_FIELDS = [
-  "name_en",
-  "name_he",
-  "father_en",
-  "father_he",
-  "mother_en",
-  "mother_he",
-  "seminary_en",
-  "seminary_he",
-  "shul_en",
-  "shul_he",
-  "location_en",
-  "location_he",
-  "age",
-  "height",
-  "person_gender",
-  "kohen_status",
-  "marital_status",
-] as const;
-
-function canonicalResumeReadValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalResumeReadValue);
-  if (value == null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, child]) => [key, canonicalResumeReadValue(child)]),
-  );
-}
-
-function stableResumeReadFingerprint(value: unknown): string {
-  const canonical = JSON.stringify(canonicalResumeReadValue(value));
-  let hash = 2_166_136_261;
-  for (let index = 0; index < canonical.length; index += 1) {
-    hash ^= canonical.charCodeAt(index);
-    hash = Math.imul(hash, 16_777_619);
-  }
-  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, "0")}`;
-}
-
-function resumeReadContentFingerprint(
-  resume: Resume,
-  shidduch: Shidduch,
-): string {
-  // The Worker can fill both the resume JSON and empty shidduch fields. Keep
-  // this snapshot content-only: file identity and request ownership are
-  // tracked separately in the resolution stash.
-  return stableResumeReadFingerprint({
-    sections: resume.sections ?? null,
-    extracted: resume.extracted ?? null,
-    fields: Object.fromEntries(
-      RESUME_READ_FIXED_FIELDS.map((field) => [field, shidduch[field] ?? null]),
-    ),
-  });
-}
 
 function readPendingForFile(
   progress: ResumeReadProgress,
@@ -177,33 +119,6 @@ function readCompletedForFile(
   // completed-file identity is written before finalization, so a duplicate
   // retry skips the read only when that exact identity is present here.
   return false;
-}
-
-function isNewestResumeFile(
-  resume: Resume,
-  selectedFile: ResumeFileVersion,
-): boolean {
-  const files = resume.files ?? [];
-  if (files.length === 0) return false;
-  let newest = files[0];
-  for (const candidate of files.slice(1)) {
-    const newestTimestamp = Date.parse(newest.uploaded_at);
-    const candidateTimestamp = Date.parse(candidate.uploaded_at);
-    if (
-      candidateTimestamp >= newestTimestamp ||
-      (!Number.isFinite(newestTimestamp) && Number.isFinite(candidateTimestamp))
-    ) {
-      newest = candidate;
-    }
-  }
-  return newest.path === selectedFile.path;
-}
-
-function readHasCompleted(resume: Resume): boolean {
-  // A committed Worker read is durable even when its response was lost, but
-  // the schema marker alone is not content: the Worker writes it for a
-  // definite empty response too.
-  return hasResumeContent(resume);
 }
 
 function attachmentExtension(title: string): string {
@@ -624,8 +539,8 @@ export function useResolveInboxItem() {
         unresolvedResumeReadAttempts.delete(attemptKey);
       }
       // A Worker 409 means its ledger still owns the request. Treat it like a
-      // transport ambiguity in this flow: never compensate a suggestion while
-      // the same idempotent request may still be applying.
+      // transport ambiguity in this flow so the caller keeps the lock and
+      // retries the same idempotent request without compensation.
       return outcome === "already_reading" ? "ambiguous" : outcome;
     } catch {
       return "ambiguous";
@@ -1123,8 +1038,6 @@ export function useResolveInboxItem() {
       resume_read_file_path?: string;
       resume_read_completed_file_path?: string;
       resume_read_pending_file_path?: string;
-      resume_read_pre_content_fingerprint?: string;
-      resume_read_pre_had_content?: boolean;
     };
     let resumeFromProvenance: Resume | undefined;
     if (action === "new" && !stashed.resolved_shidduchim_id) {
@@ -1420,14 +1333,6 @@ export function useResolveInboxItem() {
                 resume_read_file_path: preparation.file.path,
                 resume_read_pending_file_path: preparation.file.path,
                 resume_read_pending: true,
-                resume_read_pre_content_fingerprint:
-                  resumeReadContentFingerprint(
-                    preparation.resume,
-                    preparation.shidduch,
-                  ),
-                resume_read_pre_had_content: readHasCompleted(
-                  preparation.resume,
-                ),
               },
             },
             attemptId,
@@ -1440,104 +1345,21 @@ export function useResolveInboxItem() {
           requestId,
         );
         if (outcome === "ambiguous") {
-          ambiguousRead = true;
-          // The Worker ledger is service-role-only in this deployment, so the
-          // durable resume row is the client-visible reconciliation point. For
-          // this attempt, content is trusted only when the pending marker
-          // names this file, it is the newest file in the row, and the
-          // pre-read content fingerprint changed (or an unread resume gained
-          // content). Older parsed content must not satisfy a newly attached
-          // file. A legitimate no-op read is settled by the same request's
-          // definite replay on retry.
-          const { data: reconciledResume } = await dataProvider
-            .getOne<Resume>("resumes", {
-              id: preparation.resume.id,
-            })
-            .catch(() => ({ data: undefined }));
-          const current = await getCurrentResolutionItem(item).catch(
-            () => undefined,
+          // A transport ambiguity has no client-visible commit marker. Reissue
+          // the exact request once in this action; the Worker ledger makes the
+          // replay free when the first call committed and performs the read
+          // once when it did not. A second ambiguity (including a 409
+          // already_reading mapped by readInboxResume) keeps the lock pending.
+          outcome = await readInboxResume(
+            preparation.resume,
+            preparation.file,
+            requestId,
           );
-          const currentInput = current?.resolution_input as
-            (ResumeReadProgress & { resume_read_pending?: boolean }) | null;
-          const pendingSelectedFile =
-            currentInput != null &&
-            readPendingForFile(currentInput, preparation.file.path);
-          const { data: reconciledShidduch } = await dataProvider
-            .getOne<Shidduch>("shidduchim", { id: preparation.shidduch.id })
-            .catch(() => ({ data: undefined }));
-          const reconciledContentFingerprint =
-            reconciledResume && reconciledShidduch
-              ? resumeReadContentFingerprint(
-                  reconciledResume,
-                  reconciledShidduch,
-                )
-              : undefined;
-          const preReadContentFingerprint =
-            currentInput?.resume_read_pre_content_fingerprint;
-          const contentChanged =
-            preReadContentFingerprint != null &&
-            reconciledContentFingerprint != null &&
-            reconciledContentFingerprint !== preReadContentFingerprint;
-          const unreadResumeGainedContent =
-            currentInput?.resume_read_pre_had_content === false &&
-            reconciledResume != null &&
-            readHasCompleted(reconciledResume);
-          if (
-            reconciledResume &&
-            pendingSelectedFile &&
-            isNewestResumeFile(reconciledResume, preparation.file) &&
-            readHasCompleted(reconciledResume) &&
-            (contentChanged || unreadResumeGainedContent)
-          ) {
-            preparation = {
-              ...preparation,
-              resume: reconciledResume,
-              file:
-                findResumeFile(
-                  reconciledResume,
-                  item.id,
-                  preparation.file.path,
-                ) ?? preparation.file,
-              readCompleted: true,
-            };
-            readSucceeded = true;
-            outcome = "completed";
-            if (current?.status === "resolving") {
-              await updateOwnedInboxResolution(
-                item,
-                {
-                  resolution_input: {
-                    ...(current.resolution_input ?? {}),
-                    read_completed: true,
-                    resume_read_file_path: preparation.file.path,
-                    resume_read_completed_file_path: preparation.file.path,
-                    resume_read_pending: false,
-                    resume_read_pending_file_path: undefined,
-                  },
-                },
-                attemptId,
-              );
-            }
-          } else {
-            const current = await getCurrentResolutionItem(item).catch(
-              () => undefined,
-            );
-            if (current?.status === "resolving") {
-              await updateOwnedInboxResolution(
-                item,
-                {
-                  resolution_input: {
-                    ...(current.resolution_input ?? {}),
-                    resume_read_request_id: requestId,
-                    resume_read_pending: true,
-                  },
-                },
-                attemptId,
-              ).catch(() => undefined);
-            }
-            // Keep the same lock, suggestion, resume and request id. The UI
-            // can retry this attempt; compensation is unsafe until the next
-            // reconciliation proves a definite failure.
+          if (outcome === "ambiguous" || outcome === "already_reading") {
+            ambiguousRead = true;
+            // The pending file and request id were stashed before the first
+            // call. Leave them untouched so the next user action retries the
+            // same idempotent Worker request.
             return {
               outcome: "ambiguous",
               shidduch: null,
