@@ -74,12 +74,15 @@ describe("outbound email deploy plumbing", () => {
 
   it("publishes parse model vars from wrangler.toml without a CI override", () => {
     expect(parseWranglerConfig).toContain(
-      'GEMINI_MODEL = "gemini-2.5-flash-lite"',
+      'GEMINI_MODEL = "gemini-3.5-flash-lite"',
     );
     expect(parseWranglerConfig).toContain(
       'GEMINI_FALLBACK_MODEL = "gemini-3.6-flash"',
     );
     expect(parseWranglerConfig).not.toContain("GEMINI_THINKING_BUDGET =");
+    expect(parseWranglerConfig).toContain(
+      'GEMINI_FALLBACK_THINKING_LEVEL = "low"',
+    );
     expect(uploadStep).toContain(
       "working-directory: workers/${{ matrix.worker }}",
     );
@@ -87,5 +90,6 @@ describe("outbound email deploy plumbing", () => {
     expect(uploadStep).not.toMatch(/--var[^\n]*GEMINI_/);
     expect(uploadStep).not.toContain("GEMINI_MODEL");
     expect(uploadStep).not.toContain("GEMINI_FALLBACK_MODEL");
+    expect(uploadStep).not.toContain("GEMINI_FALLBACK_THINKING_LEVEL");
   });
 });

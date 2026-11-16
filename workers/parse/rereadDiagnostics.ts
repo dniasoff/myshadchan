@@ -96,6 +96,7 @@ export type ExtractorFailureLogOptions = {
   durationMs: unknown;
   attempt?: unknown;
   statusClass?: unknown;
+  reason?: unknown;
   httpStatus?: unknown;
   finishReason?: unknown;
   usageMetadata?: unknown;
@@ -107,6 +108,7 @@ export type ExtractorFailureLog = {
   durationMs: number;
   attempt?: number;
   statusClass?: ExtractorStatusClass;
+  reason?: "bad_request";
   httpStatus?: number;
   finishReason?: GeminiFinishReason;
   promptTokenCount?: number;
@@ -130,6 +132,8 @@ export type ExtractorStatusClass =
 const EXTRACTOR_STATUS_CLASSES = new Set<string>(EXTRACTOR_STATUS_CLASS_VALUES);
 
 const GEMINI_MODEL_PATTERN = /^gemini-[a-z0-9.-]{1,60}$/;
+const EXTRACTOR_REASON_VALUES = ["bad_request"] as const;
+const EXTRACTOR_REASONS = new Set<string>(EXTRACTOR_REASON_VALUES);
 const EXTRACTOR_FALLBACK_REASON_VALUES = [
   "transient_exhausted",
   "model_not_found",
@@ -137,6 +141,20 @@ const EXTRACTOR_FALLBACK_REASON_VALUES = [
 
 export type ExtractorFallbackReason =
   (typeof EXTRACTOR_FALLBACK_REASON_VALUES)[number];
+
+const EXTRACTOR_THINKING_LEVEL_VALUES = [
+  "minimal",
+  "low",
+  "medium",
+  "high",
+] as const;
+
+export type ExtractorThinkingLevel =
+  (typeof EXTRACTOR_THINKING_LEVEL_VALUES)[number];
+
+const EXTRACTOR_THINKING_LEVELS = new Set<string>(
+  EXTRACTOR_THINKING_LEVEL_VALUES,
+);
 
 const EXTRACTOR_FALLBACK_REASONS = new Set<string>(
   EXTRACTOR_FALLBACK_REASON_VALUES,
@@ -174,6 +192,7 @@ export type ExtractorAttemptLog = {
   model: string;
   attempt: number;
   fallbackReason?: ExtractorFallbackReason;
+  thinkingLevel?: ExtractorThinkingLevel;
 };
 
 function safeModel(value: unknown): string {
@@ -194,6 +213,7 @@ export function buildExtractorAttemptLog(
   model: unknown,
   attempt: unknown,
   fallbackReason?: unknown,
+  thinkingLevel?: unknown,
 ): ExtractorAttemptLog {
   const log: ExtractorAttemptLog = {
     model: safeModel(model),
@@ -201,6 +221,12 @@ export function buildExtractorAttemptLog(
   };
   const safeReason = safeFallbackReason(fallbackReason);
   if (safeReason !== undefined) log.fallbackReason = safeReason;
+  if (
+    typeof thinkingLevel === "string" &&
+    EXTRACTOR_THINKING_LEVELS.has(thinkingLevel)
+  ) {
+    log.thinkingLevel = thinkingLevel as ExtractorThinkingLevel;
+  }
   return log;
 }
 
@@ -208,10 +234,11 @@ export function logExtractorAttempt(
   model: unknown,
   attempt: unknown,
   fallbackReason?: unknown,
+  thinkingLevel?: unknown,
 ): void {
   console.warn(
     "parse.extract.attempt",
-    buildExtractorAttemptLog(model, attempt, fallbackReason),
+    buildExtractorAttemptLog(model, attempt, fallbackReason, thinkingLevel),
   );
 }
 
@@ -220,6 +247,12 @@ function safeStatusClass(value: unknown): ExtractorStatusClass | undefined {
     return undefined;
   }
   return value as ExtractorStatusClass;
+}
+
+function safeExtractorReason(value: unknown): "bad_request" | undefined {
+  return typeof value === "string" && EXTRACTOR_REASONS.has(value)
+    ? (value as "bad_request")
+    : undefined;
 }
 
 function safeHttpStatus(value: unknown): number | undefined {
@@ -272,6 +305,8 @@ export function buildExtractorFailureLog(
   if (attempt !== undefined) log.attempt = attempt;
   const statusClass = safeStatusClass(options.statusClass);
   if (statusClass !== undefined) log.statusClass = statusClass;
+  const reason = safeExtractorReason(options.reason);
+  if (reason !== undefined) log.reason = reason;
   const httpStatus = safeHttpStatus(options.httpStatus);
   if (httpStatus !== undefined) log.httpStatus = httpStatus;
   const finishReason = safeFinishReason(options.finishReason);

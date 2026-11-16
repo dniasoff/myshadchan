@@ -4,6 +4,7 @@ import {
 } from "./geminiResponseSchema";
 import { DocxExtractionError, extractDocxText } from "./docxExtractor";
 import {
+  type ExtractorThinkingLevel,
   type ExtractorFallbackReason,
   logExtractorAttempt,
   logExtractorFailure,
@@ -40,6 +41,10 @@ export type ParseEnv = {
   GEMINI_FALLBACK_MODEL?: string;
   /** Optional integer string: -1 or 0..24576; unset sends no thinking config. */
   GEMINI_THINKING_BUDGET?: string;
+  /** Optional Gemini 3.x thinking level for the primary model. */
+  GEMINI_THINKING_LEVEL?: string;
+  /** Optional Gemini 3.x thinking level for the fallback model. */
+  GEMINI_FALLBACK_THINKING_LEVEL?: string;
 };
 
 /**
@@ -61,15 +66,21 @@ export type ParseEnv = {
  * keep it meaningfully shorter than `c_stale_after` — do not let the two
  * drift toward each other.
  */
-export const GEMINI_EXTRACT_TIMEOUT_MS = 24_000;
+export const GEMINI_EXTRACT_TIMEOUT_MS = 30_000;
 
 /** The total primary-plus-fallback provider budget, below the browser's 90s deadline. */
-export const GEMINI_RETRY_OVERALL_BUDGET_MS = 75_000;
+export const GEMINI_RETRY_OVERALL_BUDGET_MS = 80_000;
 export const GEMINI_RETRY_MAX_ATTEMPTS = 3;
 /** Primary provider requests, including at most one legacy JSON recovery. */
 export const GEMINI_PRIMARY_MAX_PROVIDER_REQUESTS = GEMINI_RETRY_MAX_ATTEMPTS;
 /** Fallback is deliberately one provider request with no JSON recovery. */
 export const GEMINI_FALLBACK_MAX_PROVIDER_REQUESTS = 1;
+/** Time reserved for the one-shot fallback whenever a fallback is configured. */
+export const GEMINI_FALLBACK_RESERVE_MS = 25_000;
+/** The fallback may use a longer single attempt than the primary. */
+export const GEMINI_FALLBACK_MAX_ATTEMPT_TIMEOUT_MS = 45_000;
+/** Keep one second of the overall budget outside the fallback fetch itself. */
+export const GEMINI_FALLBACK_DEADLINE_MARGIN_MS = 1_000;
 export const GEMINI_MAX_TOTAL_PROVIDER_REQUESTS =
   GEMINI_PRIMARY_MAX_PROVIDER_REQUESTS + GEMINI_FALLBACK_MAX_PROVIDER_REQUESTS;
 export const GEMINI_RETRY_INITIAL_BACKOFF_MS = 1_000;
@@ -206,6 +217,26 @@ function configuredThinkingBudget(value: unknown): number | undefined {
   return undefined;
 }
 
+function configuredThinkingLevel(
+  value: unknown,
+  variable: "GEMINI_THINKING_LEVEL" | "GEMINI_FALLBACK_THINKING_LEVEL",
+): ExtractorThinkingLevel | undefined {
+  if (value === undefined || value === "") return undefined;
+  if (
+    typeof value === "string" &&
+    ["minimal", "low", "medium", "high"].includes(value)
+  ) {
+    return value as ExtractorThinkingLevel;
+  }
+  // Keep configuration diagnostics static: never echo the invalid value.
+  console.error("parse.extract.config.invalid", { variable });
+  return undefined;
+}
+
+function isGemini3Model(model: string): boolean {
+  return /^gemini-3[.-]/u.test(model);
+}
+
 function isTransientFailure(error: unknown): boolean {
   if (error instanceof ExtractorTimeoutError) return true;
   if (!(error instanceof ExtractorProviderError)) return false;
@@ -302,6 +333,14 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
       const thinkingBudget = configuredThinkingBudget(
         env.GEMINI_THINKING_BUDGET,
       );
+      const thinkingLevel = configuredThinkingLevel(
+        env.GEMINI_THINKING_LEVEL,
+        "GEMINI_THINKING_LEVEL",
+      );
+      const fallbackThinkingLevel = configuredThinkingLevel(
+        env.GEMINI_FALLBACK_THINKING_LEVEL,
+        "GEMINI_FALLBACK_THINKING_LEVEL",
+      );
       let sawTimeout = false;
       let lastTimeoutMs: number | undefined;
       const requestOnce = async (
@@ -310,19 +349,31 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         responseSchema: typeof GEMINI_RESUME_RESPONSE_SCHEMA,
         attempt: number,
         budget: ProviderRequestBudget,
+        modelDeadline: number,
+        modelThinkingLevel?: ExtractorThinkingLevel,
+        isFallback = false,
         fallbackReason?: ExtractorFallbackReason,
       ): Promise<unknown> => {
         const requestStartedAt = Date.now();
-        const remainingMs = deadline - requestStartedAt;
-        if (remainingMs < GEMINI_MIN_ATTEMPT_TIMEOUT_MS) {
+        const remainingMs = modelDeadline - requestStartedAt;
+        const availableAttemptMs = isFallback
+          ? remainingMs - GEMINI_FALLBACK_DEADLINE_MARGIN_MS
+          : remainingMs;
+        if (availableAttemptMs < GEMINI_MIN_ATTEMPT_TIMEOUT_MS) {
           throw new ExtractorProviderBusyError();
         }
         budget.used += 1;
-        const attemptTimeoutMs = Math.min(
-          GEMINI_EXTRACT_TIMEOUT_MS,
-          remainingMs,
+        const attemptTimeoutMs = isFallback
+          ? Math.min(GEMINI_FALLBACK_MAX_ATTEMPT_TIMEOUT_MS, availableAttemptMs)
+          : Math.min(GEMINI_EXTRACT_TIMEOUT_MS, availableAttemptMs);
+        const modelUsesThinkingLevel =
+          modelThinkingLevel !== undefined && isGemini3Model(model);
+        logExtractorAttempt(
+          model,
+          attempt,
+          fallbackReason,
+          modelUsesThinkingLevel ? modelThinkingLevel : undefined,
         );
-        logExtractorAttempt(model, attempt, fallbackReason);
         const baseUrl = `https://gateway.ai.cloudflare.com/v1/${env.AI_GATEWAY_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/google-ai-studio/v1beta/models/${model}:generateContent`;
         let httpStatus: number | undefined;
         let finishReason: unknown;
@@ -337,9 +388,13 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             responseMimeType: "application/json",
             responseSchema,
             maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
-            ...(thinkingBudget !== undefined && model.includes("flash")
-              ? { thinkingConfig: { thinkingBudget } }
-              : {}),
+            ...(modelUsesThinkingLevel
+              ? { thinkingConfig: { thinkingLevel: modelThinkingLevel } }
+              : !isGemini3Model(model) &&
+                  thinkingBudget !== undefined &&
+                  model.includes("flash")
+                ? { thinkingConfig: { thinkingBudget } }
+                : {}),
           },
         };
 
@@ -386,6 +441,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             durationMs: Date.now() - requestStartedAt,
             attempt,
             statusClass: providerStatusClass(response.status),
+            ...(response.status === 400 ? { reason: "bad_request" } : {}),
             httpStatus,
           });
           throw providerError;
@@ -429,11 +485,14 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         responseSchema: typeof GEMINI_RESUME_RESPONSE_SCHEMA,
         maxAttempts: number,
         budget: ProviderRequestBudget,
+        modelDeadline: number,
+        modelThinkingLevel?: ExtractorThinkingLevel,
+        isFallback = false,
         fallbackReason?: ExtractorFallbackReason,
       ): Promise<unknown> => {
         let lastError: unknown;
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-          if (Date.now() >= deadline || budget.used >= budget.max) break;
+          if (Date.now() >= modelDeadline || budget.used >= budget.max) break;
           try {
             return await requestOnce(
               model,
@@ -441,6 +500,9 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
               responseSchema,
               attempt,
               budget,
+              modelDeadline,
+              modelThinkingLevel,
+              isFallback,
               fallbackReason,
             );
           } catch (error) {
@@ -451,7 +513,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
                 ? error.retryAfterMs
                 : undefined;
             const delayMs = retryDelayMs(attempt, retryAfterMs);
-            if (Date.now() + delayMs > deadline) break;
+            if (Date.now() + delayMs > modelDeadline) break;
             await sleep(delayMs);
           }
         }
@@ -464,8 +526,11 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
       const runModel = async (
         model: string,
         budget: ProviderRequestBudget,
+        modelDeadline: number,
         maxAttempts = GEMINI_RETRY_MAX_ATTEMPTS,
         allowLegacyRecovery = true,
+        modelThinkingLevel?: ExtractorThinkingLevel,
+        isFallback = false,
         fallbackReason?: ExtractorFallbackReason,
       ): Promise<unknown> => {
         try {
@@ -475,6 +540,9 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             GEMINI_RESUME_RESPONSE_SCHEMA,
             maxAttempts,
             budget,
+            modelDeadline,
+            modelThinkingLevel,
+            isFallback,
             fallbackReason,
           );
         } catch (error) {
@@ -482,7 +550,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             !(error instanceof SyntaxError) ||
             !allowLegacyRecovery ||
             budget.used >= budget.max ||
-            Date.now() >= deadline
+            Date.now() >= modelDeadline
           ) {
             throw error;
           }
@@ -494,6 +562,9 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA,
             1,
             budget,
+            modelDeadline,
+            modelThinkingLevel,
+            isFallback,
             fallbackReason,
           );
         }
@@ -509,6 +580,20 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         "GEMINI_FALLBACK_MODEL",
         undefined,
       );
+      const hasFallbackModel =
+        fallbackModel !== undefined && fallbackModel !== primaryModel;
+      const primaryDeadline = hasFallbackModel
+        ? deadline - GEMINI_FALLBACK_RESERVE_MS
+        : deadline;
+      const primaryMaxAttempts = hasFallbackModel
+        ? Math.min(
+            GEMINI_RETRY_MAX_ATTEMPTS,
+            Math.ceil(
+              (GEMINI_RETRY_OVERALL_BUDGET_MS - GEMINI_FALLBACK_RESERVE_MS) /
+                GEMINI_EXTRACT_TIMEOUT_MS,
+            ),
+          )
+        : GEMINI_RETRY_MAX_ATTEMPTS;
       const timeoutFailure = (): ExtractorTimeoutError =>
         new ExtractorTimeoutError(lastTimeoutMs ?? GEMINI_EXTRACT_TIMEOUT_MS);
       const primaryBudget: ProviderRequestBudget = {
@@ -516,7 +601,14 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         used: 0,
       };
       try {
-        return await runModel(primaryModel, primaryBudget);
+        return await runModel(
+          primaryModel,
+          primaryBudget,
+          primaryDeadline,
+          primaryMaxAttempts,
+          true,
+          thinkingLevel,
+        );
       } catch (error) {
         const fallbackReason: ExtractorFallbackReason | undefined =
           error instanceof ExtractorProviderBusyError
@@ -524,11 +616,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             : error instanceof ExtractorProviderError && error.status === 404
               ? "model_not_found"
               : undefined;
-        if (
-          fallbackReason !== undefined &&
-          fallbackModel &&
-          fallbackModel !== primaryModel
-        ) {
+        if (fallbackReason !== undefined && hasFallbackModel) {
           const fallbackBudget: ProviderRequestBudget = {
             max: GEMINI_FALLBACK_MAX_PROVIDER_REQUESTS,
             used: 0,
@@ -540,8 +628,11 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             return await runModel(
               fallbackModel,
               fallbackBudget,
+              deadline,
               1,
               false,
+              fallbackThinkingLevel,
+              true,
               fallbackReason,
             );
           } catch (fallbackError) {
