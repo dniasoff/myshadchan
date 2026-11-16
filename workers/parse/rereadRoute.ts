@@ -200,10 +200,16 @@ export async function rereadResume(
   dependencies: RereadDependencies,
 ): Promise<RereadResponse> {
   const { caller } = dependencies;
-  const [contextResult, roleResult] = await Promise.all([
-    caller.rpc("current_context_id"),
-    caller.rpc("current_member_role"),
-  ]);
+  let contextResult: { data: unknown; error: unknown };
+  let roleResult: { data: unknown; error: unknown };
+  try {
+    [contextResult, roleResult] = await Promise.all([
+      caller.rpc("current_context_id"),
+      caller.rpc("current_member_role"),
+    ]);
+  } catch {
+    return failure(dependencies, "authorization", REREAD_FAILURE_MESSAGE, 403);
+  }
   const accountId = contextResult.data;
   const role = roleResult.data;
   if (
@@ -239,11 +245,19 @@ export async function rereadResume(
     );
   }
 
-  const memberResultRow = await caller
-    .from("members")
-    .select("id,disabled")
-    .eq("user_id", dependencies.userId)
-    .maybeSingle();
+  let memberResultRow: {
+    data: { disabled?: unknown } | null;
+    error: unknown;
+  };
+  try {
+    memberResultRow = await caller
+      .from("members")
+      .select("id,disabled")
+      .eq("user_id", dependencies.userId)
+      .maybeSingle();
+  } catch {
+    return failure(dependencies, "member", REREAD_FAILURE_MESSAGE, 403);
+  }
   if (
     memberResultRow.error ||
     !memberResultRow.data ||
@@ -252,11 +266,16 @@ export async function rereadResume(
     return failure(dependencies, "member", REREAD_FAILURE_MESSAGE, 403);
   }
 
-  const resumeResult = await caller
-    .from("resumes")
-    .select("id,account_id,shidduchim_id,single_id,files,sections,extracted")
-    .eq("id", body.resume_id)
-    .maybeSingle();
+  let resumeResult: { data: unknown; error: unknown };
+  try {
+    resumeResult = await caller
+      .from("resumes")
+      .select("id,account_id,shidduchim_id,single_id,files,sections,extracted")
+      .eq("id", body.resume_id)
+      .maybeSingle();
+  } catch {
+    return failure(dependencies, "resume_row");
+  }
   const resume = readRereadResumeRow(resumeResult.data);
   if (resumeResult.error || !resume || resume.account_id !== accountId) {
     return failure(dependencies, "resume_row");
@@ -281,13 +300,18 @@ export async function rereadResume(
   if (!selectedFile) return failure(dependencies, "file_selection");
 
   const service = dependencies.service ?? getParseQuotaClient(dependencies.env);
-  const claim = await claimRereadAttempt(
-    dependencies.env,
-    accountId,
-    body.resume_id,
-    body.request_id,
-    CURRENT_PARSE_RESULT_SCHEMA_VERSION,
-  );
+  let claim: Awaited<ReturnType<typeof claimRereadAttempt>>;
+  try {
+    claim = await claimRereadAttempt(
+      dependencies.env,
+      accountId,
+      body.resume_id,
+      body.request_id,
+      CURRENT_PARSE_RESULT_SCHEMA_VERSION,
+    );
+  } catch {
+    return failure(dependencies, "claim", REREAD_FAILURE_MESSAGE, 503);
+  }
   if (!claim.ok)
     return failure(dependencies, "claim", REREAD_FAILURE_MESSAGE, 503);
 
@@ -334,8 +358,8 @@ export async function rereadResume(
       if (release.outcome === "failed") {
         logRereadFailure("release");
       }
-    } catch (error) {
-      console.error("parse.reread.release.threw", summarizeErrorForLog(error));
+    } catch {
+      logRereadFailure("release");
     }
   };
 
@@ -358,11 +382,18 @@ export async function rereadResume(
       return failure(dependencies, "storage_metadata");
     }
 
-    const download = await service.storage
-      .from(DOCUMENTS_BUCKET)
-      .download(selectedFile.file.path);
-    const fileData = download.data;
-    if (download.error || !fileData || fileData.size > MAX_ATTACHMENT_BYTES) {
+    let fileData: Blob | null = null;
+    let downloadError: unknown = null;
+    try {
+      const download = await service.storage
+        .from(DOCUMENTS_BUCKET)
+        .download(selectedFile.file.path);
+      fileData = download.data;
+      downloadError = download.error;
+    } catch {
+      return failure(dependencies, "download");
+    }
+    if (downloadError || !fileData || fileData.size > MAX_ATTACHMENT_BYTES) {
       return failure(dependencies, "download");
     }
     let bytes: ArrayBuffer;

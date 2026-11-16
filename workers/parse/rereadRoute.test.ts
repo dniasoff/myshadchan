@@ -622,6 +622,101 @@ describe("re-read route", () => {
     },
   );
 
+  it("logs only the static download reason when storage download throws", async () => {
+    const { caller, service } = makeClients(undefined, true, "download");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await rereadResume(
+      { resume_id: 22, request_id: requestId },
+      {
+        caller: caller as never,
+        service: service as never,
+        extractor: { extract: vi.fn(async () => makeExtract()) },
+        env: TEST_ENV,
+        userId: AUTH_USER_ID,
+      },
+    );
+
+    expect(result).toEqual({
+      status: 422,
+      body: { success: false, error: REREAD_FAILURE_MESSAGE },
+    });
+    expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
+    expect(error).toHaveBeenCalledWith("parse.reread.fail", {
+      reason: "download",
+    });
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(error.mock.calls)).not.toContain(
+      "download unavailable",
+    );
+    error.mockRestore();
+  });
+
+  it("logs only the static claim reason when reservation claim throws", async () => {
+    const { caller, service } = makeClients();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    claim.mockRejectedValueOnce(new Error("private claim detail"));
+
+    const result = await rereadResume(
+      { resume_id: 22, request_id: requestId },
+      {
+        caller: caller as never,
+        service: service as never,
+        extractor: { extract: vi.fn(async () => makeExtract()) },
+        env: TEST_ENV,
+        userId: AUTH_USER_ID,
+      },
+    );
+
+    expect(result).toEqual({
+      status: 503,
+      body: { success: false, error: REREAD_FAILURE_MESSAGE },
+    });
+    expect(service.storage.from).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith("parse.reread.fail", {
+      reason: "claim",
+    });
+    expect(JSON.stringify(error.mock.calls)).not.toContain(
+      "private claim detail",
+    );
+    error.mockRestore();
+  });
+
+  it("logs only the static release reason when reservation release throws", async () => {
+    const { caller, service } = makeClients();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    release.mockRejectedValueOnce(new Error("private release detail"));
+
+    const result = await rereadResume(
+      { resume_id: 22, request_id: requestId },
+      {
+        caller: caller as never,
+        service: service as never,
+        extractor: {
+          extract: vi.fn(async () => {
+            throw new Error("private extractor detail");
+          }),
+        },
+        env: TEST_ENV,
+        userId: AUTH_USER_ID,
+      },
+    );
+
+    expect(result.status).toBe(422);
+    expect(apply).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith("parse.reread.fail", {
+      reason: "release",
+    });
+    expect(JSON.stringify(error.mock.calls)).not.toContain(
+      "private release detail",
+    );
+    expect(JSON.stringify(error.mock.calls)).not.toContain(
+      "private extractor detail",
+    );
+    error.mockRestore();
+  });
+
   it("releases when the atomic apply RPC throws", async () => {
     const { caller, service } = makeClients();
     apply.mockRejectedValueOnce(new Error("atomic apply unavailable"));
