@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildExtractorFailureLog,
   buildExtractorAttemptLog,
+  buildExtractorShapeLog,
   buildRereadFailureLog,
   logExtractorAttempt,
   logExtractorFailure,
+  logExtractorShape,
   logRereadFailure,
   REREAD_FAILURE_REASON_VALUES,
 } from "./rereadDiagnostics";
@@ -160,6 +162,87 @@ describe("re-read diagnostics", () => {
     });
   });
 
+  it("emits numeric-only shape diagnostics with allow-listed provider metadata", () => {
+    const hostile = "resume text <script>name@example.com</script>";
+    const log = buildExtractorShapeLog(
+      {
+        rawFieldsNonNull: 17,
+        keptFields: 16,
+        rawReferences: 10,
+        keptReferences: 10,
+        rawLearning: 4,
+        keptLearning: 4,
+        rawAdditionalSections: 3,
+        keptAdditionalSections: 2,
+        droppedByPrivacyFilter: 1,
+      },
+      {
+        model: "gemini-3.6-flash",
+        finishReason: "MAX_TOKENS",
+        usageMetadata: {
+          promptTokenCount: 1214,
+          candidatesTokenCount: 512,
+          thoughtsTokenCount: 2048,
+          privateText: hostile,
+        },
+      },
+    );
+
+    expect(log).toEqual({
+      rawFieldsNonNull: 17,
+      keptFields: 16,
+      rawReferences: 10,
+      keptReferences: 10,
+      rawLearning: 4,
+      keptLearning: 4,
+      rawAdditionalSections: 3,
+      keptAdditionalSections: 2,
+      droppedByPrivacyFilter: 1,
+      finishReason: "MAX_TOKENS",
+      promptTokens: 1214,
+      candidateTokens: 512,
+      thoughtTokens: 2048,
+      model: "gemini-3.6-flash",
+    });
+    expect(JSON.stringify(log)).not.toContain(hostile);
+    expect(
+      Object.values(log).every(
+        (value) => typeof value === "number" || typeof value === "string",
+      ),
+    ).toBe(true);
+  });
+
+  it("defaults missing shape metadata to static enums and zero counts", () => {
+    expect(
+      buildExtractorShapeLog({
+        rawFieldsNonNull: "private",
+        keptFields: undefined,
+        rawReferences: -1,
+        keptReferences: 0,
+        rawLearning: 0,
+        keptLearning: 0,
+        rawAdditionalSections: 0,
+        keptAdditionalSections: 0,
+        droppedByPrivacyFilter: 0,
+      }),
+    ).toEqual({
+      rawFieldsNonNull: 0,
+      keptFields: 0,
+      rawReferences: 0,
+      keptReferences: 0,
+      rawLearning: 0,
+      keptLearning: 0,
+      rawAdditionalSections: 0,
+      keptAdditionalSections: 0,
+      droppedByPrivacyFilter: 0,
+      finishReason: "UNKNOWN",
+      promptTokens: 0,
+      candidateTokens: 0,
+      thoughtTokens: 0,
+      model: "unknown",
+    });
+  });
+
   it("logs only the sanitized payloads", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -169,6 +252,17 @@ describe("re-read diagnostics", () => {
       durationMs: 3,
     });
     logExtractorAttempt("gemini-3.6-flash", 1);
+    logExtractorShape({
+      rawFieldsNonNull: 1,
+      keptFields: 1,
+      rawReferences: 0,
+      keptReferences: 0,
+      rawLearning: 0,
+      keptLearning: 0,
+      rawAdditionalSections: 0,
+      keptAdditionalSections: 0,
+      droppedByPrivacyFilter: 0,
+    });
 
     expect(error).toHaveBeenNthCalledWith(1, "parse.reread.fail", {
       reason: "storage_metadata",
@@ -180,6 +274,22 @@ describe("re-read diagnostics", () => {
     expect(warn).toHaveBeenCalledWith("parse.extract.attempt", {
       model: "gemini-3.6-flash",
       attempt: 1,
+    });
+    expect(warn).toHaveBeenCalledWith("parse.extract.shape", {
+      rawFieldsNonNull: 1,
+      keptFields: 1,
+      rawReferences: 0,
+      keptReferences: 0,
+      rawLearning: 0,
+      keptLearning: 0,
+      rawAdditionalSections: 0,
+      keptAdditionalSections: 0,
+      droppedByPrivacyFilter: 0,
+      finishReason: "UNKNOWN",
+      promptTokens: 0,
+      candidateTokens: 0,
+      thoughtTokens: 0,
+      model: "unknown",
     });
     error.mockRestore();
     warn.mockRestore();

@@ -126,8 +126,10 @@ function resumeResponseSchema(
       sections: {
         type: "OBJECT",
         properties: sectionsProperties,
+        required: Object.keys(sectionsProperties),
       },
     },
+    required: [...Object.keys(resumeFieldProperties), "sections"],
   };
 }
 

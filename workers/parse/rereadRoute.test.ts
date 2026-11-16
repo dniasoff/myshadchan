@@ -427,6 +427,98 @@ describe("re-read route", () => {
     expect(apply).not.toHaveBeenCalled();
   });
 
+  it("passes a complete model answer through toDraft and the full apply payload", async () => {
+    const { caller, service } = makeClients();
+    const references = Array.from({ length: 10 }, (_, index) => ({
+      name: index % 2 === 0 ? `Sarah ${index}` : `רחל ${index}`,
+      relationship: index % 2 === 0 ? "family friend" : "teacher",
+      phone:
+        index % 3 === 0
+          ? "054-222-3344"
+          : index % 3 === 1
+            ? "+972 54 222 3344"
+            : "(718) 555-0123",
+    }));
+    const raw = makeExtract({
+      name_en: { value: "Rivky Cohen", confidence: 0.95 },
+      name_he: { value: "רבקה כהן", confidence: 0.95 },
+      father_en: { value: "Yaakov Cohen", confidence: 0.9 },
+      father_he: { value: "יעקב כהן", confidence: 0.9 },
+      mother_en: { value: "Rivka Cohen", confidence: 0.9 },
+      mother_he: { value: "רבקה כהן", confidence: 0.9 },
+      seminary_en: { value: "Bais Yaakov", confidence: 0.9 },
+      seminary_he: { value: "בית יעקב", confidence: 0.9 },
+      shul_en: { value: "Congregation Beth El", confidence: 0.9 },
+      shul_he: { value: "בית אל", confidence: 0.9 },
+      location_en: { value: "Lakewood, NJ", confidence: 0.9 },
+      location_he: { value: "לייקווד", confidence: 0.9 },
+      age: { value: 24, confidence: 0.9 },
+      height: { value: "5'6\"", confidence: 0.9 },
+      person_gender: { value: "female", confidence: 0.9 },
+      kohen_status: { value: "not kohen", confidence: 0.9 },
+      marital_status: { value: "single", confidence: 0.9 },
+      sections: {
+        learningHistory: [
+          { label: "Seminary", value: "Bais Yaakov" },
+          { label: "College", value: "Touro" },
+        ],
+        references,
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [{ label: "Role", value: "Teacher" }],
+            order: 0,
+          },
+        ],
+      },
+    });
+
+    const result = await rereadResume(
+      {
+        resume_id: 22,
+        request_id: requestId,
+        mode: "fill_empty",
+        file_identity: file.path,
+      },
+      {
+        caller: caller as never,
+        service: service as never,
+        extractor: { extract: vi.fn(async () => raw) },
+        env: TEST_ENV,
+        userId: AUTH_USER_ID,
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(applyResume).toHaveBeenCalledTimes(1);
+    const applyCall = applyResume.mock.calls[0] as unknown[];
+    expect(applyCall[6]).toEqual({
+      name_en: "Rivky Cohen",
+      name_he: "רבקה כהן",
+      father_en: "Yaakov Cohen",
+      father_he: "יעקב כהן",
+      mother_en: "Rivka Cohen",
+      mother_he: "רבקה כהן",
+      seminary_en: "Bais Yaakov",
+      seminary_he: "בית יעקב",
+      shul_en: "Congregation Beth El",
+      shul_he: "בית אל",
+      location_en: "Lakewood, NJ",
+      location_he: "לייקווד",
+      age: 24,
+      height: "5'6\"",
+      person_gender: "female",
+      kohen_status: "not kohen",
+      marital_status: "single",
+    });
+    expect(applyCall[8]).toEqual({
+      learningHistory: raw.sections.learningHistory,
+      references,
+      additionalSections: raw.sections.additionalSections,
+    });
+  });
+
   it("upgrades a legacy unread request to the full fill-empty apply", async () => {
     const { caller, service } = makeClients(
       null,

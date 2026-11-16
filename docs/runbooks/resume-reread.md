@@ -34,15 +34,16 @@ live parse Worker sets these vars under `[vars]` in
 `workers/parse/wrangler.toml`:
 
 ```toml
-GEMINI_MODEL = "gemini-3.5-flash-lite"
-GEMINI_FALLBACK_MODEL = "gemini-3.6-flash"
-GEMINI_FALLBACK_THINKING_LEVEL = "low"
+GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_THINKING_LEVEL = "low"
+GEMINI_FALLBACK_MODEL = "gemini-3.5-flash-lite"
 ```
 
 This avoids relying on the unstable `gemini-flash-latest` alias in production.
-Gemini 3.5 Flash-Lite uses minimal thinking by default; the fallback
-`gemini-3.6-flash` is explicitly limited to `low` thinking to avoid spending
-the whole request budget reasoning before returning the structured extraction.
+The primary `gemini-3.6-flash` is explicitly limited to `low` thinking to avoid
+spending the whole request budget reasoning before returning the structured
+extraction. The fallback `gemini-3.5-flash-lite` has no explicit thinking
+override and uses its model default.
 Review Google's [model deprecations table](https://aistudio.google.com/docs/deprecations)
 quarterly; a model that is not served for this key or route returns 404 and
 activates the one-shot fallback when configured. `GEMINI_THINKING_BUDGET` remains
@@ -60,16 +61,25 @@ Model ids must match `gemini-[a-z0-9.-]{1,60}`; invalid values are ignored and
 logged with a static configuration marker. `GEMINI_FALLBACK_MODEL` is unset by
 default and is tried once only after transient exhaustion or a primary 404.
 `GEMINI_THINKING_LEVEL` applies to the primary model and
-`GEMINI_FALLBACK_THINKING_LEVEL` applies to the fallback. Each accepts only
-`minimal`, `low`, `medium`, or `high`, and is sent as
+`GEMINI_FALLBACK_THINKING_LEVEL`, when set, applies to the fallback. Each
+accepts only `minimal`, `low`, `medium`, or `high`, and is sent as
 `generationConfig.thinkingConfig.thinkingLevel` only for Gemini 3.x model ids.
 The older `GEMINI_THINKING_BUDGET` path remains for Gemini 2.5 Flash models.
 Keep these vars out of secrets and redeploy the parse Worker after changing
 them.
 
+After a successful extraction, the Worker emits one `parse.extract.shape` line
+containing counts only: raw versus kept fixed fields, references, learning
+history, additional sections, privacy-filter drops, the allow-listed model and
+finish reason, and prompt/candidate/thought token counts. It never logs resume
+text, reference values, provider bodies, keys or paths. A `MAX_TOKENS` finish
+reason with nonzero thought tokens indicates that Gemini consumed the output
+budget while thinking; compare the raw and kept counts before changing the
+prompt or normalizer.
+
 To roll back model selection and thinking controls, remove `GEMINI_MODEL`,
-`GEMINI_FALLBACK_MODEL`, and `GEMINI_FALLBACK_THINKING_LEVEL` from `[vars]` and
-redeploy; extraction then returns to the code default and has no fallback.
+`GEMINI_THINKING_LEVEL`, and `GEMINI_FALLBACK_MODEL` from `[vars]` and redeploy;
+extraction then returns to the code default and has no fallback.
 Do not set `GEMINI_THINKING_BUDGET` unless a model-specific decision approves
 its semantics.
 

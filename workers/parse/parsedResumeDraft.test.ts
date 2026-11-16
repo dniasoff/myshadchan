@@ -88,6 +88,31 @@ describe("toDraft", () => {
     expect(draft.sections.additionalSections).toEqual([]);
   });
 
+  it("keeps realistic English and Hebrew references with international phone formatting", () => {
+    const references = [
+      {
+        name: "Sarah Gold",
+        relationship: "family friend",
+        phone: "054-222-3344",
+      },
+      {
+        name: "דבורה כהן",
+        relationship: "teacher",
+        phone: "+972 54 222 3344",
+      },
+      {
+        name: "Miriam Levy",
+        relationship: "rabbi",
+        phone: "(718) 555-0123",
+      },
+    ];
+
+    const draft = toDraft({ sections: { references } });
+
+    expect(draft.sections.references).toEqual(references);
+    expect(draft.droppedByPrivacyFilter).toBe(0);
+  });
+
   it("keeps ordered generic sections while dropping malformed items and unsafe text", () => {
     const draft = toDraft({
       sections: {
@@ -484,6 +509,7 @@ describe("toDraft", () => {
         ],
       },
     ]);
+    expect(draft.droppedByPrivacyFilter).toBe(27);
   });
 
   it("merges duplicate titles and removes duplicate items before applying caps", () => {

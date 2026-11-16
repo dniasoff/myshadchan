@@ -25,13 +25,17 @@ import {
   CURRENT_PARSE_RESULT_SCHEMA_VERSION,
   type ParseResultPayload,
 } from "./parseResultPayload";
-import { toDraft } from "./parsedResumeDraft";
+import { buildResumeShapeCounts, toDraft } from "./parsedResumeDraft";
 import {
   ExtractorTimeoutError,
   geminiExtractor,
   type ParseEnv,
   type ResumeExtractor,
 } from "./resumeExtractor";
+import {
+  getExtractorShapeMetadata,
+  logExtractorShape,
+} from "./rereadDiagnostics";
 
 const LegacyParseBodySchema = z.strictObject({
   inbox_item_id: z.number().int().positive(),
@@ -486,6 +490,10 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
 
     // 9. Convert to a validated draft.
     const draft = toDraft(raw);
+    logExtractorShape(
+      buildResumeShapeCounts(raw, draft),
+      getExtractorShapeMetadata(raw),
+    );
 
     const payload: ParseResultPayload = {
       fields: draft.fields,

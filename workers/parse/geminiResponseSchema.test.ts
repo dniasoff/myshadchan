@@ -67,6 +67,23 @@ describe("GEMINI_RESUME_RESPONSE_SCHEMA", () => {
     }
   });
 
+  it("requires every fixed wrapper and every section array while allowing nullable values", () => {
+    const properties = GEMINI_RESUME_RESPONSE_SCHEMA.properties!;
+    const sections = properties.sections;
+
+    expect(GEMINI_RESUME_RESPONSE_SCHEMA.required).toEqual([
+      ...FIELD_KEYS,
+      "sections",
+    ]);
+    expect(sections.required).toEqual([
+      "learningHistory",
+      "references",
+      "additionalSections",
+    ]);
+    expect(properties.name_en.properties!.value.nullable).toBe(true);
+    expect(properties.age.properties!.value.nullable).toBe(true);
+  });
+
   it("declares sections.learningHistory and sections.references as arrays of well-shaped objects", () => {
     // Arrange
     const sections = GEMINI_RESUME_RESPONSE_SCHEMA.properties!.sections;
