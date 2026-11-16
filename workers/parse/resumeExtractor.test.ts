@@ -4,6 +4,9 @@ import {
   ExtractorProviderError,
   ExtractorProviderBusyError,
   ExtractorTimeoutError,
+  GEMINI_FALLBACK_MAX_PROVIDER_REQUESTS,
+  GEMINI_MAX_TOTAL_PROVIDER_REQUESTS,
+  GEMINI_PRIMARY_MAX_PROVIDER_REQUESTS,
   GEMINI_RETRY_AFTER_CAP_MS,
   GEMINI_RETRY_INITIAL_BACKOFF_MS,
   GEMINI_RETRY_MAX_BACKOFF_MS,
@@ -442,6 +445,148 @@ describe("geminiExtractor", () => {
       expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
+    it.each([400, 403])(
+      "keeps timeout outcome after timeout then permanent %s and skips fallback",
+      async (status) => {
+        vi.useFakeTimers();
+        const fetchMock = vi
+          .fn()
+          .mockRejectedValueOnce(new DOMException("timed out", "TimeoutError"))
+          .mockResolvedValueOnce(
+            new Response("permanent provider detail", { status }),
+          );
+        vi.stubGlobal("fetch", fetchMock);
+        const extractor = geminiExtractor({
+          ...TEST_ENV,
+          GEMINI_FALLBACK_MODEL: "gemini-fallback-flash",
+        });
+
+        const pending = extractor.extract(
+          new ArrayBuffer(0),
+          "application/pdf",
+        );
+        const rejection = expect(pending).rejects.toBeInstanceOf(
+          ExtractorTimeoutError,
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(GEMINI_RETRY_INITIAL_BACKOFF_MS);
+
+        await rejection;
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect((fetchMock.mock.calls[0] as [string])[0]).toContain(
+          "/models/gemini-flash-latest:",
+        );
+        expect(
+          fetchMock.mock.calls.some(([url]) =>
+            String(url).includes("gemini-fallback-flash"),
+          ),
+        ).toBe(false);
+      },
+    );
+
+    it("keeps timeout outcome after timeout then transient exhaustion", async () => {
+      vi.useFakeTimers();
+      vi.spyOn(Math, "random").mockReturnValue(1);
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new DOMException("timed out", "TimeoutError"))
+        .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+        .mockResolvedValueOnce(new Response("busy", { status: 503 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const extractor = geminiExtractor(TEST_ENV);
+
+      const pending = extractor.extract(new ArrayBuffer(0), "application/pdf");
+      const rejection = expect(pending).rejects.toBeInstanceOf(
+        ExtractorTimeoutError,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(GEMINI_RETRY_INITIAL_BACKOFF_MS);
+      await vi.advanceTimersByTimeAsync(GEMINI_RETRY_MAX_BACKOFF_MS);
+
+      await rejection;
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("keeps timeout outcome after timeout then a network failure", async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new DOMException("timed out", "TimeoutError"))
+        .mockRejectedValueOnce(new TypeError("network detail"));
+      vi.stubGlobal("fetch", fetchMock);
+      const extractor = geminiExtractor({
+        ...TEST_ENV,
+        GEMINI_FALLBACK_MODEL: "gemini-fallback-flash",
+      });
+
+      const pending = extractor.extract(new ArrayBuffer(0), "application/pdf");
+      const rejection = expect(pending).rejects.toBeInstanceOf(
+        ExtractorTimeoutError,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(GEMINI_RETRY_INITIAL_BACKOFF_MS);
+
+      await rejection;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).includes("gemini-fallback-flash"),
+        ),
+      ).toBe(false);
+    });
+
+    it("uses the fallback after primary timeout exhaustion", async () => {
+      vi.useFakeTimers();
+      vi.spyOn(Math, "random").mockReturnValue(1);
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new DOMException("timed out", "TimeoutError"))
+        .mockRejectedValueOnce(new DOMException("timed out", "TimeoutError"))
+        .mockRejectedValueOnce(new DOMException("timed out", "TimeoutError"))
+        .mockResolvedValueOnce(gatewayResponse("{}"));
+      vi.stubGlobal("fetch", fetchMock);
+      const extractor = geminiExtractor({
+        ...TEST_ENV,
+        GEMINI_FALLBACK_MODEL: "gemini-fallback-flash",
+      });
+
+      const pending = extractor.extract(new ArrayBuffer(0), "application/pdf");
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(GEMINI_RETRY_INITIAL_BACKOFF_MS);
+      await vi.advanceTimersByTimeAsync(GEMINI_RETRY_MAX_BACKOFF_MS);
+
+      await expect(pending).resolves.toEqual({});
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect((fetchMock.mock.calls[3] as [string])[0]).toContain(
+        "/models/gemini-fallback-flash:",
+      );
+    });
+
+    it("does not use the fallback after a permanent primary response", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          new Response("permanent provider detail", { status: 400 }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+      const extractor = geminiExtractor({
+        ...TEST_ENV,
+        GEMINI_FALLBACK_MODEL: "gemini-fallback-flash",
+      });
+
+      await expect(
+        extractor.extract(new ArrayBuffer(0), "application/pdf"),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect((fetchMock.mock.calls[0] as [string])[0]).toContain(
+        "/models/gemini-flash-latest:",
+      );
+    });
+
     it.each([400, 401, 404])(
       "does not retry permanent provider status %s",
       async (status) => {
@@ -491,7 +636,10 @@ describe("geminiExtractor", () => {
         return Promise.reject(new DOMException("timed out", "TimeoutError"));
       });
       vi.stubGlobal("fetch", fetchMock);
-      const extractor = geminiExtractor(TEST_ENV);
+      const extractor = geminiExtractor({
+        ...TEST_ENV,
+        GEMINI_FALLBACK_MODEL: "gemini-fallback-flash",
+      });
       const startedAt = Date.now();
       const pending = extractor.extract(new ArrayBuffer(0), "application/pdf");
       const rejection = expect(pending).rejects.toBeInstanceOf(
@@ -567,7 +715,40 @@ describe("geminiExtractor", () => {
       await vi.advanceTimersByTimeAsync(GEMINI_RETRY_MAX_BACKOFF_MS);
 
       await rejection;
-      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(fetchMock).toHaveBeenCalledTimes(
+        GEMINI_MAX_TOTAL_PROVIDER_REQUESTS,
+      );
+      expect((fetchMock.mock.calls[3] as [string])[0]).toContain(
+        "/models/gemini-fallback-flash:",
+      );
+    });
+
+    it("makes exactly one fallback request when its JSON is invalid", async () => {
+      vi.useFakeTimers();
+      vi.spyOn(Math, "random").mockReturnValue(1);
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+        .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+        .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+        .mockResolvedValueOnce(gatewayResponse("{invalid-json"));
+      vi.stubGlobal("fetch", fetchMock);
+      const extractor = geminiExtractor({
+        ...TEST_ENV,
+        GEMINI_FALLBACK_MODEL: "gemini-fallback-flash",
+      });
+
+      const pending = extractor.extract(new ArrayBuffer(0), "application/pdf");
+      const rejection = expect(pending).rejects.toBeInstanceOf(SyntaxError);
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(GEMINI_RETRY_INITIAL_BACKOFF_MS);
+      await vi.advanceTimersByTimeAsync(GEMINI_RETRY_MAX_BACKOFF_MS);
+
+      await rejection;
+      expect(fetchMock).toHaveBeenCalledTimes(
+        GEMINI_MAX_TOTAL_PROVIDER_REQUESTS,
+      );
       expect((fetchMock.mock.calls[3] as [string])[0]).toContain(
         "/models/gemini-fallback-flash:",
       );
@@ -711,6 +892,9 @@ describe("geminiExtractor", () => {
       // itself (Finding 7's whole point). 5 minutes = 300_000ms.
       expect(GEMINI_EXTRACT_TIMEOUT_MS).toBe(24_000);
       expect(GEMINI_RETRY_OVERALL_BUDGET_MS).toBe(75_000);
+      expect(GEMINI_PRIMARY_MAX_PROVIDER_REQUESTS).toBe(3);
+      expect(GEMINI_FALLBACK_MAX_PROVIDER_REQUESTS).toBe(1);
+      expect(GEMINI_MAX_TOTAL_PROVIDER_REQUESTS).toBe(4);
       expect(GEMINI_EXTRACT_TIMEOUT_MS).toBeLessThan(300_000 / 2);
     });
 

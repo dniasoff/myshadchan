@@ -12,9 +12,16 @@ The extractor gives each Gemini request a 24-second per-attempt timeout and a
 75-second overall provider budget. It retries only HTTP 429/500/502/503/504
 and per-attempt timeouts, with bounded jittered backoff. A later success is
 still one ledger unit. Exhaustion returns the static busy outcome; if any
-attempt timed out, the existing timeout outcome wins. A successful HTTP
+attempt timed out, the existing timeout outcome wins even if a later attempt
+returns a permanent 4xx or another transient error; that later status remains
+in the privacy-safe diagnostics. The fallback model is used only after
+transient exhaustion, never after a permanent primary response. The primary
+has at most 3 provider requests total, including its one legacy JSON-recovery
+request; the fallback has at most 1 provider request and no recovery, so one
+read can make at most 4 provider requests. When enough budget remains to start
+the fallback, that one request is the only fallback request. A successful HTTP
 response that contains invalid JSON is not retried; the existing one-shot
-legacy recovery remains separate from transient retrying.
+primary recovery remains separate from transient retrying.
 
 The default model remains `gemini-flash-latest`. Optional Worker vars can be
 set under `[vars]` in `workers/parse/wrangler.toml`, then deployed with the

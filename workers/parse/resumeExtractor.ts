@@ -62,6 +62,12 @@ export const GEMINI_EXTRACT_TIMEOUT_MS = 24_000;
 /** The total primary-plus-fallback provider budget, below the browser's 90s deadline. */
 export const GEMINI_RETRY_OVERALL_BUDGET_MS = 75_000;
 export const GEMINI_RETRY_MAX_ATTEMPTS = 3;
+/** Primary provider requests, including at most one legacy JSON recovery. */
+export const GEMINI_PRIMARY_MAX_PROVIDER_REQUESTS = GEMINI_RETRY_MAX_ATTEMPTS;
+/** Fallback is deliberately one provider request with no JSON recovery. */
+export const GEMINI_FALLBACK_MAX_PROVIDER_REQUESTS = 1;
+export const GEMINI_MAX_TOTAL_PROVIDER_REQUESTS =
+  GEMINI_PRIMARY_MAX_PROVIDER_REQUESTS + GEMINI_FALLBACK_MAX_PROVIDER_REQUESTS;
 export const GEMINI_RETRY_INITIAL_BACKOFF_MS = 1_000;
 export const GEMINI_RETRY_MAX_BACKOFF_MS = 2_000;
 export const GEMINI_RETRY_AFTER_CAP_MS = 5_000;
@@ -234,6 +240,11 @@ function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+type ProviderRequestBudget = {
+  max: number;
+  used: number;
+};
+
 /**
  * Production resume extractor. Calls Google's Gemini API **only through the
  * Cloudflare AI Gateway** (AD-8). The prompt is narrow and grounded: it may
@@ -294,12 +305,14 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         prompt: string,
         responseSchema: typeof GEMINI_RESUME_RESPONSE_SCHEMA,
         attempt: number,
+        budget: ProviderRequestBudget,
       ): Promise<unknown> => {
         const requestStartedAt = Date.now();
         const remainingMs = deadline - requestStartedAt;
         if (remainingMs < GEMINI_MIN_ATTEMPT_TIMEOUT_MS) {
           throw new ExtractorProviderBusyError();
         }
+        budget.used += 1;
         const attemptTimeoutMs = Math.min(
           GEMINI_EXTRACT_TIMEOUT_MS,
           remainingMs,
@@ -409,12 +422,19 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         prompt: string,
         responseSchema: typeof GEMINI_RESUME_RESPONSE_SCHEMA,
         maxAttempts: number,
+        budget: ProviderRequestBudget,
       ): Promise<unknown> => {
         let lastError: unknown;
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-          if (Date.now() >= deadline) break;
+          if (Date.now() >= deadline || budget.used >= budget.max) break;
           try {
-            return await requestOnce(model, prompt, responseSchema, attempt);
+            return await requestOnce(
+              model,
+              prompt,
+              responseSchema,
+              attempt,
+              budget,
+            );
           } catch (error) {
             lastError = error;
             if (!isTransientFailure(error) || attempt === maxAttempts) break;
@@ -435,7 +455,9 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
 
       const runModel = async (
         model: string,
+        budget: ProviderRequestBudget,
         maxAttempts = GEMINI_RETRY_MAX_ATTEMPTS,
+        allowLegacyRecovery = true,
       ): Promise<unknown> => {
         try {
           return await requestWithRetries(
@@ -443,9 +465,17 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             FULL_RESUME_PROMPT,
             GEMINI_RESUME_RESPONSE_SCHEMA,
             maxAttempts,
+            budget,
           );
         } catch (error) {
-          if (!(error instanceof SyntaxError)) throw error;
+          if (
+            !(error instanceof SyntaxError) ||
+            !allowLegacyRecovery ||
+            budget.used >= budget.max ||
+            Date.now() >= deadline
+          ) {
+            throw error;
+          }
           // A successful response with invalid JSON gets the existing one-shot
           // legacy recovery. It is validation recovery, not a retry.
           return requestWithRetries(
@@ -453,6 +483,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             LEGACY_RECOVERY_PROMPT,
             GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA,
             1,
+            budget,
           );
         }
       };
@@ -467,31 +498,38 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         "GEMINI_FALLBACK_MODEL",
         undefined,
       );
+      const timeoutFailure = (): ExtractorTimeoutError =>
+        new ExtractorTimeoutError(lastTimeoutMs ?? GEMINI_EXTRACT_TIMEOUT_MS);
+      const primaryBudget: ProviderRequestBudget = {
+        max: GEMINI_PRIMARY_MAX_PROVIDER_REQUESTS,
+        used: 0,
+      };
       try {
-        return await runModel(primaryModel);
+        return await runModel(primaryModel, primaryBudget);
       } catch (error) {
         if (!(error instanceof ExtractorProviderBusyError)) {
+          // A later permanent provider response does not erase an earlier
+          // timeout. The permanent status remains in its attempt diagnostic,
+          // while the user gets the retryable timeout outcome.
+          if (sawTimeout) throw timeoutFailure();
           throw error;
         }
         if (fallbackModel && fallbackModel !== primaryModel) {
+          const fallbackBudget: ProviderRequestBudget = {
+            max: GEMINI_FALLBACK_MAX_PROVIDER_REQUESTS,
+            used: 0,
+          };
           try {
             // The fallback is a single bounded rescue attempt, not a second
-            // full retry sequence. It shares the primary's overall deadline.
-            return await runModel(fallbackModel, 1);
+            // full retry or legacy-recovery sequence. It shares the primary's
+            // overall deadline.
+            return await runModel(fallbackModel, fallbackBudget, 1, false);
           } catch (fallbackError) {
-            if (sawTimeout) {
-              throw new ExtractorTimeoutError(
-                lastTimeoutMs ?? GEMINI_EXTRACT_TIMEOUT_MS,
-              );
-            }
+            if (sawTimeout) throw timeoutFailure();
             throw fallbackError;
           }
         }
-        if (sawTimeout) {
-          throw new ExtractorTimeoutError(
-            lastTimeoutMs ?? GEMINI_EXTRACT_TIMEOUT_MS,
-          );
-        }
+        if (sawTimeout) throw timeoutFailure();
         throw error;
       }
     },
