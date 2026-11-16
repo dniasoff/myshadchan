@@ -90,6 +90,7 @@ describe("requestResumeReread", () => {
     [402, { code: "not_entitled" }, "not_entitled"],
     [409, { code: "already_reading" }, "already_reading"],
     [422, { code: "timeout" }, "timeout"],
+    [422, { code: "provider_busy" }, "provider_busy"],
     [409, {}, "failed"],
     [503, {}, "failed"],
   ] as const)(

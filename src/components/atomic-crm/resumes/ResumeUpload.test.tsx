@@ -238,6 +238,10 @@ describe("ResumeUpload — upload (AC 1 / AC 2)", () => {
       "timeout",
       "This is taking too long. Nothing was changed. Please try again later.",
     ],
+    [
+      "provider_busy",
+      "The reading service is busy right now. Nothing was changed. Please try again in a few minutes.",
+    ],
     ["no_allowance", "No resume reads left this month. The file was saved."],
     [
       "not_entitled",

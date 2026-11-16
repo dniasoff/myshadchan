@@ -28,6 +28,7 @@ import {
   type RereadFailureReason,
 } from "./rereadDiagnostics";
 import {
+  ExtractorProviderBusyError,
   ExtractorTimeoutError,
   type ParseEnv,
   type ResumeExtractor,
@@ -418,12 +419,17 @@ export async function rereadResume(
       );
     } catch (error) {
       const timeout = error instanceof ExtractorTimeoutError;
+      const providerBusy = error instanceof ExtractorProviderBusyError;
       return failure(
         dependencies,
         timeout ? "extractor_timeout" : "extractor",
         REREAD_FAILURE_MESSAGE,
         REREAD_FAILURE_STATUS,
-        timeout ? { code: "timeout" } : undefined,
+        timeout
+          ? { code: "timeout" }
+          : providerBusy
+            ? { code: "provider_busy" }
+            : undefined,
       );
     }
 

@@ -19,5 +19,8 @@ describe("resume auto-read copy", () => {
     expect(resumeAutoReadFeedbackText("timeout")).toBe(
       "This is taking too long. Nothing was changed. Please try again later.",
     );
+    expect(resumeAutoReadFeedbackText("provider_busy")).toBe(
+      "The reading service is busy right now. Nothing was changed. Please try again in a few minutes.",
+    );
   });
 });

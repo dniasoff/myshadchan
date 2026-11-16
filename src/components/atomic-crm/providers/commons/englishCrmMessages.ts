@@ -813,6 +813,8 @@ export const englishCrmMessages = {
             "Could not make this resume easy to read. Nothing was changed.",
           timeout:
             "This is taking too long. Nothing was changed. Please try again later.",
+          provider_busy:
+            "The reading service is busy right now. Nothing was changed. Please try again in a few minutes.",
           no_allowance: "No resume reads left this month.",
           cancel: "Cancel",
           confirm: "Make it easy to read",
