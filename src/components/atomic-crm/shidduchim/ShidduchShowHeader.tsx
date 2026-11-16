@@ -32,8 +32,8 @@ export const ShidduchShowHeader = ({
 }) => {
   const name =
     shidduch.name_en ??
-    getTransientSuggestionName(shidduch.id) ??
     shidduch.single_first_name_en ??
+    getTransientSuggestionName(shidduch.id) ??
     "Shidduch";
   const meta = [shidduch.location_en, shidduch.seminary_en]
     .filter(Boolean)

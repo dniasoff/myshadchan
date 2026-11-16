@@ -129,6 +129,35 @@ const buildDataProvider = (
     return { data: {} };
   });
 
+  // Exercise the same conditional provider path as Supabase/FakeRest. The
+  // lock helper deliberately has no generic PATCH fallback: a test double
+  // that omits this method must fail loudly instead of masking a CAS bug.
+  const updateInboxItemResolution = vi.fn(async (params: any) => {
+    const lockAcquiredAt = (
+      currentItem.resolution_input as { lock_acquired_at?: unknown } | null
+    )?.lock_acquired_at;
+    if (
+      currentItem.status !== params.status ||
+      (params.expectedResolutionAttemptId !== undefined &&
+        currentItem.resolution_attempt_id !==
+          params.expectedResolutionAttemptId) ||
+      (params.expectedLockAcquiredAt !== undefined &&
+        lockAcquiredAt !== params.expectedLockAcquiredAt) ||
+      (params.expectedLockAcquiredAtIsNull && lockAcquiredAt != null) ||
+      (params.staleBefore !== undefined &&
+        (typeof lockAcquiredAt !== "string" ||
+          lockAcquiredAt >= params.staleBefore))
+    ) {
+      return null;
+    }
+    const result = await update("inbox_items", {
+      id: currentItem.id,
+      data: params.data,
+      previousData: currentItem,
+    });
+    return result.data as InboxItem;
+  });
+
   return {
     createShidduch,
     create,
@@ -142,6 +171,7 @@ const buildDataProvider = (
     removeInboxAttachment: vi.fn().mockResolvedValue(undefined),
     getOne,
     update,
+    updateInboxItemResolution,
     ...overrides,
   } as unknown as CrmDataProvider;
 };

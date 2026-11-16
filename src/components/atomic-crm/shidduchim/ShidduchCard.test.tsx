@@ -7,6 +7,7 @@ import { TestMemoryRouter } from "ra-core";
 import "./entityDescriptor";
 import type { ShidduchSummary } from "../types";
 import { ShidduchCardContent } from "./ShidduchCard";
+import { rememberTransientSuggestionName } from "./transientSuggestionDisplay";
 
 /**
  * Pins AC 4: the board card's accessibility defect (no `href`, announced as
@@ -31,7 +32,10 @@ const buildShidduch = (
   ...overrides,
 });
 
-const renderCard = async (snapshot?: Partial<DraggableStateSnapshot>) => {
+const renderCard = async (
+  overrides: Partial<ShidduchSummary> = {},
+  snapshot?: Partial<DraggableStateSnapshot>,
+) => {
   let pathname: string | undefined;
   const screen = await render(
     <TestMemoryRouter
@@ -41,7 +45,7 @@ const renderCard = async (snapshot?: Partial<DraggableStateSnapshot>) => {
       }}
     >
       <ShidduchCardContent
-        shidduch={buildShidduch()}
+        shidduch={buildShidduch(overrides)}
         snapshot={snapshot as DraggableStateSnapshot | undefined}
       />
     </TestMemoryRouter>,
@@ -63,7 +67,7 @@ describe("ShidduchCardContent — AC 4 accessibility fix", () => {
 
   it("navigates to the record on an ordinary click", async () => {
     // Arrange
-    const { screen, getPathname } = await renderCard({ isDragging: false });
+    const { screen, getPathname } = await renderCard({}, { isDragging: false });
 
     // Act
     await screen.getByRole("link").click();
@@ -74,7 +78,7 @@ describe("ShidduchCardContent — AC 4 accessibility fix", () => {
 
   it("does not navigate when the click ends a drag", async () => {
     // Arrange
-    const { screen, getPathname } = await renderCard({ isDragging: true });
+    const { screen, getPathname } = await renderCard({}, { isDragging: true });
 
     // Act
     await screen.getByRole("link").click();
@@ -82,5 +86,29 @@ describe("ShidduchCardContent — AC 4 accessibility fix", () => {
     // Assert — onClickCapture's preventDefault suppressed the anchor's own
     // navigation; the location never changes.
     expect(getPathname()).toBe("/shidduchim");
+  });
+
+  it("keeps the established single-name fallback when name_en is NULL", async () => {
+    const { screen } = await renderCard({
+      name_en: null,
+      single_first_name_en: "Malka E2E",
+    });
+
+    await expect.element(screen.getByText("Malka E2E")).toBeInTheDocument();
+  });
+
+  it("uses the transient filename label only after established fallbacks", async () => {
+    rememberTransientSuggestionName(43, "resume.pdf");
+    const { screen } = await renderCard({ id: 43, name_en: null });
+
+    await expect
+      .element(screen.getByText("New suggestion (from resume.pdf)"))
+      .toBeInTheDocument();
+  });
+
+  it("keeps the previous Unnamed empty-state text when no fallback exists", async () => {
+    const { screen } = await renderCard({ name_en: null });
+
+    await expect.element(screen.getByText("Unnamed")).toBeInTheDocument();
   });
 });

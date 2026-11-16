@@ -68,9 +68,32 @@ const buildDataProvider = (
     },
   );
 
+  const updateInboxItemResolution = vi.fn(async (params: any) => {
+    const lockAcquiredAt = (
+      currentItem.resolution_input as { lock_acquired_at?: unknown } | null
+    )?.lock_acquired_at;
+    if (
+      currentItem.status !== params.status ||
+      (params.expectedResolutionAttemptId !== undefined &&
+        currentItem.resolution_attempt_id !==
+          params.expectedResolutionAttemptId) ||
+      (params.expectedLockAcquiredAt !== undefined &&
+        lockAcquiredAt !== params.expectedLockAcquiredAt) ||
+      (params.expectedLockAcquiredAtIsNull && lockAcquiredAt != null) ||
+      (params.staleBefore !== undefined &&
+        (typeof lockAcquiredAt !== "string" ||
+          lockAcquiredAt >= params.staleBefore))
+    ) {
+      return null;
+    }
+    const result = await update("inbox_items", { data: params.data });
+    return result.data;
+  });
+
   return {
     getOne,
     update,
+    updateInboxItemResolution,
     trustSender: vi.fn().mockResolvedValue({
       trustedSender: {
         id: 1,

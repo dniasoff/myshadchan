@@ -62,4 +62,27 @@ describe("ShidduchShowHeader", () => {
       .element(screen.getByText("New suggestion (from resume.pdf)"))
       .toBeInTheDocument();
   });
+
+  it("keeps the established single-name fallback before the transient label", async () => {
+    const screen = await render(
+      <ShidduchShowHeader
+        shidduch={{
+          ...shidduch,
+          id: 45,
+          name_en: null,
+          single_first_name_en: "Malka E2E",
+        }}
+      />,
+    );
+
+    await expect.element(screen.getByText("Malka E2E")).toBeInTheDocument();
+  });
+
+  it("keeps the previous Shidduch empty-state text when no name exists", async () => {
+    const screen = await render(
+      <ShidduchShowHeader shidduch={{ ...shidduch, id: 46, name_en: null }} />,
+    );
+
+    await expect.element(screen.getByText("Shidduch")).toBeInTheDocument();
+  });
 });

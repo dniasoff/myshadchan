@@ -29,6 +29,8 @@ export type { InboxResumeAction } from "./useResolveInboxItem";
 
 const FAILURE_COPY =
   "Could not make this resume easy to read. Nothing was lost. The item is still in your Inbox.";
+export const AMBIGUOUS_READ_COPY =
+  "This resume may still be being read. Nothing was lost. Please try again shortly.";
 const NEWEST_FIRST_COPY = "Your suggestions · newest first";
 export const NEW_SUGGESTION_SUCCESS_COPY = "Created. Open it";
 
@@ -40,6 +42,10 @@ function readOutcomeCopy(outcome: string): string {
       return RESUME_AUTO_READ_COPY.noAllowance;
     case "timeout":
       return RESUME_AUTO_READ_COPY.timeout;
+    case "empty":
+      return RESUME_AUTO_READ_COPY.empty;
+    case "ambiguous":
+      return AMBIGUOUS_READ_COPY;
     default:
       return FAILURE_COPY;
   }
@@ -190,7 +196,7 @@ export const InboxResumeActionsDialog = ({
         shidduchimId: selectedSuggestion ?? undefined,
         singleId: selectedSingle ?? undefined,
       });
-      if (result.outcome === "completed" || result.outcome === "empty") {
+      if (result.outcome === "completed") {
         refresh();
         if (result.shidduch) {
           if (action === "new") {

@@ -5,6 +5,7 @@ import { getAvatarIndex, getMonogram } from "../entity360/avatar";
 import { RecordLink } from "../entity360/RecordLink";
 import type { ShidduchSummary } from "../types";
 import { formatRedtDate } from "./boardUtils";
+import { getTransientSuggestionName } from "./transientSuggestionDisplay";
 
 export interface ShidduchRowProps {
   shidduch: ShidduchSummary;
@@ -37,10 +38,14 @@ export const ShidduchRow = ({
   layout = "row",
   tourAnchor = false,
 }: ShidduchRowProps) => {
-  // A resume-first Inbox action intentionally creates a nameless row while
-  // fill_empty is running. Keep that short window understandable in every
-  // list; the database remains NULL until the reader supplies a real name.
-  const name = shidduch.name_en ?? "New suggestion";
+  // Preserve the established name -> single-name -> empty-state chain. A
+  // just-created resume suggestion may add a process-local page/card label at
+  // the final fallback only; it is never persisted or sent to a notification.
+  const name =
+    shidduch.name_en ??
+    shidduch.single_first_name_en ??
+    getTransientSuggestionName(shidduch.id) ??
+    "Unnamed";
   const monogram = getMonogram(shidduch.name_en);
   const avatarIndex = getAvatarIndex(shidduch.name_en ?? String(shidduch.id));
   const redt = formatRedtDate(shidduch.redt_date);

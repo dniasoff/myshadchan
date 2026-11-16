@@ -14,6 +14,7 @@ export type InboxResolutionUpdateParams = {
   status: InboxItem["status"];
   expectedResolutionAttemptId?: string;
   expectedLockAcquiredAt?: string;
+  expectedLockAcquiredAtIsNull?: boolean;
   staleBefore?: string;
 };
 
@@ -39,6 +40,9 @@ export async function updateInboxItemResolution(
       params.expectedLockAcquiredAt,
     );
   }
+  if (params.expectedLockAcquiredAtIsNull) {
+    query = query.filter("resolution_input->>lock_acquired_at", "is", "null");
+  }
   if (params.staleBefore !== undefined) {
     query = query.filter(
       "resolution_input->>lock_acquired_at",
@@ -53,7 +57,7 @@ export async function updateInboxItemResolution(
   if (error) {
     throw new Error("Could not update this Inbox item.");
   }
-  return (Array.isArray(data) ? data[0] : data) as InboxItem | null;
+  return ((Array.isArray(data) ? data[0] : data) as InboxItem | null) ?? null;
 }
 
 export type OwnedResumeDeleteParams = {

@@ -24,6 +24,7 @@ import {
   unresolvedResumeReadAttempts,
 } from "../resumes/resumeReadRequest";
 import type { ResumeReadOutcome } from "../providers/commons/rereadWorkerClient";
+import { isResumeUnread } from "../resumes/resumeReadableSections";
 import {
   acquireResolutionLock,
   conditionalInboxUpdate,
@@ -90,13 +91,10 @@ function findResumeFile(
 }
 
 function readHasCompleted(resume: Resume): boolean {
-  const sections = resume.sections;
-  return (
-    sections != null &&
-    typeof sections === "object" &&
-    !Array.isArray(sections) &&
-    "schemaVersion" in sections
-  );
+  // A committed Worker read is durable even when its response was lost. Use
+  // the same marker/content predicate as the Resume tab, so parsed content
+  // without a schema marker is also protected from compensation.
+  return !isResumeUnread(resume);
 }
 
 function attachmentExtension(title: string): string {
@@ -124,6 +122,7 @@ export type InboxResumePreparation = {
   entityFilesCreatedByAttempt: EntityFile[];
   resolutionAttemptId: string;
   readCompleted: boolean;
+  resumeReadRequestId?: string;
 };
 
 export type InboxResumeProcessResult = {
@@ -187,6 +186,7 @@ export function useResolveInboxItem() {
       item,
       attemptId,
       resolutionInput,
+      { claimFromStatuses: ["unresolved", "held"] },
     );
 
     try {
@@ -386,6 +386,7 @@ export function useResolveInboxItem() {
       item,
       attemptId,
       resolutionInput,
+      { claimFromStatuses: ["unresolved", "held"] },
     );
 
     if (lockedItem.status === "resolved") {
@@ -472,20 +473,22 @@ export function useResolveInboxItem() {
   const readInboxResume = async (
     resume: Resume,
     file: ResumeFileVersion,
+    requestId?: string,
   ): Promise<ResumeReadOutcome> => {
     if (!isAutomaticallyReadableResume(file)) return "failed";
 
     const attemptKey = resumeReadAttemptKey(resume.id, file.path);
-    const requestId =
+    const effectiveRequestId =
+      requestId ??
       unresolvedResumeReadAttempts.get(attemptKey) ??
       createResumeReadRequestId();
-    unresolvedResumeReadAttempts.set(attemptKey, requestId);
+    unresolvedResumeReadAttempts.set(attemptKey, effectiveRequestId);
     const controller = new AbortController();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<ResumeReadOutcome>((resolve) => {
       timeoutId = setTimeout(() => {
         controller.abort();
-        resolve("timeout");
+        resolve("ambiguous");
       }, 90_000);
     });
 
@@ -493,7 +496,7 @@ export function useResolveInboxItem() {
       const outcome = await Promise.race([
         dataProvider.readResume({
           resumeId: resume.id,
-          requestId,
+          requestId: effectiveRequestId,
           fileIdentity: file.path,
           mode: "fill_empty",
           signal: controller.signal,
@@ -510,9 +513,12 @@ export function useResolveInboxItem() {
       ) {
         unresolvedResumeReadAttempts.delete(attemptKey);
       }
-      return outcome;
+      // A Worker 409 means its ledger still owns the request. Treat it like a
+      // transport ambiguity in this flow: never compensate a suggestion while
+      // the same idempotent request may still be applying.
+      return outcome === "already_reading" ? "ambiguous" : outcome;
     } catch {
-      return "failed";
+      return "ambiguous";
     } finally {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
@@ -775,6 +781,11 @@ export function useResolveInboxItem() {
       return true;
     }
 
+    // Parsed sections/extracted content is user-visible read data. It is
+    // ownership evidence even when the fill-empty read returned no name, so a
+    // lost response can never cause a committed read to be compensated.
+    if (resume && !isResumeUnread(resume)) return true;
+
     if (resume) {
       const { data: photos } = await dataProvider.getList("resume_photos", {
         filter: { resume_id: resume.id },
@@ -942,6 +953,7 @@ export function useResolveInboxItem() {
       item,
       attemptId,
       resolutionInput,
+      { claimFromStatuses: ["unresolved"] },
     );
     if (lockedItem.status === "resolved" && lockedItem.resolved_shidduchim_id) {
       const { data: existing } = await dataProvider.getOne<Shidduch>(
@@ -977,6 +989,8 @@ export function useResolveInboxItem() {
       resume_created?: boolean;
       read_completed?: boolean;
       entity_file_ids?: Identifier[];
+      resume_read_request_id?: string;
+      resume_read_pending?: boolean;
     };
     let resumeFromProvenance: Resume | undefined;
     if (action === "new" && !stashed.resolved_shidduchim_id) {
@@ -1175,6 +1189,7 @@ export function useResolveInboxItem() {
       entityFilesCreatedByAttempt,
       resolutionAttemptId: attemptId,
       readCompleted: readHasCompleted(resume),
+      resumeReadRequestId: stashed.resume_read_request_id,
     };
   };
 
@@ -1183,9 +1198,25 @@ export function useResolveInboxItem() {
     action: InboxResumeAction,
     options: { shidduchimId?: Identifier; singleId?: Identifier },
   ): Promise<InboxResumeProcessResult> => {
-    const attemptId = generateAttemptId();
+    const currentBeforeAttempt = await getCurrentResolutionItem(item).catch(
+      () => undefined,
+    );
+    const currentInput = currentBeforeAttempt?.resolution_input as {
+      resume_read_pending?: boolean;
+    } | null;
+    // An ambiguous read deliberately keeps the lock. A retry from the same
+    // UI can resume that exact attempt immediately; a crash before the
+    // pending marker lands still follows normal stale-lock takeover.
+    const attemptId =
+      currentBeforeAttempt?.status === "resolving" &&
+      currentInput?.resume_read_pending === true &&
+      currentBeforeAttempt.resolution_attempt_id != null
+        ? String(currentBeforeAttempt.resolution_attempt_id)
+        : generateAttemptId();
     let preparation: InboxResumePreparation | undefined;
     let readSucceeded = false;
+    let readStarted = false;
+    let ambiguousRead = false;
     try {
       preparation = await prepareInboxResume(
         item,
@@ -1197,8 +1228,97 @@ export function useResolveInboxItem() {
       let outcome: ResumeReadOutcome = "completed";
       readSucceeded = preparation.readCompleted;
       if (!preparation.readCompleted) {
-        outcome = await readInboxResume(preparation.resume, preparation.file);
-        if (outcome === "completed" || outcome === "empty") {
+        const requestId =
+          preparation.resumeReadRequestId ?? createResumeReadRequestId();
+        if (!preparation.resumeReadRequestId) {
+          const current = await getCurrentResolutionItem(item);
+          if (current?.status === "resolving") {
+            await updateOwnedInboxResolution(
+              item,
+              {
+                resolution_input: {
+                  ...(current.resolution_input ?? {}),
+                  resume_read_request_id: requestId,
+                  resume_read_pending: false,
+                },
+              },
+              attemptId,
+            );
+          }
+        }
+        readStarted = true;
+        outcome = await readInboxResume(
+          preparation.resume,
+          preparation.file,
+          requestId,
+        );
+        if (outcome === "ambiguous") {
+          ambiguousRead = true;
+          // The Worker ledger is service-role-only in this deployment, so the
+          // durable resume row is the authoritative client-visible
+          // reconciliation point. A marker or parsed content means the read
+          // committed even if its HTTP envelope was lost.
+          const { data: reconciledResume } = await dataProvider
+            .getOne<Resume>("resumes", {
+              id: preparation.resume.id,
+            })
+            .catch(() => ({ data: undefined }));
+          if (reconciledResume && readHasCompleted(reconciledResume)) {
+            preparation = {
+              ...preparation,
+              resume: reconciledResume,
+              file:
+                findResumeFile(
+                  reconciledResume,
+                  item.id,
+                  preparation.file.path,
+                ) ?? preparation.file,
+              readCompleted: true,
+            };
+            readSucceeded = true;
+            outcome = "completed";
+            const current = await getCurrentResolutionItem(item);
+            if (current?.status === "resolving") {
+              await updateOwnedInboxResolution(
+                item,
+                {
+                  resolution_input: {
+                    ...(current.resolution_input ?? {}),
+                    read_completed: true,
+                    resume_read_pending: false,
+                  },
+                },
+                attemptId,
+              );
+            }
+          } else {
+            const current = await getCurrentResolutionItem(item).catch(
+              () => undefined,
+            );
+            if (current?.status === "resolving") {
+              await updateOwnedInboxResolution(
+                item,
+                {
+                  resolution_input: {
+                    ...(current.resolution_input ?? {}),
+                    resume_read_request_id: requestId,
+                    resume_read_pending: true,
+                  },
+                },
+                attemptId,
+              ).catch(() => undefined);
+            }
+            // Keep the same lock, suggestion, resume and request id. The UI
+            // can retry this attempt; compensation is unsafe until the next
+            // reconciliation proves a definite failure.
+            return {
+              outcome: "ambiguous",
+              shidduch: null,
+              suggestionKept: true,
+            };
+          }
+        }
+        if (outcome === "completed") {
           readSucceeded = true;
           const current = await getCurrentResolutionItem(item);
           if (current?.status === "resolving") {
@@ -1208,6 +1328,7 @@ export function useResolveInboxItem() {
                 resolution_input: {
                   ...(current.resolution_input ?? {}),
                   read_completed: true,
+                  resume_read_pending: false,
                 },
               },
               attemptId,
@@ -1216,7 +1337,7 @@ export function useResolveInboxItem() {
         }
       }
 
-      if (outcome === "completed" || outcome === "empty") {
+      if (outcome === "completed") {
         await finalizeInboxResolution(item, preparation.shidduch, attemptId);
         let completedShidduch = preparation.shidduch;
         try {
@@ -1277,7 +1398,7 @@ export function useResolveInboxItem() {
         const shidduchimId =
           preparation?.shidduch.id ?? stashed?.resolved_shidduchim_id;
         if (shidduchimId != null) {
-          if (!readSucceeded) {
+          if (!readSucceeded && readStarted && !ambiguousRead) {
             let attemptEntityFiles =
               preparation?.entityFilesCreatedByAttempt ?? [];
             if (attemptEntityFiles.length === 0 && stashed?.entity_file_ids) {
@@ -1333,6 +1454,7 @@ export function useResolveInboxItem() {
       item,
       attemptId,
       resolutionInput,
+      { claimFromStatuses: ["unresolved", "held"] },
     );
 
     if (lockedItem.status === "dismissed") {

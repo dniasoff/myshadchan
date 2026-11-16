@@ -30,6 +30,7 @@ export type ResumeReadOutcome =
   | "stale_file"
   | "timeout"
   | "provider_busy"
+  | "ambiguous"
   | "failed";
 
 export type ResumeRereadOutcome = Extract<
@@ -98,7 +99,11 @@ export async function requestResumeRead(
     try {
       envelope = (await response.json()) as typeof envelope;
     } catch {
-      return "failed";
+      // A transport abort or malformed/missing response does not prove that
+      // the Worker failed before applying its idempotent read. The Inbox flow
+      // reconciles the resume row before deciding whether compensation is
+      // safe; deliberate re-reads keep their existing generic failure copy.
+      return "ambiguous";
     }
 
     if (response.ok && envelope.success === true) {
@@ -120,7 +125,7 @@ export async function requestResumeRead(
     if (envelope.meta?.code === "provider_busy") return "provider_busy";
     return "failed";
   } catch {
-    return "failed";
+    return "ambiguous";
   } finally {
     clearTimeout(timeout);
     params.signal?.removeEventListener("abort", abortFromCaller);
@@ -133,5 +138,6 @@ export async function requestResumeReread(
 ): Promise<ResumeRereadOutcome> {
   const outcome = await requestResumeRead(url, params);
   if (outcome === "stale_file") return "failed";
+  if (outcome === "ambiguous") return "failed";
   return outcome === "empty" ? "completed" : outcome;
 }

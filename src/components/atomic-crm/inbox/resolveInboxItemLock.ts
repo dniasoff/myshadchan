@@ -63,6 +63,8 @@ export type ResolutionInput =
       read_completed?: boolean;
       lock_acquired_at?: string;
       entity_file_ids?: Identifier[];
+      resume_read_request_id?: string;
+      resume_read_pending?: boolean;
     };
 
 const MAX_LOCK_RETRIES = 3;
@@ -81,6 +83,15 @@ type ResolutionLockDataProvider = CrmDataProvider & {
   ) => Promise<InboxItem | null>;
 };
 
+export type ResolutionLockOptions = {
+  /**
+   * The statuses this action may claim from. The conditional update uses the
+   * status observed on the row, so held discard/resolve claims are not sent
+   * as unresolved claims. File-backed actions pass only `unresolved`.
+   */
+  claimFromStatuses: readonly InboxItem["status"][];
+};
+
 function lockAcquiredAt(input: unknown): string | undefined {
   if (!input || typeof input !== "object") return undefined;
   const value = (input as { lock_acquired_at?: unknown }).lock_acquired_at;
@@ -89,7 +100,9 @@ function lockAcquiredAt(input: unknown): string | undefined {
 
 function isStaleLock(input: unknown, now = Date.now()): boolean {
   const acquiredAt = lockAcquiredAt(input);
-  if (!acquiredAt) return false;
+  // Rows written before lock_acquired_at existed are legacy locks. They have
+  // no liveness proof, so takeover uses an explicit NULL predicate below.
+  if (!acquiredAt) return true;
   const timestamp = Date.parse(acquiredAt);
   return (
     Number.isFinite(timestamp) && now - timestamp >= RESOLUTION_LOCK_STALE_MS
@@ -103,11 +116,7 @@ function withLockTimestamp(
   return { ...input, lock_acquired_at: acquiredAt };
 }
 
-/**
- * The live Supabase provider implements this as a conditional PostgREST
- * UPDATE. The fallback exists only for legacy unit-test doubles that predate
- * the custom method; the shipped Supabase provider never uses it.
- */
+/** The live providers implement this as a conditional PostgREST-style UPDATE. */
 export async function conditionalInboxUpdate(
   dataProvider: CrmDataProvider,
   params: InboxResolutionUpdateParams,
@@ -115,16 +124,20 @@ export async function conditionalInboxUpdate(
 ): Promise<InboxItem | null> {
   const provider = dataProvider as ResolutionLockDataProvider;
   if (
-    Object.prototype.hasOwnProperty.call(provider, "updateInboxItemResolution")
+    !Object.prototype.hasOwnProperty.call(
+      provider,
+      "updateInboxItemResolution",
+    ) ||
+    typeof provider.updateInboxItemResolution !== "function"
   ) {
-    return provider.updateInboxItemResolution!(params);
+    throw new Error(
+      "The Inbox resolution provider must implement updateInboxItemResolution.",
+    );
   }
-  const { data } = await dataProvider.update<InboxItem>("inbox_items", {
-    id: params.id,
-    data: params.data,
-    previousData: fallbackPreviousData,
-  });
-  return data ?? null;
+  // Keep the observed row in the signature so removing the CAS contract is a
+  // visible test/code review change, not an accidental unused argument.
+  void fallbackPreviousData;
+  return provider.updateInboxItemResolution(params);
 }
 
 export function generateAttemptId(): string {
@@ -197,6 +210,7 @@ export async function acquireResolutionLock(
   item: InboxItem,
   attemptId: string,
   input: ResolutionInput,
+  options: ResolutionLockOptions,
   retryCount = 0,
 ): Promise<InboxItem> {
   const { data: current } = await dataProvider.getOne<InboxItem>(
@@ -221,7 +235,6 @@ export async function acquireResolutionLock(
     if (!isStaleLock(currentInput)) throw new ResolutionClaimLostError();
 
     const previousLockAcquiredAt = lockAcquiredAt(currentInput);
-    if (!previousLockAcquiredAt) throw new ResolutionClaimLostError();
     const now = new Date().toISOString();
     const claimed = await conditionalInboxUpdate(
       dataProvider,
@@ -230,9 +243,14 @@ export async function acquireResolutionLock(
         status: "resolving",
         expectedResolutionAttemptId: current.resolution_attempt_id ?? undefined,
         expectedLockAcquiredAt: previousLockAcquiredAt,
-        staleBefore: new Date(
-          Date.now() - RESOLUTION_LOCK_STALE_MS,
-        ).toISOString(),
+        expectedLockAcquiredAtIsNull: previousLockAcquiredAt === undefined,
+        ...(previousLockAcquiredAt
+          ? {
+              staleBefore: new Date(
+                Date.now() - RESOLUTION_LOCK_STALE_MS,
+              ).toISOString(),
+            }
+          : {}),
         data: {
           resolution_attempt_id: attemptId,
           resolution_input: withLockTimestamp(
@@ -250,16 +268,22 @@ export async function acquireResolutionLock(
       item,
       attemptId,
       input,
+      options,
       retryCount + 1,
     );
   }
 
-  // current.status === "unresolved": try to acquire the lock.
+  if (!options.claimFromStatuses.includes(current.status)) {
+    throw new ResolutionClaimLostError();
+  }
+
+  // Claim from the exact status observed above. Needs Review actions claim
+  // `held`; they must never be rewritten as an `unresolved` claim.
   const claimed = await conditionalInboxUpdate(
     dataProvider,
     {
       id: item.id,
-      status: "unresolved",
+      status: current.status,
       data: {
         status: "resolving",
         resolution_attempt_id: attemptId,
@@ -275,6 +299,7 @@ export async function acquireResolutionLock(
     item,
     attemptId,
     input,
+    options,
     retryCount + 1,
   );
 }

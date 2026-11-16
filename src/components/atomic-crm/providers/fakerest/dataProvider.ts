@@ -1506,44 +1506,63 @@ export const createDataProvider = ({
     };
   };
 
+  // Keep the in-memory conditional update atomic even when the base FakeRest
+  // provider has an artificial latency. Without this queue, two callers could
+  // both finish their GET before either PATCH, which would not mirror the
+  // database CAS contract used by the live provider.
+  let inboxResolutionQueue: Promise<void> = Promise.resolve();
+
   const dataProviderWithCustomMethod: CrmDataProvider = {
     ...baseDataProvider,
-    async updateInboxItemResolution(
+    updateInboxItemResolution(
       params: InboxResolutionUpdateParams,
     ): Promise<InboxItem | null> {
-      const { data: current } = await baseDataProvider.getOne<InboxItem>(
-        "inbox_items",
-        { id: params.id },
-      );
-      if (!current || current.status !== params.status) return null;
-      if (
-        params.expectedResolutionAttemptId !== undefined &&
-        current.resolution_attempt_id !== params.expectedResolutionAttemptId
-      ) {
-        return null;
-      }
-      const lockAcquiredAt = (
-        current.resolution_input as { lock_acquired_at?: unknown } | null
-      )?.lock_acquired_at;
-      if (
-        params.expectedLockAcquiredAt !== undefined &&
-        lockAcquiredAt !== params.expectedLockAcquiredAt
-      ) {
-        return null;
-      }
-      if (
-        params.staleBefore !== undefined &&
-        (typeof lockAcquiredAt !== "string" ||
-          lockAcquiredAt >= params.staleBefore)
-      ) {
-        return null;
-      }
-      const { data } = await baseDataProvider.update<InboxItem>("inbox_items", {
-        id: params.id,
-        data: params.data,
-        previousData: current,
+      const operation = inboxResolutionQueue.then(async () => {
+        const { data: current } = await baseDataProvider.getOne<InboxItem>(
+          "inbox_items",
+          { id: params.id },
+        );
+        if (!current || current.status !== params.status) return null;
+        if (
+          params.expectedResolutionAttemptId !== undefined &&
+          current.resolution_attempt_id !== params.expectedResolutionAttemptId
+        ) {
+          return null;
+        }
+        const lockAcquiredAt = (
+          current.resolution_input as { lock_acquired_at?: unknown } | null
+        )?.lock_acquired_at;
+        if (
+          params.expectedLockAcquiredAt !== undefined &&
+          lockAcquiredAt !== params.expectedLockAcquiredAt
+        ) {
+          return null;
+        }
+        if (params.expectedLockAcquiredAtIsNull && lockAcquiredAt != null) {
+          return null;
+        }
+        if (
+          params.staleBefore !== undefined &&
+          (typeof lockAcquiredAt !== "string" ||
+            lockAcquiredAt >= params.staleBefore)
+        ) {
+          return null;
+        }
+        const { data } = await baseDataProvider.update<InboxItem>(
+          "inbox_items",
+          {
+            id: params.id,
+            data: params.data,
+            previousData: current,
+          },
+        );
+        return data ?? null;
       });
-      return data ?? null;
+      inboxResolutionQueue = operation.then(
+        () => undefined,
+        () => undefined,
+      );
+      return operation;
     },
     async deleteOwnedInboxResume(
       params: OwnedResumeDeleteParams,

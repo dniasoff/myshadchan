@@ -3,6 +3,7 @@ import { render } from "vitest-browser-react";
 
 import type { InboxItem } from "../types";
 import {
+  AMBIGUOUS_READ_COPY,
   InboxResumeActionButtons,
   NEW_SUGGESTION_SUCCESS_COPY,
 } from "./InboxResumeActions";
@@ -92,5 +93,6 @@ describe("Inbox resume action buttons", () => {
   it("keeps the nameless success notification static and filename-free", () => {
     expect(NEW_SUGGESTION_SUCCESS_COPY).toBe("Created. Open it");
     expect(NEW_SUGGESTION_SUCCESS_COPY).not.toContain("resume.pdf");
+    expect(AMBIGUOUS_READ_COPY).not.toContain("resume.pdf");
   });
 });

@@ -76,7 +76,8 @@ const buildResume = (overrides: Partial<Resume> = {}): Resume =>
   }) as Resume;
 
 type ResumeProviderOptions = {
-  readOutcome?: "completed" | "empty" | "no_allowance" | "failed";
+  readOutcome?: "completed" | "empty" | "no_allowance" | "failed" | "ambiguous";
+  commitReadBeforeAmbiguousResponse?: boolean;
   initialItem?: InboxItem;
   initialResume?: Resume;
   suggestion?: Shidduch;
@@ -162,13 +163,51 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
     },
   );
 
+  const updateInboxItemResolution = vi.fn(async (params: any) => {
+    const lockAcquiredAt = (
+      currentItem.resolution_input as { lock_acquired_at?: unknown } | null
+    )?.lock_acquired_at;
+    if (
+      currentItem.status !== params.status ||
+      (params.expectedResolutionAttemptId !== undefined &&
+        currentItem.resolution_attempt_id !==
+          params.expectedResolutionAttemptId) ||
+      (params.expectedLockAcquiredAt !== undefined &&
+        lockAcquiredAt !== params.expectedLockAcquiredAt) ||
+      (params.expectedLockAcquiredAtIsNull && lockAcquiredAt != null) ||
+      (params.staleBefore !== undefined &&
+        (typeof lockAcquiredAt !== "string" ||
+          lockAcquiredAt >= params.staleBefore))
+    ) {
+      return null;
+    }
+    const result = await update("inbox_items", {
+      id: currentItem.id,
+      data: params.data,
+    });
+    return result.data;
+  });
+
   const dataProvider = {
     getOne,
     getList,
     createShidduch,
     attachInboxAttachmentToResumeFile,
-    readResume: vi.fn(async () => readOutcome),
+    readResume: vi.fn(async () => {
+      if (
+        readOutcome === "ambiguous" &&
+        options.commitReadBeforeAmbiguousResponse
+      ) {
+        const resume = resumes[0];
+        if (resume) {
+          resume.sections = { schemaVersion: 4 };
+          resume.extracted = { fields: { name_en: "Committed" } };
+        }
+      }
+      return readOutcome;
+    }),
     update,
+    updateInboxItemResolution,
     delete: vi.fn().mockResolvedValue({ data: {} }),
     removeResumeFileObjects:
       options.removeResumeFileObjects ?? vi.fn().mockResolvedValue(undefined),
@@ -271,6 +310,56 @@ describe("resume-first Inbox resolution", () => {
     );
   });
 
+  it("reconciles a committed read after a lost response and never compensates it", async () => {
+    const item = buildItem();
+    const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
+      readOutcome: "ambiguous",
+      commitReadBeforeAmbiguousResponse: true,
+    });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:completed:99:true"))
+      .toBeInTheDocument();
+
+    expect(dataProvider.removeResumeFileObjects).not.toHaveBeenCalled();
+    expect(dataProvider.delete).not.toHaveBeenCalled();
+    expect(getCurrentItem()).toMatchObject({ status: "resolved" });
+  });
+
+  it("keeps an ambiguous read locked and reuses its stashed request id on retry", async () => {
+    const item = buildItem();
+    const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
+      readOutcome: "ambiguous",
+    });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:ambiguous:none:true"))
+      .toBeInTheDocument();
+
+    const readResume = dataProvider.readResume as ReturnType<typeof vi.fn>;
+    const firstRequestId = readResume.mock.calls[0]?.[0].requestId;
+    expect(firstRequestId).toEqual(expect.any(String));
+    expect(getCurrentItem()).toMatchObject({
+      status: "resolving",
+      resolution_input: {
+        resume_read_request_id: firstRequestId,
+        resume_read_pending: true,
+      },
+    });
+    expect(dataProvider.removeResumeFileObjects).not.toHaveBeenCalled();
+    expect(dataProvider.delete).not.toHaveBeenCalled();
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:ambiguous:none:true"))
+      .toBeInTheDocument();
+    expect(readResume).toHaveBeenCalledTimes(2);
+    expect(readResume.mock.calls[1]?.[0].requestId).toBe(firstRequestId);
+    expect(getCurrentItem().status).toBe("resolving");
+  });
+
   it("compensates only its nameless suggestion on an allowance failure and releases the Inbox lock", async () => {
     const item = buildItem();
     const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
@@ -298,6 +387,25 @@ describe("resume-first Inbox resolution", () => {
       resolved_shidduchim_id: null,
     });
     expect(item.attachments?.[0].path).toBe(ATTACHMENT.path);
+  });
+
+  it("treats a definite empty-read response as failure and compensates the attempt", async () => {
+    const item = buildItem();
+    const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
+      readOutcome: "empty",
+    });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:empty:none:false"))
+      .toBeInTheDocument();
+
+    expect(dataProvider.removeResumeFileObjects).toHaveBeenCalled();
+    expect(dataProvider.delete).toHaveBeenCalledWith(
+      "shidduchim",
+      expect.objectContaining({ id: 99 }),
+    );
+    expect(getCurrentItem()).toMatchObject({ status: "unresolved" });
   });
 
   it("keeps an already edited suggestion and still releases the Inbox lock", async () => {
