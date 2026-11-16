@@ -8,6 +8,7 @@ import type {
 } from "../../../types";
 
 export type EntityFileBlobUrls = Map<string, string>;
+type AttemptEntityFile = EntityFile & { createdByAttempt?: boolean };
 
 /** Mirrors `providers/supabase/entityFiles.ts#deriveExtension`. */
 function deriveExtension(fileName: string): string {
@@ -21,7 +22,23 @@ export type CopyInboxAttachmentsParams = {
   targetType: EntityTargetType;
   targetId: Identifier;
   visibility?: EntityFileVisibility;
+  sourceInboxItemId?: Identifier;
 };
+
+function stableAttachmentToken(itemId: Identifier, path: string): string {
+  let first = 2166136261;
+  let second = 2246822519;
+  for (const character of `${itemId}:${path}`) {
+    const code = character.codePointAt(0) ?? 0;
+    first ^= code;
+    first = Math.imul(first, 16777619);
+    second ^= code;
+    second = Math.imul(second, 3266489917);
+  }
+  return `${(first >>> 0).toString(16).padStart(8, "0")}${(second >>> 0)
+    .toString(16)
+    .padStart(8, "0")}`;
+}
 
 /**
  * FakeRest mirror of `providers/supabase/inboxAttachments.ts#copyInboxAttachmentsToEntityFiles`.
@@ -45,15 +62,39 @@ export async function copyInboxAttachmentsToEntityFiles(
     visibility,
     accountId,
     uploadedByMemberId,
+    sourceInboxItemId,
   } = params;
   if (!attachments || attachments.length === 0) return [];
 
   const resolvedVisibility = visibility ?? "shared";
-  const results: EntityFile[] = [];
+  const results: AttemptEntityFile[] = [];
 
   for (const attachment of attachments) {
     const ext = deriveExtension(attachment.title);
-    const storagePath = `${accountId}/${targetType}/${targetId}/${crypto.randomUUID()}${ext}`;
+    const storagePath = `${accountId}/${targetType}/${targetId}/${
+      sourceInboxItemId == null
+        ? crypto.randomUUID()
+        : `inbox-${sourceInboxItemId}-${stableAttachmentToken(
+            sourceInboxItemId,
+            attachment.path,
+          )}`
+    }${ext}`;
+
+    if (sourceInboxItemId != null) {
+      const { data: existingFiles } =
+        await baseDataProvider.getList<EntityFile>("entity_files", {
+          filter: { target_type: targetType, target_id: targetId },
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        });
+      const existing = existingFiles.find(
+        (file) => file.storage_path === storagePath,
+      );
+      if (existing) {
+        results.push({ ...existing, createdByAttempt: false });
+        continue;
+      }
+    }
 
     // Reuse the captured attachment URL as the "signed" URL for the Files tab.
     blobUrls.set(storagePath, attachment.src);
@@ -76,7 +117,7 @@ export async function copyInboxAttachmentsToEntityFiles(
           },
         },
       );
-      results.push(data);
+      results.push({ ...(data as AttemptEntityFile), createdByAttempt: true });
     } catch (error) {
       blobUrls.delete(storagePath);
       throw error;

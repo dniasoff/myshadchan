@@ -5,7 +5,7 @@ import { CoreAdminContext, TestMemoryRouter, type Identifier } from "ra-core";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
-import type { InboxItem, Resume, Shidduch } from "../types";
+import type { EntityFile, InboxItem, Resume, Shidduch } from "../types";
 import { useResolveInboxItem } from "./useResolveInboxItem";
 
 const ATTACHMENT = {
@@ -81,6 +81,7 @@ type ResumeProviderOptions = {
   initialResume?: Resume;
   suggestion?: Shidduch;
   removeResumeFileObjects?: CrmDataProvider["removeResumeFileObjects"];
+  dependentDataAppearsDuringCompensation?: boolean;
 };
 
 const buildDataProvider = (options: ResumeProviderOptions = {}) => {
@@ -90,6 +91,7 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
     ? [options.initialResume]
     : [];
   const readOutcome = options.readOutcome ?? "completed";
+  let interactionReads = 0;
 
   const getOne = vi.fn(async (resource: string, params: { id: Identifier }) => {
     if (resource === "inbox_items" && params.id === currentItem.id) {
@@ -106,6 +108,15 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
 
   const getList = vi.fn(
     async (resource: string, params: { filter?: Record<string, unknown> }) => {
+      if (
+        resource === "interactions" &&
+        options.dependentDataAppearsDuringCompensation
+      ) {
+        interactionReads += 1;
+        if (interactionReads >= 2) {
+          return { data: [{ id: 123 }], total: 1 };
+        }
+      }
       if (resource !== "resumes") return { data: [], total: 0 };
       const filter = params.filter ?? {};
       if (filter.shidduchim_id != null) {
@@ -300,6 +311,7 @@ describe("resume-first Inbox resolution", () => {
         resolved_shidduchim_id: 99,
         resume_id: 7,
         resume_created: true,
+        lock_acquired_at: "2026-01-01T00:00:00Z",
       },
     });
     const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
@@ -317,6 +329,23 @@ describe("resume-first Inbox resolution", () => {
     expect(getCurrentItem()).toMatchObject({ status: "unresolved" });
   });
 
+  it("never compensates a pre-existing resume discovered through provenance", async () => {
+    const item = buildItem();
+    const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
+      readOutcome: "no_allowance",
+      initialResume: buildResume(),
+    });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:no_allowance:none:true"))
+      .toBeInTheDocument();
+
+    expect(dataProvider.delete).not.toHaveBeenCalled();
+    expect(dataProvider.removeResumeFileObjects).not.toHaveBeenCalled();
+    expect(getCurrentItem()).toMatchObject({ status: "unresolved" });
+  });
+
   it("reuses a stale resolving attempt through resume provenance instead of creating a second suggestion", async () => {
     const item = buildItem({
       status: "resolving",
@@ -325,6 +354,7 @@ describe("resume-first Inbox resolution", () => {
         action: "resume_new",
         attachment_path: ATTACHMENT.path,
         single_id: 5,
+        lock_acquired_at: "2026-01-01T00:00:00Z",
       },
     });
     const { screen, dataProvider, createShidduch } = await renderProbe(item, {
@@ -362,5 +392,71 @@ describe("resume-first Inbox resolution", () => {
     expect(dataProvider.delete).not.toHaveBeenCalled();
     expect(getCurrentItem()).toMatchObject({ status: "unresolved" });
     expect(item.attachments?.[0].path).toBe(ATTACHMENT.path);
+  });
+
+  it("aborts compensation when dependent data appears during its safety check", async () => {
+    const item = buildItem();
+    const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
+      readOutcome: "no_allowance",
+      dependentDataAppearsDuringCompensation: true,
+    });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:no_allowance:none:true"))
+      .toBeInTheDocument();
+
+    expect(dataProvider.removeResumeFileObjects).not.toHaveBeenCalled();
+    expect(dataProvider.delete).not.toHaveBeenCalled();
+    expect(getCurrentItem()).toMatchObject({
+      status: "unresolved",
+      resolved_shidduchim_id: null,
+    });
+    expect(getCurrentItem().resolution_input).toMatchObject({
+      resolved_shidduchim_id: 99,
+    });
+  });
+
+  it("copies accompanying pictures privately while reading only the selected resume", async () => {
+    const picture = {
+      title: "family-photo.jpg",
+      type: "image/jpeg",
+      path: "1/inbox/family-photo.jpg",
+      src: "https://example.test/family-photo.jpg",
+    };
+    const privateFile = {
+      id: 91,
+      account_id: 1,
+      target_type: "shidduch",
+      target_id: 99,
+      storage_path: "1/shidduch/99/inbox-picture.jpg",
+      file_name: picture.title,
+      mime_type: picture.type,
+      size_bytes: 12,
+      visibility: "private_parent",
+      created_at: "2026-01-01T00:00:00Z",
+    } as EntityFile;
+    const item = buildItem({ attachments: [ATTACHMENT, picture] });
+    const { screen, dataProvider } = await renderProbe(item, {
+      initialItem: item,
+    });
+    const copy = vi
+      .spyOn(dataProvider, "copyInboxAttachmentsToEntityFiles")
+      .mockResolvedValue([privateFile]);
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:completed:99:true"))
+      .toBeInTheDocument();
+
+    expect(copy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [picture],
+        sourceInboxItemId: 44,
+        visibility: "private_parent",
+      }),
+    );
+    expect(copy.mock.calls[0]?.[0].visibility).not.toBe("shared");
+    expect(item.attachments).toEqual([ATTACHMENT, picture]);
   });
 });

@@ -385,6 +385,7 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
         resume_draft: draft,
         resolved_shidduchim_id: 99,
         resume_created: true,
+        lock_acquired_at: "2026-01-01T00:00:00Z",
       },
     });
     const { screen, dataProvider } = await renderProbe(item, {}, draft);
@@ -591,6 +592,7 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
         targetType: "shidduch",
         targetId: 42,
         visibility: "shared",
+        sourceInboxItemId: item.id,
       }),
     );
     expect(
@@ -602,6 +604,7 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
         targetType: "shidduch",
         targetId: 42,
         visibility: "private_parent",
+        sourceInboxItemId: item.id,
       }),
     );
   });
@@ -859,9 +862,7 @@ describe("useResolveInboxItem — Story 10.5 idempotency edge cases", () => {
     await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
     await expect
       .element(
-        screen.getByText(
-          "error:Another resolution is already in progress for inbox item 1.",
-        ),
+        screen.getByText("error:This Inbox item is already being handled."),
       )
       .toBeInTheDocument();
 
@@ -875,6 +876,7 @@ describe("useResolveInboxItem — Story 10.5 idempotency edge cases", () => {
       resolution_input: {
         action: "new",
         input: { single_id: 5, shadchan_id: 7 },
+        lock_acquired_at: "2026-01-01T00:00:00Z",
       },
     });
     const { screen, dataProvider } = await renderProbe(item);
@@ -905,6 +907,7 @@ describe("useResolveInboxItem — retry-compatibility widened to full input + dr
       resolution_input: {
         action: "new",
         input: { single_id: 5, shadchan_id: 7, background: "Learns at BMG" },
+        lock_acquired_at: "2026-01-01T00:00:00Z",
         resolved_shidduchim_id: 99,
       },
     });
@@ -922,9 +925,7 @@ describe("useResolveInboxItem — retry-compatibility widened to full input + dr
     // Assert: rejected — never silently finalized with mismatched data.
     await expect
       .element(
-        screen.getByText(
-          "error:Another resolution is already in progress for inbox item 1.",
-        ),
+        screen.getByText("error:This Inbox item is already being handled."),
       )
       .toBeInTheDocument();
     expect(dataProvider.update).not.toHaveBeenCalled();
@@ -940,6 +941,7 @@ describe("useResolveInboxItem — retry-compatibility widened to full input + dr
         action: "new",
         input: { single_id: 5, shadchan_id: 7, background: "Learns at BMG" },
         resolved_shidduchim_id: 99,
+        lock_acquired_at: "2026-01-01T00:00:00Z",
       },
     });
     const { screen, dataProvider } = await renderProbe(
@@ -993,9 +995,7 @@ describe("useResolveInboxItem — retry-compatibility widened to full input + dr
     // Assert
     await expect
       .element(
-        screen.getByText(
-          "error:Another resolution is already in progress for inbox item 1.",
-        ),
+        screen.getByText("error:This Inbox item is already being handled."),
       )
       .toBeInTheDocument();
     expect(dataProvider.update).not.toHaveBeenCalled();

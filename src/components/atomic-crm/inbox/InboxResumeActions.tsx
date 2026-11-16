@@ -22,12 +22,15 @@ import {
   type InboxResumeAction,
   useResolveInboxItem,
 } from "./useResolveInboxItem";
+import { ResolutionClaimLostError } from "./resolveInboxItemLock";
+import { rememberTransientSuggestionName } from "../shidduchim/transientSuggestionDisplay";
 
 export type { InboxResumeAction } from "./useResolveInboxItem";
 
 const FAILURE_COPY =
   "Could not make this resume easy to read. Nothing was lost. The item is still in your Inbox.";
 const NEWEST_FIRST_COPY = "Your suggestions · newest first";
+export const NEW_SUGGESTION_SUCCESS_COPY = "Created. Open it";
 
 function readOutcomeCopy(outcome: string): string {
   switch (outcome) {
@@ -191,15 +194,13 @@ export const InboxResumeActionsDialog = ({
         refresh();
         if (result.shidduch) {
           if (action === "new") {
-            const displayName =
-              result.shidduch.name_en?.trim() ||
-              `New suggestion (from ${resumeAttachment?.title ?? "resume"})`;
-            notify(
-              result.shidduch.name_en?.trim()
-                ? "Created. Open it"
-                : `Created. Open it — ${displayName}`,
-              { type: "info" },
-            );
+            if (!result.shidduch.name_en?.trim()) {
+              rememberTransientSuggestionName(
+                result.shidduch.id,
+                resumeAttachment?.title,
+              );
+            }
+            notify(NEW_SUGGESTION_SUCCESS_COPY, { type: "info" });
           } else {
             notify(RESUME_AUTO_READ_COPY.completed, { type: "info" });
           }
@@ -211,8 +212,12 @@ export const InboxResumeActionsDialog = ({
       setMessage(readOutcomeCopy(result.outcome));
       setMessageIsError(true);
       refresh();
-    } catch {
-      setMessage(FAILURE_COPY);
+    } catch (error) {
+      setMessage(
+        error instanceof ResolutionClaimLostError
+          ? error.message
+          : FAILURE_COPY,
+      );
       setMessageIsError(true);
       refresh();
     } finally {

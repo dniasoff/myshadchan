@@ -109,6 +109,11 @@ import {
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import type { CrmDataProvider } from "../types";
+import type {
+  InboxResolutionUpdateParams,
+  OwnedResumeDeleteParams,
+  OwnedShidduchDeleteParams,
+} from "../supabase/inboxResolution";
 import {
   authProvider as defaultAuthProvider,
   USER_STORAGE_KEY,
@@ -1503,6 +1508,86 @@ export const createDataProvider = ({
 
   const dataProviderWithCustomMethod: CrmDataProvider = {
     ...baseDataProvider,
+    async updateInboxItemResolution(
+      params: InboxResolutionUpdateParams,
+    ): Promise<InboxItem | null> {
+      const { data: current } = await baseDataProvider.getOne<InboxItem>(
+        "inbox_items",
+        { id: params.id },
+      );
+      if (!current || current.status !== params.status) return null;
+      if (
+        params.expectedResolutionAttemptId !== undefined &&
+        current.resolution_attempt_id !== params.expectedResolutionAttemptId
+      ) {
+        return null;
+      }
+      const lockAcquiredAt = (
+        current.resolution_input as { lock_acquired_at?: unknown } | null
+      )?.lock_acquired_at;
+      if (
+        params.expectedLockAcquiredAt !== undefined &&
+        lockAcquiredAt !== params.expectedLockAcquiredAt
+      ) {
+        return null;
+      }
+      if (
+        params.staleBefore !== undefined &&
+        (typeof lockAcquiredAt !== "string" ||
+          lockAcquiredAt >= params.staleBefore)
+      ) {
+        return null;
+      }
+      const { data } = await baseDataProvider.update<InboxItem>("inbox_items", {
+        id: params.id,
+        data: params.data,
+        previousData: current,
+      });
+      return data ?? null;
+    },
+    async deleteOwnedInboxResume(
+      params: OwnedResumeDeleteParams,
+    ): Promise<boolean> {
+      const { data: resume } = await baseDataProvider.getOne<any>("resumes", {
+        id: params.id,
+      });
+      if (
+        !resume ||
+        String(resume.shidduchim_id) !== String(params.shidduchimId) ||
+        JSON.stringify(resume.files ?? []) !==
+          JSON.stringify(params.expectedFiles)
+      ) {
+        return false;
+      }
+      await baseDataProvider.delete("resumes", {
+        id: params.id,
+        previousData: resume,
+      });
+      return true;
+    },
+    async deleteOwnedInboxShidduch(
+      params: OwnedShidduchDeleteParams,
+    ): Promise<boolean> {
+      const { data: shidduch } = await baseDataProvider.getOne<any>(
+        "shidduchim",
+        { id: params.id },
+      );
+      if (
+        !shidduch ||
+        shidduch.name_en != null ||
+        (params.singleId != null &&
+          String(shidduch.single_id) !== String(params.singleId)) ||
+        (params.expectedCreatedAt != null &&
+          shidduch.created_at !== params.expectedCreatedAt)
+      ) {
+        return false;
+      }
+      await baseDataProvider.delete("shidduchim", {
+        id: params.id,
+        previousData: shidduch,
+      });
+      return true;
+    },
     async getList(resource: string, params: any) {
       if (resource === "inbox_items" && params.meta?.resumeInboxPicker) {
         const result = await baseDataProvider.getList<InboxItem>(

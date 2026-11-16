@@ -3,6 +3,7 @@ import { render } from "vitest-browser-react";
 
 import type { ShidduchSummary } from "../types";
 import { ShidduchShowHeader } from "./ShidduchShowHeader";
+import { rememberTransientSuggestionName } from "./transientSuggestionDisplay";
 
 /**
  * Story 3.1 AC 5 rewire coverage: `ShidduchShowHeader` composes its avatar
@@ -47,5 +48,18 @@ describe("ShidduchShowHeader", () => {
     }
     expect(chip.getAttribute("aria-hidden")).toBe("true");
     expect(chip.textContent).toBe("SK");
+  });
+
+  it("shows a filename fallback only in the nameless suggestion page header", async () => {
+    const namelessSuggestion = { ...shidduch, id: 44, name_en: null };
+    rememberTransientSuggestionName(44, "resume.pdf");
+
+    const screen = await render(
+      <ShidduchShowHeader shidduch={namelessSuggestion} />,
+    );
+
+    await expect
+      .element(screen.getByText("New suggestion (from resume.pdf)"))
+      .toBeInTheDocument();
   });
 });

@@ -2,6 +2,7 @@ import isEqual from "lodash/isEqual";
 import type { Identifier } from "ra-core";
 
 import type { CrmDataProvider } from "../providers/types";
+import type { InboxResolutionUpdateParams } from "../providers/supabase/inboxResolution";
 import type { CreateShidduchInput, InboxAttachment, InboxItem } from "../types";
 
 /**
@@ -38,14 +39,17 @@ export type ResolutionInput =
       resolved_shidduchim_id?: Identifier;
       resume_draft?: ResumeDraft;
       resume_created?: boolean;
+      lock_acquired_at?: string;
     }
   | {
       action: "link";
       shidduchim_id: Identifier;
       note_inserted?: boolean;
+      lock_acquired_at?: string;
     }
   | {
       action: "dismiss";
+      lock_acquired_at?: string;
     }
   | {
       action: "resume_attach" | "resume_new";
@@ -57,9 +61,71 @@ export type ResolutionInput =
       resume_file_path?: string;
       resume_created?: boolean;
       read_completed?: boolean;
+      lock_acquired_at?: string;
+      entity_file_ids?: Identifier[];
     };
 
 const MAX_LOCK_RETRIES = 3;
+export const RESOLUTION_LOCK_STALE_MS = 5 * 60 * 1000;
+
+export class ResolutionClaimLostError extends Error {
+  constructor() {
+    super("This Inbox item is already being handled.");
+    this.name = "ResolutionClaimLostError";
+  }
+}
+
+type ResolutionLockDataProvider = CrmDataProvider & {
+  updateInboxItemResolution?: (
+    params: InboxResolutionUpdateParams,
+  ) => Promise<InboxItem | null>;
+};
+
+function lockAcquiredAt(input: unknown): string | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const value = (input as { lock_acquired_at?: unknown }).lock_acquired_at;
+  return typeof value === "string" ? value : undefined;
+}
+
+function isStaleLock(input: unknown, now = Date.now()): boolean {
+  const acquiredAt = lockAcquiredAt(input);
+  if (!acquiredAt) return false;
+  const timestamp = Date.parse(acquiredAt);
+  return (
+    Number.isFinite(timestamp) && now - timestamp >= RESOLUTION_LOCK_STALE_MS
+  );
+}
+
+function withLockTimestamp(
+  input: ResolutionInput,
+  acquiredAt: string,
+): Record<string, unknown> {
+  return { ...input, lock_acquired_at: acquiredAt };
+}
+
+/**
+ * The live Supabase provider implements this as a conditional PostgREST
+ * UPDATE. The fallback exists only for legacy unit-test doubles that predate
+ * the custom method; the shipped Supabase provider never uses it.
+ */
+export async function conditionalInboxUpdate(
+  dataProvider: CrmDataProvider,
+  params: InboxResolutionUpdateParams,
+  fallbackPreviousData: InboxItem,
+): Promise<InboxItem | null> {
+  const provider = dataProvider as ResolutionLockDataProvider;
+  if (
+    Object.prototype.hasOwnProperty.call(provider, "updateInboxItemResolution")
+  ) {
+    return provider.updateInboxItemResolution!(params);
+  }
+  const { data } = await dataProvider.update<InboxItem>("inbox_items", {
+    id: params.id,
+    data: params.data,
+    previousData: fallbackPreviousData,
+  });
+  return data ?? null;
+}
 
 export function generateAttemptId(): string {
   return crypto.randomUUID();
@@ -120,22 +186,11 @@ function inputsAreCompatible(a: ResolutionInput, b: ResolutionInput): boolean {
 /**
  * Acquire the resolve lock for an inbox item. Returns the current row state.
  *
- * Protocol:
- *   1. Try to move `unresolved` -> `resolving` with our attempt id + input.
- *   2. If that fails (status changed concurrently), fetch the current row.
- *   3. If the item is already `resolved` or `dismissed`, return it as a
- *      no-op (idempotent).
- *   4. If the item is `resolving` with the SAME attempt id or a COMPATIBLE
- *      input, take over the lock and return the row.
- *   5. If the item is `resolving` with a different, incompatible attempt,
- *      throw — another resolution is in flight.
- *   6. If the item is somehow still `unresolved` (race), retry a bounded
- *      number of times.
- *
- * This is client-side compare-and-swap. It is not strictly serializable
- * against concurrent callers, but it closes the double-click / double-call
- * and partial-retry duplication vectors that matter in practice. A future
- * backend RPC can tighten the guarantee.
+ * The live provider turns every transition into one conditional PostgREST
+ * UPDATE and returns the affected row. An empty result means this caller lost
+ * the race and must not perform a domain mutation. Stale takeover is
+ * conditional on the exact old attempt and lock timestamp, so an old caller
+ * cannot steal a newer lock.
  */
 export async function acquireResolutionLock(
   dataProvider: CrmDataProvider,
@@ -159,60 +214,37 @@ export async function acquireResolutionLock(
   if (current.status === "resolving") {
     const currentInput = (current.resolution_input ?? {}) as ResolutionInput;
     const sameAttempt = current.resolution_attempt_id === attemptId;
-    const compatible = inputsAreCompatible(input, currentInput);
+    if (sameAttempt) return current;
+    if (!inputsAreCompatible(input, currentInput)) {
+      throw new ResolutionClaimLostError();
+    }
+    if (!isStaleLock(currentInput)) throw new ResolutionClaimLostError();
 
-    if (sameAttempt || compatible) {
-      // Review fix (Story 11.2 review, "also fix #2"): a takeover from a
-      // genuinely new top-level call (a fresh `attemptId` — every call
-      // generates one, so `sameAttempt` is never true across two separate
-      // invocations) used to persist `input` verbatim, discarding whatever
-      // progress the PREVIOUS attempt had already stashed on `currentInput`
-      // (`resolved_shidduchim_id`, `note_inserted`, `resume_created`). That
-      // silently defeated every one of this file's stashed-progress guards
-      // on exactly the "crash mid-resolve, retry" case they exist for: the
-      // retry would see a blank slate and redo the already-completed
-      // mutation. `input` never carries those progress keys at all (they
-      // are added later, after the mutation they guard succeeds), so
-      // spreading `currentInput` first and `input` on top updates the
-      // caller's current intent while preserving any progress key `input`
-      // doesn't set.
-      const { data } = await dataProvider.update<InboxItem>("inbox_items", {
+    const previousLockAcquiredAt = lockAcquiredAt(currentInput);
+    if (!previousLockAcquiredAt) throw new ResolutionClaimLostError();
+    const now = new Date().toISOString();
+    const claimed = await conditionalInboxUpdate(
+      dataProvider,
+      {
         id: item.id,
+        status: "resolving",
+        expectedResolutionAttemptId: current.resolution_attempt_id ?? undefined,
+        expectedLockAcquiredAt: previousLockAcquiredAt,
+        staleBefore: new Date(
+          Date.now() - RESOLUTION_LOCK_STALE_MS,
+        ).toISOString(),
         data: {
           resolution_attempt_id: attemptId,
-          resolution_input: {
-            ...currentInput,
-            ...input,
-          } as Record<string, unknown>,
+          resolution_input: withLockTimestamp(
+            { ...currentInput, ...input } as ResolutionInput,
+            now,
+          ),
         },
-        previousData: current,
-      });
-      return data ?? current;
-    }
-
-    throw new Error(
-      `Another resolution is already in progress for inbox item ${item.id}.`,
-    );
-  }
-
-  // current.status === "unresolved": try to acquire the lock.
-  try {
-    const { data } = await dataProvider.update<InboxItem>("inbox_items", {
-      id: item.id,
-      data: {
-        status: "resolving",
-        resolution_attempt_id: attemptId,
-        resolution_input: input as Record<string, unknown>,
       },
-      previousData: current,
-    });
-    return data ?? current;
-  } catch {
-    if (retryCount >= MAX_LOCK_RETRIES) {
-      throw new Error(
-        `Could not acquire resolution lock for inbox item ${item.id}`,
-      );
-    }
+      current,
+    );
+    if (claimed) return claimed;
+    if (retryCount >= MAX_LOCK_RETRIES) throw new ResolutionClaimLostError();
     return acquireResolutionLock(
       dataProvider,
       item,
@@ -221,6 +253,30 @@ export async function acquireResolutionLock(
       retryCount + 1,
     );
   }
+
+  // current.status === "unresolved": try to acquire the lock.
+  const claimed = await conditionalInboxUpdate(
+    dataProvider,
+    {
+      id: item.id,
+      status: "unresolved",
+      data: {
+        status: "resolving",
+        resolution_attempt_id: attemptId,
+        resolution_input: withLockTimestamp(input, new Date().toISOString()),
+      },
+    },
+    current,
+  );
+  if (claimed) return claimed;
+  if (retryCount >= MAX_LOCK_RETRIES) throw new ResolutionClaimLostError();
+  return acquireResolutionLock(
+    dataProvider,
+    item,
+    attemptId,
+    input,
+    retryCount + 1,
+  );
 }
 
 export function finalizePayload(

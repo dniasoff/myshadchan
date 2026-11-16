@@ -119,8 +119,10 @@ const buildDataProvider = (
     }),
     create: vi.fn().mockResolvedValue({ data: {} }),
     update: vi.fn(
-      (_resource: string, params: { data: Record<string, unknown> }) =>
-        Promise.resolve({ data: params.data }),
+      (_resource: string, params: { data: Record<string, unknown> }) => {
+        Object.assign(item, params.data);
+        return Promise.resolve({ data: item });
+      },
     ),
     copyInboxAttachmentsToEntityFiles: vi.fn().mockResolvedValue([]),
     copyInboxAttachmentToResumeFile: vi.fn().mockResolvedValue({

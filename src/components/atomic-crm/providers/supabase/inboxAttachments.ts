@@ -63,7 +63,21 @@ export type CopyInboxAttachmentsParams = {
   targetType: EntityTargetType;
   targetId: Identifier;
   visibility?: EntityFileVisibility;
+  /** Makes the destination key stable across a crashed retry. */
+  sourceInboxItemId?: Identifier;
 };
+
+export class InboxAttachmentCopyError extends Error {
+  constructor(
+    message: string,
+    readonly copiedFiles: EntityFile[],
+  ) {
+    super(message);
+    this.name = "InboxAttachmentCopyError";
+  }
+}
+
+type AttemptEntityFile = EntityFile & { createdByAttempt?: boolean };
 
 const ENTITY_FILES_BUCKET = "entity-files";
 
@@ -71,6 +85,34 @@ const ENTITY_FILES_BUCKET = "entity-files";
 function deriveExtension(fileName: string): string {
   const parts = fileName.split(".");
   return parts.length > 1 ? `.${parts.pop()}` : "";
+}
+
+function stableAttachmentToken(itemId: Identifier, path: string): string {
+  // The token is only a retry key, never an authorization value. Two FNV
+  // rounds keep the path opaque while avoiding a second async digest for each
+  // attachment in this already sequential copy path.
+  let first = 2166136261;
+  let second = 2246822519;
+  for (const character of `${itemId}:${path}`) {
+    const code = character.codePointAt(0) ?? 0;
+    first ^= code;
+    first = Math.imul(first, 16777619);
+    second ^= code;
+    second = Math.imul(second, 3266489917);
+  }
+  return `${(first >>> 0).toString(16).padStart(8, "0")}${(second >>> 0)
+    .toString(16)
+    .padStart(8, "0")}`;
+}
+
+function isExistingStorageObjectError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error != null &&
+    /already exists|duplicate|already been uploaded/i.test(
+      String((error as { message?: unknown }).message ?? ""),
+    )
+  );
 }
 
 async function currentAccountId(): Promise<number> {
@@ -88,9 +130,17 @@ async function copyOneAttachment(
   targetId: Identifier,
   accountId: number,
   visibility: EntityFileVisibility,
+  sourceInboxItemId?: Identifier,
 ): Promise<EntityFile> {
   const ext = deriveExtension(attachment.title);
-  const storagePath = `${accountId}/${targetType}/${targetId}/${crypto.randomUUID()}${ext}`;
+  const storagePath = `${accountId}/${targetType}/${targetId}/${
+    sourceInboxItemId == null
+      ? crypto.randomUUID()
+      : `inbox-${sourceInboxItemId}-${stableAttachmentToken(
+          sourceInboxItemId,
+          attachment.path,
+        )}`
+  }${ext}`;
 
   const { data: blob, error: downloadError } = await getSupabaseClient()
     .storage.from(ATTACHMENTS_BUCKET)
@@ -102,7 +152,7 @@ async function copyOneAttachment(
   const { error: uploadError } = await getSupabaseClient()
     .storage.from(ENTITY_FILES_BUCKET)
     .upload(storagePath, blob);
-  if (uploadError) {
+  if (uploadError && !isExistingStorageObjectError(uploadError)) {
     throw new Error("Failed to upload the captured attachment");
   }
 
@@ -121,11 +171,15 @@ async function copyOneAttachment(
     return data;
   } catch {
     // Best-effort cleanup: the catalog row is the source of truth, so if it
-    // failed we remove the orphaned object and rethrow the original error.
-    await getSupabaseClient()
-      .storage.from(ENTITY_FILES_BUCKET)
-      .remove([storagePath])
-      .catch(() => undefined);
+    // failed we remove the orphaned object for the old random-key path. A
+    // deterministic retry path may already have committed its row while the
+    // response was lost, so leave that object for the next lookup.
+    if (sourceInboxItemId == null) {
+      await getSupabaseClient()
+        .storage.from(ENTITY_FILES_BUCKET)
+        .remove([storagePath])
+        .catch(() => undefined);
+    }
     throw new Error("Failed to save the captured attachment");
   }
 }
@@ -133,24 +187,63 @@ async function copyOneAttachment(
 export async function copyInboxAttachmentsToEntityFiles(
   params: CopyInboxAttachmentsParams,
 ): Promise<EntityFile[]> {
-  const { baseDataProvider, attachments, targetType, targetId, visibility } =
-    params;
+  const {
+    baseDataProvider,
+    attachments,
+    targetType,
+    targetId,
+    visibility,
+    sourceInboxItemId,
+  } = params;
   if (!attachments || attachments.length === 0) return [];
 
   const accountId = await currentAccountId();
   const resolvedVisibility = visibility ?? "shared";
 
-  const results: EntityFile[] = [];
+  const results: AttemptEntityFile[] = [];
   for (const attachment of attachments) {
-    const file = await copyOneAttachment(
-      baseDataProvider,
-      attachment,
-      targetType,
-      targetId,
-      accountId,
-      resolvedVisibility,
-    );
-    results.push(file);
+    try {
+      const expectedPath =
+        sourceInboxItemId == null
+          ? null
+          : `${accountId}/${targetType}/${targetId}/inbox-${
+              sourceInboxItemId
+            }-${stableAttachmentToken(sourceInboxItemId, attachment.path)}${deriveExtension(
+              attachment.title,
+            )}`;
+      if (expectedPath != null) {
+        const { data: existingFiles } =
+          await baseDataProvider.getList<EntityFile>("entity_files", {
+            filter: { target_type: targetType, target_id: targetId },
+            pagination: { page: 1, perPage: 10_000 },
+            sort: { field: "id", order: "ASC" },
+          });
+        const existing = existingFiles.find(
+          (file) => file.storage_path === expectedPath,
+        );
+        if (existing) {
+          results.push({ ...existing, createdByAttempt: false });
+          continue;
+        }
+      }
+      const file = await copyOneAttachment(
+        baseDataProvider,
+        attachment,
+        targetType,
+        targetId,
+        accountId,
+        resolvedVisibility,
+        sourceInboxItemId,
+      );
+      results.push({ ...file, createdByAttempt: true });
+    } catch (error) {
+      throw new InboxAttachmentCopyError(
+        error instanceof Error
+          ? error.message
+          : "Failed to save the captured attachment",
+        results,
+      );
+    }
   }
   return results;
 }

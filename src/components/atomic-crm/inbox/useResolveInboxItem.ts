@@ -3,9 +3,14 @@ import { useDataProvider } from "ra-core";
 
 import { insertNoteInteraction } from "../entity360/tabs/insertNoteInteraction";
 import type { CrmDataProvider } from "../providers/types";
+import type {
+  OwnedResumeDeleteParams,
+  OwnedShidduchDeleteParams,
+} from "../providers/supabase/inboxResolution";
 import type { CopiedResumeFile } from "../providers/supabase/resumes";
 import type {
   CreateShidduchInput,
+  EntityFile,
   InboxAttachment,
   InboxItem,
   Resume,
@@ -21,8 +26,10 @@ import {
 import type { ResumeReadOutcome } from "../providers/commons/rereadWorkerClient";
 import {
   acquireResolutionLock,
+  conditionalInboxUpdate,
   finalizePayload,
   generateAttemptId,
+  ResolutionClaimLostError,
   type ResolutionInput,
   type ResumeDraft,
 } from "./resolveInboxItemLock";
@@ -113,6 +120,9 @@ export type InboxResumePreparation = {
   resume: Resume;
   file: ResumeFileVersion;
   resumeCreatedByAttempt: boolean;
+  entityFiles: EntityFile[];
+  entityFilesCreatedByAttempt: EntityFile[];
+  resolutionAttemptId: string;
   readCompleted: boolean;
 };
 
@@ -120,6 +130,15 @@ export type InboxResumeProcessResult = {
   outcome: ResumeReadOutcome;
   shidduch: Shidduch | null;
   suggestionKept: boolean;
+};
+
+type OwnershipDataProvider = CrmDataProvider & {
+  deleteOwnedInboxResume?: (
+    params: OwnedResumeDeleteParams,
+  ) => Promise<boolean>;
+  deleteOwnedInboxShidduch?: (
+    params: OwnedShidduchDeleteParams,
+  ) => Promise<boolean>;
 };
 
 /**
@@ -170,160 +189,178 @@ export function useResolveInboxItem() {
       resolutionInput,
     );
 
-    // Already resolved — return the linked shidduch (idempotent no-op).
-    if (lockedItem.status === "resolved" && lockedItem.resolved_shidduchim_id) {
-      const { data } = await dataProvider.getOne<Shidduch>("shidduchim", {
-        id: lockedItem.resolved_shidduchim_id,
-      });
-      return data;
-    }
+    try {
+      // Already resolved — return the linked shidduch (idempotent no-op).
+      if (
+        lockedItem.status === "resolved" &&
+        lockedItem.resolved_shidduchim_id
+      ) {
+        const { data } = await dataProvider.getOne<Shidduch>("shidduchim", {
+          id: lockedItem.resolved_shidduchim_id,
+        });
+        return data;
+      }
 
-    const stashed = (lockedItem.resolution_input ?? {}) as ResolutionInput & {
-      resolved_shidduchim_id?: Identifier;
-    };
+      const stashed = (lockedItem.resolution_input ?? {}) as ResolutionInput & {
+        resolved_shidduchim_id?: Identifier;
+      };
 
-    let created: Shidduch;
-    if (stashed.resolved_shidduchim_id) {
-      const { data } = await dataProvider.getOne<Shidduch>("shidduchim", {
-        id: stashed.resolved_shidduchim_id,
-      });
-      created = data;
-    } else {
-      created = await dataProvider.createShidduch(input);
-      // Stash the created id so a retry can skip createShidduch if the
-      // finalize step fails.
-      await dataProvider.update<InboxItem>("inbox_items", {
-        id: item.id,
-        data: {
-          resolution_input: {
-            ...resolutionInput,
-            resolved_shidduchim_id: created.id,
-          } as Record<string, unknown>,
-        },
-        previousData: lockedItem,
-      });
-    }
-
-    // Story 11.2: when a resume draft was used, attach the original
-    // attachment and extracted draft to the new shidduch as a resumes row.
-    // This is a plain CRUD write on a table the user already has full grants
-    // on. A failure here surfaces without leaving the shidduch half-created
-    // silently unexplained.
-    //
-    // Review fix (Finding 2, P1): the captured attachment lives in the
-    // `attachments` bucket; every resume download signs against the
-    // separate `documents` bucket. `copyInboxAttachmentToResumeFile` moves
-    // the bytes into the bucket the signer (and its stricter, single-denying
-    // RLS — see that function's own comment) actually uses, and returns the
-    // real byte size instead of the hardcoded `0` this path used to persist.
-    //
-    // Review fix (also-fix #2): gated by the same stashed-progress mechanism
-    // guarding `resolved_shidduchim_id` above and `note_inserted` in
-    // `resolveAsLinkToExisting` below — a retry that observes
-    // `resume_created` already stashed skips re-creating the row, so a crash
-    // between this write and the finalize step below cannot duplicate it.
-    const draftProgress = stashed as ResolutionInput & {
-      resume_draft?: ResumeDraft;
-      resume_created?: boolean;
-    };
-    const savedDraft = draftProgress.resume_draft;
-    if (savedDraft && !draftProgress.resume_created) {
-      // Review fix (Finding 16, Epic 11 adversarial review): the copied
-      // storage object and the `resumes` row used to be created BEFORE
-      // `resume_created` was stashed on the inbox item, with nothing to
-      // recover the window between them. A failure between the `create`
-      // above succeeding and the stash `update` below landing (network
-      // drop, tab close) left `resume_created` still false, so a retry
-      // re-entered this whole block and produced a SECOND copied object and
-      // a SECOND `resumes` row for the same shidduch — duplicated personal
-      // data, silently.
-      //
-      // `resumes` carries no uniqueness constraint on `shidduchim_id`
-      // (`01_tables.sql`), so this can't be closed with a database
-      // constraint alone. It doesn't need one: `created.id` was only just
-      // created (or reused from an earlier stashed attempt) by THIS exact
-      // resolve flow a few lines up, and no other code path attaches a
-      // resume to a shidduch this function is in the middle of resolving —
-      // so any `resumes` row already carrying this `shidduchim_id` can only
-      // be this same flow's own, earlier, not-yet-stashed attempt. Looking
-      // it up before creating turns the create into an idempotent
-      // operation: a retry that finds the row already there skips straight
-      // to the stash, closing the window without ever risking a duplicate.
-      const { data: existingResumes } = await dataProvider.getList<Resume>(
-        "resumes",
-        {
-          filter: { shidduchim_id: created.id },
-          pagination: { page: 1, perPage: 1 },
-          sort: { field: "id", order: "ASC" },
-        },
-      );
-
-      if (existingResumes.length === 0) {
-        let copiedFile: CopiedResumeFile | undefined;
-        try {
-          copiedFile = await dataProvider.copyInboxAttachmentToResumeFile({
-            shidduchimId: created.id,
-            attachment: savedDraft.attachment,
-          });
-          await dataProvider.create<Resume>("resumes", {
-            data: {
-              shidduchim_id: created.id,
-              files: [
-                {
-                  path: copiedFile.storagePath,
-                  filename: savedDraft.attachment.title,
-                  mime_type: savedDraft.attachment.type,
-                  uploaded_at: new Date().toISOString(),
-                  uploaded_by: null,
-                  size: copiedFile.size,
-                },
-              ],
-              extracted: savedDraft.rawDraft,
-              sections: savedDraft.sections,
+      let created: Shidduch;
+      if (stashed.resolved_shidduchim_id) {
+        const { data } = await dataProvider.getOne<Shidduch>("shidduchim", {
+          id: stashed.resolved_shidduchim_id,
+        });
+        created = data;
+      } else {
+        created = await dataProvider.createShidduch(input);
+        // Stash the created id so a retry can skip createShidduch if the
+        // finalize step fails.
+        const current = await getCurrentResolutionItem(item);
+        await updateOwnedInboxResolution(
+          item,
+          {
+            resolution_input: {
+              ...(current?.resolution_input ?? resolutionInput),
+              resolved_shidduchim_id: created.id,
             },
-          });
-        } catch (creationError) {
-          // Mirrors `uploadResumeFile`'s "no object without a row" ordering:
-          // the copy already landed in `documents` when the row write failed,
-          // so remove it rather than leaving an orphaned, never-referenced
-          // object behind.
-          if (copiedFile) {
-            await dataProvider.removeResumeFileObjects([
-              copiedFile.storagePath,
-            ]);
+          },
+          attemptId,
+        );
+      }
+
+      // Story 11.2: when a resume draft was used, attach the original
+      // attachment and extracted draft to the new shidduch as a resumes row.
+      // This is a plain CRUD write on a table the user already has full grants
+      // on. A failure here surfaces without leaving the shidduch half-created
+      // silently unexplained.
+      //
+      // Review fix (Finding 2, P1): the captured attachment lives in the
+      // `attachments` bucket; every resume download signs against the
+      // separate `documents` bucket. `copyInboxAttachmentToResumeFile` moves
+      // the bytes into the bucket the signer (and its stricter, single-denying
+      // RLS — see that function's own comment) actually uses, and returns the
+      // real byte size instead of the hardcoded `0` this path used to persist.
+      //
+      // Review fix (also-fix #2): gated by the same stashed-progress mechanism
+      // guarding `resolved_shidduchim_id` above and `note_inserted` in
+      // `resolveAsLinkToExisting` below — a retry that observes
+      // `resume_created` already stashed skips re-creating the row, so a crash
+      // between this write and the finalize step below cannot duplicate it.
+      const draftProgress = stashed as ResolutionInput & {
+        resume_draft?: ResumeDraft;
+        resume_created?: boolean;
+      };
+      const savedDraft = draftProgress.resume_draft;
+      if (savedDraft && !draftProgress.resume_created) {
+        // Review fix (Finding 16, Epic 11 adversarial review): the copied
+        // storage object and the `resumes` row used to be created BEFORE
+        // `resume_created` was stashed on the inbox item, with nothing to
+        // recover the window between them. A failure between the `create`
+        // above succeeding and the stash `update` below landing (network
+        // drop, tab close) left `resume_created` still false, so a retry
+        // re-entered this whole block and produced a SECOND copied object and
+        // a SECOND `resumes` row for the same shidduch — duplicated personal
+        // data, silently.
+        //
+        // `resumes` carries no uniqueness constraint on `shidduchim_id`
+        // (`01_tables.sql`), so this can't be closed with a database
+        // constraint alone. It doesn't need one: `created.id` was only just
+        // created (or reused from an earlier stashed attempt) by THIS exact
+        // resolve flow a few lines up, and no other code path attaches a
+        // resume to a shidduch this function is in the middle of resolving —
+        // so any `resumes` row already carrying this `shidduchim_id` can only
+        // be this same flow's own, earlier, not-yet-stashed attempt. Looking
+        // it up before creating turns the create into an idempotent
+        // operation: a retry that finds the row already there skips straight
+        // to the stash, closing the window without ever risking a duplicate.
+        const { data: existingResumes } = await dataProvider.getList<Resume>(
+          "resumes",
+          {
+            filter: { shidduchim_id: created.id },
+            pagination: { page: 1, perPage: 1 },
+            sort: { field: "id", order: "ASC" },
+          },
+        );
+
+        if (existingResumes.length === 0) {
+          let copiedFile: CopiedResumeFile | undefined;
+          try {
+            copiedFile = await dataProvider.copyInboxAttachmentToResumeFile({
+              shidduchimId: created.id,
+              attachment: savedDraft.attachment,
+            });
+            await dataProvider.create<Resume>("resumes", {
+              data: {
+                shidduchim_id: created.id,
+                files: [
+                  {
+                    path: copiedFile.storagePath,
+                    filename: savedDraft.attachment.title,
+                    mime_type: savedDraft.attachment.type,
+                    uploaded_at: new Date().toISOString(),
+                    uploaded_by: null,
+                    size: copiedFile.size,
+                  },
+                ],
+                extracted: savedDraft.rawDraft,
+                sections: savedDraft.sections,
+              },
+            });
+          } catch (creationError) {
+            // Mirrors `uploadResumeFile`'s "no object without a row" ordering:
+            // the copy already landed in `documents` when the row write failed,
+            // so remove it rather than leaving an orphaned, never-referenced
+            // object behind.
+            if (copiedFile) {
+              await dataProvider.removeResumeFileObjects([
+                copiedFile.storagePath,
+              ]);
+            }
+            throw creationError;
           }
-          throw creationError;
+        }
+
+        await updateOwnedInboxResolution(
+          item,
+          {
+            resolution_input: {
+              ...draftProgress,
+              resolved_shidduchim_id: created.id,
+              resume_created: true,
+            },
+          },
+          attemptId,
+        );
+        if (item.source === "upload") {
+          await dataProvider
+            .removeInboxAttachment(savedDraft.attachment.path)
+            .catch(() => undefined);
         }
       }
 
-      await dataProvider.update<InboxItem>("inbox_items", {
-        id: item.id,
-        data: {
-          resolution_input: {
-            ...draftProgress,
-            resolved_shidduchim_id: created.id,
-            resume_created: true,
-          } as Record<string, unknown>,
-        },
-        previousData: lockedItem,
-      });
-      if (item.source === "upload") {
-        await dataProvider
-          .removeInboxAttachment(savedDraft.attachment.path)
-          .catch(() => undefined);
+      await updateOwnedInboxResolution(
+        item,
+        finalizePayload("resolved", {
+          resolved_shidduchim_id: created.id,
+          single_id: input.single_id,
+          shadchan_id: input.shadchan_id ?? null,
+        }),
+        attemptId,
+      );
+      return created;
+    } catch (error) {
+      // Every post-claim failure must release this attempt's lock. Preserve
+      // the stash so a retry can reuse a created suggestion/resume instead of
+      // creating a second one. The owner predicate makes this a no-op if a
+      // newer attempt already took over the stale lock.
+      if (!(error instanceof ResolutionClaimLostError)) {
+        await releaseInboxResolution(item, {
+          attemptId,
+          preserveInput: true,
+        }).catch(() => undefined);
       }
+      throw error;
     }
-
-    await dataProvider.update<InboxItem>("inbox_items", {
-      id: item.id,
-      data: finalizePayload("resolved", {
-        resolved_shidduchim_id: created.id,
-        single_id: input.single_id,
-        shadchan_id: input.shadchan_id ?? null,
-      }),
-      previousData: lockedItem,
-    });
-    return created;
   };
 
   /**
@@ -355,66 +392,81 @@ export function useResolveInboxItem() {
       return;
     }
 
-    const stashed = (lockedItem.resolution_input ?? {}) as ResolutionInput & {
-      note_inserted?: boolean;
-    };
+    try {
+      const stashed = (lockedItem.resolution_input ?? {}) as ResolutionInput & {
+        note_inserted?: boolean;
+      };
 
-    if (!stashed.note_inserted) {
-      await insertNoteInteraction(
-        dataProvider,
-        "shidduch",
-        shidduchimId,
-        item.raw_text ?? "",
-        { source: "inbox_item", inbox_item_id: item.id },
+      if (!stashed.note_inserted) {
+        await insertNoteInteraction(
+          dataProvider,
+          "shidduch",
+          shidduchimId,
+          item.raw_text ?? "",
+          { source: "inbox_item", inbox_item_id: item.id },
+        );
+        const current = await getCurrentResolutionItem(item);
+        await updateOwnedInboxResolution(
+          item,
+          {
+            resolution_input: {
+              ...(current?.resolution_input ?? resolutionInput),
+              note_inserted: true,
+            },
+          },
+          attemptId,
+        );
+      }
+
+      // Story 10.4: carry any capture attachments into the linked shidduch's
+      // Files tab so they remain reachable after the inbox item is resolved.
+      // Pictures are deliberately parent-private here: linking an Inbox item
+      // must not turn an unreviewed picture into a shared suggestion asset.
+      // Explicit photo flows are the only place that may promote a picture.
+      const attachments = (item.attachments ?? []) as InboxAttachment[];
+      const documentAttachments = attachments.filter(
+        isAffirmativeInboxDocument,
       );
-      await dataProvider.update<InboxItem>("inbox_items", {
-        id: item.id,
-        data: {
-          resolution_input: {
-            ...resolutionInput,
-            note_inserted: true,
-          } as Record<string, unknown>,
-        },
-        previousData: lockedItem,
-      });
-    }
+      const pictureAttachments = attachments.filter(
+        (attachment) => !isAffirmativeInboxDocument(attachment),
+      );
+      if (documentAttachments.length > 0) {
+        await dataProvider.copyInboxAttachmentsToEntityFiles({
+          baseDataProvider: dataProvider,
+          attachments: documentAttachments,
+          targetType: "shidduch",
+          targetId: shidduchimId,
+          visibility: "shared",
+          sourceInboxItemId: item.id,
+        });
+      }
+      if (pictureAttachments.length > 0) {
+        await dataProvider.copyInboxAttachmentsToEntityFiles({
+          baseDataProvider: dataProvider,
+          attachments: pictureAttachments,
+          targetType: "shidduch",
+          targetId: shidduchimId,
+          visibility: "private_parent",
+          sourceInboxItemId: item.id,
+        });
+      }
 
-    // Story 10.4: carry any capture attachments into the linked shidduch's
-    // Files tab so they remain reachable after the inbox item is resolved.
-    // Pictures are deliberately parent-private here: linking an Inbox item
-    // must not turn an unreviewed picture into a shared suggestion asset.
-    // Explicit photo flows are the only place that may promote a picture.
-    const attachments = (item.attachments ?? []) as InboxAttachment[];
-    const documentAttachments = attachments.filter(isAffirmativeInboxDocument);
-    const pictureAttachments = attachments.filter(
-      (attachment) => !isAffirmativeInboxDocument(attachment),
-    );
-    if (documentAttachments.length > 0) {
-      await dataProvider.copyInboxAttachmentsToEntityFiles({
-        baseDataProvider: dataProvider,
-        attachments: documentAttachments,
-        targetType: "shidduch",
-        targetId: shidduchimId,
-        visibility: "shared",
-      });
+      await updateOwnedInboxResolution(
+        item,
+        finalizePayload("resolved", {
+          resolved_shidduchim_id: shidduchimId,
+        }),
+        attemptId,
+      );
+    } catch (error) {
+      if (!(error instanceof ResolutionClaimLostError)) {
+        await releaseInboxResolution(item, {
+          attemptId,
+          preserveInput: true,
+        }).catch(() => undefined);
+      }
+      throw error;
     }
-    if (pictureAttachments.length > 0) {
-      await dataProvider.copyInboxAttachmentsToEntityFiles({
-        baseDataProvider: dataProvider,
-        attachments: pictureAttachments,
-        targetType: "shidduch",
-        targetId: shidduchimId,
-        visibility: "private_parent",
-      });
-    }
-
-    await dataProvider.update<InboxItem>("inbox_items", {
-      id: item.id,
-      data: finalizePayload("resolved", {
-        resolved_shidduchim_id: shidduchimId,
-      }),
-      previousData: lockedItem,
-    });
   };
 
   const readInboxResume = async (
@@ -473,10 +525,46 @@ export function useResolveInboxItem() {
     return data;
   };
 
+  const updateOwnedInboxResolution = async (
+    item: InboxItem,
+    data: Record<string, unknown>,
+    ownerAttemptId: string,
+  ): Promise<InboxItem> => {
+    const current = await getCurrentResolutionItem(item);
+    if (
+      !current ||
+      current.status !== "resolving" ||
+      current.resolution_attempt_id !== ownerAttemptId
+    ) {
+      throw new ResolutionClaimLostError();
+    }
+    const currentInput = current.resolution_input as {
+      lock_acquired_at?: unknown;
+    } | null;
+    const expectedLockAcquiredAt =
+      typeof currentInput?.lock_acquired_at === "string"
+        ? currentInput.lock_acquired_at
+        : undefined;
+    const updated = await conditionalInboxUpdate(
+      dataProvider,
+      {
+        id: item.id,
+        status: "resolving",
+        expectedResolutionAttemptId: ownerAttemptId,
+        expectedLockAcquiredAt,
+        data,
+      },
+      current,
+    );
+    if (!updated) throw new ResolutionClaimLostError();
+    return updated;
+  };
+
   const releaseInboxResolution = async (
     item: InboxItem,
-    options: { preserveInput?: boolean } = {},
+    options: { preserveInput?: boolean; attemptId?: string } = {},
   ): Promise<void> => {
+    if (!options.attemptId) return;
     // A dropped response must not leave the item in `resolving` forever. The
     // retry repeats the existing CAS/update path; it never invents another
     // lock or another domain attempt.
@@ -484,18 +572,37 @@ export function useResolveInboxItem() {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const current = await getCurrentResolutionItem(item);
-        if (!current || current.status !== "resolving") return;
-        await dataProvider.update<InboxItem>("inbox_items", {
-          id: item.id,
-          data: {
-            status: "unresolved",
-            resolution_attempt_id: null,
-            resolution_input: options.preserveInput
-              ? current.resolution_input
-              : null,
+        if (
+          !current ||
+          current.status !== "resolving" ||
+          current.resolution_attempt_id !== options.attemptId
+        ) {
+          return;
+        }
+        const currentInput = current.resolution_input as {
+          lock_acquired_at?: unknown;
+        } | null;
+        const updated = await conditionalInboxUpdate(
+          dataProvider,
+          {
+            id: item.id,
+            status: "resolving",
+            expectedResolutionAttemptId: options.attemptId,
+            expectedLockAcquiredAt:
+              typeof currentInput?.lock_acquired_at === "string"
+                ? currentInput.lock_acquired_at
+                : undefined,
+            data: {
+              status: "unresolved",
+              resolution_attempt_id: null,
+              resolution_input: options.preserveInput
+                ? current.resolution_input
+                : null,
+            },
           },
-          previousData: current,
-        });
+          current,
+        );
+        if (!updated) return;
         return;
       } catch (error) {
         lastError = error;
@@ -509,20 +616,21 @@ export function useResolveInboxItem() {
   const finalizeInboxResolution = async (
     item: InboxItem,
     shidduch: Shidduch,
+    attemptId: string,
   ): Promise<void> => {
     const current = await getCurrentResolutionItem(item);
     if (!current || current.status === "resolved") return;
     if (current.status !== "resolving") {
-      throw new Error("This Inbox item is no longer being resolved.");
+      throw new ResolutionClaimLostError();
     }
-    await dataProvider.update<InboxItem>("inbox_items", {
-      id: item.id,
-      data: finalizePayload("resolved", {
+    await updateOwnedInboxResolution(
+      item,
+      finalizePayload("resolved", {
         resolved_shidduchim_id: shidduch.id,
         single_id: shidduch.single_id,
       }),
-      previousData: current,
-    });
+      attemptId,
+    );
   };
 
   const findResumeByInboxProvenance = async (
@@ -594,6 +702,7 @@ export function useResolveInboxItem() {
     item: InboxItem,
     attachmentPath: string,
     suggestion: Shidduch,
+    attemptEntityFileIds: Set<string>,
   ): Promise<boolean> => {
     if (suggestionHasEditedFields(suggestion)) return true;
     const checks: Array<Promise<{ data: unknown[] }>> = [
@@ -635,7 +744,15 @@ export function useResolveInboxItem() {
       }),
     ];
     const results = await Promise.all(checks);
-    if (results.some((result) => result.data.length > 0)) return true;
+    const otherEntityFiles = (results[7].data as EntityFile[]).filter(
+      (file) => !attemptEntityFileIds.has(String(file.id)),
+    );
+    if (
+      results.some((result, index) => index !== 7 && result.data.length > 0) ||
+      otherEntityFiles.length > 0
+    ) {
+      return true;
+    }
 
     const { data: resumes } = await dataProvider.getList<Resume>("resumes", {
       filter: { shidduchim_id: shidduchimId },
@@ -674,6 +791,7 @@ export function useResolveInboxItem() {
     resumeId: Identifier | undefined,
     attachmentPath: string,
     resumeCreatedByAttempt: boolean,
+    attemptEntityFiles: EntityFile[] = [],
   ): Promise<boolean> => {
     const { data: suggestion } = await dataProvider.getOne<Shidduch>(
       "shidduchim",
@@ -690,9 +808,59 @@ export function useResolveInboxItem() {
         item,
         attachmentPath,
         suggestion,
+        new Set(attemptEntityFiles.map((file) => String(file.id))),
       )
     )
       return false;
+
+    // The dependent-data scan is intentionally a best-effort ownership
+    // fence: there is no transaction around the client-side reads and
+    // deletes. Re-read immediately before deleting anything so an edit that
+    // appeared during the first scan aborts compensation safely. A user edit
+    // racing this second scan remains the documented residual TOCTOU window.
+    const { data: currentSuggestion } = await dataProvider.getOne<Shidduch>(
+      "shidduchim",
+      { id: shidduchimId },
+    );
+    if (
+      !currentSuggestion ||
+      (await suggestionHasOtherData(
+        shidduchimId,
+        resumeId,
+        item,
+        attachmentPath,
+        currentSuggestion,
+        new Set(attemptEntityFiles.map((file) => String(file.id))),
+      ))
+    ) {
+      return !currentSuggestion;
+    }
+
+    for (const entityFile of attemptEntityFiles) {
+      const provider = dataProvider as OwnershipDataProvider & {
+        deleteEntityFile?: (params: {
+          id: Identifier;
+          storagePath: string;
+        }) => Promise<void>;
+      };
+      const deleteEntityFile = Object.prototype.hasOwnProperty.call(
+        provider,
+        "deleteEntityFile",
+      )
+        ? provider.deleteEntityFile
+        : undefined;
+      if (deleteEntityFile) {
+        await deleteEntityFile({
+          id: entityFile.id,
+          storagePath: entityFile.storage_path,
+        });
+      } else {
+        await dataProvider.delete("entity_files", {
+          id: entityFile.id,
+          previousData: entityFile,
+        });
+      }
+    }
 
     const { data: resumes } = await dataProvider.getList<Resume>("resumes", {
       filter: { shidduchim_id: shidduchimId },
@@ -704,19 +872,51 @@ export function useResolveInboxItem() {
       return false;
     }
     if (resume) {
+      // Keep the catalog row when storage cleanup itself loses the network;
+      // the unresolved Inbox attempt can safely retry both steps later.
       await dataProvider.removeResumeFileObjects(
         (resume.files ?? []).map((file: ResumeFileVersion) => file.path),
       );
-      await dataProvider.delete("resumes", {
-        id: resume.id,
-        previousData: resume,
+      const provider = dataProvider as OwnershipDataProvider;
+      const deleteOwnedInboxResume = Object.prototype.hasOwnProperty.call(
+        provider,
+        "deleteOwnedInboxResume",
+      )
+        ? provider.deleteOwnedInboxResume
+        : undefined;
+      const deletedResume = deleteOwnedInboxResume
+        ? await deleteOwnedInboxResume({
+            id: resume.id,
+            shidduchimId,
+            expectedFiles: resume.files ?? [],
+          })
+        : (
+            await dataProvider.delete("resumes", {
+              id: resume.id,
+              previousData: resume,
+            })
+          ).data != null;
+      if (!deletedResume) return false;
+    }
+    const provider = dataProvider as OwnershipDataProvider;
+    const deleteOwnedInboxShidduch = Object.prototype.hasOwnProperty.call(
+      provider,
+      "deleteOwnedInboxShidduch",
+    )
+      ? provider.deleteOwnedInboxShidduch
+      : undefined;
+    if (deleteOwnedInboxShidduch) {
+      return deleteOwnedInboxShidduch({
+        id: shidduchimId,
+        singleId: suggestion.single_id,
+        expectedCreatedAt: suggestion.created_at,
       });
     }
-    await dataProvider.delete("shidduchim", {
+    const deleted = await dataProvider.delete("shidduchim", {
       id: shidduchimId,
       previousData: suggestion,
     });
-    return true;
+    return deleted.data != null;
   };
 
   const prepareInboxResume = async (
@@ -724,6 +924,7 @@ export function useResolveInboxItem() {
     action: InboxResumeAction,
     shidduchimId?: Identifier,
     singleId?: Identifier,
+    attemptId = generateAttemptId(),
   ): Promise<InboxResumePreparation> => {
     const attachment = item.attachments?.find(isResumeDocument);
     if (!attachment) {
@@ -739,7 +940,7 @@ export function useResolveInboxItem() {
     const lockedItem = await acquireResolutionLock(
       dataProvider,
       item,
-      generateAttemptId(),
+      attemptId,
       resolutionInput,
     );
     if (lockedItem.status === "resolved" && lockedItem.resolved_shidduchim_id) {
@@ -761,6 +962,9 @@ export function useResolveInboxItem() {
         resume: resumes[0],
         file,
         resumeCreatedByAttempt: false,
+        entityFiles: [],
+        entityFilesCreatedByAttempt: [],
+        resolutionAttemptId: attemptId,
         readCompleted: readHasCompleted(resumes[0]),
       };
     }
@@ -772,6 +976,7 @@ export function useResolveInboxItem() {
       resume_file_path?: string;
       resume_created?: boolean;
       read_completed?: boolean;
+      entity_file_ids?: Identifier[];
     };
     let resumeFromProvenance: Resume | undefined;
     if (action === "new" && !stashed.resolved_shidduchim_id) {
@@ -805,17 +1010,22 @@ export function useResolveInboxItem() {
           redt_date: item.created_at.split("T")[0],
         });
         try {
-          await dataProvider.update<InboxItem>("inbox_items", {
-            id: item.id,
-            data: {
+          await updateOwnedInboxResolution(
+            item,
+            {
               resolution_input: {
                 ...stashed,
                 ...resolutionInput,
+                lock_acquired_at: (
+                  lockedItem.resolution_input as {
+                    lock_acquired_at?: string;
+                  } | null
+                )?.lock_acquired_at,
                 resolved_shidduchim_id: shidduch.id,
-              } as Record<string, unknown>,
+              },
             },
-            previousData: lockedItem,
-          });
+            attemptId,
+          );
         } catch (error) {
           // If the stash response is the part that was lost, remove only this
           // just-created empty suggestion. If cleanup also loses the network,
@@ -839,8 +1049,11 @@ export function useResolveInboxItem() {
     }
 
     let resume: Resume | undefined = resumeFromProvenance;
+    // Ownership is an immutable fact recorded by the attempt that inserted
+    // the row. A resume found through provenance or an ordinary target lookup
+    // belongs to the user, even when this flow appends the selected file to it.
     let resumeCreatedByAttempt =
-      action === "new" && stashed.resume_created !== false;
+      action === "new" && stashed.resume_created === true;
     if (stashed.resume_id) {
       const { data } = await dataProvider.getOne<Resume>("resumes", {
         id: stashed.resume_id,
@@ -857,45 +1070,110 @@ export function useResolveInboxItem() {
     }
     let file = resume && findResumeFile(resume, item.id, attachment.path);
     if (!resume || !file) {
-      if (resume && action === "new") resumeCreatedByAttempt = false;
+      const resumeExistedBeforeAttach = resume != null;
       resume = await dataProvider.attachInboxAttachmentToResumeFile({
         shidduchimId: shidduch.id,
         inboxItemId: item.id,
         attachment,
       });
       file = findResumeFile(resume, item.id, attachment.path);
-      resumeCreatedByAttempt = action === "new";
+      if (
+        action === "new" &&
+        !resumeExistedBeforeAttach &&
+        stashed.resume_created !== true
+      ) {
+        resumeCreatedByAttempt = true;
+      }
     }
     if (!file) throw new Error("Could not attach this resume.");
+
+    // The chosen document is the only Resume-tab/read input. Every other
+    // captured attachment, including additional resume-like documents, is a
+    // private Files-tab copy. A deterministic source/item key makes a retry
+    // reuse rows/objects created before a lost response instead of duplicating
+    // them; the Inbox source remains untouched until its own deletion.
+    let entityFiles: EntityFile[] = [];
+    const privateAttachments = (item.attachments ?? []).filter(
+      (candidate) => candidate.path !== attachment.path,
+    );
+    if (privateAttachments.length > 0) {
+      try {
+        entityFiles = await dataProvider.copyInboxAttachmentsToEntityFiles({
+          baseDataProvider: dataProvider,
+          attachments: privateAttachments,
+          targetType: "shidduch",
+          targetId: shidduch.id,
+          visibility: "private_parent",
+          sourceInboxItemId: item.id,
+        });
+      } catch (error) {
+        const partialFiles = (error as { copiedFiles?: EntityFile[] })
+          .copiedFiles;
+        if (partialFiles && partialFiles.length > 0) {
+          const current = await getCurrentResolutionItem(item);
+          if (current?.status === "resolving") {
+            await updateOwnedInboxResolution(
+              item,
+              {
+                resolution_input: {
+                  ...(current.resolution_input ?? resolutionInput),
+                  entity_file_ids: partialFiles
+                    .filter(
+                      (file) =>
+                        (file as EntityFile & { createdByAttempt?: boolean })
+                          .createdByAttempt === true,
+                    )
+                    .map((file) => file.id),
+                },
+              },
+              attemptId,
+            ).catch(() => undefined);
+          }
+        }
+        throw error;
+      }
+    }
 
     if (
       stashed.resume_id !== resume.id ||
       stashed.resume_file_path !== file.path ||
-      stashed.read_completed !== readHasCompleted(resume)
+      stashed.read_completed !== readHasCompleted(resume) ||
+      JSON.stringify(stashed.entity_file_ids ?? []) !==
+        JSON.stringify(entityFiles.map((entityFile) => entityFile.id))
     ) {
       const current = await getCurrentResolutionItem(item);
       if (current?.status === "resolving") {
-        await dataProvider.update<InboxItem>("inbox_items", {
-          id: item.id,
-          data: {
+        await updateOwnedInboxResolution(
+          item,
+          {
             resolution_input: {
               ...(current.resolution_input ?? resolutionInput),
               resume_id: resume.id,
               resume_file_path: file.path,
               resume_created: resumeCreatedByAttempt,
               read_completed: readHasCompleted(resume),
-            } as Record<string, unknown>,
+              entity_file_ids: entityFiles.map((entityFile) => entityFile.id),
+            },
           },
-          previousData: current,
-        });
+          attemptId,
+        );
       }
     }
+
+    const entityFilesCreatedByAttempt = entityFiles.filter(
+      (entityFile) =>
+        (entityFile as EntityFile & { createdByAttempt?: boolean })
+          .createdByAttempt === true,
+    );
 
     return {
       shidduch,
       resume,
       file,
       resumeCreatedByAttempt,
+      entityFiles,
+      entityFilesCreatedByAttempt,
+      resolutionAttemptId: attemptId,
       readCompleted: readHasCompleted(resume),
     };
   };
@@ -905,6 +1183,7 @@ export function useResolveInboxItem() {
     action: InboxResumeAction,
     options: { shidduchimId?: Identifier; singleId?: Identifier },
   ): Promise<InboxResumeProcessResult> => {
+    const attemptId = generateAttemptId();
     let preparation: InboxResumePreparation | undefined;
     let readSucceeded = false;
     try {
@@ -913,6 +1192,7 @@ export function useResolveInboxItem() {
         action,
         options.shidduchimId,
         options.singleId,
+        attemptId,
       );
       let outcome: ResumeReadOutcome = "completed";
       readSucceeded = preparation.readCompleted;
@@ -922,22 +1202,22 @@ export function useResolveInboxItem() {
           readSucceeded = true;
           const current = await getCurrentResolutionItem(item);
           if (current?.status === "resolving") {
-            await dataProvider.update<InboxItem>("inbox_items", {
-              id: item.id,
-              data: {
+            await updateOwnedInboxResolution(
+              item,
+              {
                 resolution_input: {
                   ...(current.resolution_input ?? {}),
                   read_completed: true,
                 },
               },
-              previousData: current,
-            });
+              attemptId,
+            );
           }
         }
       }
 
       if (outcome === "completed" || outcome === "empty") {
-        await finalizeInboxResolution(item, preparation.shidduch);
+        await finalizeInboxResolution(item, preparation.shidduch, attemptId);
         let completedShidduch = preparation.shidduch;
         try {
           const { data } = await dataProvider.getOne<Shidduch>("shidduchim", {
@@ -965,31 +1245,56 @@ export function useResolveInboxItem() {
             preparation.resume.id,
             item.attachments?.find(isResumeDocument)?.path ?? "",
             preparation.resumeCreatedByAttempt,
+            preparation.entityFilesCreatedByAttempt,
           ));
         } catch {
           // Cleanup itself is retryable. Release the Inbox row with the
           // provenance stash intact and return the plain failure outcome; the
           // caller must never turn a cleanup outage into allowance copy.
-          await releaseInboxResolution(item, { preserveInput: true });
+          await releaseInboxResolution(item, {
+            preserveInput: true,
+            attemptId,
+          });
           return { outcome: "failed", shidduch: null, suggestionKept: true };
         }
       }
-      await releaseInboxResolution(item);
+      await releaseInboxResolution(item, {
+        attemptId,
+        preserveInput: suggestionKept,
+      });
       return { outcome, shidduch: null, suggestionKept };
     } catch (error) {
-      if (action === "new") {
+      let preserveInput = true;
+      if (action === "new" && !(error instanceof ResolutionClaimLostError)) {
         const current = await getCurrentResolutionItem(item).catch(() => null);
         const stashed = current?.resolution_input as {
           resolved_shidduchim_id?: Identifier;
           resume_id?: Identifier;
           resume_file_path?: string;
           resume_created?: boolean;
+          entity_file_ids?: Identifier[];
         } | null;
         const shidduchimId =
           preparation?.shidduch.id ?? stashed?.resolved_shidduchim_id;
         if (shidduchimId != null) {
           if (!readSucceeded) {
-            await compensateNewSuggestion(
+            let attemptEntityFiles =
+              preparation?.entityFilesCreatedByAttempt ?? [];
+            if (attemptEntityFiles.length === 0 && stashed?.entity_file_ids) {
+              const { data: entityFiles } = await dataProvider
+                .getList<EntityFile>("entity_files", {
+                  filter: { target_type: "shidduch", target_id: shidduchimId },
+                  pagination: { page: 1, perPage: 100 },
+                })
+                .catch(() => ({ data: [] as EntityFile[] }));
+              const ownedIds = new Set(
+                stashed.entity_file_ids.map((id) => String(id)),
+              );
+              attemptEntityFiles = entityFiles.filter((file) =>
+                ownedIds.has(String(file.id)),
+              );
+            }
+            const compensated = await compensateNewSuggestion(
               item,
               shidduchimId,
               preparation?.resume.id ?? stashed?.resume_id,
@@ -999,12 +1304,15 @@ export function useResolveInboxItem() {
                 "",
               preparation?.resumeCreatedByAttempt ??
                 stashed?.resume_created === true,
-            ).catch(() => undefined);
+              attemptEntityFiles,
+            ).catch(() => false);
+            preserveInput = !compensated;
           }
         }
       }
       await releaseInboxResolution(item, {
-        preserveInput: readSucceeded,
+        preserveInput: readSucceeded || preserveInput,
+        attemptId,
       }).catch(() => undefined);
       throw error;
     }
@@ -1031,11 +1339,20 @@ export function useResolveInboxItem() {
       return;
     }
 
-    await dataProvider.update<InboxItem>("inbox_items", {
-      id: item.id,
-      data: finalizePayload("dismissed"),
-      previousData: lockedItem,
-    });
+    try {
+      await updateOwnedInboxResolution(
+        item,
+        finalizePayload("dismissed"),
+        attemptId,
+      );
+    } catch (error) {
+      if (!(error instanceof ResolutionClaimLostError)) {
+        await releaseInboxResolution(item, { attemptId }).catch(
+          () => undefined,
+        );
+      }
+      throw error;
+    }
   };
 
   return {

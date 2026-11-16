@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import type { InboxItem } from "../types";
-import { InboxResumeActionButtons } from "./InboxResumeActions";
+import {
+  InboxResumeActionButtons,
+  NEW_SUGGESTION_SUCCESS_COPY,
+} from "./InboxResumeActions";
 
 const item = (attachments: InboxItem["attachments"]): InboxItem => ({
   id: 1,
@@ -84,5 +87,10 @@ describe("Inbox resume action buttons", () => {
     await expect
       .element(screen.getByText("Trust sender first."))
       .toBeInTheDocument();
+  });
+
+  it("keeps the nameless success notification static and filename-free", () => {
+    expect(NEW_SUGGESTION_SUCCESS_COPY).toBe("Created. Open it");
+    expect(NEW_SUGGESTION_SUCCESS_COPY).not.toContain("resume.pdf");
   });
 });
