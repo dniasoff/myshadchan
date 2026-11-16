@@ -38,9 +38,10 @@ port = 8788
 [vars]
 RATE_LIMITING_ENFORCED = "true"
 # Live extractor model selection. GEMINI_THINKING_BUDGET is intentionally
-# unset: flash-lite does not need it, and Gemini 3.x uses a different control.
-GEMINI_MODEL = "gemini-2.5-flash-lite"
+# unset: Gemini 3.x uses the per-model thinking level controls below.
+GEMINI_MODEL = "gemini-3.5-flash-lite"
 GEMINI_FALLBACK_MODEL = "gemini-3.6-flash"
+GEMINI_FALLBACK_THINKING_LEVEL = "low"
 
 # External review Finding 2 (2026-08-06): wrangler's own required-secrets
 # enforcement (https://developers.cloudflare.com/workers/wrangler/configuration/#secrets-configuration-property).

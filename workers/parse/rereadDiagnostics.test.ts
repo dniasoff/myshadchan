@@ -116,6 +116,48 @@ describe("re-read diagnostics", () => {
       model: "gemini-3.6-flash",
       attempt: 1,
     });
+    expect(
+      buildExtractorAttemptLog("gemini-3.6-flash", 1, undefined, "low"),
+    ).toEqual({
+      model: "gemini-3.6-flash",
+      attempt: 1,
+      thinkingLevel: "low",
+    });
+    expect(
+      buildExtractorAttemptLog(
+        "gemini-3.6-flash",
+        1,
+        undefined,
+        "resume text api-key=secret",
+      ),
+    ).toEqual({
+      model: "gemini-3.6-flash",
+      attempt: 1,
+    });
+  });
+
+  it("allow-lists the static bad-request failure reason", () => {
+    expect(
+      buildExtractorFailureLog(new Error("private detail"), {
+        durationMs: 4,
+        statusClass: "permanent",
+        reason: "bad_request",
+      }),
+    ).toEqual({
+      errorClass: "Error",
+      durationMs: 4,
+      statusClass: "permanent",
+      reason: "bad_request",
+    });
+    expect(
+      buildExtractorFailureLog(new Error("private detail"), {
+        durationMs: 4,
+        reason: "private detail",
+      }),
+    ).toEqual({
+      errorClass: "Error",
+      durationMs: 4,
+    });
   });
 
   it("logs only the sanitized payloads", () => {
