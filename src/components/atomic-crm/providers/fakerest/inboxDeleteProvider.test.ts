@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { InboxItem } from "../../types";
+import { isInboxAttachmentPurgePath } from "../../inbox/inboxDelete";
 import { createDataProvider } from "./dataProvider";
 import generateData from "./dataGenerator";
 import type { Db } from "./dataGenerator/types";
@@ -33,6 +34,36 @@ const makeProvider = (items: InboxItem[], configure?: (db: Db) => void) => {
 };
 
 describe("FakeRest Inbox delete provider", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("round-trips an uploaded Inbox attachment through create and delete", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:uploaded");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const provider = makeProvider([]);
+    const file = new File(["resume"], "resume.tar.gz", {
+      type: "application/gzip",
+    });
+
+    const attachment = await provider.uploadInboxAttachment({
+      file,
+      inboxItemId: 42,
+    });
+    expect(attachment.path).toMatch(
+      /^1\/inbox\/42\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.gz$/,
+    );
+    expect(isInboxAttachmentPurgePath(attachment.path, 1)).toBe(true);
+
+    await provider.create("inbox_items", {
+      data: inboxItem(42, [attachment]),
+    });
+    await expect(provider.deleteInboxItem(42)).resolves.toEqual({
+      purgePending: false,
+    });
+    await expect(provider.getOne("inbox_items", { id: 42 })).rejects.toThrow();
+  });
+
   it("deletes atomically and preserves a path referenced by another Inbox row", async () => {
     const sharedPath = "1/inbox/42/11111111-1111-4111-8111-111111111111.pdf";
     const provider = makeProvider([

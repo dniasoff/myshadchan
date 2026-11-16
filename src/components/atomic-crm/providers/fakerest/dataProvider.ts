@@ -61,6 +61,7 @@ import { ENTITY_TARGET_TYPES } from "../../types";
 import { toResumeInboxPickerItem } from "../../resumes/resumeInbox";
 import {
   canDeleteInboxItem,
+  getSafeInboxAttachmentExtension,
   getRemovableInboxAttachmentPaths,
   hasValidInboxAttachmentPaths,
   isInboxAttachmentPurgePath,
@@ -2874,7 +2875,8 @@ export const createDataProvider = ({
       mimeType?: string;
     }): Promise<InboxAttachment> => {
       const accountId = await resolveCurrentAccountId();
-      const path = `${accountId}/inbox/${params.inboxItemId}/${crypto.randomUUID()}-${params.file.name}`;
+      const extension = getSafeInboxAttachmentExtension(params.file.name);
+      const path = `${accountId}/inbox/${params.inboxItemId}/${crypto.randomUUID()}${extension}`;
       const src = URL.createObjectURL(params.file);
       inboxAttachmentBlobUrls.set(path, src);
       return {

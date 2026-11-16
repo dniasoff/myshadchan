@@ -113,6 +113,7 @@ import type {
 } from "../../analytics/types";
 import { toResumeInboxPickerItem } from "../../resumes/resumeInbox";
 import {
+  getSafeInboxAttachmentExtension,
   type InboxAttachmentPurge,
   type InboxDeleteResult,
   isInboxAttachmentPurgePath,
@@ -1745,8 +1746,7 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
     value?.split(";", 1)[0].trim().toLowerCase() || "";
   const canonicalMimeType =
     canonicalizeMimeType(fi.type) || canonicalizeMimeType(file.type);
-  const fileParts = file.name.split(".");
-  const fileExt = fileParts.length > 1 ? `.${file.name.split(".").pop()}` : "";
+  const fileExt = getSafeInboxAttachmentExtension(file.name);
   // Account-prefixed, CSPRNG key. The attachments bucket is private and its RLS
   // policies scope on this first path segment, so an unprefixed key is rejected.
   const accountId = await getCurrentAccountId();

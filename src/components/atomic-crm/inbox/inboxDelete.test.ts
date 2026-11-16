@@ -4,6 +4,7 @@ import type { InboxItem } from "../types";
 import {
   INBOX_DELETE_UNDO_MS,
   canDeleteInboxItem,
+  getSafeInboxAttachmentExtension,
   getRemovableInboxAttachmentPaths,
   hasValidInboxAttachmentPaths,
   isInboxAttachmentPurgePath,
@@ -21,6 +22,25 @@ const item = (overrides: Partial<InboxItem> = {}): InboxItem => ({
 });
 
 describe("Inbox delete safety", () => {
+  it("sanitizes upload extensions to the delete grammar", () => {
+    const cases = [
+      ["resume.pdf", ".pdf"],
+      ["file.tar.gz", ".gz"],
+      ["photo.JPEG", ".JPEG"],
+      ["digits.1234567890", ".1234567890"],
+      ["photo.jpeg ", ""],
+      ["photo.jp!g", ""],
+      ["résumé.p df", ""],
+      ["long.12345678901", ""],
+      ["without-extension", ""],
+      ["....", ""],
+    ] as const;
+
+    for (const [filename, extension] of cases) {
+      expect(getSafeInboxAttachmentExtension(filename)).toBe(extension);
+    }
+  });
+
   it("keeps the approved 10-second undo window and only allows safe statuses", () => {
     expect(INBOX_DELETE_UNDO_MS).toBe(10_000);
     expect(canDeleteInboxItem(item({ status: "unresolved" }))).toBe(true);

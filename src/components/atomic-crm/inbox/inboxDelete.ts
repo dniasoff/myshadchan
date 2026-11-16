@@ -19,6 +19,18 @@ export const INBOX_DELETE_UNDO_MS = 10_000;
 const INBOX_ATTACHMENT_UUID_V4 =
   "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
 
+/**
+ * Keep browser-minted attachment keys inside the same extension grammar used
+ * by the server/client purge validators. The MIME type is supplied separately
+ * to Storage, so an unsafe or absent filename extension is simply omitted.
+ */
+export const getSafeInboxAttachmentExtension = (filename: string): string => {
+  const lastDot = filename.lastIndexOf(".");
+  if (lastDot < 0) return "";
+  const extension = filename.slice(lastDot);
+  return /^\.[A-Za-z0-9]{1,10}$/.test(extension) ? extension : "";
+};
+
 const escapeRegExp = (value: string) =>
   value.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&");
 
