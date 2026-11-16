@@ -130,6 +130,17 @@ export type ExtractorStatusClass =
 const EXTRACTOR_STATUS_CLASSES = new Set<string>(EXTRACTOR_STATUS_CLASS_VALUES);
 
 const GEMINI_MODEL_PATTERN = /^gemini-[a-z0-9.-]{1,60}$/;
+const EXTRACTOR_FALLBACK_REASON_VALUES = [
+  "transient_exhausted",
+  "model_not_found",
+] as const;
+
+export type ExtractorFallbackReason =
+  (typeof EXTRACTOR_FALLBACK_REASON_VALUES)[number];
+
+const EXTRACTOR_FALLBACK_REASONS = new Set<string>(
+  EXTRACTOR_FALLBACK_REASON_VALUES,
+);
 
 function safeErrorClass(error: unknown): ExtractorErrorClass {
   if (error instanceof Error) {
@@ -162,6 +173,7 @@ function safeAttempt(value: unknown): number | undefined {
 export type ExtractorAttemptLog = {
   model: string;
   attempt: number;
+  fallbackReason?: ExtractorFallbackReason;
 };
 
 function safeModel(value: unknown): string {
@@ -170,20 +182,36 @@ function safeModel(value: unknown): string {
     : "unknown";
 }
 
+function safeFallbackReason(
+  value: unknown,
+): ExtractorFallbackReason | undefined {
+  return typeof value === "string" && EXTRACTOR_FALLBACK_REASONS.has(value)
+    ? (value as ExtractorFallbackReason)
+    : undefined;
+}
+
 export function buildExtractorAttemptLog(
   model: unknown,
   attempt: unknown,
+  fallbackReason?: unknown,
 ): ExtractorAttemptLog {
-  return {
+  const log: ExtractorAttemptLog = {
     model: safeModel(model),
     attempt: safeAttempt(attempt) ?? 0,
   };
+  const safeReason = safeFallbackReason(fallbackReason);
+  if (safeReason !== undefined) log.fallbackReason = safeReason;
+  return log;
 }
 
-export function logExtractorAttempt(model: unknown, attempt: unknown): void {
+export function logExtractorAttempt(
+  model: unknown,
+  attempt: unknown,
+  fallbackReason?: unknown,
+): void {
   console.warn(
     "parse.extract.attempt",
-    buildExtractorAttemptLog(model, attempt),
+    buildExtractorAttemptLog(model, attempt, fallbackReason),
   );
 }
 

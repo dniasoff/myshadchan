@@ -515,6 +515,40 @@ describe("geminiExtractor", () => {
       expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
+    it("keeps timeout outcome after timeout then 404 while trying fallback once", async () => {
+      vi.useFakeTimers();
+      const attemptLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new DOMException("timed out", "TimeoutError"))
+        .mockResolvedValueOnce(new Response("model missing", { status: 404 }))
+        .mockResolvedValueOnce(new Response("model missing", { status: 404 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const extractor = geminiExtractor({
+        ...TEST_ENV,
+        GEMINI_FALLBACK_MODEL: "gemini-fallback-flash",
+      });
+
+      const pending = extractor.extract(new ArrayBuffer(0), "application/pdf");
+      const rejection = expect(pending).rejects.toBeInstanceOf(
+        ExtractorTimeoutError,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(GEMINI_RETRY_INITIAL_BACKOFF_MS);
+
+      await rejection;
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect((fetchMock.mock.calls[2] as [string])[0]).toContain(
+        "/models/gemini-fallback-flash:",
+      );
+      expect(attemptLog).toHaveBeenNthCalledWith(3, "parse.extract.attempt", {
+        model: "gemini-fallback-flash",
+        attempt: 1,
+        fallbackReason: "model_not_found",
+      });
+    });
+
     it("keeps timeout outcome after timeout then a network failure", async () => {
       vi.useFakeTimers();
       const fetchMock = vi
@@ -593,7 +627,7 @@ describe("geminiExtractor", () => {
       );
     });
 
-    it.each([400, 401, 404])(
+    it.each([400, 401, 403])(
       "does not retry permanent provider status %s",
       async (status) => {
         const fetchMock = vi
@@ -602,7 +636,10 @@ describe("geminiExtractor", () => {
             new Response("private provider detail", { status }),
           );
         vi.stubGlobal("fetch", fetchMock);
-        const extractor = geminiExtractor(TEST_ENV);
+        const extractor = geminiExtractor({
+          ...TEST_ENV,
+          GEMINI_FALLBACK_MODEL: "gemini-fallback-flash",
+        });
 
         await expect(
           extractor.extract(new ArrayBuffer(0), "application/pdf"),
@@ -610,6 +647,65 @@ describe("geminiExtractor", () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
       },
     );
+
+    it("uses the fallback once after a primary model-not-found 404", async () => {
+      const attemptLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response("model missing", { status: 404 }))
+        .mockResolvedValueOnce(gatewayResponse("{}"));
+      vi.stubGlobal("fetch", fetchMock);
+      const extractor = geminiExtractor({
+        ...TEST_ENV,
+        GEMINI_MODEL: "gemini-2.5-flash-lite",
+        GEMINI_FALLBACK_MODEL: "gemini-3.6-flash",
+      });
+
+      await expect(
+        extractor.extract(new ArrayBuffer(0), "application/pdf"),
+      ).resolves.toEqual({});
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect((fetchMock.mock.calls[0] as [string])[0]).toContain(
+        "/models/gemini-2.5-flash-lite:",
+      );
+      expect((fetchMock.mock.calls[1] as [string])[0]).toContain(
+        "/models/gemini-3.6-flash:",
+      );
+      expect(attemptLog).toHaveBeenNthCalledWith(2, "parse.extract.attempt", {
+        model: "gemini-3.6-flash",
+        attempt: 1,
+        fallbackReason: "model_not_found",
+      });
+    });
+
+    it("returns the generic provider failure after 404 on both models", async () => {
+      const attemptLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response("primary missing", { status: 404 }))
+        .mockResolvedValueOnce(
+          new Response("fallback missing", { status: 404 }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+      const extractor = geminiExtractor({
+        ...TEST_ENV,
+        GEMINI_FALLBACK_MODEL: "gemini-fallback-flash",
+      });
+
+      await expect(
+        extractor.extract(new ArrayBuffer(0), "application/pdf"),
+      ).rejects.toMatchObject({
+        name: "ExtractorProviderError",
+        status: 404,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(attemptLog).toHaveBeenCalledTimes(2);
+      expect(attemptLog).toHaveBeenNthCalledWith(2, "parse.extract.attempt", {
+        model: "gemini-fallback-flash",
+        attempt: 1,
+        fallbackReason: "model_not_found",
+      });
+    });
 
     it("caps Retry-After before the next attempt", async () => {
       vi.useFakeTimers();
@@ -707,6 +803,7 @@ describe("geminiExtractor", () => {
       expect(attemptLog).toHaveBeenNthCalledWith(4, "parse.extract.attempt", {
         model: "gemini-3.6-flash",
         attempt: 1,
+        fallbackReason: "transient_exhausted",
       });
     });
 
