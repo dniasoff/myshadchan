@@ -29,6 +29,7 @@ export type ResumeReadOutcome =
   | "already_reading"
   | "stale_file"
   | "timeout"
+  | "provider_busy"
   | "failed";
 
 export type ResumeRereadOutcome = Extract<
@@ -39,6 +40,7 @@ export type ResumeRereadOutcome = Extract<
   | "already_reading"
   | "failed"
   | "timeout"
+  | "provider_busy"
 >;
 
 /**
@@ -115,6 +117,7 @@ export async function requestResumeRead(
     if (envelope.meta?.code === "already_reading") return "already_reading";
     if (envelope.meta?.code === "stale_file") return "stale_file";
     if (envelope.meta?.code === "timeout") return "timeout";
+    if (envelope.meta?.code === "provider_busy") return "provider_busy";
     return "failed";
   } catch {
     return "failed";

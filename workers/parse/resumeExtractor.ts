@@ -30,6 +30,12 @@ export type ParseEnv = {
   AI_GATEWAY_ACCOUNT_ID: string;
   AI_GATEWAY_ID: string;
   GOOGLE_AI_STUDIO_API_KEY: string;
+  /** Optional model override; invalid values fall back to the default. */
+  GEMINI_MODEL?: string;
+  /** Optional one-shot fallback after primary transient exhaustion. */
+  GEMINI_FALLBACK_MODEL?: string;
+  /** Optional integer string: -1 or 0..24576; unset sends no thinking config. */
+  GEMINI_THINKING_BUDGET?: string;
 };
 
 /**
@@ -41,8 +47,9 @@ export type ParseEnv = {
  * a bound on this `fetch`, a slow-but-live Gemini call could run past that
  * window.
  *
- * 60s leaves roughly 4 minutes of margin under the 5-minute staleness
- * window for the latency this timeout does NOT cover: the pre-fetch
+ * `GEMINI_EXTRACT_TIMEOUT_MS` is the timeout for one provider attempt. The
+ * retry budget below leaves roughly 4 minutes of margin under the 5-minute
+ * staleness window for the latency this timeout does NOT cover: the pre-fetch
  * attachment `list()` + `download()` (`index.ts` steps 6-7) and the
  * post-fetch Zod validation + `confirm_ai_parse_attempt()` round trip
  * (`index.ts` step 10) both run outside this function and add real time on
@@ -50,7 +57,15 @@ export type ParseEnv = {
  * keep it meaningfully shorter than `c_stale_after` — do not let the two
  * drift toward each other.
  */
-export const GEMINI_EXTRACT_TIMEOUT_MS = 60_000;
+export const GEMINI_EXTRACT_TIMEOUT_MS = 24_000;
+
+/** The total primary-plus-fallback provider budget, below the browser's 90s deadline. */
+export const GEMINI_RETRY_OVERALL_BUDGET_MS = 75_000;
+export const GEMINI_RETRY_MAX_ATTEMPTS = 3;
+export const GEMINI_RETRY_INITIAL_BACKOFF_MS = 1_000;
+export const GEMINI_RETRY_MAX_BACKOFF_MS = 2_000;
+export const GEMINI_RETRY_AFTER_CAP_MS = 5_000;
+export const GEMINI_MIN_ATTEMPT_TIMEOUT_MS = 5_000;
 
 /** Keep model output bounded even when a resume contains many headings. The
  * parser applies a stricter character/item cap before persistence, and the
@@ -94,7 +109,10 @@ const SAFETY_PROMPT =
  * debugging — Worker logs stay content-free.
  */
 export class ExtractorProviderError extends Error {
-  constructor(public readonly status: number) {
+  constructor(
+    public readonly status: number,
+    public readonly retryAfterMs?: number,
+  ) {
     super("Gemini extraction failed");
     this.name = "ExtractorProviderError";
   }
@@ -115,6 +133,14 @@ export class ExtractorTimeoutError extends Error {
   }
 }
 
+/** Thrown only after all allowed transient attempts have been exhausted. */
+export class ExtractorProviderBusyError extends Error {
+  constructor(public readonly includedTimeout = false) {
+    super("Gemini extraction provider is busy");
+    this.name = "ExtractorProviderBusyError";
+  }
+}
+
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
@@ -124,19 +150,88 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-// Floating alias, not a pinned version: Google retires dated/numbered model
-// names (gemini-1.5-flash was retired outright — absent from the live model
-// list, not just deprecated) and a pin then fails at inference time, past the
-// auth gate, on the one call that consumes paid inference. `gemini-flash-latest`
-// always resolves to Google's current flash model, so a future retirement
-// cannot silently reintroduce this failure.
-const GEMINI_MODEL = "gemini-flash-latest";
+// Floating alias, not a pinned version by default. Operators can change the
+// model without a code release, but only to a Gemini-shaped identifier so a
+// secret or URL cannot enter the request path or logs.
+export const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
+const GEMINI_MODEL_PATTERN = /^gemini-[a-z0-9.-]{1,60}$/;
 
 function isTimeoutAbort(error: unknown): boolean {
   return (
     error instanceof DOMException &&
     (error.name === "TimeoutError" || error.name === "AbortError")
   );
+}
+
+function configuredModel(
+  value: unknown,
+  variable: "GEMINI_MODEL" | "GEMINI_FALLBACK_MODEL",
+  defaultValue: string | undefined,
+): string | undefined {
+  if (value === undefined || value === "") return defaultValue;
+  if (typeof value === "string" && GEMINI_MODEL_PATTERN.test(value)) {
+    return value;
+  }
+  // Keep configuration diagnostics static: never echo the invalid value.
+  console.error("parse.extract.config.invalid", { variable });
+  return defaultValue;
+}
+
+function configuredThinkingBudget(value: unknown): number | undefined {
+  if (value === undefined || value === "") return undefined;
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^-?\d+$/u.test(value)
+        ? Number(value)
+        : Number.NaN;
+  if (parsed === -1) return undefined;
+  if (Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= 24_576) {
+    return parsed;
+  }
+  // Keep configuration diagnostics static: never echo the invalid value.
+  console.error("parse.extract.config.invalid", {
+    variable: "GEMINI_THINKING_BUDGET",
+  });
+  return undefined;
+}
+
+function isTransientFailure(error: unknown): boolean {
+  if (error instanceof ExtractorTimeoutError) return true;
+  if (!(error instanceof ExtractorProviderError)) return false;
+  return [429, 500, 502, 503, 504].includes(error.status);
+}
+
+function providerStatusClass(status: number): "transient" | "permanent" {
+  return [429, 500, 502, 503, 504].includes(status) ? "transient" : "permanent";
+}
+
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value.trim());
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(GEMINI_RETRY_AFTER_CAP_MS, Math.round(seconds * 1000));
+  }
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return undefined;
+  return Math.min(
+    GEMINI_RETRY_AFTER_CAP_MS,
+    Math.max(0, timestamp - Date.now()),
+  );
+}
+
+function retryDelayMs(attempt: number, retryAfterMs?: number): number {
+  if (retryAfterMs !== undefined) return retryAfterMs;
+  const exponential = Math.min(
+    GEMINI_RETRY_MAX_BACKOFF_MS,
+    GEMINI_RETRY_INITIAL_BACKOFF_MS * 2 ** (attempt - 1),
+  );
+  // Full jitter keeps a burst of overloaded requests from synchronizing.
+  return Math.floor(exponential * (0.5 + Math.random() * 0.5));
+}
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 /**
@@ -161,8 +256,6 @@ function isTimeoutAbort(error: unknown): boolean {
 export function geminiExtractor(env: ParseEnv): ResumeExtractor {
   return {
     async extract(fileBytes: ArrayBuffer, mimeType: string): Promise<unknown> {
-      const baseUrl = `https://gateway.ai.cloudflare.com/v1/${env.AI_GATEWAY_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/google-ai-studio/v1beta/models/${GEMINI_MODEL}:generateContent`;
-
       let contentPart:
         { text: string } | { inline_data: { mime_type: string; data: string } };
       const contentStartedAt = Date.now();
@@ -190,11 +283,28 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         throw error;
       }
 
-      const request = async (
+      const deadline = Date.now() + GEMINI_RETRY_OVERALL_BUDGET_MS;
+      const thinkingBudget = configuredThinkingBudget(
+        env.GEMINI_THINKING_BUDGET,
+      );
+      let sawTimeout = false;
+      let lastTimeoutMs: number | undefined;
+      const requestOnce = async (
+        model: string,
         prompt: string,
         responseSchema: typeof GEMINI_RESUME_RESPONSE_SCHEMA,
+        attempt: number,
       ): Promise<unknown> => {
         const requestStartedAt = Date.now();
+        const remainingMs = deadline - requestStartedAt;
+        if (remainingMs < GEMINI_MIN_ATTEMPT_TIMEOUT_MS) {
+          throw new ExtractorProviderBusyError();
+        }
+        const attemptTimeoutMs = Math.min(
+          GEMINI_EXTRACT_TIMEOUT_MS,
+          remainingMs,
+        );
+        const baseUrl = `https://gateway.ai.cloudflare.com/v1/${env.AI_GATEWAY_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/google-ai-studio/v1beta/models/${model}:generateContent`;
         let httpStatus: number | undefined;
         let finishReason: unknown;
         let usageMetadata: unknown;
@@ -208,6 +318,9 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             responseMimeType: "application/json",
             responseSchema,
             maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+            ...(thinkingBudget !== undefined && model.includes("flash")
+              ? { thinkingConfig: { thinkingBudget } }
+              : {}),
           },
         };
 
@@ -220,21 +333,25 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
               "x-goog-api-key": env.GOOGLE_AI_STUDIO_API_KEY,
             },
             body: JSON.stringify(requestBody),
-            signal: AbortSignal.timeout(GEMINI_EXTRACT_TIMEOUT_MS),
+            signal: AbortSignal.timeout(attemptTimeoutMs),
           });
           httpStatus = response.status;
         } catch (error) {
           if (isTimeoutAbort(error)) {
-            const timeout = new ExtractorTimeoutError(
-              GEMINI_EXTRACT_TIMEOUT_MS,
-            );
+            const timeout = new ExtractorTimeoutError(attemptTimeoutMs);
+            sawTimeout = true;
+            lastTimeoutMs = attemptTimeoutMs;
             logExtractorFailure(timeout, {
               durationMs: Date.now() - requestStartedAt,
+              attempt,
+              statusClass: "timeout",
             });
             throw timeout;
           }
           logExtractorFailure(error, {
             durationMs: Date.now() - requestStartedAt,
+            attempt,
+            statusClass: "network",
           });
           throw error;
         }
@@ -242,9 +359,14 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         if (!response.ok) {
           // Finding 5: deliberately do NOT read/log response.text() here —
           // see ExtractorProviderError's own comment above.
-          const providerError = new ExtractorProviderError(response.status);
+          const providerError = new ExtractorProviderError(
+            response.status,
+            parseRetryAfter(response.headers.get("Retry-After")),
+          );
           logExtractorFailure(providerError, {
             durationMs: Date.now() - requestStartedAt,
+            attempt,
+            statusClass: providerStatusClass(response.status),
             httpStatus,
           });
           throw providerError;
@@ -272,6 +394,8 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         } catch (error) {
           logExtractorFailure(error, {
             durationMs: Date.now() - requestStartedAt,
+            attempt,
+            statusClass: "validation",
             httpStatus,
             finishReason,
             usageMetadata,
@@ -280,14 +404,95 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         }
       };
 
+      const requestWithRetries = async (
+        model: string,
+        prompt: string,
+        responseSchema: typeof GEMINI_RESUME_RESPONSE_SCHEMA,
+        maxAttempts: number,
+      ): Promise<unknown> => {
+        let lastError: unknown;
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          if (Date.now() >= deadline) break;
+          try {
+            return await requestOnce(model, prompt, responseSchema, attempt);
+          } catch (error) {
+            lastError = error;
+            if (!isTransientFailure(error) || attempt === maxAttempts) break;
+            const retryAfterMs =
+              error instanceof ExtractorProviderError
+                ? error.retryAfterMs
+                : undefined;
+            const delayMs = retryDelayMs(attempt, retryAfterMs);
+            if (Date.now() + delayMs > deadline) break;
+            await sleep(delayMs);
+          }
+        }
+        if (lastError && isTransientFailure(lastError)) {
+          throw new ExtractorProviderBusyError(sawTimeout);
+        }
+        throw lastError ?? new ExtractorProviderBusyError(sawTimeout);
+      };
+
+      const runModel = async (
+        model: string,
+        maxAttempts = GEMINI_RETRY_MAX_ATTEMPTS,
+      ): Promise<unknown> => {
+        try {
+          return await requestWithRetries(
+            model,
+            FULL_RESUME_PROMPT,
+            GEMINI_RESUME_RESPONSE_SCHEMA,
+            maxAttempts,
+          );
+        } catch (error) {
+          if (!(error instanceof SyntaxError)) throw error;
+          // A successful response with invalid JSON gets the existing one-shot
+          // legacy recovery. It is validation recovery, not a retry.
+          return requestWithRetries(
+            model,
+            LEGACY_RECOVERY_PROMPT,
+            GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA,
+            1,
+          );
+        }
+      };
+
+      const primaryModel = configuredModel(
+        env.GEMINI_MODEL,
+        "GEMINI_MODEL",
+        DEFAULT_GEMINI_MODEL,
+      ) as string;
+      const fallbackModel = configuredModel(
+        env.GEMINI_FALLBACK_MODEL,
+        "GEMINI_FALLBACK_MODEL",
+        undefined,
+      );
       try {
-        return await request(FULL_RESUME_PROMPT, GEMINI_RESUME_RESPONSE_SCHEMA);
+        return await runModel(primaryModel);
       } catch (error) {
-        if (!(error instanceof SyntaxError)) throw error;
-        return request(
-          LEGACY_RECOVERY_PROMPT,
-          GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA,
-        );
+        if (!(error instanceof ExtractorProviderBusyError)) {
+          throw error;
+        }
+        if (fallbackModel && fallbackModel !== primaryModel) {
+          try {
+            // The fallback is a single bounded rescue attempt, not a second
+            // full retry sequence. It shares the primary's overall deadline.
+            return await runModel(fallbackModel, 1);
+          } catch (fallbackError) {
+            if (sawTimeout) {
+              throw new ExtractorTimeoutError(
+                lastTimeoutMs ?? GEMINI_EXTRACT_TIMEOUT_MS,
+              );
+            }
+            throw fallbackError;
+          }
+        }
+        if (sawTimeout) {
+          throw new ExtractorTimeoutError(
+            lastTimeoutMs ?? GEMINI_EXTRACT_TIMEOUT_MS,
+          );
+        }
+        throw error;
       }
     },
   };

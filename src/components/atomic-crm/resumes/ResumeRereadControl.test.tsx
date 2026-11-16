@@ -162,6 +162,7 @@ describe("ResumeRereadControl", () => {
   it.each([
     ["failed", REREAD_COPY.failed],
     ["timeout", REREAD_COPY.timeout],
+    ["provider_busy", REREAD_COPY.providerBusy],
     ["no_allowance", REREAD_COPY.noAllowance],
     ["not_entitled", REREAD_COPY.notEntitled],
     ["already_reading", REREAD_COPY.failed],
@@ -170,6 +171,7 @@ describe("ResumeRereadControl", () => {
     const ids = {
       failed: 31,
       timeout: 35,
+      provider_busy: 36,
       no_allowance: 32,
       not_entitled: 33,
       already_reading: 34,

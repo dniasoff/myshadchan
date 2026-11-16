@@ -37,6 +37,11 @@ port = 8788
 # table this flag drives.
 [vars]
 RATE_LIMITING_ENFORCED = "true"
+# Optional model tuning. Uncomment and redeploy to change the live extractor;
+# the code defaults to GEMINI_MODEL = "gemini-flash-latest" and no fallback.
+# GEMINI_MODEL = "gemini-flash-latest"
+# GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"
+# GEMINI_THINKING_BUDGET = "0" # -1 or 0..24576; only Flash models use it
 
 # External review Finding 2 (2026-08-06): wrangler's own required-secrets
 # enforcement (https://developers.cloudflare.com/workers/wrangler/configuration/#secrets-configuration-property).

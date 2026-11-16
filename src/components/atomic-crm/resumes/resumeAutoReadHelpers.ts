@@ -8,6 +8,8 @@ export const RESUME_AUTO_READ_COPY = {
     "Could not make this resume easy to read. The file was saved; you can try again.",
   timeout:
     "This is taking too long. Nothing was changed. Please try again later.",
+  provider_busy:
+    "The reading service is busy right now. Nothing was changed. Please try again in a few minutes.",
   noAllowance: "No resume reads left this month. The file was saved.",
   notEntitled:
     "AI reading is not switched on for your account yet. The file was saved.",
@@ -21,6 +23,7 @@ export type ResumeAutoReadFeedback =
   | "empty"
   | "failed"
   | "timeout"
+  | "provider_busy"
   | "no_allowance"
   | "not_entitled"
   | "stale_file"
@@ -56,6 +59,8 @@ export function resumeAutoReadFeedbackText(
       return RESUME_AUTO_READ_COPY.failed;
     case "timeout":
       return RESUME_AUTO_READ_COPY.timeout;
+    case "provider_busy":
+      return RESUME_AUTO_READ_COPY.provider_busy;
     case "no_allowance":
       return RESUME_AUTO_READ_COPY.noAllowance;
     case "not_entitled":

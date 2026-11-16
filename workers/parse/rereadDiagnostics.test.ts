@@ -56,6 +56,33 @@ describe("re-read diagnostics", () => {
     expect(JSON.stringify(log)).not.toContain(hostile);
   });
 
+  it("allow-lists retry attempt metadata without admitting hostile values", () => {
+    const hostile = "resume text api-key=secret";
+
+    expect(
+      buildExtractorFailureLog(new Error(hostile), {
+        durationMs: 7,
+        attempt: 2,
+        statusClass: "transient",
+      }),
+    ).toEqual({
+      errorClass: "Error",
+      durationMs: 7,
+      attempt: 2,
+      statusClass: "transient",
+    });
+    expect(
+      buildExtractorFailureLog(new Error(hostile), {
+        durationMs: hostile,
+        attempt: hostile,
+        statusClass: hostile,
+      }),
+    ).toEqual({
+      errorClass: "Error",
+      durationMs: 0,
+    });
+  });
+
   it("logs only the sanitized payloads", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 

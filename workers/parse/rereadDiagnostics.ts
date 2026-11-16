@@ -94,6 +94,8 @@ const MAX_DIAGNOSTIC_DURATION_MS = 24 * 60 * 60 * 1000;
 
 export type ExtractorFailureLogOptions = {
   durationMs: unknown;
+  attempt?: unknown;
+  statusClass?: unknown;
   httpStatus?: unknown;
   finishReason?: unknown;
   usageMetadata?: unknown;
@@ -103,6 +105,8 @@ export type ExtractorFailureLogOptions = {
 export type ExtractorFailureLog = {
   errorClass: ExtractorErrorClass;
   durationMs: number;
+  attempt?: number;
+  statusClass?: ExtractorStatusClass;
   httpStatus?: number;
   finishReason?: GeminiFinishReason;
   promptTokenCount?: number;
@@ -111,6 +115,19 @@ export type ExtractorFailureLog = {
   totalTokenCount?: number;
   docxFailure?: DocxFailure;
 };
+
+const EXTRACTOR_STATUS_CLASS_VALUES = [
+  "transient",
+  "permanent",
+  "timeout",
+  "network",
+  "validation",
+] as const;
+
+export type ExtractorStatusClass =
+  (typeof EXTRACTOR_STATUS_CLASS_VALUES)[number];
+
+const EXTRACTOR_STATUS_CLASSES = new Set<string>(EXTRACTOR_STATUS_CLASS_VALUES);
 
 function safeErrorClass(error: unknown): ExtractorErrorClass {
   if (error instanceof Error) {
@@ -129,6 +146,22 @@ function safeErrorClass(error: unknown): ExtractorErrorClass {
 function safeDuration(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
   return Math.min(MAX_DIAGNOSTIC_DURATION_MS, Math.max(0, Math.trunc(value)));
+}
+
+function safeAttempt(value: unknown): number | undefined {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 1 &&
+    value <= 10
+    ? value
+    : undefined;
+}
+
+function safeStatusClass(value: unknown): ExtractorStatusClass | undefined {
+  if (typeof value !== "string" || !EXTRACTOR_STATUS_CLASSES.has(value)) {
+    return undefined;
+  }
+  return value as ExtractorStatusClass;
 }
 
 function safeHttpStatus(value: unknown): number | undefined {
@@ -177,6 +210,10 @@ export function buildExtractorFailureLog(
     errorClass: safeErrorClass(error),
     durationMs: safeDuration(options.durationMs),
   };
+  const attempt = safeAttempt(options.attempt);
+  if (attempt !== undefined) log.attempt = attempt;
+  const statusClass = safeStatusClass(options.statusClass);
+  if (statusClass !== undefined) log.statusClass = statusClass;
   const httpStatus = safeHttpStatus(options.httpStatus);
   if (httpStatus !== undefined) log.httpStatus = httpStatus;
   const finishReason = safeFinishReason(options.finishReason);

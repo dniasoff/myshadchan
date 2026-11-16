@@ -40,6 +40,7 @@ type RereadFeedback =
   | "empty"
   | "failed"
   | "timeout"
+  | "provider_busy"
   | "no_allowance"
   | "not_entitled";
 
@@ -56,6 +57,7 @@ export const REREAD_COPY = {
   readEmpty: RESUME_AUTO_READ_COPY.empty,
   failed: "Could not make this resume easy to read. Nothing was changed.",
   timeout: RESUME_AUTO_READ_COPY.timeout,
+  providerBusy: RESUME_AUTO_READ_COPY.provider_busy,
   noAllowance: "No resume reads left this month.",
   notEntitled: "AI reading is not switched on for your account yet.",
   cancel: "Cancel",
@@ -87,6 +89,8 @@ function feedbackText(feedback: RereadFeedback, isUnread: boolean): string {
       return REREAD_COPY.failed;
     case "timeout":
       return REREAD_COPY.timeout;
+    case "provider_busy":
+      return REREAD_COPY.providerBusy;
   }
 }
 
@@ -205,6 +209,9 @@ export function ResumeRereadControl({
       } else if (outcome === "timeout") {
         unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("timeout");
+      } else if (outcome === "provider_busy") {
+        unresolvedResumeReadAttempts.delete(rereadAttemptKey);
+        setFeedback("provider_busy");
       } else if (isUnread && outcome === "stale_file") {
         unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("failed");

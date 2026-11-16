@@ -1545,6 +1545,35 @@ describe("ResumeReadableSections", () => {
       .toHaveTextContent("We could not find details in this resume.");
   });
 
+  it("shows the static provider-busy outcome in the Easy-to-read card", async () => {
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const readResume = vi.fn().mockResolvedValue("provider_busy");
+    const { screen } = await renderSections({
+      canRead: true,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      files: [file],
+      sections: { learningHistory: [], references: [] },
+      withLinks: false,
+      readResume,
+    });
+
+    await screen
+      .getByRole("button", { name: "Make it easy to read", exact: true })
+      .click();
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent(
+        "The reading service is busy right now. Nothing was changed. Please try again in a few minutes.",
+      );
+  });
+
   it.each([
     [
       "blank-only sections",
