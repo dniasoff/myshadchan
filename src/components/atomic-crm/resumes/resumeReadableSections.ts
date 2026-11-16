@@ -27,16 +27,36 @@ export type ParsedResumeSections = {
   additionalSections: ParsedAdditionalSection[];
 };
 
-function hasMeaningfulValue(value: unknown): boolean {
-  if (value == null) return false;
-  if (typeof value === "string") return value.trim().length > 0;
-  if (typeof value === "number" || typeof value === "boolean") return true;
-  if (Array.isArray(value)) return value.some(hasMeaningfulValue);
-  if (typeof value !== "object") return false;
+const MAX_UNREAD_STRING_PROBE = 1_024;
 
-  return Object.entries(value).some(
-    ([key, entry]) => key !== "schemaVersion" && hasMeaningfulValue(entry),
-  );
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasNonWhitespaceString(value: string): boolean {
+  const probeLength = Math.min(value.length, MAX_UNREAD_STRING_PROBE);
+  for (let index = 0; index < probeLength; index += 1) {
+    if (!/\s/u.test(value[index] ?? "")) return true;
+  }
+
+  // Do not scan an unbounded payload. A long unobserved suffix is treated as
+  // non-empty so a malformed payload cannot accidentally unlock a paid read.
+  return value.length > probeLength;
+}
+
+function hasNonEmptyRawValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return hasNonWhitespaceString(value);
+  if (Array.isArray(value)) return value.length > 0;
+  if (isPlainObject(value)) {
+    for (const _key in value) return true;
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -47,20 +67,19 @@ function hasMeaningfulValue(value: unknown): boolean {
 export function isResumeUnread(
   resume: Pick<Resume, "sections" | "extracted">,
 ): boolean {
-  const hasCompletedReadMarker =
-    typeof resume.sections === "object" &&
-    resume.sections !== null &&
-    !Array.isArray(resume.sections) &&
-    Object.prototype.hasOwnProperty.call(resume.sections, "schemaVersion");
-  if (hasCompletedReadMarker) return false;
+  const sections = resume.sections;
+  if (!isPlainObject(sections)) return true;
+  if (Object.prototype.hasOwnProperty.call(sections, "schemaVersion")) {
+    return false;
+  }
 
-  const sections = parseResumeSections(resume.sections, true);
-  const hasSections =
-    sections.learningHistory.length > 0 ||
-    sections.references.length > 0 ||
-    sections.additionalSections.length > 0;
+  const hasNonEmptySectionArray = [
+    "learningHistory",
+    "references",
+    "additionalSections",
+  ].some((key) => Array.isArray(sections[key]) && sections[key].length > 0);
 
-  return !hasSections && !hasMeaningfulValue(resume.extracted);
+  return !hasNonEmptySectionArray && !hasNonEmptyRawValue(resume.extracted);
 }
 
 const MAX_ADDITIONAL_SECTION_COUNT = 20;

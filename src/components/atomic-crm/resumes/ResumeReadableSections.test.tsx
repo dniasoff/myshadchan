@@ -14,6 +14,7 @@ import type { CrmDataProvider } from "../providers/types";
 import { createDataProvider } from "../providers/fakerest/dataProvider";
 import generateData from "../providers/fakerest/dataGenerator";
 import type { ReferenceLinkSummary, Resume, ShidduchSummary } from "../types";
+import { RESUME_UNREAD_PARITY_FIXTURES } from "../../../../workers/parse/resumeUnreadFixtures";
 import { ResumeReadableSections } from "./ResumeReadableSections";
 import {
   linkMatchesResumeReference,
@@ -475,54 +476,12 @@ describe("resume reference matching", () => {
 });
 
 describe("isResumeUnread", () => {
-  it.each([
-    ["NULL sections and extracted", null, null],
-    ["empty objects", {}, {}],
-    ["empty arrays", [], []],
-    [
-      "whitespace-only values",
-      {
-        learningHistory: [{ label: "  ", value: "\n\t" }],
-        references: [{ name: " ", relationship: "\t", phone: "  " }],
-        additionalSections: [
-          { key: "work", title: " ", items: [{ label: " ", value: " " }] },
-        ],
-      },
-      " \n\t",
-    ],
-    [
-      "empty sections without a completed-read marker",
-      { learningHistory: [], references: [], additionalSections: [] },
-      null,
-    ],
-  ])("treats %s as unread", (_label, sections, extracted) => {
-    expect(isResumeUnread({ sections, extracted })).toBe(true);
-  });
-
-  it.each([
-    [
-      "a partial learning section",
-      { learningHistory: [{ label: "Yeshiva", value: "Or HaChaim" }] },
-      null,
-    ],
-    [
-      "a partial extracted draft",
-      { learningHistory: [], references: [], additionalSections: [] },
-      { fields: { name_en: "David" } },
-    ],
-    [
-      "an accepted empty read marked with the parser schema version",
-      {
-        learningHistory: [],
-        references: [],
-        additionalSections: [],
-        schemaVersion: 4,
-      },
-      {},
-    ],
-  ])("treats %s as already read", (_label, sections, extracted) => {
-    expect(isResumeUnread({ sections, extracted })).toBe(false);
-  });
+  it.each(RESUME_UNREAD_PARITY_FIXTURES)(
+    "matches the shared raw-shape parity fixture: $name",
+    ({ sections, extracted, expectedUnread }) => {
+      expect(isResumeUnread({ sections, extracted })).toBe(expectedUnread);
+    },
+  );
 });
 
 describe("ResumeReadableSections", () => {

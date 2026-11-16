@@ -12,6 +12,7 @@ import {
   REREAD_FAILURE_MESSAGE,
 } from "./rereadRoute";
 import { makeExtract, TEST_ENV } from "./parseTestFixtures";
+import { RESUME_UNREAD_PARITY_FIXTURES } from "./resumeUnreadFixtures";
 
 vi.mock("./rereadQuota", () => ({
   applyResumeRead: vi.fn(),
@@ -212,49 +213,10 @@ describe("re-read route", () => {
     release.mockResolvedValue({ outcome: "applied" });
   });
 
-  it.each([
-    ["NULL sections and extracted", null, null, true],
-    ["empty object sections", {}, {}, true],
-    ["empty array sections", [], null, true],
-    [
-      "whitespace-only sections and extracted",
-      {
-        learningHistory: [{ label: " ", value: "\n\t" }],
-        references: [{ name: " ", relationship: " ", phone: " " }],
-        additionalSections: [
-          { key: "work", title: " ", items: [{ label: " ", value: " " }] },
-        ],
-      },
-      " \n\t",
-      true,
-    ],
-    [
-      "partial learning section",
-      { learningHistory: [{ label: "Yeshiva", value: "Or HaChaim" }] },
-      null,
-      false,
-    ],
-    [
-      "fill-empty marker-only sections",
-      {
-        learningHistory: [],
-        references: [],
-        additionalSections: [],
-        schemaVersion: 4,
-      },
-      {},
-      false,
-    ],
-    [
-      "legacy marker-only sections",
-      { additionalSections: [], schemaVersion: 4 },
-      null,
-      false,
-    ],
-  ] as const)(
-    "keeps route unread parity for %s",
-    (_label, sections, extracted, expected) => {
-      expect(isResumeUnread({ sections, extracted })).toBe(expected);
+  it.each(RESUME_UNREAD_PARITY_FIXTURES)(
+    "matches the shared raw-shape parity fixture: $name",
+    ({ sections, extracted, expectedUnread }) => {
+      expect(isResumeUnread({ sections, extracted })).toBe(expectedUnread);
     },
   );
 

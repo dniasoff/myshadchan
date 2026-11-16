@@ -85,51 +85,36 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function hasMeaningfulValue(value: unknown): boolean {
-  if (value == null) return false;
-  if (typeof value === "string") return value.trim().length > 0;
-  if (typeof value === "number" || typeof value === "boolean") return true;
-  if (Array.isArray(value)) return value.some(hasMeaningfulValue);
-  if (!isObject(value)) return false;
+const MAX_UNREAD_STRING_PROBE = 1_024;
 
-  return Object.entries(value).some(
-    ([key, entry]) => key !== "schemaVersion" && hasMeaningfulValue(entry),
-  );
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
-function hasMeaningfulSections(value: unknown): boolean {
-  if (!isObject(value)) return false;
+function hasNonWhitespaceString(value: string): boolean {
+  const probeLength = Math.min(value.length, MAX_UNREAD_STRING_PROBE);
+  for (let index = 0; index < probeLength; index += 1) {
+    if (!/\s/u.test(value[index] ?? "")) return true;
+  }
 
-  const learningHistory = Array.isArray(value.learningHistory)
-    ? value.learningHistory.some(
-        (entry) =>
-          isObject(entry) &&
-          hasMeaningfulValue(entry.label) &&
-          hasMeaningfulValue(entry.value),
-      )
-    : false;
-  const references = Array.isArray(value.references)
-    ? value.references.some(
-        (entry) => isObject(entry) && hasMeaningfulValue(entry.name),
-      )
-    : false;
-  const additionalSections = Array.isArray(value.additionalSections)
-    ? value.additionalSections.some(
-        (entry) =>
-          isObject(entry) &&
-          hasMeaningfulValue(entry.key) &&
-          hasMeaningfulValue(entry.title) &&
-          Array.isArray(entry.items) &&
-          entry.items.some(
-            (item) =>
-              isObject(item) &&
-              hasMeaningfulValue(item.label) &&
-              hasMeaningfulValue(item.value),
-          ),
-      )
-    : false;
+  // Do not scan an unbounded payload. A long unobserved suffix is treated as
+  // non-empty so a malformed payload cannot accidentally unlock a paid read.
+  return value.length > probeLength;
+}
 
-  return learningHistory || references || additionalSections;
+function hasNonEmptyRawValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return hasNonWhitespaceString(value);
+  if (Array.isArray(value)) return value.length > 0;
+  if (isPlainObject(value)) {
+    for (const _key in value) return true;
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -141,15 +126,19 @@ export function isResumeUnread(resume: {
   sections: unknown;
   extracted: unknown;
 }): boolean {
-  const hasCompletedReadMarker =
-    isObject(resume.sections) &&
-    Object.prototype.hasOwnProperty.call(resume.sections, "schemaVersion");
-  if (hasCompletedReadMarker) return false;
+  const sections = resume.sections;
+  if (!isPlainObject(sections)) return true;
+  if (Object.prototype.hasOwnProperty.call(sections, "schemaVersion")) {
+    return false;
+  }
 
-  return (
-    !hasMeaningfulSections(resume.sections) &&
-    !hasMeaningfulValue(resume.extracted)
-  );
+  const hasNonEmptySectionArray = [
+    "learningHistory",
+    "references",
+    "additionalSections",
+  ].some((key) => Array.isArray(sections[key]) && sections[key].length > 0);
+
+  return !hasNonEmptySectionArray && !hasNonEmptyRawValue(resume.extracted);
 }
 
 function buildRereadSections(
