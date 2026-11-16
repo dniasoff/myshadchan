@@ -51,6 +51,7 @@ import {
   getDataProviderWithCustomMethods,
   uploadToBucket,
 } from "./dataProvider";
+import { isInboxAttachmentPurgePath } from "../../inbox/inboxDelete";
 
 describe("Supabase resume capture provider methods", () => {
   beforeEach(() => {
@@ -105,6 +106,85 @@ describe("Supabase resume capture provider methods", () => {
       src: "https://signed.example/resume.pdf",
       size: file.size,
     });
+  });
+
+  it("sanitizes every Inbox upload extension to the delete grammar", async () => {
+    const cases = [
+      ["resume.pdf", ".pdf"],
+      ["file.tar.gz", ".gz"],
+      ["photo.JPEG", ".JPEG"],
+      ["digits.1234567890", ".1234567890"],
+      ["photo.jpeg ", ""],
+      ["photo.jp!g", ""],
+      ["résumé.p df", ""],
+      ["long.12345678901", ""],
+      ["without-extension", ""],
+      ["....", ""],
+    ] as const;
+    const dataProvider = getDataProviderWithCustomMethods();
+
+    for (const [filename, extension] of cases) {
+      storageUpload.mockClear();
+      const attachment = await dataProvider.uploadInboxAttachment({
+        file: new File(["attachment"], filename),
+        inboxItemId: 700,
+      });
+      const [storagePath] = storageUpload.mock.calls[0];
+      expect(storagePath).toBe(attachment.path);
+      expect(storagePath).toMatch(
+        new RegExp(
+          `^7/inbox/700/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}${extension.replace(".", "\\.")}$`,
+        ),
+      );
+      expect(isInboxAttachmentPurgePath(storagePath, 7)).toBe(true);
+    }
+  });
+
+  it("round-trips a sanitized upload through create and the delete RPC", async () => {
+    const dataProvider = getDataProviderWithCustomMethods();
+    const file = new File(["resume"], "resume.tar.gz", {
+      type: "application/gzip",
+    });
+    const attachment = await dataProvider.uploadInboxAttachment({
+      file,
+      inboxItemId: 700,
+    });
+    baseDataProvider.create.mockResolvedValue({
+      data: {
+        id: 700,
+        account_id: 7,
+        status: "unresolved",
+        attachments: [attachment],
+      },
+    });
+    rpc.mockImplementation(async (name: string) => {
+      if (name === "delete_inbox_item") return { data: 1, error: null };
+      if (name === "current_context_id") return { data: 7, error: null };
+      if (name === "claim_inbox_attachment_purge") {
+        return {
+          data: [{ id: 1, storage_path: attachment.path }],
+          error: null,
+        };
+      }
+      if (name === "ack_inbox_attachment_purge") {
+        return { data: 1, error: null };
+      }
+      throw new Error(`unexpected RPC ${name}`);
+    });
+
+    await dataProvider.create("inbox_items", {
+      data: {
+        id: 700,
+        account_id: 7,
+        status: "unresolved",
+        attachments: [attachment],
+      },
+    });
+    await expect(dataProvider.deleteInboxItem(700)).resolves.toEqual({
+      purgePending: false,
+    });
+    expect(storageRemove).toHaveBeenCalledWith([attachment.path]);
+    expect(isInboxAttachmentPurgePath(attachment.path, 7)).toBe(true);
   });
 
   it("removes an inbox attachment from the attachments bucket and reports storage errors", async () => {

@@ -170,6 +170,20 @@ select 'deleting an account cascades its inbox_items rows',
   not exists (select 1 from public.accounts where id = :'inbox_cascade_acct')
   and not exists (select 1 from public.inbox_items where id = :'inbox_cascade_item');
 
+-- 7b. A queued Inbox purge is an account-owned obligation, not disposable
+--     residue: disposing the account must refuse while a Storage object still
+--     needs to be removed.
+select pg_temp.new_household('inbox purge obligation hh', '0a1a0000-0000-0000-0000-000000000002') as inbox_purge_acct \gset
+insert into public.inbox_attachment_purge (account_id, storage_path)
+values (:'inbox_purge_acct', :'inbox_purge_acct'::text || '/inbox/pending/object.pdf');
+update public.account_members set status = 'archived' where account_id = :'inbox_purge_acct';
+insert into orphan_checks
+select 'dispose REFUSES an account with a queued Inbox purge obligation',
+  public.dispose_orphaned_account(:'inbox_purge_acct') is false
+  and exists (select 1 from public.accounts where id = :'inbox_purge_acct')
+  and exists (select 1 from public.inbox_attachment_purge where account_id = :'inbox_purge_acct');
+update public.account_members set status = 'active' where account_id = :'inbox_purge_acct';
+
 -- 8. It REFUSES an account that still holds a live membership.
 select pg_temp.new_household('orphan live hh', '0a1a0000-0000-0000-0000-000000000002') as live_acct \gset
 insert into orphan_checks

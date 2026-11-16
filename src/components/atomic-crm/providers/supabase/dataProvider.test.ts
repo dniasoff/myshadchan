@@ -200,6 +200,7 @@ describe("resume capture provider methods", () => {
       expect.any(Function),
     );
     expect(dataProvider.removeInboxAttachment).toEqual(expect.any(Function));
+    expect(dataProvider.deleteInboxItem).toEqual(expect.any(Function));
     expect(dataProvider.removeResumeFileObjects).toEqual(expect.any(Function));
   });
 });

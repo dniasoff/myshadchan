@@ -664,11 +664,23 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/resumes/resumeReadRequest.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/resumes/resumePrint.ts",
           "type": "registry:component"
         },
         {
           "path": "src/components/atomic-crm/resumes/resumeInbox.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/resumes/resumeAutoReadHelpers.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/resumes/resumeAutoRead.tsx",
           "type": "registry:component"
         },
         {
@@ -1584,6 +1596,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/inbox/inboxDelete.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/inbox/ShareTarget.tsx",
           "type": "registry:component"
         },
@@ -1601,6 +1617,10 @@
         },
         {
           "path": "src/components/atomic-crm/inbox/InboxList.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/inbox/InboxDeleteDialog.tsx",
           "type": "registry:component"
         },
         {

@@ -112,6 +112,12 @@ import type {
   CounterMetrics,
 } from "../../analytics/types";
 import { toResumeInboxPickerItem } from "../../resumes/resumeInbox";
+import {
+  getSafeInboxAttachmentExtension,
+  type InboxAttachmentPurge,
+  type InboxDeleteResult,
+  isInboxAttachmentPurgePath,
+} from "../../inbox/inboxDelete";
 
 // Story 9.3: `public.listing_withdrawal_locks` deliberately has no `id`
 // column at all (Dev Notes "Why a lock table, not a column on `singles`" —
@@ -1291,6 +1297,24 @@ export const getDataProviderWithCustomMethods = () => {
     ): Promise<EntityFile[]> {
       return copyInboxAttachmentsToEntityFilesImpl(params);
     },
+    /** Delete/queue the Inbox row in one server transaction, then make a
+     * best-effort pass over the durable Storage purge queue. A Storage error
+     * never turns a committed row delete into a false failure. */
+    async deleteInboxItem(id: Identifier): Promise<InboxDeleteResult> {
+      const { error } = await getSupabaseClient().rpc("delete_inbox_item", {
+        p_item_id: id,
+      });
+      if (error) {
+        if (/cannot be deleted automatically/i.test(error.message)) {
+          throw new Error("This item cannot be deleted automatically.");
+        }
+        throw new Error("Could not delete this Inbox item");
+      }
+      return drainInboxAttachmentPurge();
+    },
+    /** Drain all pending private Inbox objects for the active account. Missing
+     * objects are successful; failed removals stay queued for a later load. */
+    drainInboxAttachmentPurge,
     // Epic 11 (Needs review tab): the "TRUST SENDER" action — see
     // ./trustedSenders.ts's own doc comment for the atomicity/idempotency
     // reasoning (no schema change available in this pass, so this is two
@@ -1619,6 +1643,62 @@ const getCurrentAccountId = async (): Promise<number> => {
   return data as number;
 };
 
+const isMissingStorageObject = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false;
+  const statusCode =
+    "statusCode" in error
+      ? Number((error as { statusCode?: unknown }).statusCode)
+      : undefined;
+  const message =
+    "message" in error ? String((error as { message?: unknown }).message) : "";
+  return (
+    statusCode === 404 ||
+    /not found|does not exist|no such object/i.test(message)
+  );
+};
+
+const drainInboxAttachmentPurge = async (): Promise<InboxDeleteResult> => {
+  let accountId: number;
+  let rows: InboxAttachmentPurge[];
+  try {
+    accountId = await getCurrentAccountId();
+    const { data, error } = await getSupabaseClient().rpc(
+      "claim_inbox_attachment_purge",
+    );
+    if (error) throw error;
+    rows = (data ?? []) as InboxAttachmentPurge[];
+  } catch {
+    return { purgePending: true };
+  }
+
+  const acknowledgedPaths: string[] = [];
+  for (const row of rows) {
+    if (!isInboxAttachmentPurgePath(row.storage_path, accountId)) continue;
+    try {
+      const { error } = await getSupabaseClient()
+        .storage.from(ATTACHMENTS_BUCKET)
+        .remove([row.storage_path]);
+      if (!error || isMissingStorageObject(error)) {
+        acknowledgedPaths.push(row.storage_path);
+      }
+    } catch {
+      // The queue row remains durable when the Storage client itself rejects.
+    }
+  }
+
+  if (acknowledgedPaths.length > 0) {
+    const { error } = await getSupabaseClient().rpc(
+      "ack_inbox_attachment_purge",
+      { p_paths: acknowledgedPaths },
+    );
+    if (error) return { purgePending: true };
+  }
+
+  return {
+    purgePending: rows.length > acknowledgedPaths.length,
+  };
+};
+
 // Story 10.1 (Task 4): exported so `ShareTarget.tsx` can upload a shared
 // photo through the exact same path `members.avatar` already uses — one
 // upload primitive across every entry point, not a second copy. Was a
@@ -1666,8 +1746,7 @@ export const uploadToBucket = async (fi: RAFile, pathPrefix?: string) => {
     value?.split(";", 1)[0].trim().toLowerCase() || "";
   const canonicalMimeType =
     canonicalizeMimeType(fi.type) || canonicalizeMimeType(file.type);
-  const fileParts = file.name.split(".");
-  const fileExt = fileParts.length > 1 ? `.${file.name.split(".").pop()}` : "";
+  const fileExt = getSafeInboxAttachmentExtension(file.name);
   // Account-prefixed, CSPRNG key. The attachments bucket is private and its RLS
   // policies scope on this first path segment, so an unprefixed key is rejected.
   const accountId = await getCurrentAccountId();

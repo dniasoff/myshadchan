@@ -32,6 +32,7 @@ const attachment = {
 };
 
 let sourceStatus: string;
+let sourceExists: boolean;
 let targetExists: boolean;
 let existingFiles: unknown[];
 
@@ -43,6 +44,7 @@ describe("attachInboxAttachmentToResumeFile", () => {
     rpc.mockReset();
     from.mockReset();
     sourceStatus = "unresolved";
+    sourceExists = true;
     targetExists = true;
     existingFiles = [];
     from.mockImplementation((table: string) => {
@@ -55,7 +57,10 @@ describe("attachInboxAttachmentToResumeFile", () => {
       builder.eq.mockReturnValue(builder);
       builder.maybeSingle.mockResolvedValue(
         table === "inbox_items"
-          ? { data: { id: 44, status: sourceStatus }, error: null }
+          ? {
+              data: sourceExists ? { id: 44, status: sourceStatus } : null,
+              error: null,
+            }
           : table === "shidduchim"
             ? {
                 data: targetExists ? { id: 42 } : null,
@@ -130,7 +135,7 @@ describe("attachInboxAttachmentToResumeFile", () => {
     expect(result.id).toBe(900);
   });
 
-  it("leaves the deterministic destination when the atomic append fails", async () => {
+  it("cleans up its destination when the delete wins before the atomic append", async () => {
     rpc.mockImplementation((name: string) => {
       if (name === "current_context_id") return { data: 7, error: null };
       if (name === "current_member_role")
@@ -146,7 +151,13 @@ describe("attachInboxAttachmentToResumeFile", () => {
       }),
     ).rejects.toThrow("Could not attach this file");
 
-    expect(remove).not.toHaveBeenCalled();
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove.mock.calls[0][0]).toBe("documents");
+    expect(remove.mock.calls[0][1]).toEqual([
+      expect.stringMatching(
+        /^7\/resumes\/42\/inbox-[0-9a-f]{64}-David-Levi\.docx$/,
+      ),
+    ]);
   });
 
   it("returns an existing account-scoped row on a duplicate retry without copying", async () => {
@@ -189,6 +200,22 @@ describe("attachInboxAttachmentToResumeFile", () => {
 
     expect(download).not.toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("rejects an attach after delete won without creating an orphan destination copy", async () => {
+    sourceExists = false;
+
+    await expect(
+      attachInboxAttachmentToResumeFile({
+        shidduchimId: 42,
+        inboxItemId: 44,
+        attachment,
+      }),
+    ).rejects.toThrow("Could not attach this file");
+
+    expect(download).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
   });
 
   it("does not delete a shared object when a lost response races with a retry", async () => {
