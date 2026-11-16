@@ -383,10 +383,18 @@ export function ResumeReadableSections({
       (links?.length ?? 0) > 0 ||
       areLinksPending);
   const hasReadableContent = readableGroups.length > 0 || hasReferenceContent;
+  const hasReadMarker =
+    typeof resume.sections === "object" &&
+    resume.sections !== null &&
+    !Array.isArray(resume.sections) &&
+    Object.prototype.hasOwnProperty.call(resume.sections, "schemaVersion");
   const referenceRows = canViewReferences
     ? buildReferenceRows(sections.references, links ?? [])
     : [];
-  const canOfferRead = canRead && isUnread && newestFile != null;
+  const canOfferRead =
+    canRead &&
+    newestFile != null &&
+    (isUnread || (!hasReadableContent && !hasReadMarker));
 
   return (
     <Card className="gap-0 overflow-hidden rounded-2xl">

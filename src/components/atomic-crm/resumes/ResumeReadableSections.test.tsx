@@ -80,8 +80,7 @@ function renderSections({
   canViewReferences?: boolean;
   canRead?: boolean;
   withLinks?: boolean;
-  sections?: Omit<typeof parsedSections, "additionalSections"> &
-    Partial<Pick<typeof parsedSections, "additionalSections">>;
+  sections?: unknown;
   fixtureRecord?: ShidduchSummary;
   files?: Resume["files"];
   addManualLink?: boolean;
@@ -1544,6 +1543,95 @@ describe("ResumeReadableSections", () => {
     await expect
       .element(screen.getByRole("status"))
       .toHaveTextContent("We could not find details in this resume.");
+  });
+
+  it.each([
+    [
+      "blank-only sections",
+      {
+        learningHistory: [{ label: " ", value: " " }],
+        references: [],
+        additionalSections: [],
+      },
+    ],
+    [
+      "contact-only additional sections filtered by the parser",
+      {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [{ label: "Phone", value: "054-222-3344" }],
+          },
+        ],
+      },
+    ],
+  ] as const)(
+    "offers fill-empty for an unreadable-to-display %s row without a marker",
+    async (_label, sections) => {
+      const file = {
+        path: "1/resumes/1/current.pdf",
+        filename: "current.pdf",
+        uploaded_at: "2026-11-15T12:00:00.000Z",
+        uploaded_by: 7,
+        mime_type: "application/pdf",
+        size: 10,
+      };
+      const readResume = vi.fn().mockResolvedValue("completed");
+      const { screen } = await renderSections({
+        canRead: true,
+        fixtureRecord: { id: 1 } as ShidduchSummary,
+        files: [file],
+        sections,
+        withLinks: false,
+        readResume,
+      });
+
+      const button = screen.getByRole("button", {
+        name: "Read this resume",
+        exact: true,
+      });
+      await expect.element(button).toBeInTheDocument();
+      await button.click();
+      expect(readResume).toHaveBeenCalledWith(
+        expect.objectContaining({ resumeId: 9001, mode: "fill_empty" }),
+      );
+    },
+  );
+
+  it("does not offer a paid empty-state read after a terminal marker", async () => {
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const readResume = vi.fn();
+    const { screen } = await renderSections({
+      canRead: true,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      files: [file],
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [],
+        schemaVersion: 4,
+      },
+      withLinks: false,
+      readResume,
+    });
+
+    await expect
+      .element(screen.getByText("No sections were found in this resume."))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Read this resume" }))
+      .not.toBeInTheDocument();
+    expect(readResume).not.toHaveBeenCalled();
   });
 
   it("offers the full read under existing subject cards when the resume is unread", async () => {
