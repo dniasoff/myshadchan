@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   buildExtractorFailureLog,
+  buildExtractorAttemptLog,
   buildRereadFailureLog,
+  logExtractorAttempt,
   logExtractorFailure,
   logRereadFailure,
   REREAD_FAILURE_REASON_VALUES,
@@ -83,13 +85,28 @@ describe("re-read diagnostics", () => {
     });
   });
 
+  it("allow-lists the configured model name in per-attempt diagnostics", () => {
+    expect(buildExtractorAttemptLog("gemini-2.5-flash-lite", 1)).toEqual({
+      model: "gemini-2.5-flash-lite",
+      attempt: 1,
+    });
+    expect(
+      buildExtractorAttemptLog("https://private.invalid/model", "resume"),
+    ).toEqual({
+      model: "unknown",
+      attempt: 0,
+    });
+  });
+
   it("logs only the sanitized payloads", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     logRereadFailure("storage_metadata");
     logExtractorFailure(new TypeError("private resume text"), {
       durationMs: 3,
     });
+    logExtractorAttempt("gemini-3.6-flash", 1);
 
     expect(error).toHaveBeenNthCalledWith(1, "parse.reread.fail", {
       reason: "storage_metadata",
@@ -98,6 +115,11 @@ describe("re-read diagnostics", () => {
       errorClass: "TypeError",
       durationMs: 3,
     });
+    expect(warn).toHaveBeenCalledWith("parse.extract.attempt", {
+      model: "gemini-3.6-flash",
+      attempt: 1,
+    });
     error.mockRestore();
+    warn.mockRestore();
   });
 });

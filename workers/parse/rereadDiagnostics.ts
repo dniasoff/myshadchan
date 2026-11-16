@@ -129,6 +129,8 @@ export type ExtractorStatusClass =
 
 const EXTRACTOR_STATUS_CLASSES = new Set<string>(EXTRACTOR_STATUS_CLASS_VALUES);
 
+const GEMINI_MODEL_PATTERN = /^gemini-[a-z0-9.-]{1,60}$/;
+
 function safeErrorClass(error: unknown): ExtractorErrorClass {
   if (error instanceof Error) {
     const name = error.name;
@@ -155,6 +157,34 @@ function safeAttempt(value: unknown): number | undefined {
     value <= 10
     ? value
     : undefined;
+}
+
+export type ExtractorAttemptLog = {
+  model: string;
+  attempt: number;
+};
+
+function safeModel(value: unknown): string {
+  return typeof value === "string" && GEMINI_MODEL_PATTERN.test(value)
+    ? value
+    : "unknown";
+}
+
+export function buildExtractorAttemptLog(
+  model: unknown,
+  attempt: unknown,
+): ExtractorAttemptLog {
+  return {
+    model: safeModel(model),
+    attempt: safeAttempt(attempt) ?? 0,
+  };
+}
+
+export function logExtractorAttempt(model: unknown, attempt: unknown): void {
+  console.warn(
+    "parse.extract.attempt",
+    buildExtractorAttemptLog(model, attempt),
+  );
 }
 
 function safeStatusClass(value: unknown): ExtractorStatusClass | undefined {
