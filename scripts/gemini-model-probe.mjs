@@ -165,28 +165,28 @@ export function createEmitter({
   writeLine = (line) => console.log(line),
   writeError = (line) => console.error(line),
 } = {}) {
-  const secrets = new Set();
-  if (typeof apiKey === "string" && apiKey.length > 0) {
-    secrets.add(apiKey);
-    if (apiKey.length >= 8) secrets.add(encodeURIComponent(apiKey));
-  }
-  const scrub = (line) => {
-    let result = String(line);
-    for (const secret of secrets) result = result.split(secret).join("<key>");
-    return result;
-  };
   return (line, stream = "stdout") => {
-    const output = scrub(line);
+    const output = scrubSecrets(line, apiKey);
     if (stream === "stderr") writeError(output);
     else writeLine(output);
   };
 }
 
+export function scrubSecrets(value, apiKey) {
+  let result = String(value);
+  if (typeof apiKey !== "string" || apiKey.length === 0) return result;
+  for (const secret of new Set([apiKey, encodeURIComponent(apiKey)])) {
+    result = result.split(secret).join("<key>");
+  }
+  return result;
+}
+
 function containsSecret(value, apiKey) {
-  if (typeof value !== "string" || typeof apiKey !== "string") return false;
   return (
-    value.includes(apiKey) ||
-    (apiKey.length >= 8 && value.includes(encodeURIComponent(apiKey)))
+    typeof value === "string" &&
+    typeof apiKey === "string" &&
+    apiKey.length > 0 &&
+    (value.includes(apiKey) || value.includes(encodeURIComponent(apiKey)))
   );
 }
 
@@ -345,9 +345,9 @@ export function formatResult(result) {
 function requireApiKey(env) {
   if (
     typeof env.GOOGLE_AI_STUDIO_API_KEY !== "string" ||
-    !env.GOOGLE_AI_STUDIO_API_KEY
+    env.GOOGLE_AI_STUDIO_API_KEY.length < 20
   ) {
-    throw new Error("missing API key");
+    throw new Error("API key missing or implausibly short");
   }
   return env.GOOGLE_AI_STUDIO_API_KEY;
 }
@@ -570,6 +570,12 @@ export async function runProbe({
   let baseUrl;
   try {
     apiKey = requireApiKey(env);
+  } catch {
+    emit("API key missing or implausibly short", "stderr");
+    emitBudgetSummary();
+    return { exitCode: 2, calls: budget.used };
+  }
+  try {
     baseUrl = resolveBaseUrl(env);
   } catch {
     emit("probe failed: invalid environment", "stderr");

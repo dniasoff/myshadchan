@@ -6,8 +6,10 @@ import {
   buildProbePlan,
   buildRequestBody,
   createEmitter,
+  listSupportedModelNames,
   parseArgs,
   runProbe,
+  scrubSecrets,
   summarizeResponse,
   thinkingModesForModel,
 } from "./gemini-model-probe.mjs";
@@ -272,7 +274,7 @@ describe("gemini-model-probe", () => {
 
     const result = await runProbe({
       argv: ["gemini-3.5-flash-lite"],
-      env: { GOOGLE_AI_STUDIO_API_KEY: "synthetic-probe-key" },
+      env: { GOOGLE_AI_STUDIO_API_KEY: "synthetic-probe-key-1" },
       fetchImpl: fetchMock,
       writeLine: (line) => output.push(String(line)),
       delayMs: 0,
@@ -395,7 +397,7 @@ describe("gemini-model-probe", () => {
 
     const result = await runProbe({
       argv: models,
-      env: { GOOGLE_AI_STUDIO_API_KEY: "synthetic-probe-key" },
+      env: { GOOGLE_AI_STUDIO_API_KEY: "synthetic-probe-key-1" },
       fetchImpl: fetchMock,
       writeLine: (line) => output.push(String(line)),
       writeError: (line) => errors.push(String(line)),
@@ -411,5 +413,65 @@ describe("gemini-model-probe", () => {
       "calls=40 maxCalls=40 listPages=5 candidateCalls=35 listStop=page_cap",
     );
     expect(result.exitCode).toBe(1);
+  });
+
+  it("scrubs short raw and URL-encoded keys and rejects encoded page tokens", async () => {
+    const shortKey = "a/b";
+    const encodedKey = encodeURIComponent(shortKey);
+    expect(
+      scrubSecrets(`raw=${shortKey} encoded=${encodedKey}`, shortKey),
+    ).toBe("raw=<key> encoded=<key>");
+
+    const listFetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          models: [],
+          nextPageToken: encodedKey,
+        }),
+      ),
+    );
+    const listing = await listSupportedModelNames({
+      baseUrl: "https://example.test",
+      apiKey: shortKey,
+      fetchImpl: listFetchMock,
+    });
+    expect(listing.stoppedReason).toBe("unsafe_page_token");
+    expect(listFetchMock).toHaveBeenCalledTimes(1);
+
+    const output = [];
+    const errors = [];
+    const startupFetchMock = vi.fn();
+    const result = await runProbe({
+      argv: ["gemini-flash-latest"],
+      env: { GOOGLE_AI_STUDIO_API_KEY: shortKey },
+      fetchImpl: startupFetchMock,
+      writeLine: (line) => output.push(String(line)),
+      writeError: (line) => errors.push(String(line)),
+      delayMs: 0,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(startupFetchMock).not.toHaveBeenCalled();
+    expect([...output, ...errors].join("\n")).toContain(
+      "API key missing or implausibly short",
+    );
+    expect([...output, ...errors].join("\n")).not.toContain(shortKey);
+    expect([...output, ...errors].join("\n")).not.toContain(encodedKey);
+  });
+
+  it("refuses an empty or short key before any network request", async () => {
+    const fetchMock = vi.fn();
+    const errors = [];
+    const result = await runProbe({
+      argv: ["gemini-flash-latest"],
+      env: { GOOGLE_AI_STUDIO_API_KEY: "" },
+      fetchImpl: fetchMock,
+      writeError: (line) => errors.push(String(line)),
+      delayMs: 0,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(errors).toEqual(["API key missing or implausibly short"]);
   });
 });
