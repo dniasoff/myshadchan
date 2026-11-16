@@ -37,7 +37,10 @@ export const ShidduchRow = ({
   layout = "row",
   tourAnchor = false,
 }: ShidduchRowProps) => {
-  const name = shidduch.name_en ?? shidduch.single_first_name_en ?? "Unnamed";
+  // A resume-first Inbox action intentionally creates a nameless row while
+  // fill_empty is running. Keep that short window understandable in every
+  // list; the database remains NULL until the reader supplies a real name.
+  const name = shidduch.name_en ?? "New suggestion";
   const monogram = getMonogram(shidduch.name_en);
   const avatarIndex = getAvatarIndex(shidduch.name_en ?? String(shidduch.id));
   const redt = formatRedtDate(shidduch.redt_date);

@@ -1612,6 +1612,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/inbox/InboxResumeActions.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/inbox/InboxResolveDialog.tsx",
           "type": "registry:component"
         },

@@ -46,6 +46,17 @@ export type ResolutionInput =
     }
   | {
       action: "dismiss";
+    }
+  | {
+      action: "resume_attach" | "resume_new";
+      attachment_path: string;
+      shidduchim_id?: Identifier;
+      single_id?: Identifier;
+      resolved_shidduchim_id?: Identifier;
+      resume_id?: Identifier;
+      resume_file_path?: string;
+      resume_created?: boolean;
+      read_completed?: boolean;
     };
 
 const MAX_LOCK_RETRIES = 3;
@@ -91,6 +102,17 @@ function inputsAreCompatible(a: ResolutionInput, b: ResolutionInput): boolean {
   }
   if (a.action === "link" && b.action === "link") {
     return a.shidduchim_id === b.shidduchim_id;
+  }
+  if (
+    (a.action === "resume_attach" || a.action === "resume_new") &&
+    (b.action === "resume_attach" || b.action === "resume_new")
+  ) {
+    return (
+      a.action === b.action &&
+      a.attachment_path === b.attachment_path &&
+      a.shidduchim_id === b.shidduchim_id &&
+      a.single_id === b.single_id
+    );
   }
   return false;
 }

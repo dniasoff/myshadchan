@@ -36,8 +36,12 @@ import { createShadchanInline } from "../shidduchim/createShadchanInline";
 import { ShidduchInputs } from "../shidduchim/ShidduchInputs";
 import { InboxCapturePreview } from "./InboxCapturePreview";
 import { INBOX_PRIMARY_CTA_CLASS } from "./inboxMeta";
+import { InboxResumeActionsDialog } from "./InboxResumeActions";
 import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
-import { useResolveInboxItem } from "./useResolveInboxItem";
+import {
+  hasResumeDocumentAttachment,
+  useResolveInboxItem,
+} from "./useResolveInboxItem";
 import {
   friendlyResumeReadError,
   resumeReadSuccessMessage,
@@ -173,7 +177,7 @@ const AutoFillUndo = ({
  * read by the parse Worker and the draft populates the form. The raw capture
  * remains unchanged; the user confirms rather than retypes.
  */
-export const InboxResolveDialog = ({
+const LegacyInboxResolveDialog = ({
   item,
   open,
   onClose,
@@ -585,4 +589,30 @@ export const InboxResolveDialog = ({
       </DialogContent>
     </Dialog>
   );
+};
+
+export const InboxResolveDialog = ({
+  item,
+  open,
+  initialAction = "attach",
+  fileActionsEnabled = false,
+  onClose,
+}: {
+  item: InboxItem;
+  open: boolean;
+  initialAction?: "attach" | "new";
+  fileActionsEnabled?: boolean;
+  onClose: () => void;
+}) => {
+  if (fileActionsEnabled && hasResumeDocumentAttachment(item)) {
+    return (
+      <InboxResumeActionsDialog
+        item={item}
+        open={open}
+        action={initialAction}
+        onClose={onClose}
+      />
+    );
+  }
+  return <LegacyInboxResolveDialog item={item} open={open} onClose={onClose} />;
 };

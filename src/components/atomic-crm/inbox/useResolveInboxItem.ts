@@ -9,8 +9,16 @@ import type {
   InboxAttachment,
   InboxItem,
   Resume,
+  ResumeFileVersion,
   Shidduch,
 } from "../types";
+import { isAutomaticallyReadableResume } from "../resumes/resumeAutoReadHelpers";
+import {
+  createResumeReadRequestId,
+  resumeReadAttemptKey,
+  unresolvedResumeReadAttempts,
+} from "../resumes/resumeReadRequest";
+import type { ResumeReadOutcome } from "../providers/commons/rereadWorkerClient";
 import {
   acquireResolutionLock,
   finalizePayload,
@@ -43,6 +51,47 @@ const INBOX_IMAGE_EXTENSIONS = new Set([
   ".webp",
 ]);
 
+const RESUME_DOCUMENT_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+
+export function isResumeDocument(attachment: InboxAttachment): boolean {
+  const mimeType = (attachment.type ?? "").trim().toLowerCase();
+  if (mimeType.startsWith("image/")) return false;
+  if (RESUME_DOCUMENT_MIME_TYPES.has(mimeType)) return true;
+  const dot = attachment.title.lastIndexOf(".");
+  const extension = dot === -1 ? "" : attachment.title.slice(dot).toLowerCase();
+  return [".pdf", ".doc", ".docx"].includes(extension);
+}
+
+export function hasResumeDocumentAttachment(item: InboxItem): boolean {
+  return item.attachments?.some(isResumeDocument) ?? false;
+}
+
+function findResumeFile(
+  resume: Resume,
+  itemId: Identifier,
+  attachmentPath: string,
+): ResumeFileVersion | undefined {
+  return (resume.files ?? []).find(
+    (file) =>
+      String(file.source_inbox_item_id) === String(itemId) &&
+      file.source_inbox_attachment_path === attachmentPath,
+  );
+}
+
+function readHasCompleted(resume: Resume): boolean {
+  const sections = resume.sections;
+  return (
+    sections != null &&
+    typeof sections === "object" &&
+    !Array.isArray(sections) &&
+    "schemaVersion" in sections
+  );
+}
+
 function attachmentExtension(title: string): string {
   const dot = title.lastIndexOf(".");
   return dot === -1 ? "" : title.slice(dot).toLowerCase();
@@ -56,6 +105,22 @@ function isAffirmativeInboxDocument(attachment: InboxAttachment): boolean {
   if (INBOX_IMAGE_EXTENSIONS.has(extension)) return false;
   return SHARED_INBOX_DOCUMENT_MIME_BY_EXTENSION.get(extension) === mimeType;
 }
+
+export type InboxResumeAction = "attach" | "new";
+
+export type InboxResumePreparation = {
+  shidduch: Shidduch;
+  resume: Resume;
+  file: ResumeFileVersion;
+  resumeCreatedByAttempt: boolean;
+  readCompleted: boolean;
+};
+
+export type InboxResumeProcessResult = {
+  outcome: ResumeReadOutcome;
+  shidduch: Shidduch | null;
+  suggestionKept: boolean;
+};
 
 /**
  * The three ways a captured `inbox_items` row stops being unresolved (Story
@@ -352,6 +417,599 @@ export function useResolveInboxItem() {
     });
   };
 
+  const readInboxResume = async (
+    resume: Resume,
+    file: ResumeFileVersion,
+  ): Promise<ResumeReadOutcome> => {
+    if (!isAutomaticallyReadableResume(file)) return "failed";
+
+    const attemptKey = resumeReadAttemptKey(resume.id, file.path);
+    const requestId =
+      unresolvedResumeReadAttempts.get(attemptKey) ??
+      createResumeReadRequestId();
+    unresolvedResumeReadAttempts.set(attemptKey, requestId);
+    const controller = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<ResumeReadOutcome>((resolve) => {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        resolve("timeout");
+      }, 90_000);
+    });
+
+    try {
+      const outcome = await Promise.race([
+        dataProvider.readResume({
+          resumeId: resume.id,
+          requestId,
+          fileIdentity: file.path,
+          mode: "fill_empty",
+          signal: controller.signal,
+        }),
+        timeout,
+      ]);
+      if (
+        outcome === "completed" ||
+        outcome === "empty" ||
+        outcome === "no_allowance" ||
+        outcome === "not_entitled" ||
+        outcome === "timeout" ||
+        outcome === "stale_file"
+      ) {
+        unresolvedResumeReadAttempts.delete(attemptKey);
+      }
+      return outcome;
+    } catch {
+      return "failed";
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    }
+  };
+
+  const getCurrentResolutionItem = async (item: InboxItem) => {
+    const { data } = await dataProvider.getOne<InboxItem>("inbox_items", {
+      id: item.id,
+    });
+    return data;
+  };
+
+  const releaseInboxResolution = async (
+    item: InboxItem,
+    options: { preserveInput?: boolean } = {},
+  ): Promise<void> => {
+    // A dropped response must not leave the item in `resolving` forever. The
+    // retry repeats the existing CAS/update path; it never invents another
+    // lock or another domain attempt.
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const current = await getCurrentResolutionItem(item);
+        if (!current || current.status !== "resolving") return;
+        await dataProvider.update<InboxItem>("inbox_items", {
+          id: item.id,
+          data: {
+            status: "unresolved",
+            resolution_attempt_id: null,
+            resolution_input: options.preserveInput
+              ? current.resolution_input
+              : null,
+          },
+          previousData: current,
+        });
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("Could not release the Inbox resolution lock.");
+  };
+
+  const finalizeInboxResolution = async (
+    item: InboxItem,
+    shidduch: Shidduch,
+  ): Promise<void> => {
+    const current = await getCurrentResolutionItem(item);
+    if (!current || current.status === "resolved") return;
+    if (current.status !== "resolving") {
+      throw new Error("This Inbox item is no longer being resolved.");
+    }
+    await dataProvider.update<InboxItem>("inbox_items", {
+      id: item.id,
+      data: finalizePayload("resolved", {
+        resolved_shidduchim_id: shidduch.id,
+        single_id: shidduch.single_id,
+      }),
+      previousData: current,
+    });
+  };
+
+  const findResumeByInboxProvenance = async (
+    itemId: Identifier,
+    attachmentPath: string,
+  ): Promise<Resume | undefined> => {
+    const provenance = JSON.stringify([
+      {
+        source_inbox_item_id: itemId,
+        source_inbox_attachment_path: attachmentPath,
+      },
+    ]);
+    let resumes: Resume[];
+    try {
+      const result = await dataProvider.getList<Resume>("resumes", {
+        filter: { "files@cs": provenance },
+        pagination: { page: 1, perPage: 100 },
+        sort: { field: "id", order: "ASC" },
+      });
+      resumes = result.data;
+    } catch {
+      // FakeRest and older adapters do not all expose JSONB containment. The
+      // fallback still performs the authoritative provenance check in the
+      // client and keeps retries identical across providers.
+      const result = await dataProvider.getList<Resume>("resumes", {
+        pagination: { page: 1, perPage: 100 },
+        sort: { field: "id", order: "ASC" },
+      });
+      resumes = result.data;
+    }
+    return resumes.find((resume) =>
+      (resume.files ?? []).some(
+        (file) =>
+          String(file.source_inbox_item_id) === String(itemId) &&
+          file.source_inbox_attachment_path === attachmentPath,
+      ),
+    );
+  };
+
+  const suggestionHasEditedFields = (suggestion: Shidduch): boolean =>
+    [
+      suggestion.name_en,
+      suggestion.name_he,
+      suggestion.father_en,
+      suggestion.father_he,
+      suggestion.mother_en,
+      suggestion.mother_he,
+      suggestion.seminary_en,
+      suggestion.seminary_he,
+      suggestion.shul_en,
+      suggestion.shul_he,
+      suggestion.location_en,
+      suggestion.location_he,
+      suggestion.age,
+      suggestion.height,
+      suggestion.dob,
+      suggestion.background,
+      suggestion.marital_status,
+      suggestion.person_gender,
+      suggestion.existing_children_note,
+      suggestion.close_reason,
+    ].some((value) =>
+      typeof value === "string" ? value.trim().length > 0 : value != null,
+    );
+
+  const suggestionHasOtherData = async (
+    shidduchimId: Identifier,
+    resumeId: Identifier | undefined,
+    item: InboxItem,
+    attachmentPath: string,
+    suggestion: Shidduch,
+  ): Promise<boolean> => {
+    if (suggestionHasEditedFields(suggestion)) return true;
+    const checks: Array<Promise<{ data: unknown[] }>> = [
+      dataProvider.getList("interactions", {
+        filter: { target_type: "shidduch", target_id: shidduchimId },
+        pagination: { page: 1, perPage: 1 },
+      }),
+      dataProvider.getList("tasks", {
+        filter: { target_type: "shidduch", target_id: shidduchimId },
+        pagination: { page: 1, perPage: 1 },
+      }),
+      dataProvider.getList("redts", {
+        filter: { shidduchim_id: shidduchimId },
+        pagination: { page: 1, perPage: 1 },
+      }),
+      dataProvider.getList("shidduch_education", {
+        filter: { shidduchim_id: shidduchimId },
+        pagination: { page: 1, perPage: 1 },
+      }),
+      dataProvider.getList("shidduchim_external_links", {
+        filter: { shidduchim_id: shidduchimId },
+        pagination: { page: 1, perPage: 1 },
+      }),
+      dataProvider.getList("medical_notes", {
+        filter: { shidduchim_id: shidduchimId },
+        pagination: { page: 1, perPage: 1 },
+      }),
+      dataProvider.getList("date_records", {
+        filter: { shidduchim_id: shidduchimId },
+        pagination: { page: 1, perPage: 1 },
+      }),
+      dataProvider.getList("entity_files", {
+        filter: { target_type: "shidduch", target_id: shidduchimId },
+        pagination: { page: 1, perPage: 1 },
+      }),
+      dataProvider.getList("reference_links", {
+        filter: { shidduchim_id: shidduchimId },
+        pagination: { page: 1, perPage: 1 },
+      }),
+    ];
+    const results = await Promise.all(checks);
+    if (results.some((result) => result.data.length > 0)) return true;
+
+    const { data: resumes } = await dataProvider.getList<Resume>("resumes", {
+      filter: { shidduchim_id: shidduchimId },
+      pagination: { page: 1, perPage: 2 },
+      sort: { field: "id", order: "ASC" },
+    });
+    if (resumes.length > 1) return true;
+    const resume = resumes[0];
+    if (resumeId != null && resume && String(resume.id) !== String(resumeId)) {
+      return true;
+    }
+    if (
+      resume &&
+      resume.files?.some(
+        (file: ResumeFileVersion) =>
+          String(file.source_inbox_item_id) !== String(item.id) ||
+          file.source_inbox_attachment_path !== attachmentPath,
+      )
+    ) {
+      return true;
+    }
+
+    if (resume) {
+      const { data: photos } = await dataProvider.getList("resume_photos", {
+        filter: { resume_id: resume.id },
+        pagination: { page: 1, perPage: 1 },
+      });
+      if (photos.length > 0) return true;
+    }
+    return false;
+  };
+
+  const compensateNewSuggestion = async (
+    item: InboxItem,
+    shidduchimId: Identifier,
+    resumeId: Identifier | undefined,
+    attachmentPath: string,
+    resumeCreatedByAttempt: boolean,
+  ): Promise<boolean> => {
+    const { data: suggestion } = await dataProvider.getOne<Shidduch>(
+      "shidduchim",
+      { id: shidduchimId },
+    );
+    if (!suggestion) return true;
+    // Never delete a resume row that predates this attempt. It may look empty
+    // in the current read but is still user-owned state.
+    if (!resumeCreatedByAttempt) return false;
+    if (
+      await suggestionHasOtherData(
+        shidduchimId,
+        resumeId,
+        item,
+        attachmentPath,
+        suggestion,
+      )
+    )
+      return false;
+
+    const { data: resumes } = await dataProvider.getList<Resume>("resumes", {
+      filter: { shidduchim_id: shidduchimId },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    });
+    const resume = resumes[0];
+    if (resume && resumeId != null && String(resume.id) !== String(resumeId)) {
+      return false;
+    }
+    if (resume) {
+      await dataProvider.removeResumeFileObjects(
+        (resume.files ?? []).map((file: ResumeFileVersion) => file.path),
+      );
+      await dataProvider.delete("resumes", {
+        id: resume.id,
+        previousData: resume,
+      });
+    }
+    await dataProvider.delete("shidduchim", {
+      id: shidduchimId,
+      previousData: suggestion,
+    });
+    return true;
+  };
+
+  const prepareInboxResume = async (
+    item: InboxItem,
+    action: InboxResumeAction,
+    shidduchimId?: Identifier,
+    singleId?: Identifier,
+  ): Promise<InboxResumePreparation> => {
+    const attachment = item.attachments?.find(isResumeDocument);
+    if (!attachment) {
+      throw new Error("Add a resume file first.");
+    }
+    const resolutionInput = {
+      action:
+        action === "new" ? ("resume_new" as const) : ("resume_attach" as const),
+      attachment_path: attachment.path,
+      ...(shidduchimId == null ? {} : { shidduchim_id: shidduchimId }),
+      ...(singleId == null ? {} : { single_id: singleId }),
+    };
+    const lockedItem = await acquireResolutionLock(
+      dataProvider,
+      item,
+      generateAttemptId(),
+      resolutionInput,
+    );
+    if (lockedItem.status === "resolved" && lockedItem.resolved_shidduchim_id) {
+      const { data: existing } = await dataProvider.getOne<Shidduch>(
+        "shidduchim",
+        { id: lockedItem.resolved_shidduchim_id },
+      );
+      if (!existing) throw new Error("This suggestion is no longer available.");
+      const { data: resumes } = await dataProvider.getList<Resume>("resumes", {
+        filter: { shidduchim_id: existing.id },
+        pagination: { page: 1, perPage: 1 },
+      });
+      const file =
+        resumes[0] && findResumeFile(resumes[0], item.id, attachment.path);
+      if (!resumes[0] || !file)
+        throw new Error("This Inbox item is already resolved.");
+      return {
+        shidduch: existing,
+        resume: resumes[0],
+        file,
+        resumeCreatedByAttempt: false,
+        readCompleted: readHasCompleted(resumes[0]),
+      };
+    }
+
+    const stashed = (lockedItem.resolution_input ??
+      {}) as typeof resolutionInput & {
+      resolved_shidduchim_id?: Identifier;
+      resume_id?: Identifier;
+      resume_file_path?: string;
+      resume_created?: boolean;
+      read_completed?: boolean;
+    };
+    let resumeFromProvenance: Resume | undefined;
+    if (action === "new" && !stashed.resolved_shidduchim_id) {
+      resumeFromProvenance = await findResumeByInboxProvenance(
+        item.id,
+        attachment.path,
+      );
+    }
+    let shidduch: Shidduch;
+    if (action === "new") {
+      if (stashed.resolved_shidduchim_id) {
+        const { data } = await dataProvider.getOne<Shidduch>("shidduchim", {
+          id: stashed.resolved_shidduchim_id,
+        });
+        shidduch = data;
+      } else if (resumeFromProvenance?.shidduchim_id != null) {
+        const { data } = await dataProvider.getOne<Shidduch>("shidduchim", {
+          id: resumeFromProvenance.shidduchim_id,
+        });
+        shidduch = data;
+      } else {
+        if (singleId == null)
+          throw new Error("Choose who this suggestion is for.");
+        shidduch = await dataProvider.createShidduch({
+          single_id: singleId,
+          name_en: null,
+          origin: item.source === "shadchan" ? "shadchan" : "channel",
+          initial_state: "new",
+          visibility: "shared",
+          kohen_status: "unknown",
+          redt_date: item.created_at.split("T")[0],
+        });
+        try {
+          await dataProvider.update<InboxItem>("inbox_items", {
+            id: item.id,
+            data: {
+              resolution_input: {
+                ...stashed,
+                ...resolutionInput,
+                resolved_shidduchim_id: shidduch.id,
+              } as Record<string, unknown>,
+            },
+            previousData: lockedItem,
+          });
+        } catch (error) {
+          // If the stash response is the part that was lost, remove only this
+          // just-created empty suggestion. If cleanup also loses the network,
+          // the caller releases the Inbox lock and the source remains intact.
+          await compensateNewSuggestion(
+            item,
+            shidduch.id,
+            undefined,
+            attachment.path,
+            true,
+          ).catch(() => undefined);
+          throw error;
+        }
+      }
+    } else {
+      if (shidduchimId == null) throw new Error("Choose a suggestion first.");
+      const { data } = await dataProvider.getOne<Shidduch>("shidduchim", {
+        id: shidduchimId,
+      });
+      shidduch = data;
+    }
+
+    let resume: Resume | undefined = resumeFromProvenance;
+    let resumeCreatedByAttempt =
+      action === "new" && stashed.resume_created !== false;
+    if (stashed.resume_id) {
+      const { data } = await dataProvider.getOne<Resume>("resumes", {
+        id: stashed.resume_id,
+      });
+      resume = data;
+    }
+    if (!resume) {
+      const { data: resumes } = await dataProvider.getList<Resume>("resumes", {
+        filter: { shidduchim_id: shidduch.id },
+        pagination: { page: 1, perPage: 1 },
+        sort: { field: "id", order: "ASC" },
+      });
+      resume = resumes[0];
+    }
+    let file = resume && findResumeFile(resume, item.id, attachment.path);
+    if (!resume || !file) {
+      if (resume && action === "new") resumeCreatedByAttempt = false;
+      resume = await dataProvider.attachInboxAttachmentToResumeFile({
+        shidduchimId: shidduch.id,
+        inboxItemId: item.id,
+        attachment,
+      });
+      file = findResumeFile(resume, item.id, attachment.path);
+      resumeCreatedByAttempt = action === "new";
+    }
+    if (!file) throw new Error("Could not attach this resume.");
+
+    if (
+      stashed.resume_id !== resume.id ||
+      stashed.resume_file_path !== file.path ||
+      stashed.read_completed !== readHasCompleted(resume)
+    ) {
+      const current = await getCurrentResolutionItem(item);
+      if (current?.status === "resolving") {
+        await dataProvider.update<InboxItem>("inbox_items", {
+          id: item.id,
+          data: {
+            resolution_input: {
+              ...(current.resolution_input ?? resolutionInput),
+              resume_id: resume.id,
+              resume_file_path: file.path,
+              resume_created: resumeCreatedByAttempt,
+              read_completed: readHasCompleted(resume),
+            } as Record<string, unknown>,
+          },
+          previousData: current,
+        });
+      }
+    }
+
+    return {
+      shidduch,
+      resume,
+      file,
+      resumeCreatedByAttempt,
+      readCompleted: readHasCompleted(resume),
+    };
+  };
+
+  const resolveInboxResume = async (
+    item: InboxItem,
+    action: InboxResumeAction,
+    options: { shidduchimId?: Identifier; singleId?: Identifier },
+  ): Promise<InboxResumeProcessResult> => {
+    let preparation: InboxResumePreparation | undefined;
+    let readSucceeded = false;
+    try {
+      preparation = await prepareInboxResume(
+        item,
+        action,
+        options.shidduchimId,
+        options.singleId,
+      );
+      let outcome: ResumeReadOutcome = "completed";
+      readSucceeded = preparation.readCompleted;
+      if (!preparation.readCompleted) {
+        outcome = await readInboxResume(preparation.resume, preparation.file);
+        if (outcome === "completed" || outcome === "empty") {
+          readSucceeded = true;
+          const current = await getCurrentResolutionItem(item);
+          if (current?.status === "resolving") {
+            await dataProvider.update<InboxItem>("inbox_items", {
+              id: item.id,
+              data: {
+                resolution_input: {
+                  ...(current.resolution_input ?? {}),
+                  read_completed: true,
+                },
+              },
+              previousData: current,
+            });
+          }
+        }
+      }
+
+      if (outcome === "completed" || outcome === "empty") {
+        await finalizeInboxResolution(item, preparation.shidduch);
+        let completedShidduch = preparation.shidduch;
+        try {
+          const { data } = await dataProvider.getOne<Shidduch>("shidduchim", {
+            id: preparation.shidduch.id,
+          });
+          if (data) completedShidduch = data;
+        } catch {
+          // The read/finalize already succeeded. A stale display object must
+          // never turn that success into compensation; the next list refresh
+          // will fetch the fill_empty name.
+        }
+        return {
+          outcome,
+          shidduch: completedShidduch,
+          suggestionKept: true,
+        };
+      }
+
+      let suggestionKept = action === "attach";
+      if (action === "new") {
+        try {
+          suggestionKept = !(await compensateNewSuggestion(
+            item,
+            preparation.shidduch.id,
+            preparation.resume.id,
+            item.attachments?.find(isResumeDocument)?.path ?? "",
+            preparation.resumeCreatedByAttempt,
+          ));
+        } catch {
+          // Cleanup itself is retryable. Release the Inbox row with the
+          // provenance stash intact and return the plain failure outcome; the
+          // caller must never turn a cleanup outage into allowance copy.
+          await releaseInboxResolution(item, { preserveInput: true });
+          return { outcome: "failed", shidduch: null, suggestionKept: true };
+        }
+      }
+      await releaseInboxResolution(item);
+      return { outcome, shidduch: null, suggestionKept };
+    } catch (error) {
+      if (action === "new") {
+        const current = await getCurrentResolutionItem(item).catch(() => null);
+        const stashed = current?.resolution_input as {
+          resolved_shidduchim_id?: Identifier;
+          resume_id?: Identifier;
+          resume_file_path?: string;
+          resume_created?: boolean;
+        } | null;
+        const shidduchimId =
+          preparation?.shidduch.id ?? stashed?.resolved_shidduchim_id;
+        if (shidduchimId != null) {
+          if (!readSucceeded) {
+            await compensateNewSuggestion(
+              item,
+              shidduchimId,
+              preparation?.resume.id ?? stashed?.resume_id,
+              preparation?.file.path ??
+                stashed?.resume_file_path ??
+                item.attachments?.find(isResumeDocument)?.path ??
+                "",
+              preparation?.resumeCreatedByAttempt ??
+                stashed?.resume_created === true,
+            ).catch(() => undefined);
+          }
+        }
+      }
+      await releaseInboxResolution(item, {
+        preserveInput: readSucceeded,
+      }).catch(() => undefined);
+      throw error;
+    }
+  };
+
   /** `InboxResolveDialog.tsx`'s "Dismiss — not a redt" action (never AC 6's
    * "Skip" — that action creates a bare unresolved row from scratch via
    * `dataProvider.create`, on `ShareTarget.tsx`; it never calls this).
@@ -380,5 +1038,12 @@ export function useResolveInboxItem() {
     });
   };
 
-  return { resolveAsNewShidduch, resolveAsLinkToExisting, dismissInboxItem };
+  return {
+    resolveAsNewShidduch,
+    resolveAsLinkToExisting,
+    dismissInboxItem,
+    prepareInboxResume,
+    resolveInboxResume,
+    releaseInboxResolution,
+  };
 }

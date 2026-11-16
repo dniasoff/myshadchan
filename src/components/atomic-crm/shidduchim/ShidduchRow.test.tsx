@@ -108,4 +108,12 @@ describe("ShidduchRow — RecordLink mention, Move as a sibling (AC-12)", () => 
       .element(screen.getByText("Suggested before"))
       .not.toBeInTheDocument();
   });
+
+  it("uses a static New suggestion placeholder when name_en is NULL", async () => {
+    const { screen } = await renderRow({ name_en: null });
+
+    await expect
+      .element(screen.getByText("New suggestion"))
+      .toBeInTheDocument();
+  });
 });
