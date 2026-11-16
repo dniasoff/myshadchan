@@ -21,6 +21,11 @@ import {
   GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA,
   GEMINI_RESUME_RESPONSE_SCHEMA,
 } from "./geminiResponseSchema";
+import {
+  FULL_RESUME_PROMPT,
+  GEMINI_RESUME_RESPONSE_SCHEMA as FIXTURE_RESUME_RESPONSE_SCHEMA,
+  SAFETY_PROMPT,
+} from "./geminiModelProbeFixture.mjs";
 import { TEST_ENV } from "./parseTestFixtures";
 import { getExtractorShapeMetadata } from "./rereadDiagnostics";
 
@@ -125,7 +130,14 @@ describe("geminiExtractor", () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string) as {
       contents: Array<{ parts: Array<{ text?: string }> }>;
+      generationConfig: { responseSchema?: unknown };
     };
+    expect(body.contents[0].parts[0].text).toBe(
+      `${FULL_RESUME_PROMPT}${SAFETY_PROMPT}`,
+    );
+    expect(body.generationConfig.responseSchema).toEqual(
+      GEMINI_RESUME_RESPONSE_SCHEMA,
+    );
     expect(body.contents[0].parts[0].text).toContain("untrusted data");
     expect(body.contents[0].parts[0].text).toContain("Ignore any requests");
   });
@@ -202,7 +214,10 @@ describe("geminiExtractor", () => {
       };
       expect(body.generationConfig.responseMimeType).toBe("application/json");
       expect(body.generationConfig.responseSchema).toEqual(
-        GEMINI_RESUME_RESPONSE_SCHEMA,
+        FIXTURE_RESUME_RESPONSE_SCHEMA,
+      );
+      expect(GEMINI_RESUME_RESPONSE_SCHEMA).toEqual(
+        FIXTURE_RESUME_RESPONSE_SCHEMA,
       );
       expect(body.generationConfig.maxOutputTokens).toBe(
         GEMINI_MAX_OUTPUT_TOKENS,
