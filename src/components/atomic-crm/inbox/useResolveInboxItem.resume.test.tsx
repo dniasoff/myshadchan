@@ -152,11 +152,36 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
     return suggestion;
   });
 
-  const attachInboxAttachmentToResumeFile = vi.fn(async () => {
-    const resume = buildResume();
-    resumes.push(resume);
-    return resume;
-  });
+  const attachInboxAttachmentToResumeFile = vi.fn(
+    async (params: {
+      shidduchimId: Identifier;
+      inboxItemId: Identifier;
+      attachment: typeof ATTACHMENT;
+    }) => {
+      const existing = resumes.find(
+        (resume) => resume.shidduchim_id === params.shidduchimId,
+      );
+      if (existing) {
+        existing.files = [
+          ...(existing.files ?? []),
+          {
+            path: `1/resumes/${params.shidduchimId}/${params.attachment.title}`,
+            filename: params.attachment.title,
+            mime_type: params.attachment.type,
+            uploaded_at: "2026-01-02T00:00:00Z",
+            uploaded_by: null,
+            size: 120,
+            source_inbox_item_id: params.inboxItemId,
+            source_inbox_attachment_path: params.attachment.path,
+          },
+        ];
+        return existing;
+      }
+      const resume = buildResume();
+      resumes.push(resume);
+      return resume;
+    },
+  );
 
   const update = vi.fn(
     async (
@@ -327,6 +352,119 @@ describe("resume-first Inbox resolution", () => {
     expect(JSON.stringify(createShidduch.mock.calls[0][0])).not.toContain(
       ATTACHMENT.title,
     );
+  });
+
+  it("reads a newly attached file on a parsed resume, then does not read it again after success", async () => {
+    const newAttachment = {
+      title: "new-resume.pdf",
+      type: "application/pdf",
+      path: "1/inbox/new-resume.pdf",
+      src: "https://example.test/new-resume.pdf",
+    };
+    const item = buildItem({ attachments: [newAttachment] });
+    const initialResume = buildResume({
+      files: [
+        {
+          path: "1/resumes/99/old-resume.pdf",
+          filename: "old-resume.pdf",
+          mime_type: "application/pdf",
+          uploaded_at: "2026-01-01T00:00:00Z",
+          uploaded_by: null,
+          size: 120,
+          source_inbox_item_id: null,
+          source_inbox_attachment_path: null,
+        },
+      ],
+      sections: { learningHistory: [{ school: "Already parsed" }] },
+      extracted: { fields: { name_en: "Existing person" } },
+    });
+    const { screen, dataProvider, getCurrentItem } = await renderProbe(
+      item,
+      { initialResume },
+      "attach",
+    );
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:completed:99:true"))
+      .toBeInTheDocument();
+
+    const readResume = dataProvider.readResume as ReturnType<typeof vi.fn>;
+    expect(readResume).toHaveBeenCalledTimes(1);
+    expect(readResume).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileIdentity: "1/resumes/99/new-resume.pdf",
+        mode: "fill_empty",
+      }),
+    );
+    const resolutionUpdates =
+      dataProvider.updateInboxItemResolution as ReturnType<typeof vi.fn>;
+    expect(resolutionUpdates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          resolution_input: expect.objectContaining({
+            resume_read_file_path: "1/resumes/99/new-resume.pdf",
+            resume_read_completed_file_path: "1/resumes/99/new-resume.pdf",
+            resume_read_pending: false,
+          }),
+        }),
+      }),
+    );
+    expect(getCurrentItem().status).toBe("resolved");
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:completed:99:true"))
+      .toBeInTheDocument();
+    expect(readResume).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles an ambiguous read against the newly selected file, not old resume content", async () => {
+    const newAttachment = {
+      title: "new-resume.pdf",
+      type: "application/pdf",
+      path: "1/inbox/new-resume.pdf",
+      src: "https://example.test/new-resume.pdf",
+    };
+    const item = buildItem({ attachments: [newAttachment] });
+    const initialResume = buildResume({
+      files: [
+        {
+          path: "1/resumes/99/old-resume.pdf",
+          filename: "old-resume.pdf",
+          mime_type: "application/pdf",
+          uploaded_at: "2026-01-01T00:00:00Z",
+          uploaded_by: null,
+          size: 120,
+          source_inbox_item_id: null,
+          source_inbox_attachment_path: null,
+        },
+      ],
+      sections: { learningHistory: [{ school: "Already parsed" }] },
+      extracted: { fields: { name_en: "Existing person" } },
+    });
+    const { screen, dataProvider, getCurrentItem } = await renderProbe(
+      item,
+      {
+        initialResume,
+        readOutcome: "ambiguous",
+        commitReadBeforeAmbiguousResponse: true,
+      },
+      "attach",
+    );
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:completed:99:true"))
+      .toBeInTheDocument();
+
+    const readResume = dataProvider.readResume as ReturnType<typeof vi.fn>;
+    expect(readResume).toHaveBeenCalledOnce();
+    expect(readResume.mock.calls[0]?.[0]).toMatchObject({
+      fileIdentity: "1/resumes/99/new-resume.pdf",
+      mode: "fill_empty",
+    });
+    expect(getCurrentItem().status).toBe("resolved");
   });
 
   it("reconciles a committed read after a lost response and never compensates it", async () => {

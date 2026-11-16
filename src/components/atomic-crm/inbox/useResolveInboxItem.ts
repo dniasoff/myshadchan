@@ -91,6 +91,56 @@ function findResumeFile(
   );
 }
 
+type ResumeReadProgress = {
+  resume_read_file_path?: string;
+  resume_read_completed_file_path?: string;
+  resume_read_pending_file_path?: string;
+  resume_read_pending?: boolean;
+};
+
+function readPendingForFile(
+  progress: ResumeReadProgress,
+  filePath: string,
+): boolean {
+  return (
+    progress.resume_read_pending === true &&
+    (progress.resume_read_pending_file_path ??
+      progress.resume_read_file_path) === filePath
+  );
+}
+
+function readCompletedForFile(
+  progress: ResumeReadProgress,
+  filePath: string,
+): boolean {
+  if (progress.resume_read_completed_file_path === filePath) return true;
+  if (readPendingForFile(progress, filePath)) return false;
+  // A provenance match alone is not proof that this file was read. The
+  // completed-file identity is written before finalization, so a duplicate
+  // retry skips the read only when that exact identity is present here.
+  return false;
+}
+
+function isNewestResumeFile(
+  resume: Resume,
+  selectedFile: ResumeFileVersion,
+): boolean {
+  const files = resume.files ?? [];
+  if (files.length === 0) return false;
+  let newest = files[0];
+  for (const candidate of files.slice(1)) {
+    const newestTimestamp = Date.parse(newest.uploaded_at);
+    const candidateTimestamp = Date.parse(candidate.uploaded_at);
+    if (
+      candidateTimestamp >= newestTimestamp ||
+      (!Number.isFinite(newestTimestamp) && Number.isFinite(candidateTimestamp))
+    ) {
+      newest = candidate;
+    }
+  }
+  return newest.path === selectedFile.path;
+}
+
 function readHasCompleted(resume: Resume): boolean {
   // A committed Worker read is durable even when its response was lost, but
   // the schema marker alone is not content: the Worker writes it for a
@@ -996,7 +1046,9 @@ export function useResolveInboxItem() {
         entityFiles: [],
         entityFilesCreatedByAttempt: [],
         resolutionAttemptId: attemptId,
-        readCompleted: readHasCompleted(resumes[0]),
+        // A terminal Inbox row already completed this action. Do not infer a
+        // new file's read state from the resume's older parsed content.
+        readCompleted: true,
       };
     }
 
@@ -1010,6 +1062,9 @@ export function useResolveInboxItem() {
       entity_file_ids?: Identifier[];
       resume_read_request_id?: string;
       resume_read_pending?: boolean;
+      resume_read_file_path?: string;
+      resume_read_completed_file_path?: string;
+      resume_read_pending_file_path?: string;
     };
     let resumeFromProvenance: Resume | undefined;
     if (action === "new" && !stashed.resolved_shidduchim_id) {
@@ -1102,6 +1157,36 @@ export function useResolveInboxItem() {
       resume = resumes[0];
     }
     let file = resume && findResumeFile(resume, item.id, attachment.path);
+    const fileWasAlreadyAttached = file != null;
+
+    // Record the selected file before any attach/storage work. If the tab dies
+    // after the catalog append but before the read request is recorded, a
+    // retry must know that this file still needs its first read rather than
+    // mistaking the provenance match for a completed read.
+    if (
+      !fileWasAlreadyAttached &&
+      (stashed.resume_read_file_path !== attachment.path ||
+        stashed.resume_read_pending_file_path !== attachment.path)
+    ) {
+      const current = await getCurrentResolutionItem(item);
+      if (current?.status === "resolving") {
+        await updateOwnedInboxResolution(
+          item,
+          {
+            resolution_input: {
+              ...(current.resolution_input ?? resolutionInput),
+              resume_read_file_path: attachment.path,
+              resume_read_pending_file_path: attachment.path,
+              resume_read_pending: true,
+            },
+          },
+          attemptId,
+        );
+        stashed.resume_read_file_path = attachment.path;
+        stashed.resume_read_pending_file_path = attachment.path;
+        stashed.resume_read_pending = true;
+      }
+    }
     if (!resume || !file) {
       const resumeExistedBeforeAttach = resume != null;
       resume = await dataProvider.attachInboxAttachmentToResumeFile({
@@ -1119,6 +1204,8 @@ export function useResolveInboxItem() {
       }
     }
     if (!file) throw new Error("Could not attach this resume.");
+
+    const readCompleted = readCompletedForFile(stashed, file.path);
 
     // The chosen document is the only Resume-tab/read input. Every other
     // captured attachment, including additional resume-like documents, is a
@@ -1170,7 +1257,10 @@ export function useResolveInboxItem() {
     if (
       stashed.resume_id !== resume.id ||
       stashed.resume_file_path !== file.path ||
-      stashed.read_completed !== readHasCompleted(resume) ||
+      stashed.read_completed !== readCompleted ||
+      stashed.resume_read_file_path !== file.path ||
+      (readCompleted &&
+        stashed.resume_read_completed_file_path !== file.path) ||
       JSON.stringify(stashed.entity_file_ids ?? []) !==
         JSON.stringify(entityFiles.map((entityFile) => entityFile.id))
     ) {
@@ -1184,7 +1274,15 @@ export function useResolveInboxItem() {
               resume_id: resume.id,
               resume_file_path: file.path,
               resume_created: resumeCreatedByAttempt,
-              read_completed: readHasCompleted(resume),
+              read_completed: readCompleted,
+              resume_read_file_path: file.path,
+              ...(readCompleted
+                ? {
+                    resume_read_completed_file_path: file.path,
+                    resume_read_pending: false,
+                    resume_read_pending_file_path: undefined,
+                  }
+                : {}),
               entity_file_ids: entityFiles.map((entityFile) => entityFile.id),
             },
           },
@@ -1207,7 +1305,7 @@ export function useResolveInboxItem() {
       entityFiles,
       entityFilesCreatedByAttempt,
       resolutionAttemptId: attemptId,
-      readCompleted: readHasCompleted(resume),
+      readCompleted,
       resumeReadRequestId: stashed.resume_read_request_id,
     };
   };
@@ -1251,21 +1349,21 @@ export function useResolveInboxItem() {
       if (!preparation.readCompleted) {
         const requestId =
           preparation.resumeReadRequestId ?? createResumeReadRequestId();
-        if (!preparation.resumeReadRequestId) {
-          const current = await getCurrentResolutionItem(item);
-          if (current?.status === "resolving") {
-            await updateOwnedInboxResolution(
-              item,
-              {
-                resolution_input: {
-                  ...(current.resolution_input ?? {}),
-                  resume_read_request_id: requestId,
-                  resume_read_pending: false,
-                },
+        const current = await getCurrentResolutionItem(item);
+        if (current?.status === "resolving") {
+          await updateOwnedInboxResolution(
+            item,
+            {
+              resolution_input: {
+                ...(current.resolution_input ?? {}),
+                resume_read_request_id: requestId,
+                resume_read_file_path: preparation.file.path,
+                resume_read_pending_file_path: preparation.file.path,
+                resume_read_pending: true,
               },
-              attemptId,
-            );
-          }
+            },
+            attemptId,
+          );
         }
         readStarted = true;
         outcome = await readInboxResume(
@@ -1276,15 +1374,29 @@ export function useResolveInboxItem() {
         if (outcome === "ambiguous") {
           ambiguousRead = true;
           // The Worker ledger is service-role-only in this deployment, so the
-          // durable resume row is the authoritative client-visible
-          // reconciliation point. A marker or parsed content means the read
-          // committed even if its HTTP envelope was lost.
+          // durable resume row is the client-visible reconciliation point. For
+          // this attempt, content is trusted only when the pending marker names
+          // this file and it is the newest file in the row; older parsed
+          // content must not satisfy a newly attached file.
           const { data: reconciledResume } = await dataProvider
             .getOne<Resume>("resumes", {
               id: preparation.resume.id,
             })
             .catch(() => ({ data: undefined }));
-          if (reconciledResume && readHasCompleted(reconciledResume)) {
+          const current = await getCurrentResolutionItem(item).catch(
+            () => undefined,
+          );
+          const currentInput = current?.resolution_input as
+            (ResumeReadProgress & { resume_read_pending?: boolean }) | null;
+          const pendingSelectedFile =
+            currentInput != null &&
+            readPendingForFile(currentInput, preparation.file.path);
+          if (
+            reconciledResume &&
+            pendingSelectedFile &&
+            isNewestResumeFile(reconciledResume, preparation.file) &&
+            readHasCompleted(reconciledResume)
+          ) {
             preparation = {
               ...preparation,
               resume: reconciledResume,
@@ -1298,7 +1410,6 @@ export function useResolveInboxItem() {
             };
             readSucceeded = true;
             outcome = "completed";
-            const current = await getCurrentResolutionItem(item);
             if (current?.status === "resolving") {
               await updateOwnedInboxResolution(
                 item,
@@ -1306,7 +1417,10 @@ export function useResolveInboxItem() {
                   resolution_input: {
                     ...(current.resolution_input ?? {}),
                     read_completed: true,
+                    resume_read_file_path: preparation.file.path,
+                    resume_read_completed_file_path: preparation.file.path,
                     resume_read_pending: false,
+                    resume_read_pending_file_path: undefined,
                   },
                 },
                 attemptId,
@@ -1349,7 +1463,10 @@ export function useResolveInboxItem() {
                 resolution_input: {
                   ...(current.resolution_input ?? {}),
                   read_completed: true,
+                  resume_read_file_path: preparation.file.path,
+                  resume_read_completed_file_path: preparation.file.path,
                   resume_read_pending: false,
+                  resume_read_pending_file_path: undefined,
                 },
               },
               attemptId,
