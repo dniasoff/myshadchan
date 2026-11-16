@@ -81,6 +81,7 @@ import {
   attachInboxAttachmentToResumeFile as attachInboxAttachmentToResumeFileImpl,
   copyInboxAttachmentToResumeFile as copyInboxAttachmentToResumeFileImpl,
   removeResumeFileObjects as removeResumeFileObjectsImpl,
+  removeResumeFileObjectsOrThrow as removeResumeFileObjectsOrThrowImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
   uploadResumeFile as uploadResumeFileImpl,
 } from "./resumes";
@@ -1376,6 +1377,9 @@ export const getDataProviderWithCustomMethods = () => {
     },
     async removeResumeFileObjects(paths: string[]): Promise<void> {
       return removeResumeFileObjectsImpl(paths);
+    },
+    async removeResumeFileObjectsStrict(paths: string[]): Promise<void> {
+      return removeResumeFileObjectsOrThrowImpl(paths);
     },
     async signResumeFileUrl(params: SignResumeFileUrlParams): Promise<string> {
       return signResumeFileUrlImpl(params);

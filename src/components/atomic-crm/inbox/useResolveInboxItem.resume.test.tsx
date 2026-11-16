@@ -78,10 +78,12 @@ const buildResume = (overrides: Partial<Resume> = {}): Resume =>
 type ResumeProviderOptions = {
   readOutcome?: "completed" | "empty" | "no_allowance" | "failed" | "ambiguous";
   commitReadBeforeAmbiguousResponse?: boolean;
+  applyEmptyReadState?: boolean;
   initialItem?: InboxItem;
   initialResume?: Resume;
   suggestion?: Shidduch;
   removeResumeFileObjects?: CrmDataProvider["removeResumeFileObjects"];
+  removeResumeFileObjectsStrict?: (paths: string[]) => Promise<void>;
   dependentDataAppearsDuringCompensation?: boolean;
 };
 
@@ -92,6 +94,11 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
     ? [options.initialResume]
     : [];
   const readOutcome = options.readOutcome ?? "completed";
+  const removeResumeFileObjects =
+    options.removeResumeFileObjects ?? vi.fn().mockResolvedValue(undefined);
+  const removeResumeFileObjectsStrict =
+    options.removeResumeFileObjectsStrict ??
+    (async (paths: string[]) => removeResumeFileObjects(paths));
   let interactionReads = 0;
 
   const getOne = vi.fn(async (resource: string, params: { id: Identifier }) => {
@@ -204,13 +211,25 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
           resume.extracted = { fields: { name_en: "Committed" } };
         }
       }
+      if (readOutcome === "empty" && options.applyEmptyReadState) {
+        const resume = resumes[0];
+        if (resume) {
+          resume.sections = {
+            learningHistory: [],
+            references: [],
+            additionalSections: [],
+            schemaVersion: 4,
+          };
+          resume.extracted = { fields: { name_en: null } };
+        }
+      }
       return readOutcome;
     }),
     update,
     updateInboxItemResolution,
     delete: vi.fn().mockResolvedValue({ data: {} }),
-    removeResumeFileObjects:
-      options.removeResumeFileObjects ?? vi.fn().mockResolvedValue(undefined),
+    removeResumeFileObjects,
+    removeResumeFileObjectsStrict,
     create: vi.fn().mockResolvedValue({ data: {} }),
     copyInboxAttachmentsToEntityFiles: vi.fn().mockResolvedValue([]),
   } as unknown as CrmDataProvider;
@@ -360,6 +379,43 @@ describe("resume-first Inbox resolution", () => {
     expect(getCurrentItem().status).toBe("resolving");
   });
 
+  it("takes over an aged pending read with a new attempt while reusing its request id", async () => {
+    const item = buildItem({
+      status: "resolving",
+      resolution_attempt_id: "crashed-attempt",
+      resolution_input: {
+        action: "resume_new",
+        attachment_path: ATTACHMENT.path,
+        single_id: 5,
+        resume_read_request_id: "same-request-id",
+        resume_read_pending: true,
+        lock_acquired_at: "2026-01-01T00:00:00Z",
+      },
+    });
+    const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
+      readOutcome: "ambiguous",
+      initialResume: buildResume(),
+    });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:ambiguous:none:true"))
+      .toBeInTheDocument();
+
+    const readResume = dataProvider.readResume as ReturnType<typeof vi.fn>;
+    expect(readResume).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: "same-request-id" }),
+    );
+    expect(getCurrentItem().resolution_attempt_id).not.toBe("crashed-attempt");
+    expect(getCurrentItem()).toMatchObject({
+      status: "resolving",
+      resolution_input: {
+        resume_read_request_id: "same-request-id",
+        resume_read_pending: true,
+      },
+    });
+  });
+
   it("compensates only its nameless suggestion on an allowance failure and releases the Inbox lock", async () => {
     const item = buildItem();
     const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
@@ -401,6 +457,29 @@ describe("resume-first Inbox resolution", () => {
       .toBeInTheDocument();
 
     expect(dataProvider.removeResumeFileObjects).toHaveBeenCalled();
+    expect(dataProvider.delete).toHaveBeenCalledWith(
+      "shidduchim",
+      expect.objectContaining({ id: 99 }),
+    );
+    expect(getCurrentItem()).toMatchObject({ status: "unresolved" });
+  });
+
+  it("compensates a production-shaped empty marker, not just a NULL resume", async () => {
+    const item = buildItem();
+    const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
+      readOutcome: "empty",
+      applyEmptyReadState: true,
+    });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:empty:none:false"))
+      .toBeInTheDocument();
+
+    expect(dataProvider.delete).toHaveBeenCalledWith(
+      "resumes",
+      expect.objectContaining({ id: 7 }),
+    );
     expect(dataProvider.delete).toHaveBeenCalledWith(
       "shidduchim",
       expect.objectContaining({ id: 99 }),
@@ -500,6 +579,36 @@ describe("resume-first Inbox resolution", () => {
     expect(dataProvider.delete).not.toHaveBeenCalled();
     expect(getCurrentItem()).toMatchObject({ status: "unresolved" });
     expect(item.attachments?.[0].path).toBe(ATTACHMENT.path);
+  });
+
+  it("keeps the catalog row when strict storage cleanup reports a failure", async () => {
+    const item = buildItem();
+    const softCleanup = vi.fn().mockResolvedValue(undefined);
+    const strictCleanup = vi.fn().mockRejectedValue(new Error("storage down"));
+    const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
+      readOutcome: "no_allowance",
+      removeResumeFileObjects: softCleanup,
+      removeResumeFileObjectsStrict: strictCleanup,
+    });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:failed:none:true"))
+      .toBeInTheDocument();
+
+    expect(strictCleanup).toHaveBeenCalledWith([
+      "1/resumes/99/deterministic-resume.pdf",
+    ]);
+    expect(softCleanup).not.toHaveBeenCalled();
+    expect(dataProvider.delete).not.toHaveBeenCalledWith(
+      "resumes",
+      expect.anything(),
+    );
+    expect(dataProvider.delete).not.toHaveBeenCalledWith(
+      "shidduchim",
+      expect.anything(),
+    );
+    expect(getCurrentItem()).toMatchObject({ status: "unresolved" });
   });
 
   it("aborts compensation when dependent data appears during its safety check", async () => {

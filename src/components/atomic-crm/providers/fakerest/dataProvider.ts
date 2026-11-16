@@ -3122,6 +3122,13 @@ export const createDataProvider = ({
         resumeFileBlobUrls.delete(path);
       }
     },
+    removeResumeFileObjectsStrict: async (paths: string[]): Promise<void> => {
+      for (const path of paths) {
+        const blobUrl = resumeFileBlobUrls.get(path);
+        if (blobUrl?.startsWith("blob:")) URL.revokeObjectURL(blobUrl);
+        resumeFileBlobUrls.delete(path);
+      }
+    },
     signResumeFileUrl: (params: {
       storagePath: string;
       fileName: string;

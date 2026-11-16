@@ -7,9 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * a single test can assert the download and the upload each hit the bucket
  * they're supposed to.
  */
-const { download, upload, rpc } = vi.hoisted(() => ({
+const { download, upload, remove, rpc } = vi.hoisted(() => ({
   download: vi.fn(),
   upload: vi.fn(),
+  remove: vi.fn(),
   rpc: vi.fn(),
 }));
 
@@ -19,13 +20,17 @@ vi.mock("./supabase", () => ({
       from: (bucket: string) => ({
         download: (path: string) => download(bucket, path),
         upload: (path: string, data: unknown) => upload(bucket, path, data),
+        remove: (paths: string[]) => remove(bucket, paths),
       }),
     },
     rpc: (name: string, args?: unknown) => rpc(name, args),
   }),
 }));
 
-import { copyInboxAttachmentToResumeFile } from "./resumes";
+import {
+  copyInboxAttachmentToResumeFile,
+  removeResumeFileObjectsOrThrow,
+} from "./resumes";
 
 const FAKE_BLOB = { size: 48213 } as Blob;
 
@@ -33,6 +38,7 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
   beforeEach(() => {
     download.mockReset();
     upload.mockReset();
+    remove.mockReset().mockResolvedValue({ error: null });
     rpc.mockReset();
     rpc.mockResolvedValue({ data: 7, error: null });
   });
@@ -153,5 +159,16 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
         },
       }),
     ).rejects.toThrow("Failed to save the captured resume");
+  });
+
+  it("strictly reports a storage tuple error so owned compensation keeps its catalog row", async () => {
+    remove.mockResolvedValue({ error: { message: "storage down" } });
+
+    await expect(
+      removeResumeFileObjectsOrThrow(["7/resumes/42/resume.pdf"]),
+    ).rejects.toThrow("Could not clean up the resume file objects");
+    expect(remove).toHaveBeenCalledWith("documents", [
+      "7/resumes/42/resume.pdf",
+    ]);
   });
 });

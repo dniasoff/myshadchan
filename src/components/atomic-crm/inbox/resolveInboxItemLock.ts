@@ -98,7 +98,10 @@ function lockAcquiredAt(input: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function isStaleLock(input: unknown, now = Date.now()): boolean {
+export function isResolutionLockStale(
+  input: unknown,
+  now = Date.now(),
+): boolean {
   const acquiredAt = lockAcquiredAt(input);
   // Rows written before lock_acquired_at existed are legacy locks. They have
   // no liveness proof, so takeover uses an explicit NULL predicate below.
@@ -228,11 +231,18 @@ export async function acquireResolutionLock(
   if (current.status === "resolving") {
     const currentInput = (current.resolution_input ?? {}) as ResolutionInput;
     const sameAttempt = current.resolution_attempt_id === attemptId;
-    if (sameAttempt) return current;
+    if (sameAttempt) {
+      // A caller retrying the same request may reuse a fresh lock, but a stale
+      // lock must never be renewed by its old owner. The caller must mint a
+      // new attempt id so the conditional takeover fences the crashed owner.
+      if (!isResolutionLockStale(currentInput)) return current;
+      throw new ResolutionClaimLostError();
+    }
     if (!inputsAreCompatible(input, currentInput)) {
       throw new ResolutionClaimLostError();
     }
-    if (!isStaleLock(currentInput)) throw new ResolutionClaimLostError();
+    if (!isResolutionLockStale(currentInput))
+      throw new ResolutionClaimLostError();
 
     const previousLockAcquiredAt = lockAcquiredAt(currentInput);
     const now = new Date().toISOString();

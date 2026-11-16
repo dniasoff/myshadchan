@@ -24,12 +24,13 @@ import {
   unresolvedResumeReadAttempts,
 } from "../resumes/resumeReadRequest";
 import type { ResumeReadOutcome } from "../providers/commons/rereadWorkerClient";
-import { isResumeUnread } from "../resumes/resumeReadableSections";
+import { hasResumeContent } from "../resumes/resumeReadableSections";
 import {
   acquireResolutionLock,
   conditionalInboxUpdate,
   finalizePayload,
   generateAttemptId,
+  isResolutionLockStale,
   ResolutionClaimLostError,
   type ResolutionInput,
   type ResumeDraft,
@@ -91,10 +92,10 @@ function findResumeFile(
 }
 
 function readHasCompleted(resume: Resume): boolean {
-  // A committed Worker read is durable even when its response was lost. Use
-  // the same marker/content predicate as the Resume tab, so parsed content
-  // without a schema marker is also protected from compensation.
-  return !isResumeUnread(resume);
+  // A committed Worker read is durable even when its response was lost, but
+  // the schema marker alone is not content: the Worker writes it for a
+  // definite empty response too.
+  return hasResumeContent(resume);
 }
 
 function attachmentExtension(title: string): string {
@@ -132,6 +133,7 @@ export type InboxResumeProcessResult = {
 };
 
 type OwnershipDataProvider = CrmDataProvider & {
+  removeResumeFileObjectsStrict?: (paths: string[]) => Promise<void>;
   deleteOwnedInboxResume?: (
     params: OwnedResumeDeleteParams,
   ) => Promise<boolean>;
@@ -783,8 +785,10 @@ export function useResolveInboxItem() {
 
     // Parsed sections/extracted content is user-visible read data. It is
     // ownership evidence even when the fill-empty read returned no name, so a
-    // lost response can never cause a committed read to be compensated.
-    if (resume && !isResumeUnread(resume)) return true;
+    // lost response can never cause a committed read to be compensated. The
+    // schema marker alone is not evidence; the Worker also writes it for a
+    // definite empty result.
+    if (resume && hasResumeContent(resume)) return true;
 
     if (resume) {
       const { data: photos } = await dataProvider.getList("resume_photos", {
@@ -885,10 +889,25 @@ export function useResolveInboxItem() {
     if (resume) {
       // Keep the catalog row when storage cleanup itself loses the network;
       // the unresolved Inbox attempt can safely retry both steps later.
-      await dataProvider.removeResumeFileObjects(
-        (resume.files ?? []).map((file: ResumeFileVersion) => file.path),
-      );
       const provider = dataProvider as OwnershipDataProvider;
+      const resumeFilePaths = (resume.files ?? []).map(
+        (file: ResumeFileVersion) => file.path,
+      );
+      const removeResumeFileObjectsStrict =
+        Object.prototype.hasOwnProperty.call(
+          provider,
+          "removeResumeFileObjectsStrict",
+        )
+          ? provider.removeResumeFileObjectsStrict
+          : undefined;
+      if (removeResumeFileObjectsStrict) {
+        await removeResumeFileObjectsStrict(resumeFilePaths);
+      } else {
+        // Test doubles and older providers retain the historical method. Live
+        // Supabase/FakeRest providers expose the strict sibling above; the
+        // fallback preserves compatibility for non-production callers.
+        await dataProvider.removeResumeFileObjects(resumeFilePaths);
+      }
       const deleteOwnedInboxResume = Object.prototype.hasOwnProperty.call(
         provider,
         "deleteOwnedInboxResume",
@@ -1204,15 +1223,17 @@ export function useResolveInboxItem() {
     const currentInput = currentBeforeAttempt?.resolution_input as {
       resume_read_pending?: boolean;
     } | null;
+    const canResumePendingAttempt =
+      currentBeforeAttempt?.status === "resolving" &&
+      currentInput?.resume_read_pending === true &&
+      currentBeforeAttempt.resolution_attempt_id != null &&
+      !isResolutionLockStale(currentBeforeAttempt.resolution_input);
     // An ambiguous read deliberately keeps the lock. A retry from the same
     // UI can resume that exact attempt immediately; a crash before the
     // pending marker lands still follows normal stale-lock takeover.
-    const attemptId =
-      currentBeforeAttempt?.status === "resolving" &&
-      currentInput?.resume_read_pending === true &&
-      currentBeforeAttempt.resolution_attempt_id != null
-        ? String(currentBeforeAttempt.resolution_attempt_id)
-        : generateAttemptId();
+    const attemptId = canResumePendingAttempt
+      ? String(currentBeforeAttempt.resolution_attempt_id)
+      : generateAttemptId();
     let preparation: InboxResumePreparation | undefined;
     let readSucceeded = false;
     let readStarted = false;

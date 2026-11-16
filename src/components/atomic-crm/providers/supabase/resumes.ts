@@ -385,7 +385,17 @@ export async function copyInboxAttachmentToResumeFile(
  * already been requested and must not be blocked by a storage cleanup
  * failure (AC-12).
  */
-export async function removeResumeFileObjects(paths: string[]): Promise<void> {
+export class ResumeStorageCleanupError extends Error {
+  constructor() {
+    super("Could not clean up the resume file objects.");
+    this.name = "ResumeStorageCleanupError";
+  }
+}
+
+/** Strict cleanup for an owned, newly-created resume attempt. */
+export async function removeResumeFileObjectsOrThrow(
+  paths: string[],
+): Promise<void> {
   if (paths.length === 0) return;
   try {
     const { error } = await getSupabaseClient()
@@ -393,13 +403,26 @@ export async function removeResumeFileObjects(paths: string[]): Promise<void> {
       .remove(paths);
     if (error) {
       console.error("removeResumeFileObjects.error", error);
+      throw new ResumeStorageCleanupError();
     }
   } catch (thrown) {
-    // A rejected promise (transient network/storage-API failure), not
-    // merely a resolved `{ error }` tuple — caught here too so a genuine
-    // exception can never propagate out of a `beforeDelete` hook and block
-    // the parent row's delete (AC-12).
     console.error("removeResumeFileObjects.error", thrown);
+    if (thrown instanceof ResumeStorageCleanupError) throw thrown;
+    throw new ResumeStorageCleanupError();
+  }
+}
+
+/**
+ * Best-effort cleanup for lifecycle deletes. Parent deletion must retain its
+ * existing fail-soft behavior; attempt compensation uses the strict sibling
+ * above so it never drops a catalog pointer while storage cleanup failed.
+ */
+export async function removeResumeFileObjects(paths: string[]): Promise<void> {
+  try {
+    await removeResumeFileObjectsOrThrow(paths);
+  } catch {
+    // The strict helper already logs the provider failure. Keep this public
+    // lifecycle helper's historical fail-soft contract unchanged.
   }
 }
 

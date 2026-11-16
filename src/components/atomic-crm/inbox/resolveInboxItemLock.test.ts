@@ -3,6 +3,7 @@ import type { CrmDataProvider } from "../providers/types";
 import type { InboxItem } from "../types";
 import {
   acquireResolutionLock,
+  isResolutionLockStale,
   ResolutionClaimLostError,
 } from "./resolveInboxItemLock";
 
@@ -171,6 +172,34 @@ describe("resolve Inbox conditional claim", () => {
         expectedLockAcquiredAtIsNull: true,
       }),
     );
+  });
+
+  it("does not let an old attempt renew its own stale lock", async () => {
+    const staleInput = {
+      action: "resume_new" as const,
+      attachment_path: input.attachment_path,
+      single_id: input.single_id,
+      resume_read_pending: true,
+      lock_acquired_at: "2026-01-01T00:00:00Z",
+    };
+    expect(isResolutionLockStale(staleInput)).toBe(true);
+
+    const old = itemWithStatus("resolving", {
+      resolution_attempt_id: "same-old-attempt",
+      resolution_input: staleInput,
+    });
+    const fake = provider(old);
+
+    await expect(
+      acquireResolutionLock(
+        fake.provider,
+        old,
+        "same-old-attempt",
+        staleInput,
+        { claimFromStatuses: ["unresolved"] },
+      ),
+    ).rejects.toBeInstanceOf(ResolutionClaimLostError);
+    expect(fake.updateInboxItemResolution).not.toHaveBeenCalled();
   });
 
   it("allows exactly one concurrent held dismissal", async () => {

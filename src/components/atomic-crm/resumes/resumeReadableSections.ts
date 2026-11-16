@@ -59,6 +59,40 @@ function hasNonEmptyRawValue(value: unknown): boolean {
   return true;
 }
 
+function hasNonEmptyRawContent(value: unknown, depth = 0): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return hasNonWhitespaceString(value);
+  if (Array.isArray(value)) return value.length > 0;
+  if (!isPlainObject(value)) return true;
+  // Do not recurse without a bound through an untrusted JSONB payload. A
+  // deeply malformed payload is treated as content so compensation cannot
+  // delete data merely because inspection stopped early.
+  if (depth >= 8) return true;
+  return Object.entries(value).some(
+    ([key, child]) =>
+      key !== "confidence" &&
+      key !== "schemaVersion" &&
+      hasNonEmptyRawContent(child, depth + 1),
+  );
+}
+
+/**
+ * Returns whether a read left meaningful resume data behind. The schema
+ * marker alone is deliberately not enough: the Worker writes the marker and
+ * empty arrays/extracted data for its definite `empty` response.
+ */
+export function hasResumeContent(
+  resume: Pick<Resume, "sections" | "extracted">,
+): boolean {
+  const sections = resume.sections;
+  const hasNonEmptySectionArray = isPlainObject(sections)
+    ? ["learningHistory", "references", "additionalSections"].some(
+        (key) => Array.isArray(sections[key]) && sections[key].length > 0,
+      )
+    : false;
+  return hasNonEmptySectionArray || hasNonEmptyRawContent(resume.extracted);
+}
+
 /**
  * A stored resume can have a row and an uploaded file before the parser has
  * ever produced a draft. Ignore parser metadata and malformed/blank section
