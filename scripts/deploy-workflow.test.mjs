@@ -6,6 +6,10 @@ const workflow = readFileSync(
   new URL("../.github/workflows/deploy.yml", import.meta.url),
   "utf8",
 );
+const parseWranglerConfig = readFileSync(
+  new URL("../workers/parse/wrangler.toml", import.meta.url),
+  "utf8",
+);
 
 const uploadStepStart = workflow.indexOf(
   "name: 🚀 Upload Worker version (code + every secret, bundled atomically)",
@@ -66,5 +70,22 @@ describe("outbound email deploy plumbing", () => {
     expect(bootstrapStep).not.toContain("OUTBOUND_EMAIL_ENABLED: ${{");
     expect(bootstrapStep).not.toContain("OUTBOUND_EMAIL_ACCOUNT_IDS: ${{");
     expect(bootstrapStep).toContain("--bootstrap-config");
+  });
+
+  it("publishes parse model vars from wrangler.toml without a CI override", () => {
+    expect(parseWranglerConfig).toContain(
+      'GEMINI_MODEL = "gemini-2.5-flash-lite"',
+    );
+    expect(parseWranglerConfig).toContain(
+      'GEMINI_FALLBACK_MODEL = "gemini-3.6-flash"',
+    );
+    expect(parseWranglerConfig).not.toContain("GEMINI_THINKING_BUDGET =");
+    expect(uploadStep).toContain(
+      "working-directory: workers/${{ matrix.worker }}",
+    );
+    expect(uploadStep).toContain("npx wrangler versions upload");
+    expect(uploadStep).not.toMatch(/--var[^\n]*GEMINI_/);
+    expect(uploadStep).not.toContain("GEMINI_MODEL");
+    expect(uploadStep).not.toContain("GEMINI_FALLBACK_MODEL");
   });
 });

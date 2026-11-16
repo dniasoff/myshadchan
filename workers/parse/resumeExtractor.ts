@@ -3,7 +3,7 @@ import {
   GEMINI_RESUME_RESPONSE_SCHEMA,
 } from "./geminiResponseSchema";
 import { DocxExtractionError, extractDocxText } from "./docxExtractor";
-import { logExtractorFailure } from "./rereadDiagnostics";
+import { logExtractorAttempt, logExtractorFailure } from "./rereadDiagnostics";
 
 export const DOCX_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -317,6 +317,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
           GEMINI_EXTRACT_TIMEOUT_MS,
           remainingMs,
         );
+        logExtractorAttempt(model, attempt);
         const baseUrl = `https://gateway.ai.cloudflare.com/v1/${env.AI_GATEWAY_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/google-ai-studio/v1beta/models/${model}:generateContent`;
         let httpStatus: number | undefined;
         let finishReason: unknown;

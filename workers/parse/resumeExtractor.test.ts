@@ -54,7 +54,7 @@ describe("geminiExtractor", () => {
     vi.unstubAllGlobals();
   });
 
-  it("calls the Gemini gateway with the floating gemini-flash-latest alias, not a pinned version", async () => {
+  it("uses the default model and no fallback when model vars are absent", async () => {
     // Arrange
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ candidates: [] }), {
@@ -72,6 +72,12 @@ describe("geminiExtractor", () => {
       `https://gateway.ai.cloudflare.com/v1/${TEST_ENV.AI_GATEWAY_ACCOUNT_ID}/${TEST_ENV.AI_GATEWAY_ID}/google-ai-studio/v1beta/models/gemini-flash-latest:generateContent`,
       expect.objectContaining({ method: "POST" }),
     );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as {
+      generationConfig: { thinkingConfig?: unknown };
+    };
+    expect(body.generationConfig.thinkingConfig).toBeUndefined();
   });
 
   it("sends bounded DOCX prose as text instead of forwarding the ZIP to Gemini", async () => {
@@ -661,6 +667,7 @@ describe("geminiExtractor", () => {
     it("uses the fallback model only after primary transient exhaustion", async () => {
       vi.useFakeTimers();
       vi.spyOn(Math, "random").mockReturnValue(1);
+      const attemptLog = vi.spyOn(console, "warn").mockImplementation(() => {});
       const fetchMock = vi
         .fn()
         .mockResolvedValueOnce(new Response("busy", { status: 503 }))
@@ -670,8 +677,8 @@ describe("geminiExtractor", () => {
       vi.stubGlobal("fetch", fetchMock);
       const extractor = geminiExtractor({
         ...TEST_ENV,
-        GEMINI_MODEL: "gemini-primary-flash",
-        GEMINI_FALLBACK_MODEL: "gemini-fallback-flash",
+        GEMINI_MODEL: "gemini-2.5-flash-lite",
+        GEMINI_FALLBACK_MODEL: "gemini-3.6-flash",
       });
 
       const pending = extractor.extract(new ArrayBuffer(0), "application/pdf");
@@ -683,11 +690,24 @@ describe("geminiExtractor", () => {
       await expect(pending).resolves.toEqual({});
       expect(fetchMock).toHaveBeenCalledTimes(4);
       expect((fetchMock.mock.calls[0] as [string])[0]).toContain(
-        "/models/gemini-primary-flash:",
+        "/models/gemini-2.5-flash-lite:",
       );
       expect((fetchMock.mock.calls[3] as [string])[0]).toContain(
-        "/models/gemini-fallback-flash:",
+        "/models/gemini-3.6-flash:",
       );
+      expect(
+        fetchMock.mock.calls.filter(([url]) =>
+          String(url).includes("gemini-3.6-flash"),
+        ),
+      ).toHaveLength(1);
+      expect(attemptLog).toHaveBeenNthCalledWith(1, "parse.extract.attempt", {
+        model: "gemini-2.5-flash-lite",
+        attempt: 1,
+      });
+      expect(attemptLog).toHaveBeenNthCalledWith(4, "parse.extract.attempt", {
+        model: "gemini-3.6-flash",
+        attempt: 1,
+      });
     });
 
     it("tries the fallback only once when it is also busy", async () => {
