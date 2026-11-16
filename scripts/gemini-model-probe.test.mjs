@@ -5,6 +5,7 @@ import {
   SYNTHETIC_RESUME_TEXT,
   buildProbePlan,
   buildRequestBody,
+  createEmitter,
   parseArgs,
   runProbe,
   summarizeResponse,
@@ -150,6 +151,10 @@ describe("gemini-model-probe", () => {
     });
     expect(result.exitCode).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(output).toContain("plan maxCalls=40 listPageCap=5 candidateCalls=3");
+    expect(output.at(-1)).toBe(
+      "calls=0 maxCalls=40 listPages=0 candidateCalls=0 listStop=not_started",
+    );
     expect([...output, ...errors].join("\n")).not.toContain(fakeKey);
   });
 
@@ -229,7 +234,182 @@ describe("gemini-model-probe", () => {
     );
     expect(output[0]).toBe("models/gemini-3.6-flash");
     expect(output[1]).toBe("models/gemini-3.5-flash-lite");
-    expect(output.slice(2)).toHaveLength(3);
+    expect(output.slice(2, -1)).toHaveLength(3);
+    expect(output.at(-1)).toBe(
+      "calls=5 maxCalls=40 listPages=2 candidateCalls=3 listStop=complete",
+    );
     expect(output.join("\n")).not.toContain(fakeKey);
+  });
+
+  it("caps endless model-list pagination and still probes remaining candidates", async () => {
+    const output = [];
+    let callCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url) => {
+      callCount += 1;
+      if (url.includes(":generateContent")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  finishReason: "STOP",
+                  content: { parts: [{ text: fullResponseText() }] },
+                },
+              ],
+            }),
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            models: [],
+            nextPageToken: `unique-page-${callCount}`,
+          }),
+        ),
+      );
+    });
+
+    const result = await runProbe({
+      argv: ["gemini-3.5-flash-lite"],
+      env: { GOOGLE_AI_STUDIO_API_KEY: "synthetic-probe-key" },
+      fetchImpl: fetchMock,
+      writeLine: (line) => output.push(String(line)),
+      delayMs: 0,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.calls).toBe(8);
+    expect(callCount).toBe(8);
+    expect(output.filter((line) => line.startsWith("model=")).length).toBe(3);
+    expect(output.at(-1)).toBe(
+      "calls=8 maxCalls=40 listPages=5 candidateCalls=3 listStop=page_cap",
+    );
+  });
+
+  it("redacts hostile model names, tokens, and error output", async () => {
+    const fakeKey = "fake/key+that=must-never-appear";
+    const encodedKey = encodeURIComponent(fakeKey);
+    const output = [];
+    const errors = [];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            models: [
+              {
+                name: fakeKey,
+                supportedGenerationMethods: ["generateContent"],
+              },
+              {
+                name: `models/gemini-${fakeKey}`,
+                supportedGenerationMethods: ["generateContent"],
+              },
+            ],
+            nextPageToken: encodedKey,
+          }),
+        ),
+      )
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                finishReason: "STOP",
+                content: { parts: [{ text: fullResponseText() }] },
+              },
+            ],
+          }),
+        ),
+      );
+
+    const result = await runProbe({
+      argv: ["gemini-flash-latest"],
+      env: { GOOGLE_AI_STUDIO_API_KEY: fakeKey },
+      fetchImpl: fetchMock,
+      writeLine: (line) => output.push(String(line)),
+      writeError: (line) => errors.push(String(line)),
+      delayMs: 0,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(output.at(-1)).toContain("listStop=unsafe_page_token");
+    const emit = createEmitter({
+      apiKey: fakeKey,
+      writeLine: (line) => output.push(String(line)),
+      writeError: (line) => errors.push(String(line)),
+    });
+    emit(`provider error ${fakeKey} ${encodedKey}`, "stderr");
+    await runProbe({
+      argv: ["gemini-flash-latest"],
+      env: { GOOGLE_AI_STUDIO_API_KEY: fakeKey },
+      fetchImpl: vi
+        .fn()
+        .mockRejectedValue(new Error(`provider error ${fakeKey}`)),
+      writeLine: (line) => output.push(String(line)),
+      writeError: (line) => errors.push(String(line)),
+      delayMs: 0,
+    });
+    const captured = [...output, ...errors].join("\n");
+    expect(output.filter((line) => line === "<redacted>")).toHaveLength(2);
+    expect(captured).not.toContain(fakeKey);
+    expect(captured).not.toContain(encodedKey);
+    expect(captured).toContain("<key>");
+  });
+
+  it("reports candidates skipped when listing consumes the shared call budget", async () => {
+    const output = [];
+    const errors = [];
+    let callCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url) => {
+      callCount += 1;
+      if (url.includes(":generateContent")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  finishReason: "STOP",
+                  content: { parts: [{ text: fullResponseText() }] },
+                },
+              ],
+            }),
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            models: [],
+            nextPageToken: `unique-page-${callCount}`,
+          }),
+        ),
+      );
+    });
+    const models = Array.from(
+      { length: 13 },
+      (_, index) => `gemini-3.6-flash-${index}`,
+    );
+
+    const result = await runProbe({
+      argv: models,
+      env: { GOOGLE_AI_STUDIO_API_KEY: "synthetic-probe-key" },
+      fetchImpl: fetchMock,
+      writeLine: (line) => output.push(String(line)),
+      writeError: (line) => errors.push(String(line)),
+      delayMs: 0,
+    });
+
+    expect(callCount).toBe(40);
+    expect(result.calls).toBe(40);
+    expect(result.candidateProbesSkipped).toBe(true);
+    expect(result.results).toHaveLength(35);
+    expect(errors).toContain("candidate probes skipped: call_budget_exhausted");
+    expect(output.at(-1)).toBe(
+      "calls=40 maxCalls=40 listPages=5 candidateCalls=35 listStop=page_cap",
+    );
+    expect(result.exitCode).toBe(1);
   });
 });

@@ -93,8 +93,10 @@ token results for each candidate/thinking combination. Gemini 3.x candidates
 use `unset`, `minimal`, and `low`; Gemini 2.5 candidates use `unset` and
 `minimal` (`thinkingBudget: 0`); aliases are tested with the Worker-compatible
 unset mode. A line passes only when at least eight references are returned.
-The default plan is 16 sequential calls, with a 90-second per-call timeout
-and a hard 40-call cap.
+The default plan is 16 sequential candidate calls, with a 90-second per-call
+timeout, at most five model-list pages, and one shared hard 40-call cap across
+listing and candidates. The final line reports calls used; candidates are
+reported as skipped if listing consumes the remaining budget.
 
 Preview the plan without a key or network access first:
 

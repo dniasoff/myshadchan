@@ -11,6 +11,7 @@ import {
 export const DIRECT_BASE_URL = "https://generativelanguage.googleapis.com";
 export const PER_CALL_TIMEOUT_MS = 90_000;
 export const MAX_CALLS = 40;
+export const MODEL_LIST_MAX_PAGES = 5;
 export const REQUEST_DELAY_MS = 250;
 
 export const DEFAULT_MODELS = [
@@ -63,6 +64,8 @@ const FINISH_REASONS = new Set([
   "IMAGE_OTHER",
   "UNKNOWN",
 ]);
+
+const MODEL_NAME_PATTERN = /^(?:models\/)?[a-z0-9][a-z0-9._-]{0,80}$/;
 
 export const SYNTHETIC_RESUME_TEXT = `FICTIONAL SAMPLE RESUME — NOT A REAL PERSON
 
@@ -118,8 +121,9 @@ environment. MODEL arguments replace the default candidate list. --dry-run
 prints the bounded model/thinking plan without making network requests.
 
 The probe lists served generateContent models, then makes at most ${MAX_CALLS}
-sequential synthetic-resume requests with a ${PER_CALL_TIMEOUT_MS / 1000}s
-per-call timeout. It never prints the API key or provider response body.`;
+total network calls across listing and sequential synthetic-resume requests.
+Each request has a ${PER_CALL_TIMEOUT_MS / 1000}s timeout. It never prints the
+API key or provider response body.`;
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -138,6 +142,52 @@ function safeFinishReason(value) {
   return typeof value === "string" && FINISH_REASONS.has(value)
     ? value
     : "UNKNOWN";
+}
+
+export function safeModelName(value) {
+  return typeof value === "string" && MODEL_NAME_PATTERN.test(value)
+    ? value
+    : "<redacted>";
+}
+
+export function createCallBudget(maxCalls = MAX_CALLS) {
+  return { maxCalls, used: 0 };
+}
+
+function reserveCall(budget) {
+  if (budget.used >= budget.maxCalls) return false;
+  budget.used += 1;
+  return true;
+}
+
+export function createEmitter({
+  apiKey,
+  writeLine = (line) => console.log(line),
+  writeError = (line) => console.error(line),
+} = {}) {
+  const secrets = new Set();
+  if (typeof apiKey === "string" && apiKey.length > 0) {
+    secrets.add(apiKey);
+    if (apiKey.length >= 8) secrets.add(encodeURIComponent(apiKey));
+  }
+  const scrub = (line) => {
+    let result = String(line);
+    for (const secret of secrets) result = result.split(secret).join("<key>");
+    return result;
+  };
+  return (line, stream = "stdout") => {
+    const output = scrub(line);
+    if (stream === "stderr") writeError(output);
+    else writeLine(output);
+  };
+}
+
+function containsSecret(value, apiKey) {
+  if (typeof value !== "string" || typeof apiKey !== "string") return false;
+  return (
+    value.includes(apiKey) ||
+    (apiKey.length >= 8 && value.includes(encodeURIComponent(apiKey)))
+  );
 }
 
 function normalizeModelId(value) {
@@ -357,19 +407,35 @@ export async function listSupportedModelNames({
   baseUrl,
   apiKey,
   fetchImpl = fetch,
+  budget = createCallBudget(),
+  maxPages = MODEL_LIST_MAX_PAGES,
 }) {
   const names = [];
   const seenPageTokens = new Set();
   let pageToken;
+  let pages = 0;
   do {
-    const { response, body } = await fetchJsonWithTimeout(
-      fetchImpl,
-      modelsEndpoint(baseUrl, pageToken),
-      {
-        method: "GET",
-        headers: { "x-goog-api-key": apiKey },
-      },
-    );
+    if (pages >= maxPages) {
+      return { names, pages, stoppedReason: "page_cap" };
+    }
+    if (!reserveCall(budget)) {
+      return { names, pages, stoppedReason: "call_budget_exhausted" };
+    }
+    pages += 1;
+    let response;
+    let body;
+    try {
+      ({ response, body } = await fetchJsonWithTimeout(
+        fetchImpl,
+        modelsEndpoint(baseUrl, pageToken),
+        {
+          method: "GET",
+          headers: { "x-goog-api-key": apiKey },
+        },
+      ));
+    } catch {
+      throw new Error("model list request failed");
+    }
     if (!response.ok) throw new Error("model list request failed");
     const page = body;
     if (!isRecord(page)) throw new Error("model list response invalid");
@@ -385,11 +451,15 @@ export async function listSupportedModelNames({
     }
     pageToken =
       typeof page.nextPageToken === "string" ? page.nextPageToken : undefined;
-    if (pageToken && seenPageTokens.has(pageToken))
-      throw new Error("model list pagination repeated");
+    if (pageToken && containsSecret(pageToken, apiKey)) {
+      return { names, pages, stoppedReason: "unsafe_page_token" };
+    }
+    if (pageToken && seenPageTokens.has(pageToken)) {
+      return { names, pages, stoppedReason: "repeated_page_token" };
+    }
     if (pageToken) seenPageTokens.add(pageToken);
   } while (pageToken);
-  return names;
+  return { names, pages };
 }
 
 async function probeOne({ plan, baseUrl, apiKey, fetchImpl, now = Date.now }) {
@@ -443,19 +513,37 @@ export async function runProbe({
   argv = process.argv.slice(2),
   env = process.env,
   fetchImpl = fetch,
-  writeLine = (line) => console.log(line),
-  writeError = (line) => console.error(line),
+  writeLine,
+  writeError,
   delayMs = REQUEST_DELAY_MS,
 } = {}) {
+  const apiKeyForScrub =
+    typeof env.GOOGLE_AI_STUDIO_API_KEY === "string"
+      ? env.GOOGLE_AI_STUDIO_API_KEY
+      : undefined;
+  const emit = createEmitter({ apiKey: apiKeyForScrub, writeLine, writeError });
+  const budget = createCallBudget();
+  const emitBudgetSummary = ({
+    listPages = "unknown",
+    candidateCalls = 0,
+    listStop = "not_started",
+  } = {}) => {
+    emit(
+      `calls=${budget.used} maxCalls=${budget.maxCalls} listPages=${listPages} candidateCalls=${candidateCalls} listStop=${listStop}`,
+    );
+  };
+
   let options;
   try {
     options = parseArgs(argv);
   } catch {
-    writeError("probe failed: invalid arguments");
+    emit("probe failed: invalid arguments", "stderr");
+    emitBudgetSummary();
     return { exitCode: 2 };
   }
   if (options.help) {
-    writeLine(HELP_TEXT);
+    emit(HELP_TEXT);
+    emitBudgetSummary();
     return { exitCode: 0 };
   }
 
@@ -463,14 +551,19 @@ export async function runProbe({
   try {
     plan = buildProbePlan(options.models);
   } catch {
-    writeError("probe failed: plan exceeds call cap");
+    emit("probe failed: plan exceeds call cap", "stderr");
+    emitBudgetSummary();
     return { exitCode: 2 };
   }
   if (options.dryRun) {
+    emit(
+      `plan maxCalls=${MAX_CALLS} listPageCap=${MODEL_LIST_MAX_PAGES} candidateCalls=${plan.length}`,
+    );
     for (const item of plan) {
-      writeLine(`plan model=${item.model} thinking=${item.thinkingMode}`);
+      emit(`plan model=${item.model} thinking=${item.thinkingMode}`);
     }
-    return { exitCode: 0, plan };
+    emitBudgetSummary({ candidateCalls: 0, listPages: 0 });
+    return { exitCode: 0, plan, calls: budget.used };
   }
 
   let apiKey;
@@ -479,21 +572,34 @@ export async function runProbe({
     apiKey = requireApiKey(env);
     baseUrl = resolveBaseUrl(env);
   } catch {
-    writeError("probe failed: invalid environment");
-    return { exitCode: 2 };
+    emit("probe failed: invalid environment", "stderr");
+    emitBudgetSummary();
+    return { exitCode: 2, calls: budget.used };
   }
 
-  let servedNames;
+  let listing;
   try {
-    servedNames = await listSupportedModelNames({ baseUrl, apiKey, fetchImpl });
+    listing = await listSupportedModelNames({
+      baseUrl,
+      apiKey,
+      fetchImpl,
+      budget,
+    });
   } catch {
-    writeError("probe failed: model listing");
-    return { exitCode: 1, plan };
+    emit("probe failed: model listing", "stderr");
+    emitBudgetSummary({ listPages: "unknown" });
+    return { exitCode: 1, plan, calls: budget.used };
   }
-  for (const name of servedNames) writeLine(name);
+  for (const name of listing.names) emit(safeModelName(name));
 
   const results = [];
+  let candidateProbesSkipped = false;
   for (const item of plan) {
+    if (!reserveCall(budget)) {
+      candidateProbesSkipped = true;
+      emit("candidate probes skipped: call_budget_exhausted", "stderr");
+      break;
+    }
     if (results.length > 0 && delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
@@ -504,12 +610,20 @@ export async function runProbe({
       fetchImpl,
     });
     results.push(result);
-    writeLine(formatResult(result));
+    emit(formatResult(result));
   }
+  emitBudgetSummary({
+    listPages: listing.pages,
+    candidateCalls: results.length,
+    listStop: listing.stoppedReason ?? "complete",
+  });
   return {
-    exitCode: results.every((result) => result.pass) ? 0 : 1,
+    exitCode:
+      !candidateProbesSkipped && results.every((result) => result.pass) ? 0 : 1,
     plan,
     results,
+    calls: budget.used,
+    candidateProbesSkipped,
   };
 }
 
