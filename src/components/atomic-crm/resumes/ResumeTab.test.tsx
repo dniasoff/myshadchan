@@ -124,13 +124,7 @@ describe("ResumeTab — reference privacy gate", () => {
         files: [],
         sections: {
           learningHistory: [],
-          references: [
-            {
-              name: "Chaim Feldman",
-              relationship: "Rebbi",
-              phone: "054-222-3344",
-            },
-          ],
+          references: [],
         },
         created_at: "2026-01-01T00:00:00.000Z",
       } satisfies Resume,

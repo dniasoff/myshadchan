@@ -8,6 +8,7 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type { Resume, ResumeFileVersion } from "../types";
 import { ResumeVersionList } from "./ResumeVersionList";
+import { isResumeUnread } from "./resumeReadableSections";
 
 /**
  * Story 5.3's falsifiable claims for `ResumeVersionList`: loading/empty/
@@ -49,6 +50,7 @@ const buildDataProvider = (
 const renderList = async (
   shidduchimId: number,
   dataProviderOverrides: Partial<CrmDataProvider> = {},
+  canReread = false,
 ) => {
   const dataProvider = buildDataProvider(dataProviderOverrides);
 
@@ -58,7 +60,7 @@ const renderList = async (
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <ResumeVersionList shidduchimId={shidduchimId} />
+        <ResumeVersionList shidduchimId={shidduchimId} canReread={canReread} />
         <Notification />
       </CoreAdminContext>
     </TestMemoryRouter>,
@@ -210,5 +212,100 @@ describe("ResumeVersionList — signed URL minted per click, never cached (AC 5)
     await expect
       .element(screen.getByRole("button", { name: "Download" }))
       .toBeInTheDocument();
+  });
+});
+
+describe("ResumeVersionList — unread read mode", () => {
+  it("uses the full read for an unread resume and keeps re-read for a read resume", async () => {
+    const version = buildVersion();
+    const readResume = vi.fn().mockResolvedValue("completed");
+    const reReadResume = vi.fn().mockResolvedValue("completed");
+    const unreadRow = buildResumeRow({
+      sections: null,
+      extracted: null,
+      files: [version],
+    });
+    expect(isResumeUnread(unreadRow)).toBe(true);
+    const unreadGetList = vi.fn().mockResolvedValue({
+      data: [unreadRow],
+      total: 1,
+    });
+
+    const unread = await renderList(
+      1,
+      { getList: unreadGetList, readResume, reReadResume },
+      true,
+    );
+    await expect
+      .element(
+        unread.screen.getByRole("button", {
+          name: "Read this resume",
+          exact: true,
+        }),
+      )
+      .toBeInTheDocument();
+    await unread.screen
+      .getByRole("button", { name: "Read this resume", exact: true })
+      .click();
+    await unread.screen
+      .getByRole("button", { name: "Read", exact: true })
+      .click();
+    await expect.poll(() => readResume.mock.calls.length).toBe(1);
+    expect(readResume).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeId: 1,
+        fileIdentity: version.path,
+        mode: "fill_empty",
+      }),
+    );
+    expect(reReadResume).not.toHaveBeenCalled();
+    unread.screen.unmount();
+
+    const readGetList = vi.fn().mockResolvedValue({
+      data: [
+        buildResumeRow({
+          sections: {
+            learningHistory: [],
+            references: [],
+            additionalSections: [],
+            schemaVersion: 4,
+          },
+          extracted: null,
+          files: [version],
+        }),
+      ],
+      total: 1,
+    });
+    const alreadyRead = await renderList(
+      1,
+      { getList: readGetList, readResume, reReadResume },
+      true,
+    );
+    await expect
+      .element(
+        alreadyRead.screen.getByRole("button", {
+          name: "Re-read this resume",
+          exact: true,
+        }),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(
+        alreadyRead.screen.getByRole("button", {
+          name: "Read this resume",
+          exact: true,
+        }),
+      )
+      .not.toBeInTheDocument();
+    await alreadyRead.screen
+      .getByRole("button", { name: "Re-read this resume", exact: true })
+      .click();
+    await alreadyRead.screen
+      .getByRole("button", { name: "Re-read", exact: true })
+      .click();
+    await expect.poll(() => reReadResume.mock.calls.length).toBe(1);
+    expect(reReadResume).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeId: 1, fileIdentity: version.path }),
+    );
   });
 });

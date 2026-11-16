@@ -8,6 +8,11 @@ import { formatTimelineDate } from "../entity360/tabs/interactionLabels";
 import type { CrmDataProvider } from "../providers/types";
 import type { Resume, ResumeFileVersion } from "../types";
 import { ResumeRereadControl } from "./ResumeRereadControl";
+import {
+  isAutomaticallyReadableResume,
+  RESUME_AUTO_READ_COPY,
+} from "./resumeAutoReadHelpers";
+import { isResumeUnread } from "./resumeReadableSections";
 import { resumeSubjectFilter, type ResumeSubject } from "./resumeSubject";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 
@@ -59,12 +64,14 @@ function ResumeVersionRow({
   isShown,
   onShow,
   canReread,
+  isUnread,
 }: {
   resumeId: Resume["id"];
   version: ResumeFileVersion;
   isShown: boolean;
   onShow?: (path: string) => void;
   canReread: boolean;
+  isUnread: boolean;
 }): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
@@ -127,11 +134,16 @@ function ResumeVersionRow({
         >
           {translate("crm.entity360.resume.download", { _: "Download" })}
         </Button>
-        {canReread ? (
+        {canReread && isAutomaticallyReadableResume(version) ? (
           <ResumeRereadControl
             resumeId={resumeId}
             fileIdentity={version.path}
+            isUnread={isUnread}
           />
+        ) : canReread ? (
+          <p className="text-xs text-muted-foreground">
+            {RESUME_AUTO_READ_COPY.unsupported}
+          </p>
         ) : null}
       </div>
     </li>
@@ -171,6 +183,7 @@ export function ResumeVersionList({
   if (error) return <ResumeError />;
 
   const versions = sortResumeFilesNewestFirst(data?.[0]?.files ?? []);
+  const isUnread = data?.[0] != null && isResumeUnread(data[0]);
 
   if (versions.length === 0) return <ResumeEmpty />;
 
@@ -188,6 +201,7 @@ export function ResumeVersionList({
             data?.[0]?.id != null &&
             version.path === versions[0]?.path
           }
+          isUnread={isUnread}
         />
       ))}
     </ul>

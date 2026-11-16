@@ -14,6 +14,7 @@ import type { CrmDataProvider } from "../providers/types";
 import { createDataProvider } from "../providers/fakerest/dataProvider";
 import generateData from "../providers/fakerest/dataGenerator";
 import type { ReferenceLinkSummary, Resume, ShidduchSummary } from "../types";
+import { RESUME_UNREAD_PARITY_FIXTURES } from "../../../../workers/parse/resumeUnreadFixtures";
 import { ResumeReadableSections } from "./ResumeReadableSections";
 import {
   linkMatchesResumeReference,
@@ -21,6 +22,7 @@ import {
   normalizeResumeReferenceName,
   normalizeResumeReferencePhone,
   parseResumeSections,
+  isResumeUnread,
   type ParsedAdditionalSection,
 } from "./resumeReadableSections";
 
@@ -70,6 +72,7 @@ function renderSections({
   fixtureRecord = record,
   files = [],
   addManualLink = false,
+  manualLinkNote,
   hebrewChaim = false,
   latency = 0,
   readResume,
@@ -77,11 +80,11 @@ function renderSections({
   canViewReferences?: boolean;
   canRead?: boolean;
   withLinks?: boolean;
-  sections?: Omit<typeof parsedSections, "additionalSections"> &
-    Partial<Pick<typeof parsedSections, "additionalSections">>;
+  sections?: unknown;
   fixtureRecord?: ShidduchSummary;
   files?: Resume["files"];
   addManualLink?: boolean;
+  manualLinkNote?: string;
   hebrewChaim?: boolean;
   latency?: number;
   readResume?: CrmDataProvider["readResume"];
@@ -121,7 +124,7 @@ function renderSections({
       shidduchim_id: 1,
       resume_id: null,
       call_status: "not_started",
-      what_they_said: null,
+      what_they_said: manualLinkNote ?? null,
       conversation_log: [],
       relationship_override: null,
       created_at: "2026-02-01T00:00:00.000Z",
@@ -471,6 +474,15 @@ describe("resume reference matching", () => {
   });
 });
 
+describe("isResumeUnread", () => {
+  it.each(RESUME_UNREAD_PARITY_FIXTURES)(
+    "matches the shared raw-shape parity fixture: $name",
+    ({ sections, extracted, expectedUnread }) => {
+      expect(isResumeUnread({ sections, extracted })).toBe(expectedUnread);
+    },
+  );
+});
+
 describe("ResumeReadableSections", () => {
   it("renders ordered cards, direction-aware Hebrew, and the pending/unlinked state", async () => {
     const { screen } = await renderSections({ withLinks: false });
@@ -658,6 +670,7 @@ describe("ResumeReadableSections", () => {
       "Learning history",
       "Learning detail",
       "Other",
+      "References",
     ]);
   });
 
@@ -1442,6 +1455,7 @@ describe("ResumeReadableSections", () => {
     const { screen } = await renderSections({
       fixtureRecord: { id: 1 } as ShidduchSummary,
       sections: { learningHistory: [], references: [] },
+      withLinks: false,
     });
     await expect
       .element(screen.getByText("No sections were found in this resume."))
@@ -1476,6 +1490,7 @@ describe("ResumeReadableSections", () => {
       fixtureRecord: { id: 1 } as ShidduchSummary,
       files: [file],
       sections: { learningHistory: [], references: [] },
+      withLinks: false,
       readResume,
     });
 
@@ -1501,6 +1516,213 @@ describe("ResumeReadableSections", () => {
     await expect
       .poll(() => screen.getByRole("status").element().textContent)
       .toBe("Resume read. The details are ready below.");
+  });
+
+  it("shows the static empty-read outcome in the Easy-to-read card", async () => {
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const readResume = vi.fn().mockResolvedValue("empty");
+    const { screen } = await renderSections({
+      canRead: true,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      files: [file],
+      sections: { learningHistory: [], references: [] },
+      withLinks: false,
+      readResume,
+    });
+
+    await screen
+      .getByRole("button", { name: "Read this resume", exact: true })
+      .click();
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("We could not find details in this resume.");
+  });
+
+  it.each([
+    [
+      "blank-only sections",
+      {
+        learningHistory: [{ label: " ", value: " " }],
+        references: [],
+        additionalSections: [],
+      },
+    ],
+    [
+      "contact-only additional sections filtered by the parser",
+      {
+        learningHistory: [],
+        references: [],
+        additionalSections: [
+          {
+            key: "work",
+            title: "Work",
+            items: [{ label: "Phone", value: "054-222-3344" }],
+          },
+        ],
+      },
+    ],
+  ] as const)(
+    "offers fill-empty for an unreadable-to-display %s row without a marker",
+    async (_label, sections) => {
+      const file = {
+        path: "1/resumes/1/current.pdf",
+        filename: "current.pdf",
+        uploaded_at: "2026-11-15T12:00:00.000Z",
+        uploaded_by: 7,
+        mime_type: "application/pdf",
+        size: 10,
+      };
+      const readResume = vi.fn().mockResolvedValue("completed");
+      const { screen } = await renderSections({
+        canRead: true,
+        fixtureRecord: { id: 1 } as ShidduchSummary,
+        files: [file],
+        sections,
+        withLinks: false,
+        readResume,
+      });
+
+      const button = screen.getByRole("button", {
+        name: "Read this resume",
+        exact: true,
+      });
+      await expect.element(button).toBeInTheDocument();
+      await button.click();
+      expect(readResume).toHaveBeenCalledWith(
+        expect.objectContaining({ resumeId: 9001, mode: "fill_empty" }),
+      );
+    },
+  );
+
+  it("does not offer a paid empty-state read after a terminal marker", async () => {
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const readResume = vi.fn();
+    const { screen } = await renderSections({
+      canRead: true,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      files: [file],
+      sections: {
+        learningHistory: [],
+        references: [],
+        additionalSections: [],
+        schemaVersion: 4,
+      },
+      withLinks: false,
+      readResume,
+    });
+
+    await expect
+      .element(screen.getByText("No sections were found in this resume."))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Read this resume" }))
+      .not.toBeInTheDocument();
+    expect(readResume).not.toHaveBeenCalled();
+  });
+
+  it("offers the full read under existing subject cards when the resume is unread", async () => {
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const readResume = vi.fn().mockResolvedValue("completed");
+    const { screen } = await renderSections({
+      canRead: true,
+      files: [file],
+      sections: { learningHistory: [], references: [] },
+      readResume,
+    });
+
+    await expect
+      .element(screen.getByText("Personal details"))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "This resume has not been read yet. Read it to fill in the details.",
+        ),
+      )
+      .toBeInTheDocument();
+    const button = screen.getByRole("button", {
+      name: "Read this resume",
+      exact: true,
+    });
+    await expect.element(button).toBeInTheDocument();
+    await button.click();
+    expect(readResume).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeId: 9001, mode: "fill_empty" }),
+    );
+  });
+
+  it("does not show a full-read control in the Easy-to-read card for a read resume", async () => {
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const readResume = vi.fn();
+    const { screen } = await renderSections({
+      canRead: true,
+      files: [file],
+      sections: parsedSections,
+      readResume,
+    });
+
+    await expect
+      .element(screen.getByRole("heading", { name: "Easy-to-read resume" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Read this resume" }))
+      .not.toBeInTheDocument();
+    expect(readResume).not.toHaveBeenCalled();
+  });
+
+  it("shows orphan reference links and preserves their notes", async () => {
+    const { screen } = await renderSections({
+      sections: { learningHistory: [], references: [] },
+      addManualLink: true,
+      manualLinkNote: "answered call back",
+    });
+
+    await expect
+      .element(screen.getByRole("heading", { name: "References" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Manual Diligence reference"))
+      .toBeInTheDocument();
+    const noteButton = screen.getByRole("button", {
+      name: /Open note for Manual/,
+    });
+    await expect.element(noteButton).toBeInTheDocument();
+    await noteButton.click();
+    await expect
+      .element(
+        screen.getByRole("textbox", {
+          name: "What Manual Diligence reference said",
+        }),
+      )
+      .toHaveValue("answered call back");
   });
 
   it.each(["single", "pending", "undefined"] as const)(

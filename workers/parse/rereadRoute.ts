@@ -85,6 +85,62 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const MAX_UNREAD_STRING_PROBE = 1_024;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasNonWhitespaceString(value: string): boolean {
+  const probeLength = Math.min(value.length, MAX_UNREAD_STRING_PROBE);
+  for (let index = 0; index < probeLength; index += 1) {
+    if (!/\s/u.test(value[index] ?? "")) return true;
+  }
+
+  // Do not scan an unbounded payload. A long unobserved suffix is treated as
+  // non-empty so a malformed payload cannot accidentally unlock a paid read.
+  return value.length > probeLength;
+}
+
+function hasNonEmptyRawValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return hasNonWhitespaceString(value);
+  if (Array.isArray(value)) return value.length > 0;
+  if (isPlainObject(value)) {
+    for (const _key in value) return true;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Keep the legacy request upgrade in one pure predicate. The browser mirrors
+ * this definition in `resumeReadableSections.ts`; the route cannot trust a
+ * client-provided mode when an old bundle omits `fill_empty`.
+ */
+export function isResumeUnread(resume: {
+  sections: unknown;
+  extracted: unknown;
+}): boolean {
+  const sections = resume.sections;
+  if (!isPlainObject(sections)) return true;
+  if (Object.prototype.hasOwnProperty.call(sections, "schemaVersion")) {
+    return false;
+  }
+
+  const hasNonEmptySectionArray = [
+    "learningHistory",
+    "references",
+    "additionalSections",
+  ].some((key) => Array.isArray(sections[key]) && sections[key].length > 0);
+
+  return !hasNonEmptySectionArray && !hasNonEmptyRawValue(resume.extracted);
+}
+
 function buildRereadSections(
   original: unknown,
   additionalSections: unknown,
@@ -185,7 +241,7 @@ export async function rereadResume(
 
   const resumeResult = await caller
     .from("resumes")
-    .select("id,account_id,shidduchim_id,single_id,files,sections")
+    .select("id,account_id,shidduchim_id,single_id,files,sections,extracted")
     .eq("id", body.resume_id)
     .maybeSingle();
   const resume = readRereadResumeRow(resumeResult.data);
@@ -196,7 +252,19 @@ export async function rereadResume(
     return failure(dependencies);
   }
 
-  const selectedFile = selectRereadFile(resume, accountId, body.file_identity);
+  const extracted = isObject(resumeResult.data)
+    ? resumeResult.data.extracted
+    : null;
+  const shouldUpgradeLegacyRead =
+    body.mode !== "fill_empty" &&
+    isResumeUnread({ sections: resume.sections, extracted });
+  const effectiveMode = shouldUpgradeLegacyRead ? "fill_empty" : body.mode;
+
+  const selectedFile = selectRereadFile(
+    resume,
+    accountId,
+    shouldUpgradeLegacyRead ? undefined : body.file_identity,
+  );
   if (!selectedFile) return failure(dependencies);
 
   const service = dependencies.service ?? getParseQuotaClient(dependencies.env);
@@ -308,7 +376,7 @@ export async function rereadResume(
     }
 
     const applied =
-      body.mode === "fill_empty"
+      effectiveMode === "fill_empty"
         ? await applyResumeRead(
             dependencies.env,
             accountId,
@@ -356,7 +424,7 @@ export async function rereadResume(
 
     attemptFinalized = true;
     const isEmptyRead =
-      body.mode === "fill_empty" &&
+      effectiveMode === "fill_empty" &&
       Object.values(draft.fields).every(
         (value) =>
           value == null || (typeof value === "string" && value.trim() === ""),

@@ -27,6 +27,7 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 
 import type { CrmDataProvider } from "../providers/types";
+import { RESUME_AUTO_READ_COPY } from "./resumeAutoReadHelpers";
 import {
   createResumeReadRequestId,
   resumeReadAttemptKey,
@@ -34,34 +35,48 @@ import {
 } from "./resumeReadRequest";
 
 type RereadFeedback =
-  "reading" | "completed" | "failed" | "no_allowance" | "not_entitled";
+  | "reading"
+  | "completed"
+  | "empty"
+  | "failed"
+  | "no_allowance"
+  | "not_entitled";
 
 export const REREAD_COPY = {
   trigger: "Re-read this resume",
+  readTrigger: "Read this resume",
   title: "Read this resume again?",
+  readTitle: "Read this resume?",
   description:
     "This uses 1 of your monthly resume reads. Your edits, notes and call history will not change.",
   reading: "Reading this resume. Please wait.",
   completed: "Resume read again. New sections are ready below.",
+  readCompleted: "Resume read. The details are ready below.",
+  readEmpty: RESUME_AUTO_READ_COPY.empty,
   failed: "Could not read this resume. Nothing was changed.",
   noAllowance: "No resume reads left this month.",
   notEntitled: "AI reading is not switched on for your account yet.",
   cancel: "Cancel",
   confirm: "Re-read",
+  readConfirm: "Read",
 } as const;
 
 export type ResumeRereadControlProps = {
   resumeId: Identifier;
   /** Stable identity of the current file version, kept in memory only. */
   fileIdentity: string;
+  /** Unread resumes use the full fill-empty reader; read resumes keep reread. */
+  isUnread?: boolean;
 };
 
-function feedbackText(feedback: RereadFeedback): string {
+function feedbackText(feedback: RereadFeedback, isUnread: boolean): string {
   switch (feedback) {
     case "reading":
       return REREAD_COPY.reading;
     case "completed":
-      return REREAD_COPY.completed;
+      return isUnread ? REREAD_COPY.readCompleted : REREAD_COPY.completed;
+    case "empty":
+      return REREAD_COPY.readEmpty;
     case "no_allowance":
       return REREAD_COPY.noAllowance;
     case "not_entitled":
@@ -74,6 +89,7 @@ function feedbackText(feedback: RereadFeedback): string {
 export function ResumeRereadControl({
   resumeId,
   fileIdentity,
+  isUnread = false,
 }: ResumeRereadControlProps): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const refresh = useRefresh();
@@ -94,21 +110,36 @@ export function ResumeRereadControl({
     [],
   );
 
-  const triggerLabel = translate("crm.entity360.resume.reread.trigger", {
-    _: REREAD_COPY.trigger,
-  });
-  const title = translate("crm.entity360.resume.reread.title", {
-    _: REREAD_COPY.title,
-  });
+  const triggerLabel = translate(
+    isUnread
+      ? "crm.entity360.resume.read.trigger"
+      : "crm.entity360.resume.reread.trigger",
+    {
+      _: isUnread ? REREAD_COPY.readTrigger : REREAD_COPY.trigger,
+    },
+  );
+  const title = translate(
+    isUnread
+      ? "crm.entity360.resume.read.title"
+      : "crm.entity360.resume.reread.title",
+    {
+      _: isUnread ? REREAD_COPY.readTitle : REREAD_COPY.title,
+    },
+  );
   const description = translate("crm.entity360.resume.reread.description", {
     _: REREAD_COPY.description,
   });
   const cancelLabel = translate("crm.entity360.resume.reread.cancel", {
     _: REREAD_COPY.cancel,
   });
-  const confirmLabel = translate("crm.entity360.resume.reread.confirm", {
-    _: REREAD_COPY.confirm,
-  });
+  const confirmLabel = translate(
+    isUnread
+      ? "crm.entity360.resume.read.confirm"
+      : "crm.entity360.resume.reread.confirm",
+    {
+      _: isUnread ? REREAD_COPY.readConfirm : REREAD_COPY.confirm,
+    },
+  );
 
   const openConfirmation = () => {
     if (isReading) return;
@@ -135,15 +166,29 @@ export function ResumeRereadControl({
     const controller = new AbortController();
     activeController.current = controller;
     try {
-      const outcome = await dataProvider.reReadResume({
-        resumeId,
-        requestId: stableRequestId,
-        fileIdentity,
-        signal: controller.signal,
-      });
+      const outcome = isUnread
+        ? await dataProvider.readResume({
+            resumeId,
+            requestId: stableRequestId,
+            fileIdentity,
+            mode: "fill_empty",
+            signal: controller.signal,
+          })
+        : await dataProvider.reReadResume({
+            resumeId,
+            requestId: stableRequestId,
+            fileIdentity,
+            signal: controller.signal,
+          });
       if (outcome === "completed") {
         unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("completed");
+        setOpen(false);
+        setRequestId(null);
+        refresh();
+      } else if (isUnread && outcome === "empty") {
+        unresolvedResumeReadAttempts.delete(rereadAttemptKey);
+        setFeedback("empty");
         setOpen(false);
         setRequestId(null);
         refresh();
@@ -153,6 +198,9 @@ export function ResumeRereadControl({
       } else if (outcome === "not_entitled") {
         unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("not_entitled");
+      } else if (isUnread && outcome === "stale_file") {
+        unresolvedResumeReadAttempts.delete(rereadAttemptKey);
+        setFeedback("failed");
       } else {
         // "already_reading" and every transport/server failure intentionally
         // share the calm, non-sensitive retryable copy.
@@ -168,11 +216,18 @@ export function ResumeRereadControl({
     }
   };
 
-  const feedbackMessage = feedback ? feedbackText(feedback) : null;
+  const feedbackMessage = feedback ? feedbackText(feedback, isUnread) : null;
   const feedbackLabel = feedback
-    ? translate(`crm.entity360.resume.reread.${feedback}`, {
-        _: feedbackMessage ?? "",
-      })
+    ? translate(
+        isUnread && feedback === "completed"
+          ? "crm.entity360.resume.read.completed"
+          : isUnread && feedback === "empty"
+            ? "crm.entity360.resume.read.empty"
+            : `crm.entity360.resume.reread.${feedback}`,
+        {
+          _: feedbackMessage ?? "",
+        },
+      )
     : null;
 
   const actions = (

@@ -6,8 +6,13 @@ import {
   claimRereadAttempt,
   releaseRereadAttempt,
 } from "./rereadQuota";
-import { rereadResume, REREAD_FAILURE_MESSAGE } from "./rereadRoute";
+import {
+  isResumeUnread,
+  rereadResume,
+  REREAD_FAILURE_MESSAGE,
+} from "./rereadRoute";
 import { makeExtract, TEST_ENV } from "./parseTestFixtures";
+import { RESUME_UNREAD_PARITY_FIXTURES } from "./resumeUnreadFixtures";
 
 vi.mock("./rereadQuota", () => ({
   applyResumeRead: vi.fn(),
@@ -64,7 +69,7 @@ function selectBuilder(data: unknown, error: unknown = null) {
 }
 
 function makeClients(
-  sections: Record<string, unknown> = {
+  sections: unknown = {
     learningHistory: [{ label: "old", value: "keep" }],
     references: [
       { name: "Reference", relationship: "friend", phone: "unchanged" },
@@ -80,6 +85,7 @@ function makeClients(
     disabled: false,
   },
   memberError: unknown = null,
+  extracted: unknown = null,
 ) {
   const memberBuilder = selectBuilder(memberRow, memberError);
   const resumeBuilder = selectBuilder({
@@ -89,6 +95,7 @@ function makeClients(
     single_id: null,
     files: [file],
     sections,
+    extracted,
   });
   const caller = {
     rpc: vi.fn(async (name: string) => {
@@ -205,6 +212,13 @@ describe("re-read route", () => {
     applyResume.mockResolvedValue({ outcome: "applied" });
     release.mockResolvedValue({ outcome: "applied" });
   });
+
+  it.each(RESUME_UNREAD_PARITY_FIXTURES)(
+    "matches the shared raw-shape parity fixture: $name",
+    ({ sections, extracted, expectedUnread }) => {
+      expect(isResumeUnread({ sections, extracted })).toBe(expectedUnread);
+    },
+  );
 
   it("uses the authenticated user id for a distinct member profile", async () => {
     const { caller, service, memberBuilder } = makeClients();
@@ -407,6 +421,70 @@ describe("re-read route", () => {
       4,
     );
     expect(apply).not.toHaveBeenCalled();
+  });
+
+  it("upgrades a legacy unread request to the full fill-empty apply", async () => {
+    const { caller, service } = makeClients(
+      null,
+      true,
+      undefined,
+      AUTH_USER_ID,
+      undefined,
+      null,
+      null,
+    );
+    const extractor = { extract: vi.fn(async () => makeExtract()) };
+
+    const result = await rereadResume(
+      {
+        resume_id: 22,
+        request_id: requestId,
+        file_identity: "stale-old-path.pdf",
+      },
+      {
+        caller: caller as never,
+        service: service as never,
+        extractor,
+        env: TEST_ENV,
+        userId: AUTH_USER_ID,
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect(applyResume).toHaveBeenCalledWith(
+      TEST_ENV,
+      10,
+      22,
+      41,
+      1,
+      file.path,
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      4,
+    );
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy mode as additional-sections reread for an already-read resume", async () => {
+    const { caller, service } = makeClients();
+    const extractor = { extract: vi.fn(async () => makeExtract()) };
+
+    const result = await rereadResume(
+      { resume_id: 22, request_id: requestId },
+      {
+        caller: caller as never,
+        service: service as never,
+        extractor,
+        env: TEST_ENV,
+        userId: AUTH_USER_ID,
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(applyResume).not.toHaveBeenCalled();
   });
 
   it("maps entitlement outcomes to distinct static response codes", async () => {

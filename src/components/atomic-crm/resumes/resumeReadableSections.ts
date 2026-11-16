@@ -1,4 +1,4 @@
-import type { ReferenceLinkSummary } from "../types";
+import type { ReferenceLinkSummary, Resume } from "../types";
 
 type ParsedLearningItem = { label: string; value: string };
 
@@ -26,6 +26,61 @@ export type ParsedResumeSections = {
   references: ParsedResumeReference[];
   additionalSections: ParsedAdditionalSection[];
 };
+
+const MAX_UNREAD_STRING_PROBE = 1_024;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasNonWhitespaceString(value: string): boolean {
+  const probeLength = Math.min(value.length, MAX_UNREAD_STRING_PROBE);
+  for (let index = 0; index < probeLength; index += 1) {
+    if (!/\s/u.test(value[index] ?? "")) return true;
+  }
+
+  // Do not scan an unbounded payload. A long unobserved suffix is treated as
+  // non-empty so a malformed payload cannot accidentally unlock a paid read.
+  return value.length > probeLength;
+}
+
+function hasNonEmptyRawValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return hasNonWhitespaceString(value);
+  if (Array.isArray(value)) return value.length > 0;
+  if (isPlainObject(value)) {
+    for (const _key in value) return true;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * A stored resume can have a row and an uploaded file before the parser has
+ * ever produced a draft. Ignore parser metadata and malformed/blank section
+ * entries so every entry point makes the same unread/read decision.
+ */
+export function isResumeUnread(
+  resume: Pick<Resume, "sections" | "extracted">,
+): boolean {
+  const sections = resume.sections;
+  if (!isPlainObject(sections)) return true;
+  if (Object.prototype.hasOwnProperty.call(sections, "schemaVersion")) {
+    return false;
+  }
+
+  const hasNonEmptySectionArray = [
+    "learningHistory",
+    "references",
+    "additionalSections",
+  ].some((key) => Array.isArray(sections[key]) && sections[key].length > 0);
+
+  return !hasNonEmptySectionArray && !hasNonEmptyRawValue(resume.extracted);
+}
 
 const MAX_ADDITIONAL_SECTION_COUNT = 20;
 const MAX_ADDITIONAL_SECTION_ITEMS = 50;
