@@ -39,26 +39,28 @@ type RereadFeedback =
   | "completed"
   | "empty"
   | "failed"
+  | "timeout"
   | "no_allowance"
   | "not_entitled";
 
 export const REREAD_COPY = {
-  trigger: "Re-read this resume",
-  readTrigger: "Read this resume",
-  title: "Read this resume again?",
-  readTitle: "Read this resume?",
+  trigger: "Make it easy to read",
+  readTrigger: "Make it easy to read",
+  title: "Make this resume easy to read?",
+  readTitle: "Make this resume easy to read?",
   description:
     "This uses 1 of your monthly resume reads. Your edits, notes and call history will not change.",
-  reading: "Reading this resume. Please wait.",
-  completed: "Resume read again. New sections are ready below.",
-  readCompleted: "Resume read. The details are ready below.",
+  reading: "Making it easy to read. Please wait.",
+  completed: "Done. The easy-to-read details are ready below.",
+  readCompleted: "Done. The easy-to-read details are ready below.",
   readEmpty: RESUME_AUTO_READ_COPY.empty,
-  failed: "Could not read this resume. Nothing was changed.",
+  failed: "Could not make this resume easy to read. Nothing was changed.",
+  timeout: RESUME_AUTO_READ_COPY.timeout,
   noAllowance: "No resume reads left this month.",
   notEntitled: "AI reading is not switched on for your account yet.",
   cancel: "Cancel",
-  confirm: "Re-read",
-  readConfirm: "Read",
+  confirm: "Make it easy to read",
+  readConfirm: "Make it easy to read",
 } as const;
 
 export type ResumeRereadControlProps = {
@@ -83,6 +85,8 @@ function feedbackText(feedback: RereadFeedback, isUnread: boolean): string {
       return REREAD_COPY.notEntitled;
     case "failed":
       return REREAD_COPY.failed;
+    case "timeout":
+      return REREAD_COPY.timeout;
   }
 }
 
@@ -198,6 +202,9 @@ export function ResumeRereadControl({
       } else if (outcome === "not_entitled") {
         unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("not_entitled");
+      } else if (outcome === "timeout") {
+        unresolvedResumeReadAttempts.delete(rereadAttemptKey);
+        setFeedback("timeout");
       } else if (isUnread && outcome === "stale_file") {
         unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("failed");
@@ -259,7 +266,7 @@ export function ResumeRereadControl({
         disabled={isReading}
         onClick={openConfirmation}
       >
-        {triggerLabel}
+        {isReading ? "Making it easy to read…" : triggerLabel}
       </Button>
 
       {feedback && !open && feedback !== "reading" ? (

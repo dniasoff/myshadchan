@@ -24,13 +24,17 @@ import {
 import { CURRENT_PARSE_RESULT_SCHEMA_VERSION } from "./parseResultPayload";
 import { toDraft } from "./parsedResumeDraft";
 import {
+  logRereadFailure,
+  type RereadFailureReason,
+} from "./rereadDiagnostics";
+import {
   ExtractorTimeoutError,
   type ParseEnv,
   type ResumeExtractor,
 } from "./resumeExtractor";
 
 export const REREAD_FAILURE_MESSAGE =
-  "Could not read this resume. Nothing was changed.";
+  "Could not make this resume easy to read. Nothing was changed.";
 export const REREAD_STALE_FILE_MESSAGE =
   "This resume changed while it was being read. Please try again.";
 const ALREADY_READING_MESSAGE =
@@ -74,11 +78,14 @@ function response(
 
 function failure(
   dependencies: RereadDependencies,
+  reason: RereadFailureReason,
   message = REREAD_FAILURE_MESSAGE,
   status: RereadResponse["status"] = REREAD_FAILURE_STATUS,
+  meta?: Record<string, unknown>,
 ): RereadResponse {
   void dependencies;
-  return response(status, fail(message));
+  logRereadFailure(reason);
+  return response(status, fail(message, meta));
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -193,10 +200,16 @@ export async function rereadResume(
   dependencies: RereadDependencies,
 ): Promise<RereadResponse> {
   const { caller } = dependencies;
-  const [contextResult, roleResult] = await Promise.all([
-    caller.rpc("current_context_id"),
-    caller.rpc("current_member_role"),
-  ]);
+  let contextResult: { data: unknown; error: unknown };
+  let roleResult: { data: unknown; error: unknown };
+  try {
+    [contextResult, roleResult] = await Promise.all([
+      caller.rpc("current_context_id"),
+      caller.rpc("current_member_role"),
+    ]);
+  } catch {
+    return failure(dependencies, "authorization", REREAD_FAILURE_MESSAGE, 403);
+  }
   const accountId = contextResult.data;
   const role = roleResult.data;
   if (
@@ -207,7 +220,7 @@ export async function rereadResume(
     typeof dependencies.userId !== "string" ||
     dependencies.userId.length === 0
   ) {
-    return failure(dependencies, REREAD_FAILURE_MESSAGE, 403);
+    return failure(dependencies, "authorization", REREAD_FAILURE_MESSAGE, 403);
   }
 
   const accountRate = await checkRateLimit({
@@ -218,38 +231,57 @@ export async function rereadResume(
   });
   if (!accountRate.allowed) {
     if (accountRate.reason === "over_limit") {
+      logRereadFailure("rate_limit");
       return response(
         429,
         fail("rate limit exceeded", { limiter: "parse-account" }),
       );
     }
-    return failure(dependencies, REREAD_FAILURE_MESSAGE, 503);
+    return failure(
+      dependencies,
+      "rate_limit_unavailable",
+      REREAD_FAILURE_MESSAGE,
+      503,
+    );
   }
 
-  const memberResultRow = await caller
-    .from("members")
-    .select("id,disabled")
-    .eq("user_id", dependencies.userId)
-    .maybeSingle();
+  let memberResultRow: {
+    data: { disabled?: unknown } | null;
+    error: unknown;
+  };
+  try {
+    memberResultRow = await caller
+      .from("members")
+      .select("id,disabled")
+      .eq("user_id", dependencies.userId)
+      .maybeSingle();
+  } catch {
+    return failure(dependencies, "member", REREAD_FAILURE_MESSAGE, 403);
+  }
   if (
     memberResultRow.error ||
     !memberResultRow.data ||
     memberResultRow.data.disabled === true
   ) {
-    return failure(dependencies, REREAD_FAILURE_MESSAGE, 403);
+    return failure(dependencies, "member", REREAD_FAILURE_MESSAGE, 403);
   }
 
-  const resumeResult = await caller
-    .from("resumes")
-    .select("id,account_id,shidduchim_id,single_id,files,sections,extracted")
-    .eq("id", body.resume_id)
-    .maybeSingle();
+  let resumeResult: { data: unknown; error: unknown };
+  try {
+    resumeResult = await caller
+      .from("resumes")
+      .select("id,account_id,shidduchim_id,single_id,files,sections,extracted")
+      .eq("id", body.resume_id)
+      .maybeSingle();
+  } catch {
+    return failure(dependencies, "resume_row");
+  }
   const resume = readRereadResumeRow(resumeResult.data);
   if (resumeResult.error || !resume || resume.account_id !== accountId) {
-    return failure(dependencies);
+    return failure(dependencies, "resume_row");
   }
   if (body.mode === "fill_empty" && !body.file_identity) {
-    return failure(dependencies);
+    return failure(dependencies, "request_shape");
   }
 
   const extracted = isObject(resumeResult.data)
@@ -265,17 +297,23 @@ export async function rereadResume(
     accountId,
     shouldUpgradeLegacyRead ? undefined : body.file_identity,
   );
-  if (!selectedFile) return failure(dependencies);
+  if (!selectedFile) return failure(dependencies, "file_selection");
 
   const service = dependencies.service ?? getParseQuotaClient(dependencies.env);
-  const claim = await claimRereadAttempt(
-    dependencies.env,
-    accountId,
-    body.resume_id,
-    body.request_id,
-    CURRENT_PARSE_RESULT_SCHEMA_VERSION,
-  );
-  if (!claim.ok) return failure(dependencies, REREAD_FAILURE_MESSAGE, 503);
+  let claim: Awaited<ReturnType<typeof claimRereadAttempt>>;
+  try {
+    claim = await claimRereadAttempt(
+      dependencies.env,
+      accountId,
+      body.resume_id,
+      body.request_id,
+      CURRENT_PARSE_RESULT_SCHEMA_VERSION,
+    );
+  } catch {
+    return failure(dependencies, "claim", REREAD_FAILURE_MESSAGE, 503);
+  }
+  if (!claim.ok)
+    return failure(dependencies, "claim", REREAD_FAILURE_MESSAGE, 503);
 
   if (claim.outcome.outcome === "replayed") {
     return response(REREAD_SUCCESS_STATUS, ok({ replayed: true }));
@@ -284,18 +322,21 @@ export async function rereadResume(
     claim.outcome.outcome === "in_progress" ||
     claim.outcome.outcome === "busy"
   ) {
+    logRereadFailure("claim");
     return response(
       REREAD_RETRYABLE_STATUS,
       fail(ALREADY_READING_MESSAGE, { code: "already_reading" }),
     );
   }
   if (claim.outcome.outcome === "no_allowance") {
+    logRereadFailure("claim");
     return response(
       402,
       fail(REREAD_FAILURE_MESSAGE, { code: "no_allowance" }),
     );
   }
   if (claim.outcome.outcome === "not_entitled") {
+    logRereadFailure("claim");
     return response(
       402,
       fail(REREAD_FAILURE_MESSAGE, { code: "not_entitled" }),
@@ -315,39 +356,58 @@ export async function rereadResume(
         generation,
       );
       if (release.outcome === "failed") {
-        console.error("parse.reread.release.failed", {
-          accountId,
-          attemptId,
-          generation,
-        });
+        logRereadFailure("release");
       }
-    } catch (error) {
-      console.error("parse.reread.release.threw", summarizeErrorForLog(error));
+    } catch {
+      logRereadFailure("release");
     }
   };
 
   try {
-    if (
-      !(await verifyStorageMetadata(
+    let storageMetadataValid = false;
+    try {
+      storageMetadataValid = await verifyStorageMetadata(
         service,
         selectedFile.file,
         selectedFile.dirPath,
         selectedFile.fileName,
-      ))
-    ) {
-      return failure(dependencies);
+      );
+    } catch (error) {
+      console.error(
+        "parse.reread.storage_metadata.failed",
+        summarizeErrorForLog(error),
+      );
+    }
+    if (!storageMetadataValid) {
+      return failure(dependencies, "storage_metadata");
     }
 
-    const download = await service.storage
-      .from(DOCUMENTS_BUCKET)
-      .download(selectedFile.file.path);
-    const fileData = download.data;
-    if (download.error || !fileData || fileData.size > MAX_ATTACHMENT_BYTES) {
-      return failure(dependencies);
+    let fileData: Blob | null = null;
+    let downloadError: unknown = null;
+    try {
+      const download = await service.storage
+        .from(DOCUMENTS_BUCKET)
+        .download(selectedFile.file.path);
+      fileData = download.data;
+      downloadError = download.error;
+    } catch {
+      return failure(dependencies, "download");
     }
-    const bytes = await fileData.arrayBuffer();
+    if (downloadError || !fileData || fileData.size > MAX_ATTACHMENT_BYTES) {
+      return failure(dependencies, "download");
+    }
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await fileData.arrayBuffer();
+    } catch (error) {
+      console.error(
+        "parse.reread.download.failed",
+        summarizeErrorForLog(error),
+      );
+      return failure(dependencies, "download");
+    }
     if (!validateDownloadedRereadFile(bytes, selectedFile.file.mime_type)) {
-      return failure(dependencies);
+      return failure(dependencies, "magic_validation");
     }
 
     let raw: unknown;
@@ -357,59 +417,80 @@ export async function rereadResume(
         selectedFile.file.mime_type,
       );
     } catch (error) {
-      console.error(
-        error instanceof ExtractorTimeoutError
-          ? "parse.reread.extract.timeout"
-          : "parse.reread.extract.failed",
-        summarizeErrorForLog(error),
+      const timeout = error instanceof ExtractorTimeoutError;
+      return failure(
+        dependencies,
+        timeout ? "extractor_timeout" : "extractor",
+        REREAD_FAILURE_MESSAGE,
+        REREAD_FAILURE_STATUS,
+        timeout ? { code: "timeout" } : undefined,
       );
-      return failure(dependencies);
     }
 
-    const draft = toDraft(raw);
+    let draft: ReturnType<typeof toDraft>;
+    try {
+      draft = toDraft(raw);
+    } catch (error) {
+      console.error("parse.reread.draft.failed", summarizeErrorForLog(error));
+      return failure(dependencies, "draft");
+    }
     const nextSections = buildRereadSections(
       resume.sections,
       draft.sections.additionalSections,
     );
     if (!nextSections) {
-      return failure(dependencies);
+      return failure(dependencies, "sections");
     }
 
-    const applied =
-      effectiveMode === "fill_empty"
-        ? await applyResumeRead(
-            dependencies.env,
-            accountId,
-            body.resume_id,
-            attemptId,
-            generation,
-            selectedFile.file.path,
-            draft.fields as unknown as Record<string, unknown>,
-            raw,
-            draft.sections,
-            CURRENT_PARSE_RESULT_SCHEMA_VERSION,
-          )
-        : await applyRereadSections(
-            dependencies.env,
-            accountId,
-            body.resume_id,
-            attemptId,
-            generation,
-            resume.sections,
-            nextSections,
-            CURRENT_PARSE_RESULT_SCHEMA_VERSION,
-          );
+    let applied:
+      | Awaited<ReturnType<typeof applyResumeRead>>
+      | Awaited<ReturnType<typeof applyRereadSections>>;
+    try {
+      applied =
+        effectiveMode === "fill_empty"
+          ? await applyResumeRead(
+              dependencies.env,
+              accountId,
+              body.resume_id,
+              attemptId,
+              generation,
+              selectedFile.file.path,
+              draft.fields as unknown as Record<string, unknown>,
+              raw,
+              draft.sections,
+              CURRENT_PARSE_RESULT_SCHEMA_VERSION,
+            )
+          : await applyRereadSections(
+              dependencies.env,
+              accountId,
+              body.resume_id,
+              attemptId,
+              generation,
+              resume.sections,
+              nextSections,
+              CURRENT_PARSE_RESULT_SCHEMA_VERSION,
+            );
+    } catch (error) {
+      console.error("parse.reread.apply.failed", summarizeErrorForLog(error));
+      return failure(dependencies, "apply_failed");
+    }
     if (applied.outcome === "stale_file") {
+      logRereadFailure("apply_failed");
       return response(
         REREAD_RETRYABLE_STATUS,
         fail(REREAD_STALE_FILE_MESSAGE, { code: "stale_file" }),
       );
     }
     if (applied.outcome === "cas_failed") {
-      return failure(dependencies, REREAD_FAILURE_MESSAGE, 409);
+      return failure(
+        dependencies,
+        "apply_cas_failed",
+        REREAD_FAILURE_MESSAGE,
+        409,
+      );
     }
     if (applied.outcome === "failed") {
-      return failure(dependencies);
+      return failure(dependencies, "apply_failed");
     }
     if (applied.outcome === "superseded") {
       // A superseded generation belongs to the newer claimant. Its fenced
@@ -438,7 +519,7 @@ export async function rereadResume(
     );
   } catch (error) {
     console.error("parse.reread.unexpected", summarizeErrorForLog(error));
-    return failure(dependencies);
+    return failure(dependencies, "unexpected");
   } finally {
     await releaseClaim();
   }

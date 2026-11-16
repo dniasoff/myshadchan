@@ -1495,7 +1495,7 @@ describe("ResumeReadableSections", () => {
     });
 
     const button = screen.getByRole("button", {
-      name: "Read this resume",
+      name: "Make it easy to read",
       exact: true,
     });
     await expect.element(button).toBeInTheDocument();
@@ -1509,13 +1509,13 @@ describe("ResumeReadableSections", () => {
       }),
     );
     await expect
-      .element(screen.getByRole("button", { name: "Reading…" }))
+      .element(screen.getByRole("button", { name: "Making it easy to read…" }))
       .toBeDisabled();
 
     resolve?.("completed");
     await expect
       .poll(() => screen.getByRole("status").element().textContent)
-      .toBe("Resume read. The details are ready below.");
+      .toBe("Done. The easy-to-read details are ready below.");
   });
 
   it("shows the static empty-read outcome in the Easy-to-read card", async () => {
@@ -1538,7 +1538,7 @@ describe("ResumeReadableSections", () => {
     });
 
     await screen
-      .getByRole("button", { name: "Read this resume", exact: true })
+      .getByRole("button", { name: "Make it easy to read", exact: true })
       .click();
     await expect
       .element(screen.getByRole("status"))
@@ -1590,7 +1590,7 @@ describe("ResumeReadableSections", () => {
       });
 
       const button = screen.getByRole("button", {
-        name: "Read this resume",
+        name: "Make it easy to read",
         exact: true,
       });
       await expect.element(button).toBeInTheDocument();
@@ -1629,7 +1629,7 @@ describe("ResumeReadableSections", () => {
       .element(screen.getByText("No sections were found in this resume."))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("button", { name: "Read this resume" }))
+      .element(screen.getByRole("button", { name: "Make it easy to read" }))
       .not.toBeInTheDocument();
     expect(readResume).not.toHaveBeenCalled();
   });
@@ -1657,12 +1657,12 @@ describe("ResumeReadableSections", () => {
     await expect
       .element(
         screen.getByText(
-          "This resume has not been read yet. Read it to fill in the details.",
+          'This resume is not easy to read yet. Tap "Make it easy to read" to fill in the details.',
         ),
       )
       .toBeInTheDocument();
     const button = screen.getByRole("button", {
-      name: "Read this resume",
+      name: "Make it easy to read",
       exact: true,
     });
     await expect.element(button).toBeInTheDocument();
@@ -1693,7 +1693,7 @@ describe("ResumeReadableSections", () => {
       .element(screen.getByRole("heading", { name: "Easy-to-read resume" }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("button", { name: "Read this resume" }))
+      .element(screen.getByRole("button", { name: "Make it easy to read" }))
       .not.toBeInTheDocument();
     expect(readResume).not.toHaveBeenCalled();
   });
@@ -1746,7 +1746,7 @@ describe("ResumeReadableSections", () => {
       });
 
       await expect
-        .element(screen.getByRole("button", { name: "Read this resume" }))
+        .element(screen.getByRole("button", { name: "Make it easy to read" }))
         .not.toBeInTheDocument();
       expect(readResume).not.toHaveBeenCalled();
     },

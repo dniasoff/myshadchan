@@ -803,16 +803,19 @@ export const englishCrmMessages = {
         download: "Download",
         downloadError: "Failed to get a download link",
         reread: {
-          trigger: "Re-read this resume",
-          title: "Read this resume again?",
+          trigger: "Make it easy to read",
+          title: "Make this resume easy to read?",
           description:
             "This uses 1 of your monthly resume reads. Your edits, notes and call history will not change.",
-          reading: "Reading this resume. Please wait.",
-          completed: "Resume read again. New sections are ready below.",
-          failed: "Could not read this resume. Nothing was changed.",
+          reading: "Making it easy to read. Please wait.",
+          completed: "Done. The easy-to-read details are ready below.",
+          failed:
+            "Could not make this resume easy to read. Nothing was changed.",
+          timeout:
+            "This is taking too long. Nothing was changed. Please try again later.",
           no_allowance: "No resume reads left this month.",
           cancel: "Cancel",
-          confirm: "Re-read",
+          confirm: "Make it easy to read",
         },
         readable: {
           title: "Easy-to-read resume",

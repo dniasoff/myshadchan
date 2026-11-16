@@ -1,11 +1,13 @@
 import type { ResumeFileVersion } from "../types";
 
 export const RESUME_AUTO_READ_COPY = {
-  reading: "Reading this resume. Please wait.",
-  completed: "Resume read. The details are ready below.",
+  reading: "Making it easy to read. Please wait.",
+  completed: "Done. The easy-to-read details are ready below.",
   empty: "We could not find details in this resume.",
   failed:
-    'Could not read this resume. The file was saved; you can try "Read this resume" again.',
+    "Could not make this resume easy to read. The file was saved; you can try again.",
+  timeout:
+    "This is taking too long. Nothing was changed. Please try again later.",
   noAllowance: "No resume reads left this month. The file was saved.",
   notEntitled:
     "AI reading is not switched on for your account yet. The file was saved.",
@@ -18,6 +20,7 @@ export type ResumeAutoReadFeedback =
   | "completed"
   | "empty"
   | "failed"
+  | "timeout"
   | "no_allowance"
   | "not_entitled"
   | "stale_file"
@@ -51,6 +54,8 @@ export function resumeAutoReadFeedbackText(
       return RESUME_AUTO_READ_COPY.empty;
     case "failed":
       return RESUME_AUTO_READ_COPY.failed;
+    case "timeout":
+      return RESUME_AUTO_READ_COPY.timeout;
     case "no_allowance":
       return RESUME_AUTO_READ_COPY.noAllowance;
     case "not_entitled":

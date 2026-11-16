@@ -89,6 +89,7 @@ describe("requestResumeReread", () => {
     [402, {}, "no_allowance"],
     [402, { code: "not_entitled" }, "not_entitled"],
     [409, { code: "already_reading" }, "already_reading"],
+    [422, { code: "timeout" }, "timeout"],
     [409, {}, "failed"],
     [503, {}, "failed"],
   ] as const)(

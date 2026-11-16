@@ -28,11 +28,17 @@ export type ResumeReadOutcome =
   | "not_entitled"
   | "already_reading"
   | "stale_file"
+  | "timeout"
   | "failed";
 
 export type ResumeRereadOutcome = Extract<
   ResumeReadOutcome,
-  "completed" | "no_allowance" | "not_entitled" | "already_reading" | "failed"
+  | "completed"
+  | "no_allowance"
+  | "not_entitled"
+  | "already_reading"
+  | "failed"
+  | "timeout"
 >;
 
 /**
@@ -108,6 +114,7 @@ export async function requestResumeRead(
     }
     if (envelope.meta?.code === "already_reading") return "already_reading";
     if (envelope.meta?.code === "stale_file") return "stale_file";
+    if (envelope.meta?.code === "timeout") return "timeout";
     return "failed";
   } catch {
     return "failed";

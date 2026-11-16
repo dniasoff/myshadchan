@@ -2,7 +2,8 @@ import {
   GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA,
   GEMINI_RESUME_RESPONSE_SCHEMA,
 } from "./geminiResponseSchema";
-import { extractDocxText } from "./docxExtractor";
+import { DocxExtractionError, extractDocxText } from "./docxExtractor";
+import { logExtractorFailure } from "./rereadDiagnostics";
 
 export const DOCX_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -162,20 +163,41 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
     async extract(fileBytes: ArrayBuffer, mimeType: string): Promise<unknown> {
       const baseUrl = `https://gateway.ai.cloudflare.com/v1/${env.AI_GATEWAY_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/google-ai-studio/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
-      const contentPart =
-        mimeType === DOCX_MIME_TYPE
-          ? { text: await extractDocxText(fileBytes) }
-          : {
-              inline_data: {
-                mime_type: mimeType,
-                data: arrayBufferToBase64(fileBytes),
-              },
-            };
+      let contentPart:
+        { text: string } | { inline_data: { mime_type: string; data: string } };
+      const contentStartedAt = Date.now();
+      try {
+        contentPart =
+          mimeType === DOCX_MIME_TYPE
+            ? { text: await extractDocxText(fileBytes) }
+            : {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: arrayBufferToBase64(fileBytes),
+                },
+              };
+      } catch (error) {
+        if (error instanceof DocxExtractionError) {
+          logExtractorFailure(error, {
+            durationMs: Date.now() - contentStartedAt,
+            docxFailure: error.failure,
+          });
+        } else {
+          logExtractorFailure(error, {
+            durationMs: Date.now() - contentStartedAt,
+          });
+        }
+        throw error;
+      }
 
       const request = async (
         prompt: string,
         responseSchema: typeof GEMINI_RESUME_RESPONSE_SCHEMA,
       ): Promise<unknown> => {
+        const requestStartedAt = Date.now();
+        let httpStatus: number | undefined;
+        let finishReason: unknown;
+        let usageMetadata: unknown;
         const requestBody = {
           contents: [
             {
@@ -200,33 +222,62 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             body: JSON.stringify(requestBody),
             signal: AbortSignal.timeout(GEMINI_EXTRACT_TIMEOUT_MS),
           });
+          httpStatus = response.status;
         } catch (error) {
           if (isTimeoutAbort(error)) {
-            throw new ExtractorTimeoutError(GEMINI_EXTRACT_TIMEOUT_MS);
+            const timeout = new ExtractorTimeoutError(
+              GEMINI_EXTRACT_TIMEOUT_MS,
+            );
+            logExtractorFailure(timeout, {
+              durationMs: Date.now() - requestStartedAt,
+            });
+            throw timeout;
           }
+          logExtractorFailure(error, {
+            durationMs: Date.now() - requestStartedAt,
+          });
           throw error;
         }
 
         if (!response.ok) {
           // Finding 5: deliberately do NOT read/log response.text() here —
           // see ExtractorProviderError's own comment above.
-          throw new ExtractorProviderError(response.status);
+          const providerError = new ExtractorProviderError(response.status);
+          logExtractorFailure(providerError, {
+            durationMs: Date.now() - requestStartedAt,
+            httpStatus,
+          });
+          throw providerError;
         }
 
-        const json = (await response.json()) as {
-          candidates?: Array<{
-            content?: { parts?: Array<{ text?: string }> };
-          }>;
-        };
-        const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+        try {
+          const json = (await response.json()) as {
+            candidates?: Array<{
+              finishReason?: unknown;
+              content?: { parts?: Array<{ text?: string }> };
+            }>;
+            usageMetadata?: unknown;
+          };
+          finishReason = json.candidates?.[0]?.finishReason;
+          usageMetadata = json.usageMetadata;
+          const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
 
-        // Finding 14: no `.parse()`/`.safeParse()` here — this function stops
-        // being a validation gate. `toDraft()` (parsedResumeDraft.ts)
-        // validates per field, so one malformed field never discards the
-        // other good ones. A SyntaxError is handled by the one legacy-shape
-        // recovery request below; any second failure propagates to index.ts's
-        // existing extractor catch, which releases the reservation.
-        return JSON.parse(text) as unknown;
+          // Finding 14: no `.parse()`/`.safeParse()` here — this function stops
+          // being a validation gate. `toDraft()` (parsedResumeDraft.ts)
+          // validates per field, so one malformed field never discards the
+          // other good ones. A SyntaxError is handled by the one legacy-shape
+          // recovery request below; any second failure propagates to index.ts's
+          // existing extractor catch, which releases the reservation.
+          return JSON.parse(text) as unknown;
+        } catch (error) {
+          logExtractorFailure(error, {
+            durationMs: Date.now() - requestStartedAt,
+            httpStatus,
+            finishReason,
+            usageMetadata,
+          });
+          throw error;
+        }
       };
 
       try {

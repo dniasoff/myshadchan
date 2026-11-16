@@ -112,6 +112,18 @@ describe("ResumeUpload — upload (AC 1 / AC 2)", () => {
     });
   });
 
+  it("uses the easy-to-read explanation when auto-read is enabled", async () => {
+    const { screen } = await renderUpload(42, {}, true);
+
+    await expect
+      .element(
+        screen.getByText(
+          "Attaching a resume also makes it easy to read and uses 1 of your monthly reads.",
+        ),
+      )
+      .toBeInTheDocument();
+  });
+
   it("shows a translated error and stays usable when the upload rejects", async () => {
     // Arrange
     const uploadResumeFile = vi.fn().mockRejectedValue(new Error("boom"));
@@ -172,7 +184,9 @@ describe("ResumeUpload — upload (AC 1 / AC 2)", () => {
       .upload(new File(["hello"], "current.pdf", { type: "application/pdf" }));
 
     await expect
-      .element(screen.getByText("Resume read. The details are ready below."))
+      .element(
+        screen.getByText("Done. The easy-to-read details are ready below."),
+      )
       .toBeInTheDocument();
     expect(readResume).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
@@ -209,7 +223,7 @@ describe("ResumeUpload — upload (AC 1 / AC 2)", () => {
     await expect
       .element(
         screen.getByText(
-          'Could not read this resume. The file was saved; you can try "Read this resume" again.',
+          "Could not make this resume easy to read. The file was saved; you can try again.",
         ),
       )
       .toBeInTheDocument();
@@ -220,6 +234,10 @@ describe("ResumeUpload — upload (AC 1 / AC 2)", () => {
   });
 
   it.each([
+    [
+      "timeout",
+      "This is taking too long. Nothing was changed. Please try again later.",
+    ],
     ["no_allowance", "No resume reads left this month. The file was saved."],
     [
       "not_entitled",

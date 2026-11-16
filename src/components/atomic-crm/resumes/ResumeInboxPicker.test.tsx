@@ -359,7 +359,9 @@ describe("ResumeInboxPicker", () => {
       .click();
 
     await expect
-      .element(screen.getByText("Resume read. The details are ready below."))
+      .element(
+        screen.getByText("Done. The easy-to-read details are ready below."),
+      )
       .toBeInTheDocument();
     const { data: attachedResumes } = await dataProvider.getList<Resume>(
       "resumes",
@@ -401,7 +403,7 @@ describe("ResumeInboxPicker", () => {
     await expect
       .element(
         screen.getByText(
-          'Could not read this resume. The file was saved; you can try "Read this resume" again.',
+          "Could not make this resume easy to read. The file was saved; you can try again.",
         ),
       )
       .toBeInTheDocument();
@@ -416,6 +418,10 @@ describe("ResumeInboxPicker", () => {
   });
 
   it.each([
+    [
+      "timeout",
+      "This is taking too long. Nothing was changed. Please try again later.",
+    ],
     ["no_allowance", "No resume reads left this month. The file was saved."],
     [
       "not_entitled",

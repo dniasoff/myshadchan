@@ -33,6 +33,36 @@ async function makeBilingualDocx(): Promise<ArrayBuffer> {
   );
 }
 
+async function makeWordShapedDocx(): Promise<ArrayBuffer> {
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/></Types>`,
+  );
+  zip.file(
+    "_rels/.rels",
+    `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
+  );
+  zip.file(
+    "word/_rels/document.xml.rels",
+    `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdHeader1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rIdFootnotes" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/><Relationship Id="rIdImage1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>`,
+  );
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body><w:p><w:r><w:t>Table Hebrew בית יעקב</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Reference name</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Rivka</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:drawing><wp:inline><wp:extent cx="1" cy="1"/><wp:docPr id="1" name="image"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"/></a:graphicData></a:graphic></wp:inline></w:drawing><w:footnoteReference w:id="1"/></w:r></w:p><w:sectPr><w:headerReference w:type="default" r:id="rIdHeader1"/></w:sectPr></w:body></w:document>`,
+  );
+  zip.file(
+    "word/header1.xml",
+    `<?xml version="1.0"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Header reference details</w:t></w:r></w:p></w:hdr>`,
+  );
+  zip.file(
+    "word/footnotes.xml",
+    `<?xml version="1.0"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:footnote w:id="-1"><w:p/></w:footnote><w:footnote w:id="0"><w:p/></w:footnote><w:footnote w:id="1"><w:p><w:r><w:t>Footnote reference details</w:t></w:r></w:p></w:footnote></w:footnotes>`,
+  );
+  zip.file("word/media/image1.png", new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+  return zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
+}
+
 async function makeArchive(
   entries: Array<{ name: string; data: string | Uint8Array }>,
   compression: "DEFLATE" | "STORE" = "DEFLATE",
@@ -108,6 +138,17 @@ describe("DOCX extraction safety", () => {
     const text = await extractDocxText(await makeBilingualDocx());
 
     expect(text).toContain("Ari Rosenberg");
+    expect(text).toContain("בית יעקב");
+  });
+
+  it("handles Word-shaped tables, Hebrew, headers and footnotes around an image", async () => {
+    const text = await extractDocxText(await makeWordShapedDocx());
+
+    // Mammoth's extractRawText intentionally reads the main document part;
+    // headers and footnotes are included in the package to exercise the same
+    // Word-shaped ZIP structure without requiring a separate OOXML renderer.
+    expect(text).toContain("Reference name");
+    expect(text).toContain("Rivka");
     expect(text).toContain("בית יעקב");
   });
 

@@ -5,6 +5,7 @@ import {
   ExtractorTimeoutError,
   GEMINI_EXTRACT_TIMEOUT_MS,
   GEMINI_MAX_OUTPUT_TOKENS,
+  DOCX_MIME_TYPE,
   geminiExtractor,
 } from "./resumeExtractor";
 import {
@@ -41,6 +42,7 @@ function gatewayResponse(text: string): Response {
 
 describe("geminiExtractor", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -310,6 +312,70 @@ describe("geminiExtractor", () => {
       ).rejects.toBeInstanceOf(ExtractorProviderError);
       expect(response.text).not.toHaveBeenCalled();
     });
+
+    it("logs only provider status and bounded Gemini usage diagnostics", async () => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                finishReason: "MAX_TOKENS",
+                content: { parts: [{ text: "{not valid json" }] },
+              },
+            ],
+            usageMetadata: {
+              promptTokenCount: 11,
+              candidatesTokenCount: 7,
+              thoughtsTokenCount: 3,
+              totalTokenCount: 21,
+              privateText: "must not be logged",
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const extractor = geminiExtractor(TEST_ENV);
+
+      await expect(
+        extractor.extract(new ArrayBuffer(0), "application/pdf"),
+      ).rejects.toThrow();
+
+      expect(log).toHaveBeenCalledWith(
+        "parse.extract.failed",
+        expect.objectContaining({
+          errorClass: "SyntaxError",
+          httpStatus: 200,
+          finishReason: "MAX_TOKENS",
+          promptTokenCount: 11,
+          candidatesTokenCount: 7,
+          thoughtsTokenCount: 3,
+          totalTokenCount: 21,
+        }),
+      );
+      expect(JSON.stringify(log.mock.calls)).not.toContain("privateText");
+      expect(JSON.stringify(log.mock.calls)).not.toContain(
+        "must not be logged",
+      );
+    });
+  });
+
+  it("logs the static DOCX extraction failure class", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const extractor = geminiExtractor(TEST_ENV);
+
+    await expect(
+      extractor.extract(new ArrayBuffer(4), DOCX_MIME_TYPE),
+    ).rejects.toMatchObject({ failure: "malformed" });
+
+    expect(log).toHaveBeenCalledWith(
+      "parse.extract.failed",
+      expect.objectContaining({
+        errorClass: "DocxExtractionError",
+        docxFailure: "malformed",
+      }),
+    );
   });
 
   // Finding 7: a live-but-slow Gemini call must be bounded, well under the
