@@ -2033,7 +2033,8 @@ begin
        and i.account_id = v_account_id
        and i.status = 'unresolved'
        and attachment->>'path' = p_source_inbox_attachment_path
-     limit 1;
+     limit 1
+     for share;
 
     if v_source_attachment is null then
       raise exception 'Inbox attachment not found';
@@ -3471,6 +3472,178 @@ begin
   return v_account_id;
 end;
 $$;
+
+CREATE OR REPLACE FUNCTION "public"."delete_inbox_item"("p_item_id" bigint) RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $function$
+declare
+  v_account_id bigint;
+  v_role text;
+  v_item public.inbox_items;
+  v_paths text[];
+begin
+  v_account_id := public.current_context_id();
+  v_role := public.current_member_role();
+
+  if v_account_id is null or v_role is null or v_role = 'single' then
+    raise exception 'Inbox item deletion is not available to this role'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- This row lock is the deletion fence. Resolve/attach writers that use the
+  -- same row must either commit first (making this refuse) or wait until this
+  -- transaction deletes the row and commits.
+  select * into v_item
+  from public.inbox_items i
+  where i.id = p_item_id
+    and i.account_id = v_account_id
+  for update;
+
+  if not found then
+    -- A second call, or a row in another account, is an idempotent no-op.
+    -- Do not reveal whether an inaccessible id exists.
+    return 0;
+  end if;
+
+  if v_item.status not in ('unresolved', 'held', 'dismissed')
+     or v_item.resolution_attempt_id is not null then
+    raise exception 'Inbox item is no longer deletable';
+  end if;
+
+  if v_item.attachments is not null
+     and jsonb_typeof(v_item.attachments) <> 'array' then
+    raise exception 'This item cannot be deleted automatically.';
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_array_elements(coalesce(v_item.attachments, '[]'::jsonb)) as attachment(value)
+    where jsonb_typeof(attachment.value) <> 'object'
+       or attachment.value ->> 'path' is null
+       or attachment.value ->> 'path' !~ (
+         '^' || v_account_id::text || '/inbox/' || p_item_id::text
+         || '/[^/]+(/[^/]+)*$'
+       )
+       or attachment.value ->> 'path' ~* '%(2e|2f|5c|25)'
+       or attachment.value ->> 'path' ~ '[[:cntrl:]]'
+       or position(chr(92) in (attachment.value ->> 'path')) > 0
+       or attachment.value ->> 'path' ~ '(^|/)(\.|\.\.)(/|$)'
+  ) then
+    raise exception 'This item cannot be deleted automatically.';
+  end if;
+
+  select coalesce(array_agg(valid_path.path order by valid_path.path), '{}'::text[])
+    into v_paths
+  from (
+    select distinct attachment.value ->> 'path' as path
+    from jsonb_array_elements(
+      case
+        when jsonb_typeof(v_item.attachments) = 'array' then v_item.attachments
+        else '[]'::jsonb
+      end
+    ) as attachment(value)
+    where jsonb_typeof(attachment.value) = 'object'
+      and not exists (
+        select 1
+        from public.inbox_items other_item
+        cross join lateral jsonb_array_elements(
+          case
+            when jsonb_typeof(other_item.attachments) = 'array'
+              then other_item.attachments
+            else '[]'::jsonb
+          end
+        ) as other_attachment(value)
+        where other_item.account_id = v_account_id
+          and other_item.id <> p_item_id
+          and jsonb_typeof(other_attachment.value) = 'object'
+          and other_attachment.value ->> 'path' = attachment.value ->> 'path'
+      )
+  ) as valid_path;
+
+  delete from public.inbox_items i
+  where i.id = p_item_id and i.account_id = v_account_id;
+  if not found then
+    raise exception 'Inbox item could not be deleted';
+  end if;
+
+  insert into public.inbox_attachment_purge (account_id, storage_path)
+  select v_account_id, path
+  from unnest(v_paths) as queued(path)
+  on conflict (account_id, storage_path) do nothing;
+
+  return coalesce(array_length(v_paths, 1), 0);
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION "public"."claim_inbox_attachment_purge"() RETURNS TABLE("id" bigint, "storage_path" text)
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $function$
+declare
+  v_account_id bigint;
+  v_role text;
+begin
+  v_account_id := public.current_context_id();
+  v_role := public.current_member_role();
+
+  if v_account_id is null or v_role is null or v_role = 'single' then
+    raise exception 'Inbox attachment purge is not available to this role'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- A path that has become referenced by another Inbox row is removed from
+  -- the queue without touching Storage. The exact JSONB scan is intentionally
+  -- unbounded: this is the race-safe purge fence, not a paginated UI read.
+  delete from public.inbox_attachment_purge q
+  where q.account_id = v_account_id
+    and exists (
+      select 1
+      from public.inbox_items i
+      cross join lateral jsonb_array_elements(
+        case
+          when jsonb_typeof(i.attachments) = 'array' then i.attachments
+          else '[]'::jsonb
+        end
+      ) as attachment(value)
+      where i.account_id = v_account_id
+        and jsonb_typeof(attachment.value) = 'object'
+        and attachment.value ->> 'path' = q.storage_path
+    );
+
+  return query
+  select q.id, q.storage_path
+  from public.inbox_attachment_purge q
+  where q.account_id = v_account_id
+  order by q.id;
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION "public"."ack_inbox_attachment_purge"("p_paths" text[]) RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $function$
+declare
+  v_account_id bigint;
+  v_role text;
+  v_deleted integer;
+begin
+  v_account_id := public.current_context_id();
+  v_role := public.current_member_role();
+
+  if v_account_id is null or v_role is null or v_role = 'single' then
+    raise exception 'Inbox attachment purge is not available to this role'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  delete from public.inbox_attachment_purge q
+  where q.account_id = v_account_id
+    and q.storage_path = any(coalesce(p_paths, '{}'::text[]));
+
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
+end;
+$function$;
 
 CREATE OR REPLACE FUNCTION public.demo_storage_write_fence(p_account_id bigint)
  RETURNS boolean

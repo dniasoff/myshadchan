@@ -282,7 +282,24 @@ export async function attachInboxAttachmentToResumeFile(
         p_source_inbox_attachment_path: sourcePath,
       },
     );
-    if (appendError) throw new Error(INBOX_RESUME_ATTACH_ERROR);
+    if (appendError) {
+      // An explicit source/provenance rejection means the delete won after
+      // the pre-copy checks but before this append. The destination was
+      // created by this attempt and is therefore safe to remove. A rejected
+      // RPC is distinct from an unknown network outcome below: in the latter
+      // case a retry may already have committed the deterministic object.
+      if (
+        /Inbox attachment not found|source Inbox provenance/i.test(
+          appendError.message ?? "",
+        )
+      ) {
+        await getSupabaseClient()
+          .storage.from(DOCUMENTS_BUCKET)
+          .remove([storagePath])
+          .catch(() => undefined);
+      }
+      throw new Error(INBOX_RESUME_ATTACH_ERROR);
+    }
 
     const row = Array.isArray(data) ? data[0] : data;
     return row as Resume;

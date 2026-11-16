@@ -1095,6 +1095,24 @@ revoke all on sequence public.inbox_items_id_seq from anon;
 grant usage, select on sequence public.inbox_items_id_seq to authenticated;
 grant all on sequence public.inbox_items_id_seq to service_role;
 
+-- Inbox attachment purge is a server-owned queue. Authenticated callers may
+-- list their own pending rows through RLS, while the delete/ack RPCs are the
+-- only write paths; service_role retains full access for operational cleanup.
+revoke all on table public.inbox_attachment_purge from anon, authenticated;
+grant select on table public.inbox_attachment_purge to authenticated;
+grant all on table public.inbox_attachment_purge to service_role;
+revoke all on sequence public.inbox_attachment_purge_id_seq from anon, authenticated;
+grant all on sequence public.inbox_attachment_purge_id_seq to service_role;
+revoke all on function public.delete_inbox_item(bigint) from public, anon;
+grant execute on function public.delete_inbox_item(bigint) to authenticated;
+grant execute on function public.delete_inbox_item(bigint) to service_role;
+revoke all on function public.claim_inbox_attachment_purge() from public, anon;
+grant execute on function public.claim_inbox_attachment_purge() to authenticated;
+grant execute on function public.claim_inbox_attachment_purge() to service_role;
+revoke all on function public.ack_inbox_attachment_purge(text[]) from public, anon;
+grant execute on function public.ack_inbox_attachment_purge(text[]) to authenticated;
+grant execute on function public.ack_inbox_attachment_purge(text[]) to service_role;
+
 -- ---------------------------------------------------------------------------
 -- Files tab (Story 3.7). entity_files is the storage catalog table:
 -- authenticated gets full CRUD except UPDATE at the table level — only

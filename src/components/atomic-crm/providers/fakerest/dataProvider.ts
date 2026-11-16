@@ -62,6 +62,10 @@ import { toResumeInboxPickerItem } from "../../resumes/resumeInbox";
 import {
   canDeleteInboxItem,
   getRemovableInboxAttachmentPaths,
+  hasValidInboxAttachmentPaths,
+  isInboxAttachmentPurgePath,
+  type InboxAttachmentPurge,
+  type InboxDeleteResult,
 } from "../../inbox/inboxDelete";
 import {
   deleteEntityFile as deleteEntityFileImpl,
@@ -357,6 +361,10 @@ export const createDataProvider = ({
   // Inbox captures use the private `attachments` bucket in production. The
   // demo keeps the same metadata shape and holds the bytes in object URLs.
   const inboxAttachmentBlobUrls = new Map<string, string>();
+  // FakeRest mirror of public.inbox_attachment_purge. The map is session-local
+  // but durable across a failed Storage attempt and drained on later loads.
+  const inboxAttachmentPurge = new Map<string, InboxAttachmentPurge>();
+  let nextInboxAttachmentPurgeId = 1;
 
   // Resume tab (Story 5.3): the same in-memory "bytes" idea, kept in its own
   // map (a different bucket, `documents`, in the real backend) — see
@@ -406,6 +414,8 @@ export const createDataProvider = ({
       if (url.startsWith("blob:")) URL.revokeObjectURL(url);
     }
     inboxAttachmentBlobUrls.clear();
+    inboxAttachmentPurge.clear();
+    nextInboxAttachmentPurgeId = 1;
   };
 
   const restoreBlobMap = (
@@ -501,6 +511,8 @@ export const createDataProvider = ({
     const previousDb = await snapshotFakeRestGraph();
     const previousEntityFiles = new Map(entityFileBlobUrls);
     const previousInboxAttachments = new Map(inboxAttachmentBlobUrls);
+    const previousInboxAttachmentPurge = new Map(inboxAttachmentPurge);
+    const previousNextInboxAttachmentPurgeId = nextInboxAttachmentPurgeId;
     const previousResumeFiles = new Map(resumeFileBlobUrls);
     const previousResumePhotos = new Map(resumePhotoBlobUrls);
     const previousActiveAccountId = activeAccountId;
@@ -530,6 +542,11 @@ export const createDataProvider = ({
       }
       restoreBlobMap(entityFileBlobUrls, previousEntityFiles);
       restoreBlobMap(inboxAttachmentBlobUrls, previousInboxAttachments);
+      inboxAttachmentPurge.clear();
+      for (const [key, row] of previousInboxAttachmentPurge) {
+        inboxAttachmentPurge.set(key, row);
+      }
+      nextInboxAttachmentPurgeId = previousNextInboxAttachmentPurgeId;
       restoreBlobMap(resumeFileBlobUrls, previousResumeFiles);
       restoreBlobMap(resumePhotoBlobUrls, previousResumePhotos);
       activeAccountId = previousActiveAccountId;
@@ -1430,6 +1447,57 @@ export const createDataProvider = ({
     for (const shidduch of linked) {
       assertNoKnownHalachicConflict(target, shidduch);
     }
+  };
+
+  const drainInboxAttachmentPurge = async (): Promise<InboxDeleteResult> => {
+    const caller = await requireCallerMembership();
+    if (caller.membership.role === "single") {
+      throw new Error("Inbox attachment purge is not available to this role");
+    }
+    const accountId = caller.membership.account_id;
+    const allItems: InboxItem[] = [];
+    for (let page = 1; ; page += 1) {
+      const { data } = await baseDataProvider.getList<InboxItem>(
+        "inbox_items",
+        {
+          filter: {},
+          pagination: { page, perPage: 1_000 },
+          sort: { field: "id", order: "ASC" },
+        },
+      );
+      allItems.push(...data);
+      if (data.length < 1_000) break;
+    }
+
+    const referencedPaths = new Set(
+      allItems
+        .filter((item) => String(item.account_id) === String(accountId))
+        .flatMap(
+          (item) =>
+            item.attachments?.flatMap((attachment) =>
+              typeof attachment.path === "string" ? [attachment.path] : [],
+            ) ?? [],
+        ),
+    );
+    const acknowledgedKeys: string[] = [];
+    for (const [key, row] of inboxAttachmentPurge) {
+      if (String(row.account_id) !== String(accountId)) continue;
+      if (referencedPaths.has(row.storage_path)) {
+        inboxAttachmentPurge.delete(key);
+        continue;
+      }
+      if (!isInboxAttachmentPurgePath(row.storage_path, accountId)) continue;
+      const src = inboxAttachmentBlobUrls.get(row.storage_path);
+      if (src?.startsWith("blob:")) URL.revokeObjectURL(src);
+      inboxAttachmentBlobUrls.delete(row.storage_path);
+      acknowledgedKeys.push(key);
+    }
+    for (const key of acknowledgedKeys) inboxAttachmentPurge.delete(key);
+    return {
+      purgePending: [...inboxAttachmentPurge.values()].some(
+        (row) => String(row.account_id) === String(accountId),
+      ),
+    };
   };
 
   const dataProviderWithCustomMethod: CrmDataProvider = {
@@ -2825,71 +2893,85 @@ export const createDataProvider = ({
       if (src?.startsWith("blob:")) URL.revokeObjectURL(src);
       inboxAttachmentBlobUrls.delete(path);
     },
-    /** FakeRest mirror of the deferred Inbox delete. The membership and
-     * account checks mirror the real provider's RLS boundary; only the
-     * account/inbox/{row id}/ objects are eligible for byte cleanup. */
-    deleteInboxItem: async (id: Identifier): Promise<void> => {
+    /** FakeRest mirror of the server-side Inbox delete transaction. Queue the
+     * path before deleting the row, roll the queue back if the row delete
+     * fails, and drain only after the row/queue commit point. */
+    deleteInboxItem: async (id: Identifier): Promise<InboxDeleteResult> => {
       const caller = await requireCallerMembership();
       if (caller.membership.role === "single") {
         throw new Error("Could not delete this Inbox item");
       }
       const accountId = caller.membership.account_id;
-      const { data: item } = await baseDataProvider.getOne<InboxItem>(
-        "inbox_items",
-        { id },
-      );
-      if (
-        String(item.account_id) !== String(accountId) ||
-        !canDeleteInboxItem(item)
-      ) {
-        throw new Error("Could not delete this Inbox item");
-      }
-
-      const { data: accountItems } = await baseDataProvider.getList<InboxItem>(
+      const { data: matchingItems } = await baseDataProvider.getList<InboxItem>(
         "inbox_items",
         {
-          filter: { account_id: accountId },
-          pagination: { page: 1, perPage: 10_000 },
+          filter: { id },
+          pagination: { page: 1, perPage: 1 },
           sort: { field: "id", order: "ASC" },
         },
       );
+      const item = matchingItems[0];
+      if (!item || String(item.account_id) !== String(accountId)) {
+        return drainInboxAttachmentPurge();
+      }
+      if (!canDeleteInboxItem(item)) {
+        throw new Error("Could not delete this Inbox item");
+      }
+      if (!hasValidInboxAttachmentPaths(item, accountId)) {
+        throw new Error("This item cannot be deleted automatically.");
+      }
+
+      const accountItems: InboxItem[] = [];
+      for (let page = 1; ; page += 1) {
+        const { data } = await baseDataProvider.getList<InboxItem>(
+          "inbox_items",
+          {
+            filter: {},
+            pagination: { page, perPage: 1_000 },
+            sort: { field: "id", order: "ASC" },
+          },
+        );
+        accountItems.push(
+          ...data.filter(
+            (otherItem) => String(otherItem.account_id) === String(accountId),
+          ),
+        );
+        if (data.length < 1_000) break;
+      }
       const otherItems = accountItems.filter(
         (otherItem) => String(otherItem.id) !== String(item.id),
       );
-      const { data: latest } = await baseDataProvider.getOne<InboxItem>(
-        "inbox_items",
-        { id },
-      );
-      if (
-        String(latest.account_id) !== String(accountId) ||
-        !canDeleteInboxItem(latest)
-      ) {
-        throw new Error("Could not delete this Inbox item");
-      }
-
-      for (const path of getRemovableInboxAttachmentPaths(
-        latest,
+      const paths = getRemovableInboxAttachmentPaths(
+        item,
         accountId,
         otherItems,
-      )) {
-        const src = inboxAttachmentBlobUrls.get(path);
-        if (src?.startsWith("blob:")) URL.revokeObjectURL(src);
-        inboxAttachmentBlobUrls.delete(path);
+      );
+      const addedQueueKeys: string[] = [];
+      for (const path of paths) {
+        const key = `${accountId}:${path}`;
+        if (!inboxAttachmentPurge.has(key)) {
+          inboxAttachmentPurge.set(key, {
+            id: nextInboxAttachmentPurgeId++,
+            account_id: accountId,
+            storage_path: path,
+          });
+          addedQueueKeys.push(key);
+        }
       }
 
-      const { data: beforeRowDelete } =
-        await baseDataProvider.getOne<InboxItem>("inbox_items", { id });
-      if (
-        String(beforeRowDelete.account_id) !== String(accountId) ||
-        !canDeleteInboxItem(beforeRowDelete)
-      ) {
-        throw new Error("Could not delete this Inbox item");
+      try {
+        await baseDataProvider.delete("inbox_items", {
+          id,
+          previousData: item,
+        });
+      } catch (error) {
+        for (const key of addedQueueKeys) inboxAttachmentPurge.delete(key);
+        throw error;
       }
-      await baseDataProvider.delete("inbox_items", {
-        id,
-        previousData: beforeRowDelete,
-      });
+
+      return drainInboxAttachmentPurge();
     },
+    drainInboxAttachmentPurge,
     copyInboxAttachmentToResumeFile: async (params: {
       shidduchimId?: Identifier;
       singleId?: Identifier;

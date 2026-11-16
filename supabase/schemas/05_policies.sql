@@ -1792,6 +1792,20 @@ create policy "Inbox items scoped to account" on public.inbox_items
         and public.current_member_role() <> 'single'
     );
 
+-- The purge queue is readable only by the same non-single account roles that
+-- can read Inbox captures. Its rows are created and acknowledged only by the
+-- SECURITY DEFINER RPCs in 02_functions.sql; there is no direct DML grant.
+alter table public.inbox_attachment_purge enable row level security;
+alter table public.inbox_attachment_purge force row level security;
+
+create policy "Inbox attachment purge queue scoped to account"
+    on public.inbox_attachment_purge
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
+
 -- Files tab (Story 3.7, AC 2d): copies "Tasks scoped to account" verbatim.
 -- entity_files is account-scoped like the rest of the domain and, like tasks
 -- (Story 3.14), is NOT household-only: a shadchanus context must be able to

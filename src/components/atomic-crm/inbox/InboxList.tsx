@@ -46,7 +46,7 @@ const InboxCard = ({
   item: InboxItem;
   ctaLabel: string;
   onOpen: (item: InboxItem) => void;
-  onDelete: (item: InboxItem) => void;
+  onDelete: (item: InboxItem, trigger: HTMLButtonElement) => void;
 }) => {
   const meta = INBOX_SOURCE_META[item.source];
   const SourceIcon = meta.icon;
@@ -119,8 +119,13 @@ const InboxCard = ({
             type="button"
             variant="outline"
             size="sm"
-            aria-label="Delete this item"
-            onClick={() => onDelete(item)}
+            aria-label={`Delete ${
+              item.subject ||
+              item.raw_text?.slice(0, 48) ||
+              item.attachments?.[0]?.title ||
+              meta.label
+            }`}
+            onClick={(event) => onDelete(item, event.currentTarget)}
             className="min-h-11 w-full border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
           >
             <Trash2 className="size-3.5" aria-hidden="true" />
@@ -197,11 +202,30 @@ const InboxContent = () => {
   const [pendingDeletes, setPendingDeletes] = useState<Map<string, InboxItem>>(
     new Map(),
   );
+  const [deleteDeadlines, setDeleteDeadlines] = useState<Map<string, number>>(
+    new Map(),
+  );
   const deleteTimers = useRef(new Map<string, number>());
   const finalizingDeletes = useRef(new Set<string>());
   const confirmingDelete = useRef(false);
-  const [deleteTimeRemaining, setDeleteTimeRemaining] =
-    useState(INBOX_DELETE_UNDO_MS);
+  const deleteTrigger = useRef<HTMLButtonElement | null>(null);
+  const [deleteClock, setDeleteClock] = useState(() => Date.now());
+
+  useEffect(() => {
+    try {
+      const drain = (
+        dataProvider as unknown as {
+          drainInboxAttachmentPurge?: () => Promise<unknown>;
+        }
+      ).drainInboxAttachmentPurge;
+      if (typeof drain === "function") {
+        void Promise.resolve(drain()).catch(() => undefined);
+      }
+    } catch {
+      // Fake/test providers without the optional durable purge method simply
+      // have no queue to drain.
+    }
+  }, [dataProvider]);
 
   useEffect(
     () => () => {
@@ -218,11 +242,8 @@ const InboxContent = () => {
 
   useEffect(() => {
     if (pendingDeletes.size === 0) return;
-    const startedAt = Date.now();
     const interval = window.setInterval(() => {
-      setDeleteTimeRemaining(
-        Math.max(0, INBOX_DELETE_UNDO_MS - (Date.now() - startedAt)),
-      );
+      setDeleteClock(Date.now());
     }, 100);
     return () => window.clearInterval(interval);
   }, [pendingDeletes.size]);
@@ -233,19 +254,35 @@ const InboxContent = () => {
       next.delete(key);
       return next;
     });
+    setDeleteDeadlines((current) => {
+      const next = new Map(current);
+      next.delete(key);
+      return next;
+    });
   };
 
   const finalizeDelete = async (item: InboxItem, key: string) => {
     try {
-      await dataProvider.deleteInboxItem(item.id);
+      const result = await dataProvider.deleteInboxItem(item.id);
       removePendingDelete(key);
+      setNotice(
+        result?.purgePending
+          ? "Deleted. Some files will be removed shortly."
+          : "Item deleted.",
+      );
       refresh();
-    } catch {
-      // The provider deletes bytes before the row and throws on a storage
-      // failure, so restoring the local row leaves the user with no silent
-      // partial delete and allows the action to be retried.
+    } catch (error) {
+      // The server RPC commits the row delete and purge queue atomically. A
+      // refusal leaves the row intact; Storage failures are reported as a
+      // pending purge result, never as a false "nothing changed" message.
       removePendingDelete(key);
-      notify("Could not delete. Nothing was changed.", { type: "error" });
+      const message =
+        error instanceof Error &&
+        error.message === "This item cannot be deleted automatically."
+          ? error.message
+          : "Could not delete automatically. The item is still here.";
+      setNotice(message);
+      notify(message, { type: "error" });
     } finally {
       deleteTimers.current.delete(key);
       finalizingDeletes.current.delete(key);
@@ -262,9 +299,13 @@ const InboxContent = () => {
     confirmingDelete.current = true;
     const item = deleteCandidate;
     const key = String(item.id);
-    setDeleteCandidate(null);
+    closeDeleteDialog();
     setNotice(null);
-    setDeleteTimeRemaining(INBOX_DELETE_UNDO_MS);
+    setDeleteDeadlines((current) => {
+      const next = new Map(current);
+      next.set(key, Date.now() + INBOX_DELETE_UNDO_MS);
+      return next;
+    });
     setPendingDeletes((current) => {
       const next = new Map(current);
       next.set(key, item);
@@ -287,10 +328,20 @@ const InboxContent = () => {
     setNotice("Item restored.");
   };
 
-  const handleDeleteRequested = (item: InboxItem) => {
+  const handleDeleteRequested = (
+    item: InboxItem,
+    trigger: HTMLButtonElement,
+  ) => {
     if (!canDeleteInboxItem(item)) return;
     confirmingDelete.current = false;
+    deleteTrigger.current = trigger;
     setDeleteCandidate(item);
+  };
+
+  const closeDeleteDialog = () => {
+    confirmingDelete.current = false;
+    setDeleteCandidate(null);
+    window.requestAnimationFrame(() => deleteTrigger.current?.focus());
   };
 
   const isPendingDelete = (item: InboxItem) =>
@@ -340,42 +391,48 @@ const InboxContent = () => {
 
       {pendingDeletes.size > 0 ? (
         <div className="flex flex-col gap-2" aria-live="polite">
-          {[...pendingDeletes.keys()].map((key) => (
-            <div
-              key={key}
-              role="status"
-              className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm"
-            >
-              <div>
-                <p className="text-sm font-semibold">Item deleted.</p>
-                <p className="text-xs text-muted-foreground">
-                  Undo is available for 10 seconds.
-                </p>
-                <div
-                  className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted"
-                  role="progressbar"
-                  aria-label="Undo time remaining"
-                  aria-valuemin={0}
-                  aria-valuemax={INBOX_DELETE_UNDO_MS}
-                  aria-valuenow={deleteTimeRemaining}
-                >
-                  <div
-                    className="h-full bg-primary transition-[width] duration-100"
-                    style={{
-                      width: `${(deleteTimeRemaining / INBOX_DELETE_UNDO_MS) * 100}%`,
-                    }}
-                  />
-                </div>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => handleUndo(key)}
+          {[...pendingDeletes.keys()].map((key) => {
+            const timeRemaining = Math.max(
+              0,
+              (deleteDeadlines.get(key) ?? deleteClock) - deleteClock,
+            );
+            return (
+              <div
+                key={key}
+                role="status"
+                className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm"
               >
-                Undo
-              </Button>
-            </div>
-          ))}
+                <div>
+                  <p className="text-sm font-semibold">Item deleted.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Undo is available for 10 seconds.
+                  </p>
+                  <div
+                    className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted"
+                    role="progressbar"
+                    aria-label="Undo time remaining"
+                    aria-valuemin={0}
+                    aria-valuemax={INBOX_DELETE_UNDO_MS}
+                    aria-valuenow={timeRemaining}
+                  >
+                    <div
+                      className="h-full bg-primary transition-[width] duration-100"
+                      style={{
+                        width: `${(timeRemaining / INBOX_DELETE_UNDO_MS) * 100}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => handleUndo(key)}
+                >
+                  Undo
+                </Button>
+              </div>
+            );
+          })}
         </div>
       ) : null}
       {notice ? (
@@ -469,10 +526,7 @@ const InboxContent = () => {
       ) : null}
       <InboxDeleteDialog
         open={deleteCandidate !== null}
-        onClose={() => {
-          confirmingDelete.current = false;
-          setDeleteCandidate(null);
-        }}
+        onClose={closeDeleteDialog}
         onConfirm={handleDeleteConfirm}
       />
     </div>

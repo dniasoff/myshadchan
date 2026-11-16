@@ -5,6 +5,8 @@ import {
   INBOX_DELETE_UNDO_MS,
   canDeleteInboxItem,
   getRemovableInboxAttachmentPaths,
+  hasValidInboxAttachmentPaths,
+  isInboxAttachmentPurgePath,
 } from "./inboxDelete";
 
 const item = (overrides: Partial<InboxItem> = {}): InboxItem => ({
@@ -91,5 +93,45 @@ describe("Inbox delete safety", () => {
         ],
       ),
     ).toEqual([privatePath]);
+  });
+
+  it("rejects encoded traversal, separators, controls, and backslashes", () => {
+    const valid = "7/inbox/42/private.pdf";
+    expect(isInboxAttachmentPurgePath(valid, 7)).toBe(true);
+    for (const unsafe of [
+      "7/inbox/42/%2e%2e/private.pdf",
+      "7/inbox/42/%2Fother.pdf",
+      "7/inbox/42/%5cother.pdf",
+      "7/inbox/42/%25path.pdf",
+      "7/inbox/42/line\nfeed.pdf",
+      "7/inbox/42/other\\file.pdf",
+    ]) {
+      expect(isInboxAttachmentPurgePath(unsafe, 7)).toBe(false);
+    }
+  });
+
+  it("fails closed for malformed attachment metadata while allowing null and empty arrays", () => {
+    expect(hasValidInboxAttachmentPaths(item({ attachments: null }), 7)).toBe(
+      true,
+    );
+    expect(hasValidInboxAttachmentPaths(item({ attachments: [] }), 7)).toBe(
+      true,
+    );
+    expect(
+      hasValidInboxAttachmentPaths(
+        item({ attachments: {} as InboxItem["attachments"] }),
+        7,
+      ),
+    ).toBe(false);
+    expect(
+      hasValidInboxAttachmentPaths(
+        item({
+          attachments: [
+            { title: "missing", type: "text/plain", path: "", src: "" },
+          ],
+        }),
+        7,
+      ),
+    ).toBe(false);
   });
 });

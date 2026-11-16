@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
+import { page } from "@vitest/browser/context";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, memoryStore, TestMemoryRouter } from "ra-core";
 import type { Store } from "ra-core";
@@ -56,6 +57,12 @@ const HELD_ITEM: InboxItem = {
   resolution_input: null,
 };
 
+const SECOND_UNRESOLVED_ITEM: InboxItem = {
+  ...UNRESOLVED_ITEM,
+  id: 3,
+  subject: "A second working-inbox suggestion",
+};
+
 const renderInboxList = async (
   inboxItems: InboxItem[],
   initialEntries: string[] = ["/inbox_items"],
@@ -106,15 +113,29 @@ const renderInboxList = async (
 };
 
 describe("InboxList — delete and undo", () => {
+  afterEach(async () => {
+    vi.useRealTimers();
+    await page.viewport(1280, 720);
+  });
+
   it("hides the item immediately and restores it without calling final delete on Undo", async () => {
     const { screen, deleteInboxItem } = await renderInboxList([
       UNRESOLVED_ITEM,
     ]);
 
-    await screen.getByRole("button", { name: "Delete this item" }).click();
+    const deleteButton = screen.getByRole("button", {
+      name: "Delete A working-inbox suggestion",
+    });
+    await deleteButton.click();
     await expect
       .element(screen.getByRole("dialog"))
       .toHaveTextContent("Delete this item?");
+    await screen.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect
+      .poll(() => document.activeElement?.getAttribute("aria-label"))
+      .toBe("Delete A working-inbox suggestion");
+
+    await deleteButton.click();
     await screen.getByRole("button", { name: "Delete", exact: true }).click();
 
     await expect
@@ -131,6 +152,135 @@ describe("InboxList — delete and undo", () => {
       .element(screen.getByText("Item restored."))
       .toBeInTheDocument();
     expect(deleteInboxItem).not.toHaveBeenCalled();
+  });
+
+  it("does not finalize before 10 seconds and finalizes exactly once at expiry", async () => {
+    const { screen, deleteInboxItem } = await renderInboxList([
+      UNRESOLVED_ITEM,
+    ]);
+    vi.useFakeTimers();
+
+    await screen
+      .getByRole("button", { name: "Delete A working-inbox suggestion" })
+      .click();
+    await screen.getByRole("button", { name: "Delete", exact: true }).click();
+
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(deleteInboxItem).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect.poll(() => deleteInboxItem.mock.calls.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(deleteInboxItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores the row with truthful static failure copy when the RPC refuses", async () => {
+    const { screen, deleteInboxItem } = await renderInboxList([
+      UNRESOLVED_ITEM,
+    ]);
+    vi.useFakeTimers();
+    deleteInboxItem.mockRejectedValueOnce(
+      new Error("Could not delete this Inbox item"),
+    );
+
+    await screen
+      .getByRole("button", { name: "Delete A working-inbox suggestion" })
+      .click();
+    await screen.getByRole("button", { name: "Delete", exact: true }).click();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect
+      .element(screen.getByText("A working-inbox suggestion"))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "Could not delete automatically. The item is still here.",
+        ),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Nothing was changed."))
+      .not.toBeInTheDocument();
+  });
+
+  it("finalizes a held item after its own 10-second window", async () => {
+    const { screen, deleteInboxItem } = await renderInboxList([HELD_ITEM]);
+    vi.useFakeTimers();
+    await screen.getByRole("tab", { name: /Needs review/ }).click();
+    await screen
+      .getByRole("button", { name: "Delete An unreviewed sender's message" })
+      .click();
+    await screen.getByRole("button", { name: "Delete", exact: true }).click();
+
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(deleteInboxItem).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect.poll(() => deleteInboxItem.mock.calls.length).toBe(1);
+  });
+
+  it("keeps separate deadlines for several pending deletes", async () => {
+    const { screen, deleteInboxItem } = await renderInboxList([
+      UNRESOLVED_ITEM,
+      SECOND_UNRESOLVED_ITEM,
+    ]);
+    vi.useFakeTimers();
+
+    await screen
+      .getByRole("button", { name: "Delete A working-inbox suggestion" })
+      .click();
+    await screen.getByRole("button", { name: "Delete", exact: true }).click();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await screen
+      .getByRole("button", { name: "Delete A second working-inbox suggestion" })
+      .click();
+    await screen.getByRole("button", { name: "Delete", exact: true }).click();
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(deleteInboxItem).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect.poll(() => deleteInboxItem.mock.calls.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(deleteInboxItem).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect.poll(() => deleteInboxItem.mock.calls.length).toBe(2);
+  });
+
+  it("cancels every pending finalization when the screen unmounts", async () => {
+    const { screen, deleteInboxItem } = await renderInboxList([
+      UNRESOLVED_ITEM,
+    ]);
+    vi.useFakeTimers();
+    await screen
+      .getByRole("button", { name: "Delete A working-inbox suggestion" })
+      .click();
+    await screen.getByRole("button", { name: "Delete", exact: true }).click();
+    screen.unmount();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(deleteInboxItem).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Delete action full-width on a 390px phone and compact at 1280px", async () => {
+    await page.viewport(390, 844);
+    const { screen: mobile } = await renderInboxList([UNRESOLVED_ITEM]);
+    await expect
+      .element(
+        mobile.getByRole("button", {
+          name: "Delete A working-inbox suggestion",
+        }),
+      )
+      .toHaveClass("w-full");
+    mobile.unmount();
+
+    await page.viewport(1280, 844);
+    const { screen: desktop } = await renderInboxList([UNRESOLVED_ITEM]);
+    await expect
+      .element(
+        desktop.getByRole("button", {
+          name: "Delete A working-inbox suggestion",
+        }),
+      )
+      .toHaveClass("sm:w-auto");
+    desktop.unmount();
   });
 });
 

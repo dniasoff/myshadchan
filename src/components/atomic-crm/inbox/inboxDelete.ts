@@ -2,8 +2,60 @@ import type { Identifier } from "ra-core";
 
 import type { InboxItem } from "../types";
 
+export type InboxDeleteResult = {
+  /** True when at least one private object remains in the durable queue. */
+  purgePending: boolean;
+};
+
+export type InboxAttachmentPurge = {
+  id: Identifier;
+  account_id?: Identifier;
+  storage_path: string;
+};
+
 /** The approved time in which an Inbox deletion can be undone. */
 export const INBOX_DELETE_UNDO_MS = 10_000;
+
+/** The only object-key shape the Inbox purge client is allowed to pass to
+ * Storage. The server is authoritative; this is a second bucket/path guard
+ * so a malformed queue row can never turn into a broad cleanup request. */
+export function isInboxAttachmentPurgePath(
+  path: unknown,
+  accountId: Identifier,
+): path is string {
+  if (typeof path !== "string") return false;
+  if (/%(?:2e|2f|5c|25)/i.test(path)) return false;
+  const hasControlCharacter = [...path].some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 0x20 || code === 0x7f;
+  });
+  if (hasControlCharacter || path.includes("\\")) {
+    return false;
+  }
+  const prefix = `${accountId}/inbox/`;
+  if (!path.startsWith(prefix)) return false;
+  const segments = path.slice(prefix.length).split("/");
+  return (
+    segments.length >= 2 &&
+    /^\d+$/.test(segments[0]) &&
+    segments.every(
+      (segment) => segment.length > 0 && segment !== "." && segment !== "..",
+    )
+  );
+}
+
+export function hasValidInboxAttachmentPaths(
+  item: Pick<InboxItem, "attachments">,
+  accountId: Identifier,
+): boolean {
+  if (item.attachments == null) return true;
+  return (
+    Array.isArray(item.attachments) &&
+    item.attachments.every((attachment) =>
+      isInboxAttachmentPurgePath(attachment?.path, accountId),
+    )
+  );
+}
 
 const DELETABLE_INBOX_STATUSES = new Set<InboxItem["status"]>([
   "unresolved",

@@ -20,7 +20,10 @@ export const InboxDeleteDialog = ({
   onConfirm: () => void;
 }) => (
   <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-    <DialogContent className="top-auto bottom-0 max-w-md translate-y-0 rounded-b-none border-border bg-popover shadow-lg sm:top-1/2 sm:bottom-auto sm:-translate-y-1/2 sm:rounded-lg">
+    <DialogContent
+      hideClose
+      className="top-auto bottom-0 max-w-md translate-y-0 rounded-b-none border-border bg-popover shadow-lg sm:top-1/2 sm:bottom-auto sm:-translate-y-1/2 sm:rounded-lg"
+    >
       <DialogHeader>
         <DialogTitle className="font-display text-2xl font-semibold tracking-tight">
           Delete this item?

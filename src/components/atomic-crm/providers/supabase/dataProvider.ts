@@ -113,8 +113,9 @@ import type {
 } from "../../analytics/types";
 import { toResumeInboxPickerItem } from "../../resumes/resumeInbox";
 import {
-  canDeleteInboxItem,
-  getRemovableInboxAttachmentPaths,
+  type InboxAttachmentPurge,
+  type InboxDeleteResult,
+  isInboxAttachmentPurgePath,
 } from "../../inbox/inboxDelete";
 
 // Story 9.3: `public.listing_withdrawal_locks` deliberately has no `id`
@@ -1295,90 +1296,24 @@ export const getDataProviderWithCustomMethods = () => {
     ): Promise<EntityFile[]> {
       return copyInboxAttachmentsToEntityFilesImpl(params);
     },
-    /**
-     * Finalize an Inbox delete after the client-side Undo window. The caller
-     * supplies only the row id. We re-read the row through RLS, derive the
-     * active account through `current_context_id()`, and derive every storage
-     * path from server-returned attachment metadata. This keeps copied files
-     * in `documents`/`entity-files` out of the delete set and preserves a
-     * private object still referenced by another Inbox row.
-     */
-    async deleteInboxItem(id: Identifier): Promise<void> {
-      const { data: item } = await baseDataProvider.getOne<InboxItem>(
-        "inbox_items",
-        { id },
-      );
-      const accountId = await getCurrentAccountId();
-      if (
-        String(item.account_id) !== String(accountId) ||
-        !canDeleteInboxItem(item)
-      ) {
-        throw new Error("Could not delete this Inbox item");
-      }
-
-      const { data: accountItems } = await baseDataProvider.getList<InboxItem>(
-        "inbox_items",
-        {
-          filter: { account_id: accountId },
-          pagination: { page: 1, perPage: 10_000 },
-          sort: { field: "id", order: "ASC" },
-        },
-      );
-      const otherItems = accountItems.filter(
-        (otherItem) => String(otherItem.id) !== String(item.id),
-      );
-
-      // Re-check the CAS-style resolve marker immediately before touching
-      // storage. A resolver that wins this race leaves the Inbox row intact.
-      const { data: latest } = await baseDataProvider.getOne<InboxItem>(
-        "inbox_items",
-        { id },
-      );
-      if (
-        String(latest.account_id) !== String(accountId) ||
-        !canDeleteInboxItem(latest)
-      ) {
-        throw new Error("Could not delete this Inbox item");
-      }
-
-      const paths = getRemovableInboxAttachmentPaths(
-        latest,
-        accountId,
-        otherItems,
-      );
-      for (const path of paths) {
-        const { error } = await getSupabaseClient()
-          .storage.from(ATTACHMENTS_BUCKET)
-          .remove([path]);
-        const statusCode =
-          typeof error === "object" && error !== null && "statusCode" in error
-            ? Number((error as { statusCode?: unknown }).statusCode)
-            : undefined;
-        const message =
-          typeof error === "object" && error !== null && "message" in error
-            ? String((error as { message?: unknown }).message)
-            : "";
-        const missingObject =
-          statusCode === 404 ||
-          /not found|does not exist|no such object/i.test(message);
-        if (error && !missingObject) {
-          throw new Error("Could not delete this Inbox item");
-        }
-      }
-
-      const { data: beforeRowDelete } =
-        await baseDataProvider.getOne<InboxItem>("inbox_items", { id });
-      if (
-        String(beforeRowDelete.account_id) !== String(accountId) ||
-        !canDeleteInboxItem(beforeRowDelete)
-      ) {
-        throw new Error("Could not delete this Inbox item");
-      }
-      await baseDataProvider.delete("inbox_items", {
-        id,
-        previousData: beforeRowDelete,
+    /** Delete/queue the Inbox row in one server transaction, then make a
+     * best-effort pass over the durable Storage purge queue. A Storage error
+     * never turns a committed row delete into a false failure. */
+    async deleteInboxItem(id: Identifier): Promise<InboxDeleteResult> {
+      const { error } = await getSupabaseClient().rpc("delete_inbox_item", {
+        p_item_id: id,
       });
+      if (error) {
+        if (/cannot be deleted automatically/i.test(error.message)) {
+          throw new Error("This item cannot be deleted automatically.");
+        }
+        throw new Error("Could not delete this Inbox item");
+      }
+      return drainInboxAttachmentPurge();
     },
+    /** Drain all pending private Inbox objects for the active account. Missing
+     * objects are successful; failed removals stay queued for a later load. */
+    drainInboxAttachmentPurge,
     // Epic 11 (Needs review tab): the "TRUST SENDER" action — see
     // ./trustedSenders.ts's own doc comment for the atomicity/idempotency
     // reasoning (no schema change available in this pass, so this is two
@@ -1705,6 +1640,62 @@ const getCurrentAccountId = async (): Promise<number> => {
     throw new Error("Cannot resolve the account for this attachment upload");
   }
   return data as number;
+};
+
+const isMissingStorageObject = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false;
+  const statusCode =
+    "statusCode" in error
+      ? Number((error as { statusCode?: unknown }).statusCode)
+      : undefined;
+  const message =
+    "message" in error ? String((error as { message?: unknown }).message) : "";
+  return (
+    statusCode === 404 ||
+    /not found|does not exist|no such object/i.test(message)
+  );
+};
+
+const drainInboxAttachmentPurge = async (): Promise<InboxDeleteResult> => {
+  let accountId: number;
+  let rows: InboxAttachmentPurge[];
+  try {
+    accountId = await getCurrentAccountId();
+    const { data, error } = await getSupabaseClient().rpc(
+      "claim_inbox_attachment_purge",
+    );
+    if (error) throw error;
+    rows = (data ?? []) as InboxAttachmentPurge[];
+  } catch {
+    return { purgePending: true };
+  }
+
+  const acknowledgedPaths: string[] = [];
+  for (const row of rows) {
+    if (!isInboxAttachmentPurgePath(row.storage_path, accountId)) continue;
+    try {
+      const { error } = await getSupabaseClient()
+        .storage.from(ATTACHMENTS_BUCKET)
+        .remove([row.storage_path]);
+      if (!error || isMissingStorageObject(error)) {
+        acknowledgedPaths.push(row.storage_path);
+      }
+    } catch {
+      // The queue row remains durable when the Storage client itself rejects.
+    }
+  }
+
+  if (acknowledgedPaths.length > 0) {
+    const { error } = await getSupabaseClient().rpc(
+      "ack_inbox_attachment_purge",
+      { p_paths: acknowledgedPaths },
+    );
+    if (error) return { purgePending: true };
+  }
+
+  return {
+    purgePending: rows.length > acknowledgedPaths.length,
+  };
 };
 
 // Story 10.1 (Task 4): exported so `ShareTarget.tsx` can upload a shared
