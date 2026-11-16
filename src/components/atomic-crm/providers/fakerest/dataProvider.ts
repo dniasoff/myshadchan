@@ -60,6 +60,10 @@ import type {
 import { ENTITY_TARGET_TYPES } from "../../types";
 import { toResumeInboxPickerItem } from "../../resumes/resumeInbox";
 import {
+  canDeleteInboxItem,
+  getRemovableInboxAttachmentPaths,
+} from "../../inbox/inboxDelete";
+import {
   deleteEntityFile as deleteEntityFileImpl,
   signEntityFileUrl as signEntityFileUrlImpl,
   uploadEntityFile as uploadEntityFileImpl,
@@ -2820,6 +2824,71 @@ export const createDataProvider = ({
       const src = inboxAttachmentBlobUrls.get(path);
       if (src?.startsWith("blob:")) URL.revokeObjectURL(src);
       inboxAttachmentBlobUrls.delete(path);
+    },
+    /** FakeRest mirror of the deferred Inbox delete. The membership and
+     * account checks mirror the real provider's RLS boundary; only the
+     * account/inbox/{row id}/ objects are eligible for byte cleanup. */
+    deleteInboxItem: async (id: Identifier): Promise<void> => {
+      const caller = await requireCallerMembership();
+      if (caller.membership.role === "single") {
+        throw new Error("Could not delete this Inbox item");
+      }
+      const accountId = caller.membership.account_id;
+      const { data: item } = await baseDataProvider.getOne<InboxItem>(
+        "inbox_items",
+        { id },
+      );
+      if (
+        String(item.account_id) !== String(accountId) ||
+        !canDeleteInboxItem(item)
+      ) {
+        throw new Error("Could not delete this Inbox item");
+      }
+
+      const { data: accountItems } = await baseDataProvider.getList<InboxItem>(
+        "inbox_items",
+        {
+          filter: { account_id: accountId },
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        },
+      );
+      const otherItems = accountItems.filter(
+        (otherItem) => String(otherItem.id) !== String(item.id),
+      );
+      const { data: latest } = await baseDataProvider.getOne<InboxItem>(
+        "inbox_items",
+        { id },
+      );
+      if (
+        String(latest.account_id) !== String(accountId) ||
+        !canDeleteInboxItem(latest)
+      ) {
+        throw new Error("Could not delete this Inbox item");
+      }
+
+      for (const path of getRemovableInboxAttachmentPaths(
+        latest,
+        accountId,
+        otherItems,
+      )) {
+        const src = inboxAttachmentBlobUrls.get(path);
+        if (src?.startsWith("blob:")) URL.revokeObjectURL(src);
+        inboxAttachmentBlobUrls.delete(path);
+      }
+
+      const { data: beforeRowDelete } =
+        await baseDataProvider.getOne<InboxItem>("inbox_items", { id });
+      if (
+        String(beforeRowDelete.account_id) !== String(accountId) ||
+        !canDeleteInboxItem(beforeRowDelete)
+      ) {
+        throw new Error("Could not delete this Inbox item");
+      }
+      await baseDataProvider.delete("inbox_items", {
+        id,
+        previousData: beforeRowDelete,
+      });
     },
     copyInboxAttachmentToResumeFile: async (params: {
       shidduchimId?: Identifier;

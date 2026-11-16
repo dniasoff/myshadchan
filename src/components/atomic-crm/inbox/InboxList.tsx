@@ -1,17 +1,28 @@
-import { useState } from "react";
-import { Paperclip, Plus } from "lucide-react";
-import { useGetList, useListContext, useTranslate } from "ra-core";
+import { useEffect, useRef, useState } from "react";
+import { Paperclip, Plus, Trash2 } from "lucide-react";
+import {
+  useDataProvider,
+  useGetList,
+  useListContext,
+  useNotify,
+  useRefresh,
+  useTranslate,
+} from "ra-core";
 import { useSearchParams } from "react-router";
 import { List } from "@/components/admin/list";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { EmptyState } from "../misc/EmptyState";
 import { useViewerRole } from "../entity360/useViewerRole";
+import type { CrmDataProvider } from "../providers/types";
 import { canPickResumeFromInbox } from "../resumes/resumeInbox";
 import type { InboxItem } from "../types";
 import { formatRedtDate } from "../shidduchim/boardUtils";
 import { AddToInboxDialog } from "./AddToInboxDialog";
+import { INBOX_DELETE_UNDO_MS, canDeleteInboxItem } from "./inboxDelete";
+import { InboxDeleteDialog } from "./InboxDeleteDialog";
 import { InboxResolveDialog } from "./InboxResolveDialog";
 import { NeedsReviewDialog } from "./NeedsReviewDialog";
 import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
@@ -30,75 +41,94 @@ const InboxCard = ({
   item,
   ctaLabel,
   onOpen,
+  onDelete,
 }: {
   item: InboxItem;
   ctaLabel: string;
   onOpen: (item: InboxItem) => void;
+  onDelete: (item: InboxItem) => void;
 }) => {
   const meta = INBOX_SOURCE_META[item.source];
   const SourceIcon = meta.icon;
   const translate = useTranslate();
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(item)}
-      className="ql-enter w-full rounded-2xl border border-border bg-card p-4 text-start shadow-sm
-        transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)]
-        hover:shadow-md active:scale-[0.99]
-        focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
-        focus-visible:ring-offset-background outline-none"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-          <SourceIcon className="size-3.5" aria-hidden="true" />
-          {meta.label}
-          {item.sender_needs_confirmation ? (
-            <span
-              className="normal-case font-medium"
-              style={{
-                color:
-                  "color-mix(in oklch, var(--attention) 75%, var(--foreground))",
-              }}
-            >
-              {translate("crm.inbox.senderNeedsConfirmation", {
-                _: "Who sent this?",
-              })}
-            </span>
-          ) : item.sender ? (
-            <span className="normal-case font-normal">· {item.sender}</span>
-          ) : null}
-        </span>
-        <span className="text-xs tabular-nums text-muted-foreground">
-          {formatRedtDate(item.created_at?.split("T")[0])}
-        </span>
+    <article className="ql-enter w-full rounded-2xl border border-border bg-card shadow-sm transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)] hover:shadow-md">
+      <button
+        type="button"
+        onClick={() => onOpen(item)}
+        className="w-full rounded-2xl p-4 text-start outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+            <SourceIcon className="size-3.5" aria-hidden="true" />
+            {meta.label}
+            {item.sender_needs_confirmation ? (
+              <span
+                className="normal-case font-medium"
+                style={{
+                  color:
+                    "color-mix(in oklch, var(--attention) 75%, var(--foreground))",
+                }}
+              >
+                {translate("crm.inbox.senderNeedsConfirmation", {
+                  _: "Who sent this?",
+                })}
+              </span>
+            ) : item.sender ? (
+              <span className="normal-case font-normal">· {item.sender}</span>
+            ) : null}
+          </span>
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {formatRedtDate(item.created_at?.split("T")[0])}
+          </span>
+        </div>
+        {item.subject ? (
+          <p className="mt-2 text-sm font-semibold">{item.subject}</p>
+        ) : null}
+        {item.raw_text ? (
+          <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-foreground">
+            {item.raw_text}
+          </p>
+        ) : (
+          <p className="mt-1 text-sm text-muted-foreground">
+            An attachment, ready to file.
+          </p>
+        )}
+        {/* Story 10.3 (Task 5, AC 1/AC 4): a small chip, not the raw file list
+            InboxResolveDialog.tsx renders — this card is a preview, resolving
+            is where the attachment is actually reachable. */}
+        {item.attachments && item.attachments.length > 0 ? (
+          <span className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <Paperclip className="size-3.5" aria-hidden="true" />
+            {item.attachments.length > 1
+              ? `${item.attachments[0].title} +${item.attachments.length - 1}`
+              : item.attachments[0].title}
+          </span>
+        ) : null}
+      </button>
+      <div className="flex flex-col gap-2 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <button
+          type="button"
+          onClick={() => onOpen(item)}
+          className="text-start text-sm font-medium text-primary outline-none focus-visible:underline"
+        >
+          {ctaLabel}
+        </button>
+        {canDeleteInboxItem(item) ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label="Delete this item"
+            onClick={() => onDelete(item)}
+            className="min-h-11 w-full border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
+          >
+            <Trash2 className="size-3.5" aria-hidden="true" />
+            Delete
+          </Button>
+        ) : null}
       </div>
-      {item.subject ? (
-        <p className="mt-2 text-sm font-semibold">{item.subject}</p>
-      ) : null}
-      {item.raw_text ? (
-        <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-foreground">
-          {item.raw_text}
-        </p>
-      ) : (
-        <p className="mt-1 text-sm text-muted-foreground">
-          An attachment, ready to file.
-        </p>
-      )}
-      {/* Story 10.3 (Task 5, AC 1/AC 4): a small chip, not the raw file list
-          InboxResolveDialog.tsx renders — this card is a preview, resolving
-          is where the attachment is actually reachable. */}
-      {item.attachments && item.attachments.length > 0 ? (
-        <span className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
-          <Paperclip className="size-3.5" aria-hidden="true" />
-          {item.attachments.length > 1
-            ? `${item.attachments[0].title} +${item.attachments.length - 1}`
-            : item.attachments[0].title}
-        </span>
-      ) : null}
-      <span className="mt-3 inline-block text-sm font-medium text-primary">
-        {ctaLabel}
-      </span>
-    </button>
+    </article>
   );
 };
 
@@ -150,6 +180,9 @@ const InboxContent = () => {
   );
   const heldItems = heldData ?? [];
 
+  const dataProvider = useDataProvider<CrmDataProvider>();
+  const notify = useNotify();
+  const refresh = useRefresh();
   const translate = useTranslate();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = readActiveTab(searchParams);
@@ -157,6 +190,115 @@ const InboxContent = () => {
   const [addOpen, setAddOpen] = useState(false);
   const [resolving, setResolving] = useState<InboxItem | null>(null);
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<InboxItem | null>(
+    null,
+  );
+  const [notice, setNotice] = useState<string | null>(null);
+  const [pendingDeletes, setPendingDeletes] = useState<Map<string, InboxItem>>(
+    new Map(),
+  );
+  const deleteTimers = useRef(new Map<string, number>());
+  const finalizingDeletes = useRef(new Set<string>());
+  const confirmingDelete = useRef(false);
+  const [deleteTimeRemaining, setDeleteTimeRemaining] =
+    useState(INBOX_DELETE_UNDO_MS);
+
+  useEffect(
+    () => () => {
+      // A pending deletion is intentionally cancelled when this screen
+      // unmounts (including a tab close). The row was never deleted, so the
+      // safe outcome is that it remains in the Inbox for the next visit.
+      for (const timer of deleteTimers.current.values()) {
+        window.clearTimeout(timer);
+      }
+      deleteTimers.current.clear();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (pendingDeletes.size === 0) return;
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => {
+      setDeleteTimeRemaining(
+        Math.max(0, INBOX_DELETE_UNDO_MS - (Date.now() - startedAt)),
+      );
+    }, 100);
+    return () => window.clearInterval(interval);
+  }, [pendingDeletes.size]);
+
+  const removePendingDelete = (key: string) => {
+    setPendingDeletes((current) => {
+      const next = new Map(current);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  const finalizeDelete = async (item: InboxItem, key: string) => {
+    try {
+      await dataProvider.deleteInboxItem(item.id);
+      removePendingDelete(key);
+      refresh();
+    } catch {
+      // The provider deletes bytes before the row and throws on a storage
+      // failure, so restoring the local row leaves the user with no silent
+      // partial delete and allows the action to be retried.
+      removePendingDelete(key);
+      notify("Could not delete. Nothing was changed.", { type: "error" });
+    } finally {
+      deleteTimers.current.delete(key);
+      finalizingDeletes.current.delete(key);
+    }
+  };
+
+  const handleDeleteConfirm = () => {
+    if (
+      confirmingDelete.current ||
+      !deleteCandidate ||
+      !canDeleteInboxItem(deleteCandidate)
+    )
+      return;
+    confirmingDelete.current = true;
+    const item = deleteCandidate;
+    const key = String(item.id);
+    setDeleteCandidate(null);
+    setNotice(null);
+    setDeleteTimeRemaining(INBOX_DELETE_UNDO_MS);
+    setPendingDeletes((current) => {
+      const next = new Map(current);
+      next.set(key, item);
+      return next;
+    });
+    const timer = window.setTimeout(() => {
+      finalizingDeletes.current.add(key);
+      void finalizeDelete(item, key);
+    }, INBOX_DELETE_UNDO_MS);
+    deleteTimers.current.set(key, timer);
+  };
+
+  const handleUndo = (key: string) => {
+    if (finalizingDeletes.current.has(key)) return;
+    const timer = deleteTimers.current.get(key);
+    if (timer !== undefined) window.clearTimeout(timer);
+    deleteTimers.current.delete(key);
+    removePendingDelete(key);
+    confirmingDelete.current = false;
+    setNotice("Item restored.");
+  };
+
+  const handleDeleteRequested = (item: InboxItem) => {
+    if (!canDeleteInboxItem(item)) return;
+    confirmingDelete.current = false;
+    setDeleteCandidate(item);
+  };
+
+  const isPendingDelete = (item: InboxItem) =>
+    pendingDeletes.has(String(item.id));
+  const visibleWorkingItems = workingItems.filter(
+    (item) => !isPendingDelete(item),
+  );
+  const visibleHeldItems = heldItems.filter((item) => !isPendingDelete(item));
 
   const handleTabChange = (value: string) => {
     const next = value === "needs-review" ? "needs-review" : "working";
@@ -196,6 +338,52 @@ const InboxContent = () => {
         </button>
       </div>
 
+      {pendingDeletes.size > 0 ? (
+        <div className="flex flex-col gap-2" aria-live="polite">
+          {[...pendingDeletes.keys()].map((key) => (
+            <div
+              key={key}
+              role="status"
+              className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm"
+            >
+              <div>
+                <p className="text-sm font-semibold">Item deleted.</p>
+                <p className="text-xs text-muted-foreground">
+                  Undo is available for 10 seconds.
+                </p>
+                <div
+                  className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted"
+                  role="progressbar"
+                  aria-label="Undo time remaining"
+                  aria-valuemin={0}
+                  aria-valuemax={INBOX_DELETE_UNDO_MS}
+                  aria-valuenow={deleteTimeRemaining}
+                >
+                  <div
+                    className="h-full bg-primary transition-[width] duration-100"
+                    style={{
+                      width: `${(deleteTimeRemaining / INBOX_DELETE_UNDO_MS) * 100}%`,
+                    }}
+                  />
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => handleUndo(key)}
+              >
+                Undo
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {notice ? (
+        <div role="status" className="text-sm text-muted-foreground">
+          {notice}
+        </div>
+      ) : null}
+
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="working">
@@ -205,8 +393,8 @@ const InboxContent = () => {
             {translate("crm.inbox.tabs.needsReview", { _: "Needs review" })}
             {/* A calm count, never an alarming dot — matching this file's own
                 header comment. Nothing renders at zero. */}
-            {heldItems.length > 0 ? (
-              <Badge variant="secondary">{heldItems.length}</Badge>
+            {visibleHeldItems.length > 0 ? (
+              <Badge variant="secondary">{visibleHeldItems.length}</Badge>
             ) : null}
           </TabsTrigger>
         </TabsList>
@@ -214,19 +402,20 @@ const InboxContent = () => {
         <TabsContent value="working" className="mt-4">
           {isPending ? (
             <CardGridSkeleton />
-          ) : workingItems.length === 0 ? (
+          ) : visibleWorkingItems.length === 0 ? (
             <EmptyState
               title="No files or notes are waiting yet"
               description="Paste a note, choose Add files or photos, or send an email to your household address. Files wait here until you decide what to do with them."
             />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {workingItems.map((item) => (
+              {visibleWorkingItems.map((item) => (
                 <InboxCard
                   key={item.id}
                   item={item}
                   ctaLabel="Confirm the details →"
                   onOpen={setResolving}
+                  onDelete={handleDeleteRequested}
                 />
               ))}
             </div>
@@ -236,7 +425,7 @@ const InboxContent = () => {
         <TabsContent value="needs-review" className="mt-4">
           {isPendingHeld ? (
             <CardGridSkeleton />
-          ) : heldItems.length === 0 ? (
+          ) : visibleHeldItems.length === 0 ? (
             <EmptyState
               title={translate("crm.inbox.needsReview.emptyTitle", {
                 _: "Nothing waiting on review",
@@ -247,7 +436,7 @@ const InboxContent = () => {
             />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {heldItems.map((item) => (
+              {visibleHeldItems.map((item) => (
                 <InboxCard
                   key={item.id}
                   item={item}
@@ -255,6 +444,7 @@ const InboxContent = () => {
                     _: "Review this sender →",
                   })}
                   onOpen={setReviewing}
+                  onDelete={handleDeleteRequested}
                 />
               ))}
             </div>
@@ -277,6 +467,14 @@ const InboxContent = () => {
           onClose={() => setReviewing(null)}
         />
       ) : null}
+      <InboxDeleteDialog
+        open={deleteCandidate !== null}
+        onClose={() => {
+          confirmingDelete.current = false;
+          setDeleteCandidate(null);
+        }}
+        onConfirm={handleDeleteConfirm}
+      />
     </div>
   );
 };

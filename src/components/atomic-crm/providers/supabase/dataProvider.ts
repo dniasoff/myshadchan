@@ -112,6 +112,10 @@ import type {
   CounterMetrics,
 } from "../../analytics/types";
 import { toResumeInboxPickerItem } from "../../resumes/resumeInbox";
+import {
+  canDeleteInboxItem,
+  getRemovableInboxAttachmentPaths,
+} from "../../inbox/inboxDelete";
 
 // Story 9.3: `public.listing_withdrawal_locks` deliberately has no `id`
 // column at all (Dev Notes "Why a lock table, not a column on `singles`" —
@@ -1290,6 +1294,90 @@ export const getDataProviderWithCustomMethods = () => {
       params: CopyInboxAttachmentsParams,
     ): Promise<EntityFile[]> {
       return copyInboxAttachmentsToEntityFilesImpl(params);
+    },
+    /**
+     * Finalize an Inbox delete after the client-side Undo window. The caller
+     * supplies only the row id. We re-read the row through RLS, derive the
+     * active account through `current_context_id()`, and derive every storage
+     * path from server-returned attachment metadata. This keeps copied files
+     * in `documents`/`entity-files` out of the delete set and preserves a
+     * private object still referenced by another Inbox row.
+     */
+    async deleteInboxItem(id: Identifier): Promise<void> {
+      const { data: item } = await baseDataProvider.getOne<InboxItem>(
+        "inbox_items",
+        { id },
+      );
+      const accountId = await getCurrentAccountId();
+      if (
+        String(item.account_id) !== String(accountId) ||
+        !canDeleteInboxItem(item)
+      ) {
+        throw new Error("Could not delete this Inbox item");
+      }
+
+      const { data: accountItems } = await baseDataProvider.getList<InboxItem>(
+        "inbox_items",
+        {
+          filter: { account_id: accountId },
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        },
+      );
+      const otherItems = accountItems.filter(
+        (otherItem) => String(otherItem.id) !== String(item.id),
+      );
+
+      // Re-check the CAS-style resolve marker immediately before touching
+      // storage. A resolver that wins this race leaves the Inbox row intact.
+      const { data: latest } = await baseDataProvider.getOne<InboxItem>(
+        "inbox_items",
+        { id },
+      );
+      if (
+        String(latest.account_id) !== String(accountId) ||
+        !canDeleteInboxItem(latest)
+      ) {
+        throw new Error("Could not delete this Inbox item");
+      }
+
+      const paths = getRemovableInboxAttachmentPaths(
+        latest,
+        accountId,
+        otherItems,
+      );
+      for (const path of paths) {
+        const { error } = await getSupabaseClient()
+          .storage.from(ATTACHMENTS_BUCKET)
+          .remove([path]);
+        const statusCode =
+          typeof error === "object" && error !== null && "statusCode" in error
+            ? Number((error as { statusCode?: unknown }).statusCode)
+            : undefined;
+        const message =
+          typeof error === "object" && error !== null && "message" in error
+            ? String((error as { message?: unknown }).message)
+            : "";
+        const missingObject =
+          statusCode === 404 ||
+          /not found|does not exist|no such object/i.test(message);
+        if (error && !missingObject) {
+          throw new Error("Could not delete this Inbox item");
+        }
+      }
+
+      const { data: beforeRowDelete } =
+        await baseDataProvider.getOne<InboxItem>("inbox_items", { id });
+      if (
+        String(beforeRowDelete.account_id) !== String(accountId) ||
+        !canDeleteInboxItem(beforeRowDelete)
+      ) {
+        throw new Error("Could not delete this Inbox item");
+      }
+      await baseDataProvider.delete("inbox_items", {
+        id,
+        previousData: beforeRowDelete,
+      });
     },
     // Epic 11 (Needs review tab): the "TRUST SENDER" action — see
     // ./trustedSenders.ts's own doc comment for the atomicity/idempotency

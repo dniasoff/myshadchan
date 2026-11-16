@@ -87,6 +87,8 @@ const renderInboxList = async (
         : [],
     );
   }
+  const deleteInboxItem = vi.fn().mockResolvedValue(undefined);
+  Object.assign(dataProvider, { deleteInboxItem });
   const getList = vi.spyOn(dataProvider, "getList");
   const screen = await render(
     <TestMemoryRouter initialEntries={initialEntries}>
@@ -100,8 +102,37 @@ const renderInboxList = async (
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
-  return { screen, getList, queryClient };
+  return { screen, getList, queryClient, deleteInboxItem };
 };
+
+describe("InboxList — delete and undo", () => {
+  it("hides the item immediately and restores it without calling final delete on Undo", async () => {
+    const { screen, deleteInboxItem } = await renderInboxList([
+      UNRESOLVED_ITEM,
+    ]);
+
+    await screen.getByRole("button", { name: "Delete this item" }).click();
+    await expect
+      .element(screen.getByRole("dialog"))
+      .toHaveTextContent("Delete this item?");
+    await screen.getByRole("button", { name: "Delete", exact: true }).click();
+
+    await expect
+      .element(screen.getByText("A working-inbox suggestion"))
+      .not.toBeInTheDocument();
+    await expect.element(screen.getByText("Item deleted.")).toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "Undo" }).click();
+
+    await expect
+      .element(screen.getByText("A working-inbox suggestion"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Item restored."))
+      .toBeInTheDocument();
+    expect(deleteInboxItem).not.toHaveBeenCalled();
+  });
+});
 
 describe("InboxList — the working inbox tab (regression guard)", () => {
   it("shows an unresolved item and does NOT show a held item — the whole design depends on this", async () => {
