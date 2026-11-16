@@ -83,6 +83,36 @@ extraction then returns to the code default and has no fallback.
 Do not set `GEMINI_THINKING_BUDGET` unless a model-specific decision approves
 its semantics.
 
+### Choosing a model: run the synthetic probe
+
+When a served model or thinking setting is uncertain, run the standalone
+`scripts/gemini-model-probe.mjs` with a throwaway Google AI Studio key. It is
+not imported by the Worker or app, sends only an invented one-page resume, and
+prints served `generateContent` model names followed by numeric quality and
+token results for each candidate/thinking combination. Gemini 3.x candidates
+use `unset`, `minimal`, and `low`; Gemini 2.5 candidates use `unset` and
+`minimal` (`thinkingBudget: 0`); aliases are tested with the Worker-compatible
+unset mode. A line passes only when at least eight references are returned.
+The default plan is 16 sequential candidate calls, with a 90-second per-call
+timeout, at most five model-list pages, and one shared hard 40-call cap across
+listing and candidates. The final line reports calls used; candidates are
+reported as skipped if listing consumes the remaining budget.
+
+Preview the plan without a key or network access first:
+
+```bash
+node scripts/gemini-model-probe.mjs --dry-run
+```
+
+For an actual run, load the throwaway key from a local secret file without
+putting it in a command, URL, or log. Set `GATEWAY_BASE_URL` to the Cloudflare
+AI Gateway Google AI Studio base (for example,
+`https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/google-ai-studio`)
+to exercise the same route as the Worker; leave it unset for the direct Google
+endpoint. After the table is captured, unset the environment variables and
+delete the throwaway key from the local file. Never paste the key into chat or
+commit it.
+
 Rollback of the ledger is a forward, approved database operation: drop the three new RPCs,
 the partial index and `ai_reread_attempts`. No existing data is changed by the
 migration, so rollback has no data backfill. Do not manually edit an applied
