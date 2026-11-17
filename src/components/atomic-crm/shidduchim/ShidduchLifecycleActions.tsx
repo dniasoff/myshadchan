@@ -84,12 +84,17 @@ export const ShidduchLifecycleActions = ({
     setBusy(true);
     const deadline = Date.now() + SHIDDUCH_ACTION_UNDO_MS;
     try {
+      if (
+        !rememberPendingShidduchAction({
+          id: record.id,
+          kind: "archive",
+          deadline,
+        })
+      ) {
+        notify("Could not archive. Nothing was changed.", { type: "error" });
+        return;
+      }
       await dataProvider.archiveShidduch(record.id);
-      rememberPendingShidduchAction({
-        id: record.id,
-        kind: "archive",
-        deadline,
-      });
       navigate("/shidduchim", {
         state: {
           shidduchLifecycle: {
@@ -135,16 +140,21 @@ export const ShidduchLifecycleActions = ({
           return;
         }
       }
-      setDeleteOpen(false);
+      if (
+        !rememberPendingShidduchAction({
+          id: record.id,
+          kind: "delete",
+          deadline,
+        })
+      ) {
+        notify("Could not delete. Nothing was changed.", { type: "error" });
+        return;
+      }
       // Archive is the durable first step. A route change or reload can no
       // longer make a suggestion reappear in active lists while the delete
       // undo window is open.
       await dataProvider.archiveShidduch(record.id);
-      rememberPendingShidduchAction({
-        id: record.id,
-        kind: "delete",
-        deadline,
-      });
+      setDeleteOpen(false);
       navigate("/shidduchim", {
         state: {
           shidduchLifecycle: {

@@ -60,7 +60,7 @@ const readMarkerCollection = (): MarkerCollection => {
   }
 };
 
-const writeMarkerCollection = (markers: MarkerCollection): void => {
+const writeMarkerCollection = (markers: MarkerCollection): boolean => {
   try {
     if (Object.keys(markers).length === 0) {
       sessionStorage.removeItem(SHIDDUCH_DELETE_MARKER_KEY);
@@ -70,20 +70,27 @@ const writeMarkerCollection = (markers: MarkerCollection): void => {
         JSON.stringify(markers),
       );
     }
+    return true;
   } catch {
-    // A blocked or unavailable sessionStorage only loses the marker; archive
-    // has already committed, so the suggestion remains recoverable.
+    return false;
   }
 };
 
 export const rememberPendingShidduchAction = (
   marker: PendingShidduchMarker,
-): void => {
+): boolean => {
   const markers = readMarkerCollection();
   const existing = markers[String(marker.id)];
-  if (existing && !existing.retryRequired) return;
+  if (
+    existing &&
+    existing.kind === marker.kind &&
+    existing.deadline === marker.deadline &&
+    Boolean(existing.retryRequired) === Boolean(marker.retryRequired)
+  ) {
+    return true;
+  }
   markers[String(marker.id)] = marker;
-  writeMarkerCollection(markers);
+  return writeMarkerCollection(markers);
 };
 
 export const readPendingShidduchActions = (): PendingShidduchMarker[] =>
@@ -100,9 +107,7 @@ export const clearPendingShidduchAction = (id: Identifier): void => {
 export const rememberPendingShidduchDelete = (marker: {
   id: Identifier;
   deadline: number;
-}): void => {
-  rememberPendingShidduchAction({ ...marker, kind: "delete" });
-};
+}): boolean => rememberPendingShidduchAction({ ...marker, kind: "delete" });
 
 export const readPendingShidduchDelete = (): {
   id: Identifier;

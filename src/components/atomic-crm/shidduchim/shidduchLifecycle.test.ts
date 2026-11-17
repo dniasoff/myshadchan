@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearPendingShidduchDelete,
@@ -56,16 +56,61 @@ describe("shidduch lifecycle persistence", () => {
       { id: 43, kind: "delete", deadline: 456 },
     ]);
 
-    rememberPendingShidduchAction({
+    expect(
+      rememberPendingShidduchAction({
+        id: 42,
+        kind: "archive",
+        deadline: 999,
+      }),
+    ).toBe(true);
+    expect(readPendingShidduchActions()[0]).toEqual({
       id: 42,
       kind: "archive",
       deadline: 999,
     });
+
+    expect(
+      rememberPendingShidduchAction({
+        id: 42,
+        kind: "delete",
+        deadline: 1_000,
+      }),
+    ).toBe(true);
     expect(readPendingShidduchActions()[0]).toEqual({
       id: 42,
-      kind: "archive",
-      deadline: 123,
+      kind: "delete",
+      deadline: 1_000,
     });
+
+    expect(
+      rememberPendingShidduchAction({
+        id: 42,
+        kind: "delete",
+        deadline: 1_000,
+        retryRequired: true,
+      }),
+    ).toBe(true);
+    expect(readPendingShidduchActions()[0]).toEqual({
+      id: 42,
+      kind: "delete",
+      deadline: 1_000,
+      retryRequired: true,
+    });
+
+    const exactDuplicate = window.sessionStorage.getItem(
+      SHIDDUCH_DELETE_MARKER_KEY,
+    );
+    expect(
+      rememberPendingShidduchAction({
+        id: 42,
+        kind: "delete",
+        deadline: 1_000,
+        retryRequired: true,
+      }),
+    ).toBe(true);
+    expect(window.sessionStorage.getItem(SHIDDUCH_DELETE_MARKER_KEY)).toBe(
+      exactDuplicate,
+    );
 
     // A reload has no route state, so the complete collection must still
     // produce one exclusion filter for both pending rows.
@@ -73,6 +118,43 @@ describe("shidduch lifecycle persistence", () => {
     expect(getPendingShidduchExclusionFilter(undefined)).toEqual({
       "id@not.in": "(42,43)",
     });
+  });
+
+  it("reports marker persistence failure before a server mutation", () => {
+    const setItem = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("quota");
+      });
+
+    expect(
+      rememberPendingShidduchAction({
+        id: 42,
+        kind: "delete",
+        deadline: 123,
+      }),
+    ).toBe(false);
+    expect(
+      window.sessionStorage.getItem(SHIDDUCH_DELETE_MARKER_KEY),
+    ).toBeNull();
+    setItem.mockRestore();
+  });
+
+  it("replaces an existing marker when its state changes", () => {
+    rememberPendingShidduchAction({
+      id: 42,
+      kind: "archive",
+      deadline: 123,
+    });
+    rememberPendingShidduchAction({
+      id: 42,
+      kind: "delete",
+      deadline: 456,
+      retryRequired: true,
+    });
+    expect(readPendingShidduchActions()).toEqual([
+      { id: 42, kind: "delete", deadline: 456, retryRequired: true },
+    ]);
   });
 
   it("deduplicates retry notifications by marker transition", () => {
