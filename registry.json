@@ -232,6 +232,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/shidduchLifecycle.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/shidduchAge.ts",
           "type": "registry:component"
         },
@@ -317,6 +321,10 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/ShidduchMoveSheet.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchLifecycleActions.tsx",
           "type": "registry:component"
         },
         {

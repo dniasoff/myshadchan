@@ -187,7 +187,7 @@ describe("useGlobalSearch — the fan-out (AC 2, AC 3)", () => {
       sort: { field: "first_name_en", order: "ASC" },
     });
     expect(getListSpy).toHaveBeenNthCalledWith(2, "shidduchim", {
-      filter: { q: "Weiss" },
+      filter: { q: "Weiss", "archived_at@is": null },
       pagination: { page: 1, perPage: 5 },
       sort: { field: "name_en", order: "ASC" },
     });

@@ -1,5 +1,7 @@
 import type { Identifier } from "ra-core";
 import { useGetIdentity, useGetList, useListContext } from "ra-core";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 
 import { CreateButton } from "@/components/admin/create-button";
 import { List } from "@/components/admin/list";
@@ -9,9 +11,13 @@ import { cn } from "@/lib/utils";
 import { buildNewPath } from "../entity360/entityPaths";
 import { TopToolbar } from "../layout/TopToolbar";
 import { EmptyState } from "../misc/EmptyState";
-import type { Single } from "../types";
+import type { ShidduchSummary, Single } from "../types";
 import { PipelineListSkeleton } from "./ShidduchimPipelineList";
 import { ShidduchimViewSwitch } from "./ShidduchimViewSwitch";
+import {
+  getPendingShidduchAction,
+  ShidduchPendingActionBar,
+} from "./ShidduchLifecycleActions";
 
 const singleLabel = (single: Single) => single.first_name_en ?? `#${single.id}`;
 
@@ -49,7 +55,10 @@ const ShidduchimList = () => {
       // so it is resolved exactly once, synchronously, the same moment the
       // pre-story `singleId ?? singles[0].id` was. The `if (!singles...)`
       // guard above already guarantees `singles` is loaded here.
-      filterDefaultValues={{ single_id: singles[0].id }}
+      filterDefaultValues={{
+        single_id: singles[0].id,
+        "archived_at@is": null,
+      }}
       filters={[<SearchInput source="q" alwaysOn key="q" />]}
       sort={{ field: "index", order: "ASC" }}
       pagination={null}
@@ -77,15 +86,122 @@ const ShidduchimActions = () => (
 
 const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
   const { data, filterValues, setFilters, displayedFilters } = useListContext();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [pendingLifecycle, setPendingLifecycle] = useState(() =>
+    getPendingShidduchAction(location),
+  );
+
+  useEffect(() => {
+    const action = getPendingShidduchAction(location);
+    if (!action) return;
+    setPendingLifecycle(action);
+    setFilters(
+      { ...(filterValues as Record<string, unknown>), "id@neq": action.id },
+      displayedFilters,
+    );
+    navigate(`${location.pathname}${location.search}`, {
+      replace: true,
+      state: null,
+    });
+  }, [displayedFilters, filterValues, location, navigate, setFilters]);
 
   const singleId = (filterValues as Record<string, unknown> | undefined)
     ?.single_id as Identifier | undefined;
   const count = data?.length ?? 0;
+  const singleIdFilter = singleId ?? singleList[0]?.id;
+  const { total: archivedCount = 0 } = useGetList<ShidduchSummary>(
+    "shidduchim",
+    {
+      filter: {
+        single_id: singleIdFilter,
+        "archived_at@not.is": null,
+      },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "archived_at", order: "DESC" },
+    },
+  );
+  const archivedFilter = (
+    filterValues as Record<string, unknown> | undefined
+  )?.["archived_at@not.is"];
+  const allSuggestions =
+    (filterValues as Record<string, unknown> | undefined)?.[
+      "archived_at@is"
+    ] === undefined && archivedFilter === undefined;
+
+  const setArchiveFilter = (mode: "active" | "archived" | "all") => {
+    const next = { ...(filterValues as Record<string, unknown>) };
+    delete next["archived_at@is"];
+    delete next["archived_at@not.is"];
+    if (mode === "active") next["archived_at@is"] = null;
+    if (mode === "archived") next["archived_at@not.is"] = null;
+    setFilters(next, displayedFilters);
+  };
 
   return (
     <div className="w-full">
+      {pendingLifecycle ? (
+        <div className="mb-5">
+          <ShidduchPendingActionBar
+            action={pendingLifecycle}
+            onDone={() => {
+              setPendingLifecycle(null);
+              const next = {
+                ...(filterValues as Record<string, unknown>),
+              };
+              delete next["id@neq"];
+              setFilters(next, displayedFilters);
+            }}
+          />
+        </div>
+      ) : null}
       <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
+          <div
+            role="tablist"
+            aria-label="Suggestion archive"
+            className="mb-3 inline-flex flex-wrap gap-1 rounded-full border bg-secondary p-0.5"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!allSuggestions && archivedFilter === undefined}
+              className={cn(
+                "min-h-11 rounded-full px-4 text-sm font-semibold",
+                !allSuggestions && archivedFilter === undefined
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setArchiveFilter("active")}
+            >
+              Active
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={archivedFilter !== undefined}
+              className={cn(
+                "min-h-11 rounded-full px-4 text-sm font-semibold",
+                archivedFilter !== undefined
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setArchiveFilter("archived")}
+            >
+              Archived
+              <span className="ms-1 tabular-nums">({archivedCount})</span>
+            </button>
+            <label className="inline-flex min-h-11 items-center gap-2 px-3 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={allSuggestions}
+                onChange={(event) =>
+                  setArchiveFilter(event.target.checked ? "all" : "active")
+                }
+              />
+              Include archived
+            </label>
+          </div>
           {singleList.length > 1 ? (
             <div className="mb-3 inline-flex flex-wrap gap-0.5 rounded-full border bg-secondary p-0.5">
               {singleList.map((single) => (

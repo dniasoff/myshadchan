@@ -127,6 +127,7 @@ import {
   type InboxDeleteResult,
   isInboxAttachmentPurgePath,
 } from "../../inbox/inboxDelete";
+import type { ShidduchStoragePurgeResult } from "../../shidduchim/shidduchLifecycle";
 
 // Story 9.3: `public.listing_withdrawal_locks` deliberately has no `id`
 // column at all (Dev Notes "Why a lock table, not a column on `singles`" —
@@ -739,6 +740,40 @@ export const getDataProviderWithCustomMethods = () => {
       const row = Array.isArray(data) ? data[0] : data;
       return row as Shidduch;
     },
+    /** Manager-only lifecycle RPCs. Account and role are always derived by the
+     * database; these methods intentionally do not accept either as input. */
+    async archiveShidduch(id: Identifier): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("archive_shidduch", {
+        p_id: id,
+      });
+      if (error)
+        throw new Error(error.message || "Could not archive this shidduch");
+    },
+    async restoreShidduch(id: Identifier): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("restore_shidduch", {
+        p_id: id,
+      });
+      if (error)
+        throw new Error(error.message || "Could not restore this shidduch");
+    },
+    async deleteShidduch(id: Identifier): Promise<ShidduchStoragePurgeResult> {
+      const { data, error } = await getSupabaseClient().rpc("delete_shidduch", {
+        p_id: id,
+      });
+      if (error) {
+        if (
+          /being made easy to read|read.*progress|in flight/i.test(
+            error.message,
+          )
+        ) {
+          throw new Error(
+            "Please wait: this resume is being made easy to read.",
+          );
+        }
+        throw new Error("Could not delete. Nothing was changed.");
+      }
+      return { purgePending: Boolean(data) };
+    },
     // Append a redt to a shidduch (same or different shadchan, new date). The DB
     // trigger keeps shidduchim.redt_date (= latest) in sync. Returns the
     // refreshed shidduch.
@@ -1339,6 +1374,7 @@ export const getDataProviderWithCustomMethods = () => {
     /** Drain all pending private Inbox objects for the active account. Missing
      * objects are successful; failed removals stay queued for a later load. */
     drainInboxAttachmentPurge,
+    drainShidduchStoragePurge,
     // Epic 11 (Needs review tab): the "TRUST SENDER" action — see
     // ./trustedSenders.ts's own doc comment for the atomicity/idempotency
     // reasoning (no schema change available in this pass, so this is two
@@ -1725,6 +1761,53 @@ const drainInboxAttachmentPurge = async (): Promise<InboxDeleteResult> => {
     purgePending: rows.length > acknowledgedPaths.length,
   };
 };
+
+type StoragePurgeRow = {
+  id: Identifier;
+  bucket: string;
+  storage_path: string;
+};
+
+/** Drain the generalized shidduch-owned object queue. Storage is best effort;
+ * the Postgres queue remains the source of truth until every remove succeeds. */
+export const drainShidduchStoragePurge =
+  async (): Promise<ShidduchStoragePurgeResult> => {
+    let rows: StoragePurgeRow[] = [];
+    try {
+      const { data, error } = await getSupabaseClient().rpc(
+        "claim_shidduch_storage_purge",
+      );
+      if (error) throw error;
+      rows = (data ?? []) as StoragePurgeRow[];
+    } catch {
+      return { purgePending: true };
+    }
+
+    const acknowledgedKeys: string[] = [];
+    for (const row of rows) {
+      if (!row.bucket || !row.storage_path) continue;
+      try {
+        const { error } = await getSupabaseClient()
+          .storage.from(row.bucket)
+          .remove([row.storage_path]);
+        if (!error || isMissingStorageObject(error)) {
+          acknowledgedKeys.push(`${row.bucket}:${row.storage_path}`);
+        }
+      } catch {
+        // Leave failed rows for the next load.
+      }
+    }
+
+    if (acknowledgedKeys.length > 0) {
+      const { error } = await getSupabaseClient().rpc(
+        "ack_shidduch_storage_purge",
+        { p_keys: acknowledgedKeys },
+      );
+      if (error) return { purgePending: true };
+    }
+
+    return { purgePending: rows.length > acknowledgedKeys.length };
+  };
 
 // Story 10.1 (Task 4): exported so `ShareTarget.tsx` can upload a shared
 // photo through the exact same path `members.avatar` already uses — one

@@ -17,7 +17,7 @@ const RECENT_LIMIT = 5;
 /** The most recently added shidduchim for a single, each a state-chipped card. */
 export const RecentSuggestions = ({ singleId }: RecentSuggestionsProps) => {
   const { data, isPending } = useGetList<ShidduchSummary>("shidduchim", {
-    filter: { single_id: singleId },
+    filter: { single_id: singleId, "archived_at@is": null },
     pagination: { page: 1, perPage: RECENT_LIMIT },
     sort: { field: "created_at", order: "DESC" },
   });

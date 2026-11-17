@@ -49,7 +49,7 @@ export const ShadchanSuggestions = ({
 }: ShadchanSuggestionsProps) => {
   const [showAll, setShowAll] = useState(false);
   const { data, isPending } = useGetList<ShidduchSummary>("shidduchim", {
-    filter: { shadchan_id: shadchanId },
+    filter: { shadchan_id: shadchanId, "archived_at@is": null },
     pagination: { page: 1, perPage: 200 },
     sort: { field: "redt_date", order: "DESC" },
   });

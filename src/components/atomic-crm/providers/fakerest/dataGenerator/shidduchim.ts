@@ -475,6 +475,7 @@ export const generateShidduchimDomain = (db: Db) => {
     visibility: "shared",
     index: 0,
     created_at: `${seed.redt_date}T00:00:00.000Z`,
+    archived_at: null,
   }));
 
   // Per-single, per-state board ordering.

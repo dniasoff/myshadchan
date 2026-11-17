@@ -477,6 +477,8 @@ export type Shidduch = {
   visibility: ShidduchVisibility;
   index: number;
   created_at: string;
+  /** Set when the manager removes this suggestion from the active pipeline. */
+  archived_at?: string | null;
 } & Pick<RaRecord, "id">;
 
 /** Row shape returned by the shidduchim_summary view (board read path, AD-10). */
@@ -832,6 +834,7 @@ export type ReferenceLinkSummary = ReferenceLink & {
   shidduch_name_he?: string | null;
   shidduch_pipeline_state?: PipelineState | null;
   shidduch_visibility?: string | null;
+  shidduch_archived_at?: string | null;
   single_id?: Identifier | null;
   single_first_name_en?: string | null;
   single_first_name_he?: string | null;

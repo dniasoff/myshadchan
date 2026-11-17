@@ -114,6 +114,7 @@ import type {
   OwnedResumeDeleteParams,
   OwnedShidduchDeleteParams,
 } from "../supabase/inboxResolution";
+import type { ShidduchStoragePurgeResult } from "../../shidduchim/shidduchLifecycle";
 import {
   authProvider as defaultAuthProvider,
   USER_STORAGE_KEY,
@@ -371,6 +372,19 @@ export const createDataProvider = ({
   // but durable across a failed Storage attempt and drained on later loads.
   const inboxAttachmentPurge = new Map<string, InboxAttachmentPurge>();
   let nextInboxAttachmentPurgeId = 1;
+  const shidduchStoragePurge = new Map<
+    string,
+    {
+      id: number;
+      account_id: Identifier;
+      bucket: string;
+      storage_path: string;
+      kind: "object" | "prefix";
+      not_before: number;
+      sweeps_remaining: number;
+    }
+  >();
+  let nextShidduchStoragePurgeId = 1;
 
   // Resume tab (Story 5.3): the same in-memory "bytes" idea, kept in its own
   // map (a different bucket, `documents`, in the real backend) — see
@@ -626,7 +640,8 @@ export const createDataProvider = ({
           row,
           (allShidduchim as any[]).filter(
             (candidate: any) =>
-              String(candidate.account_id) === String(row.account_id),
+              String(candidate.account_id) === String(row.account_id) &&
+              candidate.archived_at == null,
           ),
         ),
       };
@@ -737,12 +752,25 @@ export const createDataProvider = ({
   // the account/accepted-grant boundaries before any summary enrichment. This
   // keeps the demo honest about the same standalone shadchan, household, and
   // child-grant contexts that Postgres enforces.
-  const getVisibleShidduchim = async (params: any) => {
+  const getVisibleShidduchim = async (
+    params: any,
+    includeArchivedDetail = false,
+  ) => {
     const caller = await resolveCallerMembership();
     if (!caller?.membership) return { data: [] as any[], total: 0 };
     const membership = caller.membership;
+    const hasArchiveFilter = Object.keys(params.filter ?? {}).some((key) =>
+      key.startsWith("archived_at@"),
+    );
+    const listParams =
+      includeArchivedDetail || hasArchiveFilter
+        ? params
+        : {
+            ...params,
+            filter: { ...(params.filter ?? {}), "archived_at@is": null },
+          };
     const { data: rows } = await baseDataProvider.getList("shidduchim", {
-      ...params,
+      ...listParams,
       pagination: { page: 1, perPage: 10_000 },
     });
     const [{ data: singles }, grantedSingleIds] = await Promise.all([
@@ -1506,6 +1534,54 @@ export const createDataProvider = ({
     };
   };
 
+  const drainShidduchStoragePurge =
+    async (): Promise<ShidduchStoragePurgeResult> => {
+      const caller = await requireCallerMembership();
+      if (caller.membership.role === "single") {
+        throw new Error("Shidduch storage purge is not available to this role");
+      }
+      const accountId = caller.membership.account_id;
+      const pending = [...shidduchStoragePurge.entries()].filter(
+        ([, row]) =>
+          String(row.account_id) === String(accountId) &&
+          row.not_before <= Date.now(),
+      );
+      const acknowledged: string[] = [];
+      for (const [key, row] of pending) {
+        const blobMap =
+          row.bucket === "documents"
+            ? row.storage_path.includes("/photos/")
+              ? resumePhotoBlobUrls
+              : resumeFileBlobUrls
+            : row.bucket === "entity-files"
+              ? entityFileBlobUrls
+              : inboxAttachmentBlobUrls;
+        const paths =
+          row.kind === "prefix"
+            ? [...blobMap.keys()].filter((path) =>
+                path.startsWith(row.storage_path),
+              )
+            : [row.storage_path];
+        for (const path of paths) {
+          const src = blobMap.get(path);
+          if (src?.startsWith("blob:")) URL.revokeObjectURL(src);
+          blobMap.delete(path);
+        }
+        if (row.kind === "prefix" && row.sweeps_remaining > 0) {
+          row.sweeps_remaining -= 1;
+          row.not_before = Date.now() + 24 * 60 * 60 * 1000;
+          continue;
+        }
+        acknowledged.push(key);
+      }
+      for (const key of acknowledged) shidduchStoragePurge.delete(key);
+      return {
+        purgePending: [...shidduchStoragePurge.values()].some(
+          (row) => String(row.account_id) === String(accountId),
+        ),
+      };
+    };
+
   // Keep the in-memory conditional update atomic even when the base FakeRest
   // provider has an artificial latency. Without this queue, two callers could
   // both finish their GET before either PATCH, which would not mirror the
@@ -1650,13 +1726,30 @@ export const createDataProvider = ({
         resource === "reference_links" ||
         resource === "reference_links_summary"
       ) {
+        const archiveFilter = params.filter?.["shidduch_archived_at@is"];
+        const baseParams =
+          archiveFilter === undefined
+            ? params
+            : {
+                ...params,
+                filter: Object.fromEntries(
+                  Object.entries(params.filter ?? {}).filter(
+                    ([key]) => key !== "shidduch_archived_at@is",
+                  ),
+                ),
+              };
         const { data, total } = await getVisibleAccountRows(
           "reference_links",
-          params,
+          baseParams,
         );
+        const enriched = await enrichReferenceLinks(baseDataProvider, data);
+        const visible =
+          archiveFilter === null
+            ? enriched.filter((row) => row.shidduch_archived_at == null)
+            : enriched;
         return {
-          data: await enrichReferenceLinks(baseDataProvider, data),
-          total,
+          data: visible,
+          total: archiveFilter === null ? visible.length : total,
         };
       }
       // Per-single pipeline counts (E6) — the singles roster reads the
@@ -1820,11 +1913,14 @@ export const createDataProvider = ({
         return { data: visible } as any;
       }
       if (resource === "shidduchim" || resource === "shidduchim_summary") {
-        const { data: rows } = await getVisibleShidduchim({
-          filter: { id: params.id },
-          pagination: { page: 1, perPage: 1 },
-          sort: { field: "id", order: "ASC" },
-        });
+        const { data: rows } = await getVisibleShidduchim(
+          {
+            filter: { id: params.id },
+            pagination: { page: 1, perPage: 1 },
+            sort: { field: "id", order: "ASC" },
+          },
+          true,
+        );
         const row = rows[0];
         if (!row) throw new Error("shidduch record not found");
         const [enriched] = await enrichShidduchim([row]);
@@ -2326,6 +2422,268 @@ export const createDataProvider = ({
     // The SOLE writer of pipeline_state (AD-4 invariant 2) — FakeRest mirror of
     // transition_shidduch. Enforces the transitions-as-data graph with the same
     // optimistic-concurrency check as Postgres.
+    archiveShidduch: async (id: Identifier): Promise<void> => {
+      const caller = await requireCallerMembership();
+      if (
+        caller.membership.role !== "parent_admin" &&
+        caller.membership.role !== "self_manager"
+      ) {
+        throw new Error("You do not have permission to archive this shidduch");
+      }
+      const { data: current } = await baseDataProvider.getOne<Shidduch>(
+        "shidduchim",
+        { id },
+      );
+      if (
+        !current ||
+        String(current.account_id) !== String(caller.membership.account_id)
+      ) {
+        throw new Error("shidduch not found in the active context");
+      }
+      if (current.archived_at) return;
+      await baseDataProvider.update("shidduchim", {
+        id,
+        data: { archived_at: new Date().toISOString() },
+        previousData: current,
+      });
+    },
+    restoreShidduch: async (id: Identifier): Promise<void> => {
+      const caller = await requireCallerMembership();
+      if (
+        caller.membership.role !== "parent_admin" &&
+        caller.membership.role !== "self_manager"
+      ) {
+        throw new Error("You do not have permission to restore this shidduch");
+      }
+      const { data: current } = await baseDataProvider.getOne<Shidduch>(
+        "shidduchim",
+        { id },
+      );
+      if (
+        !current ||
+        String(current.account_id) !== String(caller.membership.account_id)
+      ) {
+        throw new Error("shidduch not found in the active context");
+      }
+      if (!current.archived_at) return;
+      await baseDataProvider.update("shidduchim", {
+        id,
+        data: { archived_at: null },
+        previousData: current,
+      });
+    },
+    deleteShidduch: async (
+      id: Identifier,
+    ): Promise<ShidduchStoragePurgeResult> => {
+      const caller = await requireCallerMembership();
+      if (
+        caller.membership.role !== "parent_admin" &&
+        caller.membership.role !== "self_manager"
+      ) {
+        throw new Error("Could not delete. Nothing was changed.");
+      }
+      const { data: current } = await baseDataProvider.getOne<Shidduch>(
+        "shidduchim",
+        { id },
+      );
+      if (
+        !current ||
+        String(current.account_id) !== String(caller.membership.account_id)
+      ) {
+        throw new Error("Could not delete. Nothing was changed.");
+      }
+
+      const addQueue = (
+        bucket: string,
+        storagePath: unknown,
+        kind: "object" | "prefix" = "object",
+        notBefore = Date.now(),
+      ) => {
+        if (typeof storagePath !== "string" || storagePath.length === 0) return;
+        const key = `${caller.membership.account_id}:${kind}:${bucket}:${storagePath}`;
+        if (!shidduchStoragePurge.has(key)) {
+          shidduchStoragePurge.set(key, {
+            id: nextShidduchStoragePurgeId++,
+            account_id: caller.membership.account_id,
+            bucket,
+            storage_path: storagePath,
+            kind,
+            not_before: notBefore,
+            sweeps_remaining: kind === "prefix" ? 1 : 0,
+          });
+        }
+      };
+      const accountId = String(caller.membership.account_id);
+      const shidduchId = String(id);
+      const resumePrefix = `${accountId}/resumes/${shidduchId}/`;
+      const photoPrefixes = [
+        `${accountId}/photos/shared/${shidduchId}/`,
+        `${accountId}/photos/private_parent/${shidduchId}/`,
+      ];
+      const entityFilePrefix = `${accountId}/shidduch/${shidduchId}/`;
+      const isSafeOwnedPath = (bucket: string, storagePath: string) => {
+        if (
+          storagePath.includes("..") ||
+          storagePath.includes("\\") ||
+          storagePath.split("/").some((segment) => segment.length === 0)
+        ) {
+          return false;
+        }
+        if (bucket === "documents") {
+          return (
+            (storagePath.startsWith(resumePrefix) &&
+              !storagePath.slice(resumePrefix.length).includes("/")) ||
+            photoPrefixes.some(
+              (prefix) =>
+                storagePath.startsWith(prefix) &&
+                !storagePath.slice(prefix.length).includes("/"),
+            )
+          );
+        }
+        return (
+          bucket === "entity-files" &&
+          storagePath.startsWith(entityFilePrefix) &&
+          !storagePath.slice(entityFilePrefix.length).includes("/")
+        );
+      };
+      const allResumeRows = await baseDataProvider.getList<Resume>("resumes", {
+        filter: {},
+        pagination: { page: 1, perPage: 1000 },
+        sort: { field: "id", order: "ASC" },
+      });
+      const allResumes = allResumeRows.data;
+      const resumes = allResumes.filter(
+        (resume) => String(resume.shidduchim_id) === shidduchId,
+      );
+      const targetResumeIds = new Set(
+        resumes.map((resume) => String(resume.id)),
+      );
+      const catalogedByOtherRow = new Set<string>();
+      allResumes
+        .filter((resume) => !targetResumeIds.has(String(resume.id)))
+        .flatMap((resume) => resume.files ?? [])
+        .forEach((file) => {
+          if (typeof file.path === "string") catalogedByOtherRow.add(file.path);
+        });
+      const allPhotos = (
+        await baseDataProvider.getList<ResumePhoto>("resume_photos", {
+          filter: {},
+          pagination: { page: 1, perPage: 1000 },
+          sort: { field: "id", order: "ASC" },
+        })
+      ).data;
+      allPhotos
+        .filter((photo) => !targetResumeIds.has(String(photo.resume_id)))
+        .forEach((photo) => catalogedByOtherRow.add(photo.path));
+      const targetPhotos = allPhotos.filter((photo) =>
+        targetResumeIds.has(String(photo.resume_id)),
+      );
+      const allEntityFiles = (
+        await baseDataProvider.getList<EntityFile>("entity_files", {
+          filter: {},
+          pagination: { page: 1, perPage: 1000 },
+          sort: { field: "id", order: "ASC" },
+        })
+      ).data;
+      allEntityFiles
+        .filter(
+          (file) =>
+            !(
+              file.target_type === "shidduch" &&
+              String(file.target_id) === shidduchId
+            ),
+        )
+        .forEach((file) => catalogedByOtherRow.add(file.storage_path));
+      const targetEntityFiles = allEntityFiles.filter(
+        (file) =>
+          file.target_type === "shidduch" &&
+          String(file.target_id) === shidduchId,
+      );
+      const queueOwnedObject = (bucket: string, storagePath: unknown) => {
+        if (
+          typeof storagePath !== "string" ||
+          !isSafeOwnedPath(bucket, storagePath) ||
+          catalogedByOtherRow.has(storagePath)
+        ) {
+          return;
+        }
+        addQueue(bucket, storagePath);
+      };
+      for (const resume of resumes) {
+        for (const file of resume.files ?? []) {
+          queueOwnedObject("documents", file.path);
+        }
+      }
+      targetPhotos.forEach((photo) =>
+        queueOwnedObject("documents", photo.path),
+      );
+      targetEntityFiles.forEach((file) =>
+        queueOwnedObject("entity-files", file.storage_path),
+      );
+      addQueue("documents", resumePrefix, "prefix");
+      photoPrefixes.forEach((prefix) =>
+        addQueue("documents", prefix, "prefix"),
+      );
+      addQueue("entity-files", entityFilePrefix, "prefix");
+
+      const deleteRows = async (
+        resource: string,
+        filter: Record<string, unknown>,
+      ) => {
+        const { data: rows } = await baseDataProvider.getList<any>(resource, {
+          filter,
+          pagination: { page: 1, perPage: 1000 },
+          sort: { field: "id", order: "ASC" },
+        });
+        for (const row of rows) {
+          await baseDataProvider.delete(resource, {
+            id: row.id,
+            previousData: row,
+          });
+        }
+      };
+      for (const resume of resumes) {
+        await deleteRows("resume_photos", { resume_id: resume.id });
+      }
+      for (const resource of [
+        "resumes",
+        "medical_notes",
+        "reference_links",
+        "redts",
+        "shidduch_education",
+        "shidduchim_external_links",
+        "interactions",
+        "identity_signals",
+        "tasks",
+      ]) {
+        const filter =
+          resource === "resumes"
+            ? { shidduchim_id: id }
+            : resource === "reference_links" ||
+                resource === "redts" ||
+                resource === "shidduch_education" ||
+                resource === "medical_notes"
+              ? { shidduchim_id: id }
+              : resource === "shidduchim_external_links"
+                ? { shidduchim_id: id }
+                : resource === "interactions" ||
+                    resource === "tasks" ||
+                    resource === "identity_signals"
+                  ? { target_type: "shidduch", target_id: id }
+                  : { resume_id: id };
+        await deleteRows(resource, filter);
+      }
+      await deleteRows("entity_files", {
+        target_type: "shidduch",
+        target_id: id,
+      });
+      await baseDataProvider.delete("shidduchim", {
+        id,
+        previousData: current,
+      });
+      return drainShidduchStoragePurge();
+    },
+    drainShidduchStoragePurge,
     transitionShidduch: async (
       id: Identifier,
       from: PipelineState,

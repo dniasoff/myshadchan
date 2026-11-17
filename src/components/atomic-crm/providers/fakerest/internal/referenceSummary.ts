@@ -27,29 +27,49 @@ export async function enrichReferences(
 ): Promise<ReferenceSummary[]> {
   if (rows.length === 0) return [];
 
-  const [{ data: links }, { data: interactions }, { data: tasks }] =
-    await Promise.all([
-      baseDataProvider.getList<ReferenceLink>("reference_links", {
-        filter: {},
-        pagination: PAGE_ALL,
-        sort: BY_ID_ASC,
-      }),
-      baseDataProvider
-        .getList<Interaction>("interactions", {
-          filter: { target_type: "reference" },
-          pagination: PAGE_ALL,
-          sort: BY_ID_ASC,
-        })
-        .catch(() => ({ data: [] as Interaction[] })),
-      baseDataProvider.getList<Task>("tasks", {
+  const [
+    { data: links },
+    { data: interactions },
+    { data: tasks },
+    { data: shidduchim },
+  ] = await Promise.all([
+    baseDataProvider.getList<ReferenceLink>("reference_links", {
+      filter: {},
+      pagination: PAGE_ALL,
+      sort: BY_ID_ASC,
+    }),
+    baseDataProvider
+      .getList<Interaction>("interactions", {
         filter: { target_type: "reference" },
         pagination: PAGE_ALL,
         sort: BY_ID_ASC,
-      }),
-    ]);
+      })
+      .catch(() => ({ data: [] as Interaction[] })),
+    baseDataProvider.getList<Task>("tasks", {
+      filter: { target_type: "reference" },
+      pagination: PAGE_ALL,
+      sort: BY_ID_ASC,
+    }),
+    baseDataProvider.getList<Shidduch>("shidduchim", {
+      filter: {},
+      pagination: PAGE_ALL,
+      sort: BY_ID_ASC,
+    }),
+  ]);
+
+  const activeShidduchIds = new Set(
+    shidduchim
+      .filter((shidduch) => shidduch.archived_at == null)
+      .map((shidduch) => String(shidduch.id)),
+  );
 
   return rows.map((reference) => {
-    const ownLinks = links.filter((link) => link.reference_id === reference.id);
+    const ownLinks = links.filter(
+      (link) =>
+        link.reference_id === reference.id &&
+        (link.shidduchim_id == null ||
+          activeShidduchIds.has(String(link.shidduchim_id))),
+    );
     const linkedShidduchimCount = new Set(
       ownLinks
         .filter((link) => link.shidduchim_id != null)
@@ -142,6 +162,7 @@ export async function enrichReferenceLinks(
       shidduch_name_he: shidduch?.name_he ?? null,
       shidduch_pipeline_state: shidduch?.pipeline_state ?? null,
       shidduch_visibility: shidduch?.visibility ?? null,
+      shidduch_archived_at: shidduch?.archived_at ?? null,
       single_id: shidduch?.single_id ?? null,
       single_first_name_en: single?.first_name_en ?? null,
       single_first_name_he: single?.first_name_he ?? null,
