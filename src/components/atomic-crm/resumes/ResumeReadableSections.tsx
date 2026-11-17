@@ -26,6 +26,7 @@ import { CallStatusChip } from "../references/CallStatusChip";
 import { CallCaptureSheet } from "../references/CallCaptureSheet";
 import { ReferencePhoneActions } from "../references/ReferencePhoneActions";
 import { getCallStatusDescriptor } from "../references/callStatus";
+import { splitPhoneValue } from "../references/phoneLinks";
 import { resumeSubjectFilter } from "./resumeSubject";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 import {
@@ -76,6 +77,13 @@ const normalizeReadableItemKey = (item: ParsedAdditionalSectionItem): string =>
     normalizeReadableText(item.label),
     normalizeReadableText(item.value),
   ]);
+
+const resumePhoneActionsClassName = (phone?: string | null): string => {
+  const phoneValue = splitPhoneValue(phone);
+  return phoneValue.hadExplicitSeparator && phoneValue.parts.length > 1
+    ? ""
+    : "sm:flex-row sm:items-center sm:justify-between";
+};
 
 function filterDuplicateFamilyExtras(
   additionalSections: ParsedAdditionalSection[],
@@ -650,7 +658,7 @@ function ReferenceResumeCard({
           <ReferencePhoneActions
             phone={reference.phone}
             referenceName={reference.name}
-            className="sm:flex-row sm:items-center sm:justify-between"
+            className={resumePhoneActionsClassName(reference.phone)}
           />
           <p className="mt-3 text-xs text-muted-foreground">Not logged</p>
         </div>
@@ -747,7 +755,7 @@ function LinkedReferenceResumeCard({
             referenceLink={link}
             manualLogRef={manualLogTriggerRef}
             onManualLog={() => setIsCallCaptureOpen(true)}
-            className="sm:flex-row sm:items-center sm:justify-between"
+            className={resumePhoneActionsClassName(displayPhone)}
           />
         </div>
         <Button

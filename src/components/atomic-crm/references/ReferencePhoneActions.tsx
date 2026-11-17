@@ -97,7 +97,10 @@ export const ReferencePhoneActions = ({
     : [];
   const isFinePointer = useFinePointer();
   const [copiedNumber, setCopiedNumber] = useState<number | null>(null);
-  const callLinkRef = useRef<HTMLAnchorElement>(null);
+  const lastActivatedTriggerByNumber = useRef<Array<HTMLAnchorElement | null>>(
+    [],
+  );
+  const lastActivatedNumber = useRef<number | null>(null);
   const actionLabelName = referenceName?.trim() || "reference";
   const linkKey = referenceKey ?? referenceLink?.id;
   const { arm, isPromptOpen, dismiss } = useReturnFromCall(linkKey);
@@ -112,8 +115,20 @@ export const ReferencePhoneActions = ({
     if (await copyText(value)) setCopiedNumber(numberIndex);
   };
 
+  const rememberActivatedTrigger = (
+    numberIndex: number,
+    trigger: HTMLAnchorElement,
+  ) => {
+    lastActivatedTriggerByNumber.current[numberIndex] = trigger;
+    lastActivatedNumber.current = numberIndex;
+  };
+
   const restoreCallFocus = () => {
-    requestAnimationFrame(() => callLinkRef.current?.focus());
+    requestAnimationFrame(() => {
+      const numberIndex = lastActivatedNumber.current;
+      if (numberIndex == null) return;
+      lastActivatedTriggerByNumber.current[numberIndex]?.focus();
+    });
   };
 
   const hasNumber = normalized.display.trim() !== "";
@@ -151,7 +166,7 @@ export const ReferencePhoneActions = ({
               className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               aria-label={`Call ${numberLabel}`}
               onClick={(event) => {
-                callLinkRef.current = event.currentTarget;
+                rememberActivatedTrigger(numberIndex, event.currentTarget);
                 arm();
               }}
             >
@@ -163,7 +178,10 @@ export const ReferencePhoneActions = ({
               rel="noopener noreferrer"
               className="inline-flex min-h-11 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               aria-label={`WhatsApp ${numberLabel}`}
-              onClick={arm}
+              onClick={(event) => {
+                rememberActivatedTrigger(numberIndex, event.currentTarget);
+                arm();
+              }}
             >
               WhatsApp
             </a>

@@ -2,7 +2,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 
+import type { ReferenceLinkSummary } from "../types";
 import { ReferencePhoneActions } from "./ReferencePhoneActions";
+
+const returnFlow = vi.hoisted(() => ({
+  arm: vi.fn(),
+  dismiss: vi.fn(),
+  isPromptOpen: false,
+}));
+
+vi.mock("./useReturnFromCall", () => ({
+  useReturnFromCall: () => returnFlow,
+}));
+
+vi.mock("./CallCaptureSheet", () => ({
+  CallCaptureSheet: ({
+    open,
+    onOpenChange,
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+  }) =>
+    open ? (
+      <button type="button" onClick={() => onOpenChange(false)}>
+        Close return sheet
+      </button>
+    ) : null,
+}));
 
 const setMatchMedia = (matches: boolean) => {
   Object.defineProperty(window, "matchMedia", {
@@ -25,6 +51,9 @@ describe("ReferencePhoneActions", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
     setMatchMedia(true);
+    returnFlow.arm.mockClear();
+    returnFlow.dismiss.mockClear();
+    returnFlow.isPromptOpen = false;
   });
 
   it("renders safe Call and WhatsApp hrefs without changing display text", async () => {
@@ -266,4 +295,27 @@ describe("ReferencePhoneActions", () => {
       );
     },
   );
+
+  it("restores focus to the last WhatsApp trigger for number 2", async () => {
+    const referenceLink = { id: "link-1" } as ReferenceLinkSummary;
+    const props = {
+      phone: "732-930-6891; 201-555-0100",
+      referenceName: "Rivka Levi",
+      referenceLink,
+    };
+    const screen = await render(<ReferencePhoneActions {...props} />);
+
+    await screen
+      .getByRole("link", { name: "WhatsApp Rivka Levi, number 2" })
+      .click();
+    expect(returnFlow.arm).toHaveBeenCalledTimes(1);
+
+    returnFlow.isPromptOpen = true;
+    await screen.rerender(<ReferencePhoneActions {...props} />);
+    await screen.getByRole("button", { name: "Close return sheet" }).click();
+
+    await expect
+      .poll(() => document.activeElement?.getAttribute("aria-label"))
+      .toBe("WhatsApp Rivka Levi, number 2");
+  });
 });

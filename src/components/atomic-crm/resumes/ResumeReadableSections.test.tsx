@@ -1355,6 +1355,9 @@ describe("ResumeReadableSections", () => {
       ),
     );
     expect(rows).toHaveLength(11);
+    expect(
+      queue.querySelector('[data-testid="reference-phone-actions"]')?.className,
+    ).toContain("sm:flex-row");
     await expect
       .element(
         screen.getByRole("button", { name: "Next uncalled", exact: true }),
@@ -1372,6 +1375,45 @@ describe("ResumeReadableSections", () => {
       .getByRole("button", { name: "Next uncalled", exact: true })
       .click();
     expect(document.activeElement).toBe(rows[0]);
+    await page.viewport(1280, 720);
+  });
+
+  it("stacks a three-number row vertically at phone and desktop widths", async () => {
+    const { screen } = await renderSections({
+      withLinks: false,
+      sections: {
+        learningHistory: [],
+        references: [
+          {
+            name: "Miriam Gold",
+            relationship: "Neighbor",
+            phone: "732-930-6891; 201-555-0100; 212-555-0100",
+          },
+        ],
+        additionalSections: [],
+      },
+    });
+
+    await expect.element(screen.getByText("Miriam Gold")).toBeInTheDocument();
+    const actions = screen.getByTestId("reference-phone-actions");
+    const wrapper = await actions.element();
+    expect(wrapper.className).not.toContain("sm:flex-row");
+    expect(wrapper.className).not.toContain("sm:justify-between");
+    expect(
+      wrapper.querySelectorAll('[data-testid^="reference-phone-number-"]'),
+    ).toHaveLength(3);
+    await expect
+      .element(
+        screen.getByRole("link", {
+          name: "Call Miriam Gold, number 3",
+        }),
+      )
+      .toBeVisible();
+
+    await page.viewport(390, 844);
+    expect(wrapper.className).not.toContain("sm:flex-row");
+    await page.viewport(1280, 844);
+    expect(wrapper.className).not.toContain("sm:flex-row");
     await page.viewport(1280, 720);
   });
 
