@@ -363,7 +363,13 @@ function sleep(delayMs: number): Promise<void> {
 }
 
 function cloudflareResponsesEndpoint(accountId: string): string {
-  return `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/responses`;
+  if (!/^[A-Za-z0-9]{16,64}$/u.test(accountId)) {
+    console.error("parse.extract.config.invalid", {
+      variable: "AI_GATEWAY_ACCOUNT_ID",
+    });
+    throw new ExtractorProviderError(400);
+  }
+  return `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/v1/responses`;
 }
 
 function cloudflareInputPart(

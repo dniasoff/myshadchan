@@ -1,8 +1,19 @@
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_MODELS,
   CF_UNIFIED_MODELS,
+  CLOUDFLARE_ACCOUNT_ID_PATTERN,
   SYNTHETIC_RESUME_TEXT,
   buildCloudflareRequestBody,
   buildProbePlan,
@@ -26,6 +37,7 @@ import {
 } from "../workers/parse/geminiModelProbeFixture.mjs";
 
 const wrapper = (value) => ({ value, confidence: 1 });
+const CF_TEST_ACCOUNT_ID = "a".repeat(32);
 
 function fullResponseText() {
   return JSON.stringify({
@@ -149,15 +161,50 @@ describe("gemini-model-probe", () => {
   it("parses only the two Cloudflare credential keys and rejects missing files", () => {
     expect(
       parseCloudflareEnvFile(
-        'export CLOUDFLARE_API_TOKEN="token-value"\nCLOUDFLARE_ACCOUNT_ID=account-value\nOTHER=ignored',
+        `export CLOUDFLARE_API_TOKEN="token-value"\nCLOUDFLARE_ACCOUNT_ID=${CF_TEST_ACCOUNT_ID}\nOTHER=ignored`,
       ),
     ).toEqual({
       CLOUDFLARE_API_TOKEN: "token-value",
-      CLOUDFLARE_ACCOUNT_ID: "account-value",
+      CLOUDFLARE_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
     });
+    expect(CLOUDFLARE_ACCOUNT_ID_PATTERN.test(CF_TEST_ACCOUNT_ID)).toBe(true);
     expect(() =>
       readCloudflareCredentials("/definitely/missing/.env_cloudflare"),
     ).toThrow("missing or implausibly short");
+  });
+
+  it("requires an owner-only regular credential file", () => {
+    const root = mkdtempSync(join(tmpdir(), "gemini-probe-"));
+    const credentialText = `CLOUDFLARE_API_TOKEN=${"t".repeat(24)}\nCLOUDFLARE_ACCOUNT_ID=${CF_TEST_ACCOUNT_ID}\n`;
+    const credentialPath = join(root, ".env_cloudflare");
+    const symlinkPath = join(root, "symlink.env");
+    const directoryPath = join(root, "credential-directory");
+    try {
+      writeFileSync(credentialPath, credentialText, { mode: 0o600 });
+      chmodSync(credentialPath, 0o600);
+      expect(readCloudflareCredentials(credentialPath)).toEqual({
+        apiToken: "t".repeat(24),
+        accountId: CF_TEST_ACCOUNT_ID,
+      });
+
+      chmodSync(credentialPath, 0o644);
+      expect(() => readCloudflareCredentials(credentialPath)).toThrow(
+        "chmod 600 ~/.env_cloudflare",
+      );
+      chmodSync(credentialPath, 0o600);
+
+      symlinkSync(credentialPath, symlinkPath);
+      expect(() => readCloudflareCredentials(symlinkPath)).toThrow(
+        "chmod 600 ~/.env_cloudflare",
+      );
+
+      mkdirSync(directoryPath, 0o700);
+      expect(() => readCloudflareCredentials(directoryPath)).toThrow(
+        "chmod 600 ~/.env_cloudflare",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("builds a bounded plan and rejects more than forty calls", () => {
@@ -580,7 +627,7 @@ describe("gemini-model-probe", () => {
       .mockImplementation(() => Promise.resolve(cloudflareResponse()));
     const credentials = {
       apiToken: "cloudflare-token-that-must-not-print",
-      accountId: "account-id",
+      accountId: CF_TEST_ACCOUNT_ID,
     };
 
     const result = await runProbe({
@@ -596,7 +643,7 @@ describe("gemini-model-probe", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     for (const [url, init] of fetchMock.mock.calls) {
       expect(url).toBe(
-        "https://api.cloudflare.com/client/v4/accounts/account-id/ai/v1/responses",
+        `https://api.cloudflare.com/client/v4/accounts/${CF_TEST_ACCOUNT_ID}/ai/v1/responses`,
       );
       expect(init.headers).toEqual({
         Authorization: `Bearer ${credentials.apiToken}`,
@@ -623,7 +670,7 @@ describe("gemini-model-probe", () => {
       argv: ["--provider=cf-unified", "openai/gpt-6-luna"],
       cloudflareCredentials: {
         apiToken: "cloudflare-token-that-must-not-print",
-        accountId: "account-id",
+        accountId: CF_TEST_ACCOUNT_ID,
       },
       fetchImpl: fetchMock,
       writeLine: (line) => output.push(String(line)),

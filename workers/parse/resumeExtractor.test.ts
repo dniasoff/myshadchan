@@ -29,6 +29,8 @@ import {
 import { TEST_ENV } from "./parseTestFixtures";
 import { getExtractorShapeMetadata } from "./rereadDiagnostics";
 
+const CF_TEST_ACCOUNT_ID = "a".repeat(32);
+
 async function makeDocxFixture(): Promise<ArrayBuffer> {
   const zip = new JSZip();
   zip.file(
@@ -1158,6 +1160,7 @@ describe("geminiExtractor", () => {
 
       const result = await geminiExtractor({
         ...TEST_ENV,
+        AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
         EXTRACT_PROVIDER: "cf-unified",
         CF_AI_TOKEN: "cf-token-that-must-not-leak",
         EXTRACT_MODEL: "openai/gpt-6-luna",
@@ -1167,7 +1170,7 @@ describe("geminiExtractor", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toBe(
-        "https://api.cloudflare.com/client/v4/accounts/acct/ai/v1/responses",
+        `https://api.cloudflare.com/client/v4/accounts/${CF_TEST_ACCOUNT_ID}/ai/v1/responses`,
       );
       expect(init.headers).toEqual({
         Authorization: "Bearer cf-token-that-must-not-leak",
@@ -1240,6 +1243,7 @@ describe("geminiExtractor", () => {
 
       const result = await geminiExtractor({
         ...TEST_ENV,
+        AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
         EXTRACT_PROVIDER: "cf-unified",
         CF_AI_TOKEN: "cf-secret",
         EXTRACT_MODEL: "openai/gpt-6-luna",
@@ -1283,6 +1287,7 @@ describe("geminiExtractor", () => {
 
       const pending = geminiExtractor({
         ...TEST_ENV,
+        AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
         EXTRACT_PROVIDER: "cf-unified",
         CF_AI_TOKEN: "cf-token",
         EXTRACT_MODEL: "openai/gpt-6-luna",
@@ -1332,6 +1337,7 @@ describe("geminiExtractor", () => {
 
       const pending = geminiExtractor({
         ...TEST_ENV,
+        AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
         EXTRACT_PROVIDER: "cf-unified",
         CF_AI_TOKEN: "cf-token",
         EXTRACT_MODEL: "openai/gpt-6-luna",
@@ -1355,6 +1361,7 @@ describe("geminiExtractor", () => {
       await expect(
         geminiExtractor({
           ...TEST_ENV,
+          AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
           EXTRACT_PROVIDER: "cf-unified",
           CF_AI_TOKEN: "cf-token",
           EXTRACT_MODEL: "openai/gpt-6-luna",
@@ -1377,6 +1384,7 @@ describe("geminiExtractor", () => {
 
       const pending = geminiExtractor({
         ...TEST_ENV,
+        AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
         EXTRACT_PROVIDER: "cf-unified",
         CF_AI_TOKEN: "cf-token",
         EXTRACT_MODEL: "openai/gpt-6-luna",
@@ -1403,12 +1411,42 @@ describe("geminiExtractor", () => {
       await expect(
         geminiExtractor({
           ...TEST_ENV,
+          AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
           EXTRACT_PROVIDER: "cf-unified",
           CF_AI_TOKEN: "cf-token",
           EXTRACT_MODEL: "openai/not-approved",
         }).extract(new ArrayBuffer(0), "application/pdf"),
       ).rejects.toMatchObject({ status: 400 });
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects hostile unified account IDs without putting them in logs or URLs", async () => {
+      const fetchMock = vi.fn();
+      const configLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.stubGlobal("fetch", fetchMock);
+      const hostileAccountIds = ["/", "?", "#", "..", "%2f", " ", ""];
+
+      for (const accountId of hostileAccountIds) {
+        await expect(
+          geminiExtractor({
+            ...TEST_ENV,
+            AI_GATEWAY_ACCOUNT_ID: accountId,
+            EXTRACT_PROVIDER: "cf-unified",
+            CF_AI_TOKEN: "cf-token",
+            EXTRACT_MODEL: "openai/gpt-6-luna",
+          }).extract(new ArrayBuffer(0), "application/pdf"),
+        ).rejects.toMatchObject({ status: 400 });
+      }
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(configLog.mock.calls).toHaveLength(hostileAccountIds.length);
+      expect(configLog.mock.calls).toEqual(
+        hostileAccountIds.map(() => [
+          "parse.extract.config.invalid",
+          { variable: "AI_GATEWAY_ACCOUNT_ID" },
+        ]),
+      );
+      configLog.mockRestore();
     });
   });
 

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,7 @@ import {
 export const DIRECT_BASE_URL = "https://generativelanguage.googleapis.com";
 export const CLOUDFLARE_RESPONSES_BASE_URL =
   "https://api.cloudflare.com/client/v4";
+export const CLOUDFLARE_ACCOUNT_ID_PATTERN = /^[A-Za-z0-9]{16,64}$/u;
 export const PER_CALL_TIMEOUT_MS = 90_000;
 export const MAX_CALLS = 40;
 export const MODEL_LIST_MAX_PAGES = 5;
@@ -636,21 +637,39 @@ export function parseCloudflareEnvFile(contents) {
   return values;
 }
 
+const CLOUDFLARE_CREDENTIAL_ERROR =
+  "Cloudflare credential file missing or implausibly short; unsafe files require chmod 600 ~/.env_cloudflare";
+
 export function readCloudflareCredentials(filePath = CF_ENV_FILE) {
+  let fileStat;
+  try {
+    fileStat = lstatSync(filePath);
+  } catch {
+    throw new Error(CLOUDFLARE_CREDENTIAL_ERROR);
+  }
+  const ownerUid = typeof process.getuid === "function" ? process.getuid() : -1;
+  if (
+    !fileStat.isFile() ||
+    fileStat.isSymbolicLink() ||
+    (fileStat.mode & 0o077) !== 0 ||
+    fileStat.uid !== ownerUid
+  ) {
+    throw new Error(CLOUDFLARE_CREDENTIAL_ERROR);
+  }
   let contents;
   try {
     contents = readFileSync(filePath, "utf8");
   } catch {
-    throw new Error("Cloudflare credential file missing or implausibly short");
+    throw new Error(CLOUDFLARE_CREDENTIAL_ERROR);
   }
   const values = parseCloudflareEnvFile(contents);
   if (
     typeof values.CLOUDFLARE_API_TOKEN !== "string" ||
     values.CLOUDFLARE_API_TOKEN.length < 20 ||
     typeof values.CLOUDFLARE_ACCOUNT_ID !== "string" ||
-    values.CLOUDFLARE_ACCOUNT_ID.length < 8
+    !CLOUDFLARE_ACCOUNT_ID_PATTERN.test(values.CLOUDFLARE_ACCOUNT_ID)
   ) {
-    throw new Error("Cloudflare credential file missing or implausibly short");
+    throw new Error(CLOUDFLARE_CREDENTIAL_ERROR);
   }
   return {
     apiToken: values.CLOUDFLARE_API_TOKEN,
@@ -683,6 +702,9 @@ function endpoint(baseUrl, model) {
 }
 
 function cloudflareEndpoint(accountId) {
+  if (!CLOUDFLARE_ACCOUNT_ID_PATTERN.test(accountId)) {
+    throw new Error("invalid Cloudflare account id");
+  }
   return `${CLOUDFLARE_RESPONSES_BASE_URL}/accounts/${encodeURIComponent(accountId)}/ai/v1/responses`;
 }
 
@@ -949,7 +971,7 @@ export async function runProbe({
         writeError,
       });
     } catch {
-      emit("Cloudflare credential file missing or implausibly short", "stderr");
+      emit(CLOUDFLARE_CREDENTIAL_ERROR, "stderr");
       emitBudgetSummary({ listPages: 0, listStop: "not_started" });
       return { exitCode: 2, calls: budget.used };
     }
