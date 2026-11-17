@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+import { useState } from "react";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
@@ -8,8 +9,13 @@ import type { ShidduchSummary } from "../types";
 import {
   readPendingShidduchActions,
   SHIDDUCH_DELETE_MARKER_KEY,
+  SHIDDUCH_ACTION_UNDO_MS,
+  type ShidduchLifecycleAction,
 } from "./shidduchLifecycle";
-import { ShidduchLifecycleActions } from "./ShidduchLifecycleActions";
+import {
+  ShidduchLifecycleActions,
+  ShidduchPendingActionBar,
+} from "./ShidduchLifecycleActions";
 
 const { useViewerRoleMock } = vi.hoisted(() => ({
   useViewerRoleMock: vi.fn(),
@@ -67,6 +73,147 @@ const chooseDelete = async (screen: Awaited<ReturnType<typeof render>>) => {
   await screen.getByRole("button", { name: "Delete", exact: true }).click();
 };
 
+const renderPendingBars = async (
+  actions: ShidduchLifecycleAction[],
+  dataProvider: CrmDataProvider,
+  onDone = vi.fn(),
+) =>
+  render(
+    <TestMemoryRouter initialEntries={["/shidduchim"]}>
+      <CoreAdminContext
+        dataProvider={dataProvider}
+        i18nProvider={testI18nProvider}
+      >
+        <div>
+          {actions.map((action) => (
+            <ShidduchPendingActionBar
+              key={`${String(action.id)}:${action.kind}`}
+              action={action}
+              focusOnMount={false}
+              onDone={onDone}
+            />
+          ))}
+        </div>
+      </CoreAdminContext>
+    </TestMemoryRouter>,
+  );
+
+const pendingAction = (
+  overrides: Partial<ShidduchLifecycleAction> = {},
+): ShidduchLifecycleAction => ({
+  kind: "delete",
+  id: 42,
+  name: "Chaya Cohen",
+  deadline: Date.now() + SHIDDUCH_ACTION_UNDO_MS,
+  ...overrides,
+});
+
+const PendingActionWithRemovableRow = ({
+  action,
+  onDone,
+}: {
+  action: ShidduchLifecycleAction;
+  onDone: (result: "restored" | "expired" | "failed") => void;
+}) => {
+  const [rowVisible, setRowVisible] = useState(true);
+  return (
+    <>
+      <button type="button" onClick={() => setRowVisible(false)}>
+        Remove row
+      </button>
+      {rowVisible ? <div data-testid="originating-row" /> : null}
+      <ShidduchPendingActionBar
+        action={action}
+        focusOnMount={false}
+        onDone={onDone}
+      />
+    </>
+  );
+};
+
+describe("ShidduchPendingActionBar — independent undo windows", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    window.sessionStorage.clear();
+  });
+
+  it("restores an archived suggestion through Archive + Undo", async () => {
+    const restoreShidduch = vi.fn().mockResolvedValue(undefined);
+    const dataProvider = { restoreShidduch } as unknown as CrmDataProvider;
+    const onDone = vi.fn();
+    const screen = await renderPendingBars(
+      [pendingAction({ kind: "archive" })],
+      dataProvider,
+      onDone,
+    );
+
+    await screen.getByRole("button", { name: "Undo" }).click();
+
+    expect(restoreShidduch).toHaveBeenCalledWith(42);
+    expect(onDone).toHaveBeenCalledWith("restored");
+  });
+
+  it("restores a deleted suggestion through Delete + Undo", async () => {
+    const restoreShidduch = vi.fn().mockResolvedValue(undefined);
+    const dataProvider = { restoreShidduch } as unknown as CrmDataProvider;
+    const screen = await renderPendingBars(
+      [pendingAction({ kind: "delete" })],
+      dataProvider,
+    );
+
+    await screen.getByRole("button", { name: "Undo" }).click();
+
+    expect(restoreShidduch).toHaveBeenCalledWith(42);
+  });
+
+  it("keeps two rows' pending deadlines and Undo controls independent", async () => {
+    vi.useFakeTimers();
+    const deleteShidduch = vi.fn().mockResolvedValue({ purgePending: false });
+    const dataProvider = {
+      deleteShidduch,
+      restoreShidduch: vi.fn().mockResolvedValue(undefined),
+    } as unknown as CrmDataProvider;
+    const screen = await renderPendingBars(
+      [pendingAction({ id: 42 }), pendingAction({ id: 43 })],
+      dataProvider,
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await screen.getByRole("button", { name: "Undo" }).first().click();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect.poll(() => deleteShidduch.mock.calls.length).toBe(1);
+    expect(deleteShidduch).toHaveBeenCalledWith(43);
+  });
+
+  it("keeps a pending timer alive when the originating row leaves the list", async () => {
+    vi.useFakeTimers();
+    const deleteShidduch = vi.fn().mockResolvedValue({ purgePending: false });
+    const dataProvider = { deleteShidduch } as unknown as CrmDataProvider;
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/shidduchim"]}>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <PendingActionWithRemovableRow
+            action={pendingAction({ id: 42 })}
+            onDone={vi.fn()}
+          />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await screen.getByRole("button", { name: "Remove row" }).click();
+    await expect
+      .element(screen.getByTestId("originating-row"))
+      .not.toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect.poll(() => deleteShidduch.mock.calls.length).toBe(1);
+  });
+});
+
 describe("ShidduchLifecycleActions mutation reconciliation", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
@@ -104,6 +251,68 @@ describe("ShidduchLifecycleActions mutation reconciliation", () => {
     await expect.poll(() => getOne.mock.calls.length).toBe(1);
 
     expect(readPendingShidduchActions()).toEqual([]);
+  });
+
+  it("closes the delete dialog and returns focus when its archive step rejects", async () => {
+    const { archiveShidduch, dataProvider, getOne } = buildDataProvider(null);
+    const screen = await renderActions(dataProvider);
+
+    await chooseDelete(screen);
+    await expect.poll(() => archiveShidduch.mock.calls.length).toBe(1);
+    await expect.poll(() => getOne.mock.calls.length).toBe(1);
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+    await expect
+      .poll(() => document.activeElement?.getAttribute("aria-label"))
+      .toBe("More actions");
+  });
+
+  it("keeps the suggestion-page menu words, aria, and destructive variant unchanged", async () => {
+    const { dataProvider } = buildDataProvider(null);
+    const screen = await renderActions(dataProvider);
+
+    await screen.getByRole("button", { name: "More actions" }).click();
+
+    const archive = screen.getByRole("menuitem", {
+      name: "Archive suggestion",
+    });
+    const del = screen.getByRole("menuitem", {
+      name: "Delete suggestion",
+    });
+    await expect.element(archive).toHaveTextContent("Archive suggestion");
+    await expect.element(del).toHaveTextContent("Delete suggestion");
+    await expect.element(archive).not.toHaveTextContent("Keeps the file");
+    await expect.element(del).not.toHaveTextContent("Removes the file");
+    expect(archive.element()).not.toHaveAttribute("aria-label");
+    expect(del.element()).not.toHaveAttribute("aria-label");
+    await expect.element(del).toHaveAttribute("data-variant", "destructive");
+  });
+
+  it("disables Delete while the resume read is in progress", async () => {
+    const getShidduchReadState = vi
+      .fn()
+      .mockResolvedValue({ inProgress: true });
+    const dataProvider = {
+      archiveShidduch: vi.fn(),
+      getOne: vi.fn(),
+      getShidduchReadState,
+      restoreShidduch: vi.fn(),
+    } as unknown as CrmDataProvider;
+    const screen = await renderActions(dataProvider);
+
+    await expect
+      .poll(() => getShidduchReadState.mock.calls.length)
+      .toBeGreaterThan(0);
+    await screen.getByRole("button", { name: "More actions" }).click();
+    await expect
+      .element(screen.getByRole("menuitem", { name: "Delete suggestion" }))
+      .toBeDisabled();
+    await expect
+      .element(
+        screen.getByText(
+          "Please wait: this resume is being made easy to read.",
+        ),
+      )
+      .toBeInTheDocument();
   });
 
   it("keeps the marker when reconciliation proves the server archived the suggestion", async () => {

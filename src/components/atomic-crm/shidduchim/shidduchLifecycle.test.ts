@@ -39,6 +39,32 @@ describe("shidduch lifecycle persistence", () => {
     expect(readPendingShidduchDelete()).toBeNull();
   });
 
+  it("reconciles a route-change action with the persisted marker for the same row", () => {
+    rememberPendingShidduchAction({
+      id: 42,
+      kind: "delete",
+      deadline: 123,
+    });
+
+    expect(
+      getPendingShidduchActions({
+        shidduchLifecycle: {
+          id: 42,
+          kind: "delete",
+          name: "Chaya Cohen",
+          deadline: 456,
+        },
+      }),
+    ).toEqual([
+      {
+        id: 42,
+        kind: "delete",
+        name: "Chaya Cohen",
+        deadline: 456,
+      },
+    ]);
+  });
+
   it("keeps concurrent archive and delete markers in one keyed collection", () => {
     rememberPendingShidduchAction({
       id: 42,

@@ -44,12 +44,15 @@ const renderRow = async (
 const renderManagedRow = async (
   overrides: Partial<ShidduchSummary> = {},
   canManageLifecycle = true,
+  dataProvider?: CrmDataProvider,
+  omitGate = false,
 ) =>
   render(
     <TestMemoryRouter initialEntries={["/shidduchim"]}>
       <CoreAdminContext
         dataProvider={
-          {
+          dataProvider ??
+          ({
             archiveShidduch: vi.fn().mockResolvedValue(undefined),
             deleteShidduch: vi.fn().mockResolvedValue({ purgePending: false }),
             getOne: vi
@@ -59,14 +62,14 @@ const renderManagedRow = async (
               .fn()
               .mockResolvedValue({ inProgress: false }),
             restoreShidduch: vi.fn().mockResolvedValue(undefined),
-          } as unknown as CrmDataProvider
+          } as unknown as CrmDataProvider)
         }
         i18nProvider={testI18nProvider}
       >
         <ShidduchRow
           shidduch={buildShidduch(overrides)}
           onMove={vi.fn()}
-          canManageLifecycle={canManageLifecycle}
+          {...(omitGate ? {} : { canManageLifecycle })}
         />
       </CoreAdminContext>
     </TestMemoryRouter>,
@@ -175,6 +178,14 @@ describe("ShidduchRow — RecordLink mention, Move as a sibling (AC-12)", () => 
       .not.toBeInTheDocument();
   });
 
+  it("fails closed when no lifecycle gate is supplied by the parent", async () => {
+    const screen = await renderManagedRow({}, true, undefined, true);
+
+    await expect
+      .element(screen.getByRole("button", { name: /More actions/ }))
+      .not.toBeInTheDocument();
+  });
+
   it("shows the shared active-row menu with the exact archive and delete copy", async () => {
     const screen = await renderManagedRow();
 
@@ -247,5 +258,56 @@ describe("ShidduchRow — RecordLink mention, Move as a sibling (AC-12)", () => 
     await expect
       .element(screen.getByRole("button", { name: /More actions/ }))
       .not.toBeInTheDocument();
+  });
+
+  it("includes the previous stage in archived row metadata", async () => {
+    const screen = await renderManagedRow({
+      pipeline_state: "look_into",
+      archived_at: "2026-11-17T15:00:00.000Z",
+    });
+
+    await expect
+      .element(screen.getByText(/Archived · previous stage: Look-into/))
+      .toBeInTheDocument();
+  });
+
+  it("stacks full-width row actions on a phone-sized layout", async () => {
+    const screen = await renderManagedRow();
+    const row = screen.container.querySelector('[data-slot="pipeline-row"]');
+    const move = screen.getByRole("button", { name: /Move/ });
+    const more = screen.getByRole("button", { name: /More actions for/ });
+
+    expect(row).toHaveClass("flex-col", "sm:flex-row");
+    await expect.element(move).toHaveClass("flex-1", "sm:flex-none");
+    await expect.element(more).toHaveClass("w-full", "sm:w-auto");
+  });
+
+  it("ignores a second Archive tap while the first row action is pending", async () => {
+    let resolveArchive: (() => void) | undefined;
+    const archiveShidduch = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveArchive = resolve;
+        }),
+    );
+    const dataProvider = {
+      archiveShidduch,
+      getOne: vi.fn().mockResolvedValue({ data: buildShidduch() }),
+      getShidduchReadState: vi.fn().mockResolvedValue({ inProgress: false }),
+      restoreShidduch: vi.fn(),
+    } as unknown as CrmDataProvider;
+    const screen = await renderManagedRow({}, true, dataProvider);
+
+    await screen
+      .getByRole("button", { name: /More actions for Chaim Cohen/ })
+      .click();
+    await screen.getByRole("menuitem", { name: "Archive suggestion" }).click();
+    await screen
+      .getByRole("button", { name: /More actions for Chaim Cohen/ })
+      .click();
+    await screen.getByRole("menuitem", { name: "Archive suggestion" }).click();
+
+    expect(archiveShidduch).toHaveBeenCalledTimes(1);
+    resolveArchive?.();
   });
 });

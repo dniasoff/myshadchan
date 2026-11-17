@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 
@@ -23,6 +23,14 @@ import {
   ShidduchimPipelineList,
 } from "./ShidduchimPipelineList";
 import { INITIAL_PIPELINE_STATES, PIPELINE_STATES } from "./pipelineStates";
+
+const { useViewerRoleMock } = vi.hoisted(() => ({
+  useViewerRoleMock: vi.fn(),
+}));
+
+vi.mock("../entity360/useViewerRole", () => ({
+  useViewerRole: useViewerRoleMock,
+}));
 
 const buildShidduch = (
   overrides: Partial<ShidduchSummary>,
@@ -84,6 +92,11 @@ const renderPipelineList = (
 ) => {
   const dataProvider = {
     transitionShidduch: vi.fn().mockResolvedValue({}),
+    archiveShidduch: vi.fn().mockResolvedValue(undefined),
+    deleteShidduch: vi.fn().mockResolvedValue({ purgePending: false }),
+    getOne: vi.fn().mockResolvedValue({ data: null }),
+    getShidduchReadState: vi.fn().mockResolvedValue({ inProgress: false }),
+    restoreShidduch: vi.fn().mockResolvedValue(undefined),
   } as unknown as CrmDataProvider;
 
   return render(
@@ -101,6 +114,10 @@ const renderPipelineList = (
 };
 
 describe("ShidduchimPipelineList — state-grouped pipeline (AC-7)", () => {
+  beforeEach(() => {
+    useViewerRoleMock.mockReturnValue({ role: undefined, isPending: false });
+  });
+
   afterEach(async () => {
     await page.viewport(1280, 720);
   });
@@ -213,6 +230,64 @@ describe("ShidduchimPipelineList — state-grouped pipeline (AC-7)", () => {
     await expect
       .element(screen.getByText("No redts yet"))
       .not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["single", "single", false],
+    ["pending", "parent_admin", true],
+    ["undefined", undefined, false],
+  ] as const)(
+    "hides row lifecycle controls for the %s role state through the list gate",
+    async (_label, role, isPending) => {
+      useViewerRoleMock.mockReturnValue({ role, isPending });
+      const screen = await renderPipelineList({
+        data: [
+          buildShidduch({ id: 1, pipeline_state: "new" }),
+          buildShidduch({
+            id: 2,
+            pipeline_state: "new",
+            archived_at: "2026-11-17T15:00:00.000Z",
+          }),
+        ],
+      });
+
+      await expect
+        .element(screen.getByRole("button", { name: /More actions/ }))
+        .not.toBeInTheDocument();
+      await expect
+        .element(screen.getByRole("button", { name: "Restore" }))
+        .not.toBeInTheDocument();
+      await expect
+        .element(screen.getByRole("button", { name: "Delete" }))
+        .not.toBeInTheDocument();
+    },
+  );
+
+  it("shows More for managers and Restore/Delete for archived rows through the list gate", async () => {
+    useViewerRoleMock.mockReturnValue({
+      role: "self_manager",
+      isPending: false,
+    });
+    const screen = await renderPipelineList({
+      data: [
+        buildShidduch({ id: 1, pipeline_state: "new" }),
+        buildShidduch({
+          id: 2,
+          pipeline_state: "new",
+          archived_at: "2026-11-17T15:00:00.000Z",
+        }),
+      ],
+    });
+
+    await expect
+      .element(screen.getByRole("button", { name: /More actions for/ }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Restore" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Delete" }))
+      .toBeInTheDocument();
   });
 });
 
