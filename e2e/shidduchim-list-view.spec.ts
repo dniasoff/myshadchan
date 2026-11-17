@@ -115,6 +115,28 @@ test("board, list and cards share filters and context, and both survive a reload
   // Assert
   await expect(page.getByText("Moshe Adler")).toBeVisible();
   await expect(page.getByText("Ari Rosenberg")).not.toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Clear search" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Clear search" }).click();
+  await expect(page.getByPlaceholder(/search/i)).toHaveValue("");
+  await expect(page.getByText("Ari Rosenberg")).toBeVisible();
+  await expect(page.getByText("Moshe Adler")).toBeVisible();
+  await expect(page).not.toHaveURL(/q.*Adler/);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const raw = localStorage.getItem("RaStoreCRM.shidduchim.listParams");
+        if (!raw) return null;
+        return (JSON.parse(raw).filter ?? {}).q ?? null;
+      }),
+    )
+    .toBeNull();
+
+  await page.getByPlaceholder(/search/i).fill("Adler");
+  await expect(page.getByText("Moshe Adler")).toBeVisible();
+  await expect(page.getByText("Ari Rosenberg")).not.toBeVisible();
 
   // Act — AC-4: switching to the Board keeps the SAME filtered data — no
   // second fetch, no reset (AC-6).
