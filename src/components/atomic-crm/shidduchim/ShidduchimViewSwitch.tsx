@@ -1,6 +1,5 @@
 import { Kanban, LayoutGrid, LayoutList } from "lucide-react";
 import { useStore, useTranslate } from "ra-core";
-import { useSyncExternalStore } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -40,48 +39,25 @@ const VIEW_OPTIONS: {
   },
 ];
 
-/**
- * The default view is decided on the FIRST paint, which is why this does not
- * call `useIsMobile()`: that hook starts at `undefined` and only resolves in
- * an effect, so `!!isMobile` is `false` for one frame and a phone painted the
- * 7-column, ~1850px-wide Board before flipping to the list.
- * `ShidduchInputs.tsx` dropped its own `useIsMobile()` fork for exactly this
- * reason. `useSyncExternalStore` reads `matchMedia` synchronously during
- * render and still re-renders on a resize. 768px is `useIsMobile()`'s own
- * MOBILE_BREAKPOINT, kept identical on purpose — the same way
- * `ShidduchimList.tsx` keeps its `md:` toolbar rule aligned to it.
- */
-const MOBILE_MEDIA_QUERY = "(max-width: 767px)";
-
-const subscribeToViewport = (onStoreChange: () => void) => {
-  const mql = window.matchMedia(MOBILE_MEDIA_QUERY);
-  mql.addEventListener("change", onStoreChange);
-  return () => mql.removeEventListener("change", onStoreChange);
-};
-
-const readIsMobile = () => window.matchMedia(MOBILE_MEDIA_QUERY).matches;
+const PAGE_VIEW_STORE_KEY = "shidduchim.pageView.v2";
 
 /**
  * AC-1/AC-2/AC-5/AC-6: the one three-position control (Board · List ·
  * Cards), keyed to the store — never the URL (see the story's Dev Notes,
- * "Why the view choice cannot live in the URL"). The single viewport read
- * under `shidduchim/` lives here and its only consumer is the `useStore`
- * default below (AC-2). The single `useEntityListStatus()` call
+ * "Why the view choice cannot live in the URL"). The single
+ * `useEntityListStatus()` call
  * here renders the shared loading/error(+retry) states — no position below
  * renders its own (AC-5). Board, List and Cards all read the SAME
  * `useListContext()` data from the SAME enclosing `<List>` in
- * `ShidduchimList.tsx` (AC-6): switching position never re-queries.
+ * `ShidduchimList.tsx` (AC-6): switching position never re-queries. A new
+ * store key makes the List position the one-time default for existing users;
+ * subsequent explicit choices persist under that key.
  */
 export const ShidduchimViewSwitch = () => {
   const translate = useTranslate();
   const status = useEntityListStatus();
-  // AC-2: the ONLY viewport read under shidduchim/ — and synchronous, so the
-  // first paint already knows which default it is choosing.
-  const isMobile = useSyncExternalStore(subscribeToViewport, readIsMobile);
-  const [stored, setStored] = useStore<ShidduchimPageView>(
-    "shidduchim.pageView",
-  );
-  const view = stored ?? (isMobile ? "list" : "board");
+  const [stored, setStored] = useStore<ShidduchimPageView>(PAGE_VIEW_STORE_KEY);
+  const view = stored ?? "list";
 
   if (status.status === "loading") {
     return <PipelineListSkeleton />;
