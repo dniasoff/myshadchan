@@ -1,5 +1,5 @@
 import type { Identifier } from "ra-core";
-import { useGetIdentity, useGetList, useListContext } from "ra-core";
+import { useGetIdentity, useGetList, useListContext, useStore } from "ra-core";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -24,7 +24,92 @@ import { ShidduchPendingActionBar } from "./ShidduchLifecycleActions";
 
 const singleLabel = (single: Single) => single.first_name_en ?? `#${single.id}`;
 
+type ArchiveFilterMode = "active" | "archived" | "all";
+
+type StoredShidduchimListParams = {
+  filter?: Record<string, unknown>;
+  displayedFilters?: Record<string, boolean>;
+};
+
+const ARCHIVE_ALL_DISPLAYED_FILTER = "shidduchim.archive.all";
+
+const hasOwn = (value: object | undefined, key: string) =>
+  value ? Object.prototype.hasOwnProperty.call(value, key) : false;
+
+const parseListParams = (
+  search: string,
+): StoredShidduchimListParams | undefined => {
+  const query = new URLSearchParams(search);
+  if (!query.toString()) return undefined;
+
+  const parseObject = (key: "filter" | "displayedFilters") => {
+    const raw = query.get(key);
+    if (!raw) return undefined;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return parsed && typeof parsed === "object"
+        ? (parsed as Record<string, unknown>)
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  return {
+    filter: parseObject("filter"),
+    displayedFilters: parseObject("displayedFilters") as
+      Record<string, boolean> | undefined,
+  };
+};
+
+const getExplicitArchiveFilterMode = (
+  params: StoredShidduchimListParams | undefined,
+): ArchiveFilterMode | undefined => {
+  if (hasOwn(params?.filter, "archived_at@is")) return "active";
+  if (hasOwn(params?.filter, "archived_at@not.is")) return "archived";
+  if (params?.displayedFilters?.[ARCHIVE_ALL_DISPLAYED_FILTER] === true) {
+    return "all";
+  }
+  return undefined;
+};
+
+const getInitialArchiveFilterMode = (
+  search: string,
+  storedParams: StoredShidduchimListParams | undefined,
+): ArchiveFilterMode =>
+  getExplicitArchiveFilterMode(parseListParams(search)) ??
+  getExplicitArchiveFilterMode(storedParams) ??
+  "active";
+
+const getArchiveFilter = (mode: ArchiveFilterMode) => {
+  if (mode === "active") return { "archived_at@is": null };
+  if (mode === "archived") return { "archived_at@not.is": null };
+  return {};
+};
+
 const ShidduchimList = () => {
+  const location = useLocation();
+  const [storedListParams] = useStore<StoredShidduchimListParams | undefined>(
+    "shidduchim.listParams",
+  );
+  const [archiveMode, setArchiveMode] = useState<ArchiveFilterMode>(() =>
+    getInitialArchiveFilterMode(location.search, storedListParams),
+  );
+  const archiveModeRef = useRef(archiveMode);
+  const previousSearch = useRef(location.search);
+
+  useEffect(() => {
+    if (previousSearch.current === location.search) return;
+    previousSearch.current = location.search;
+    const nextMode =
+      getExplicitArchiveFilterMode(parseListParams(location.search)) ??
+      "active";
+    if (nextMode !== archiveModeRef.current) {
+      archiveModeRef.current = nextMode;
+      setArchiveMode(nextMode);
+    }
+  }, [location.search]);
+
   const { identity } = useGetIdentity();
   const { data: singles, isPending: singlesPending } = useGetList<Single>(
     "singles",
@@ -60,14 +145,24 @@ const ShidduchimList = () => {
       // guard above already guarantees `singles` is loaded here.
       filterDefaultValues={{
         single_id: singles[0].id,
-        "archived_at@is": null,
       }}
+      // `ra-core` ignores filterDefaultValues when old stored list params
+      // contain any custom filter. Keep the active default in the permanent
+      // filter so the first request is safe even before normalization runs.
+      filter={getArchiveFilter(archiveMode)}
       filters={[<SearchInput source="q" alwaysOn key="q" />]}
       sort={{ field: "index", order: "ASC" }}
       pagination={null}
       actions={<ShidduchimActions />}
     >
-      <ShidduchimBody singleList={singles} />
+      <ShidduchimBody
+        archiveMode={archiveMode}
+        onArchiveModeChange={(mode) => {
+          archiveModeRef.current = mode;
+          setArchiveMode(mode);
+        }}
+        singleList={singles}
+      />
     </List>
   );
 };
@@ -87,7 +182,15 @@ const ShidduchimActions = () => (
   </TopToolbar>
 );
 
-const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
+const ShidduchimBody = ({
+  archiveMode,
+  onArchiveModeChange,
+  singleList,
+}: {
+  archiveMode: ArchiveFilterMode;
+  onArchiveModeChange: (mode: ArchiveFilterMode) => void;
+  singleList: Single[];
+}) => {
   const { data, filterValues, setFilters, displayedFilters } = useListContext();
   const location = useLocation();
   const navigate = useNavigate();
@@ -105,11 +208,36 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
     delete nextFilters["id@neq"];
     delete nextFilters["id@not.in"];
     Object.assign(nextFilters, pendingFilter);
+    const nextDisplayedFilters = { ...displayedFilters };
+    if (
+      archiveMode === "active" &&
+      !hasOwn(nextFilters, "archived_at@is") &&
+      !hasOwn(nextFilters, "archived_at@not.is")
+    ) {
+      nextFilters["archived_at@is"] = null;
+    }
+    if (
+      archiveMode === "archived" &&
+      !hasOwn(nextFilters, "archived_at@is") &&
+      !hasOwn(nextFilters, "archived_at@not.is")
+    ) {
+      nextFilters["archived_at@not.is"] = null;
+    }
+    if (archiveMode === "all") {
+      nextDisplayedFilters[ARCHIVE_ALL_DISPLAYED_FILTER] = true;
+    } else {
+      delete nextDisplayedFilters[ARCHIVE_ALL_DISPLAYED_FILTER];
+    }
     if (
       currentFilters["id@neq"] !== undefined ||
-      currentFilters["id@not.in"] !== pendingFilter["id@not.in"]
+      currentFilters["id@not.in"] !== pendingFilter["id@not.in"] ||
+      currentFilters["archived_at@is"] !== nextFilters["archived_at@is"] ||
+      currentFilters["archived_at@not.is"] !==
+        nextFilters["archived_at@not.is"] ||
+      displayedFilters[ARCHIVE_ALL_DISPLAYED_FILTER] !==
+        nextDisplayedFilters[ARCHIVE_ALL_DISPLAYED_FILTER]
     ) {
-      setFilters(nextFilters, displayedFilters);
+      setFilters(nextFilters, nextDisplayedFilters);
     }
     if (getPendingShidduchAction(location.state)) {
       navigate(`${location.pathname}${location.search}`, {
@@ -117,7 +245,14 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
         state: null,
       });
     }
-  }, [displayedFilters, filterValues, location, navigate, setFilters]);
+  }, [
+    archiveMode,
+    displayedFilters,
+    filterValues,
+    location,
+    navigate,
+    setFilters,
+  ]);
 
   const singleId = (filterValues as Record<string, unknown> | undefined)
     ?.single_id as Identifier | undefined;
@@ -134,13 +269,7 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
       sort: { field: "archived_at", order: "DESC" },
     },
   );
-  const archivedFilter = (
-    filterValues as Record<string, unknown> | undefined
-  )?.["archived_at@not.is"];
-  const allSuggestions =
-    (filterValues as Record<string, unknown> | undefined)?.[
-      "archived_at@is"
-    ] === undefined && archivedFilter === undefined;
+  const allSuggestions = archiveMode === "all";
 
   const setArchiveFilter = (mode: "active" | "archived" | "all") => {
     const next = { ...(filterValues as Record<string, unknown>) };
@@ -148,7 +277,14 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
     delete next["archived_at@not.is"];
     if (mode === "active") next["archived_at@is"] = null;
     if (mode === "archived") next["archived_at@not.is"] = null;
-    setFilters(next, displayedFilters);
+    const nextDisplayedFilters = { ...displayedFilters };
+    if (mode === "all") {
+      nextDisplayedFilters[ARCHIVE_ALL_DISPLAYED_FILTER] = true;
+    } else {
+      delete nextDisplayedFilters[ARCHIVE_ALL_DISPLAYED_FILTER];
+    }
+    onArchiveModeChange(mode);
+    setFilters(next, nextDisplayedFilters);
   };
 
   return (
@@ -218,10 +354,10 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
             <button
               type="button"
               role="tab"
-              aria-selected={!allSuggestions && archivedFilter === undefined}
+              aria-selected={archiveMode === "active"}
               className={cn(
                 "min-h-11 rounded-full px-4 text-sm font-semibold",
-                !allSuggestions && archivedFilter === undefined
+                archiveMode === "active"
                   ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
@@ -232,10 +368,10 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
             <button
               type="button"
               role="tab"
-              aria-selected={archivedFilter !== undefined}
+              aria-selected={archiveMode === "archived"}
               className={cn(
                 "min-h-11 rounded-full px-4 text-sm font-semibold",
-                archivedFilter !== undefined
+                archiveMode === "archived"
                   ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}

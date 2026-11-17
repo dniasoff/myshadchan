@@ -1,8 +1,14 @@
 import { Suspense } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import { CoreAdminContext, Resource, TestMemoryRouter } from "ra-core";
+import {
+  CoreAdminContext,
+  memoryStore,
+  Resource,
+  TestMemoryRouter,
+} from "ra-core";
 import type { AuthProvider } from "ra-core";
+import type { Store } from "ra-core";
 import { Route, Routes } from "react-router";
 import { QueryClient } from "@tanstack/react-query";
 
@@ -45,15 +51,23 @@ const buildAuthProvider = (): AuthProvider =>
     logout: vi.fn().mockResolvedValue(undefined),
   }) as unknown as AuthProvider;
 
-const buildDataProvider = (): CrmDataProvider =>
+type ListRequest = {
+  filter?: Record<string, unknown>;
+  pagination?: { page: number; perPage: number };
+};
+
+const buildDataProvider = (
+  onShidduchList?: (params: ListRequest) => void,
+): CrmDataProvider =>
   ({
-    getList: vi.fn((resource: string) => {
+    getList: vi.fn((resource: string, params: ListRequest) => {
       if (resource === "singles") {
         return Promise.resolve({
           data: [{ id: 1, first_name_en: "Chaya", status: "active" }],
           total: 1,
         });
       }
+      if (resource === "shidduchim") onShidduchList?.(params);
       return Promise.resolve({ data: [], total: 0 });
     }),
     getMany: vi.fn().mockResolvedValue({ data: [] }),
@@ -61,12 +75,16 @@ const buildDataProvider = (): CrmDataProvider =>
     createShidduch: vi.fn(),
   }) as unknown as CrmDataProvider;
 
-const renderShidduchimResourceAt = async (initialEntries: string[]) =>
+const renderShidduchimResourceAt = async (
+  initialEntries: string[],
+  options: { dataProvider?: CrmDataProvider; store?: Store } = {},
+) =>
   render(
     <TestMemoryRouter initialEntries={initialEntries}>
       <CoreAdminContext
-        dataProvider={buildDataProvider()}
+        dataProvider={options.dataProvider ?? buildDataProvider()}
         authProvider={buildAuthProvider()}
+        store={options.store}
         i18nProvider={testI18nProvider}
       >
         <Suspense fallback={null}>
@@ -103,6 +121,88 @@ describe("ShidduchimList — the create page sits above <List> (AC 1)", () => {
     await expect
       .element(screen.getByRole("heading", { name: /redts$/ }))
       .toBeInTheDocument();
+  });
+});
+
+describe("ShidduchimList — archive filter defaults", () => {
+  it.each(["Supabase", "FakeRest"])(
+    "normalizes stored params without an archive key for the %s path",
+    async () => {
+      const requests: ListRequest[] = [];
+      const dataProvider = buildDataProvider((params) => requests.push(params));
+      const store = memoryStore({
+        "shidduchim.listParams": {
+          filter: { single_id: 1 },
+          page: 1,
+          perPage: 200,
+          sort: "index",
+          order: "ASC",
+          displayedFilters: {},
+        },
+      });
+
+      const screen = await renderShidduchimResourceAt(["/shidduchim"], {
+        dataProvider,
+        store,
+      });
+
+      await expect
+        .element(screen.getByRole("heading", { name: /redts$/ }))
+        .toBeInTheDocument();
+
+      const mainRequest = requests.find(
+        (request) => request.pagination?.perPage === 200,
+      );
+      expect(mainRequest?.filter).toMatchObject({
+        single_id: 1,
+        "archived_at@is": null,
+      });
+      expect(
+        screen.container
+          .querySelector('button[role="tab"]')
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+      expect(
+        screen.getByRole("checkbox", { name: "Include archived" }),
+      ).not.toBeChecked();
+    },
+  );
+
+  it("keeps an explicit Include archived choice when the list reloads", async () => {
+    const requests: ListRequest[] = [];
+    const dataProvider = buildDataProvider((params) => requests.push(params));
+    const store = memoryStore({
+      "shidduchim.listParams": {
+        filter: { single_id: 1 },
+        page: 1,
+        perPage: 200,
+        sort: "index",
+        order: "ASC",
+        displayedFilters: { "shidduchim.archive.all": true },
+      },
+    });
+
+    const screen = await renderShidduchimResourceAt(["/shidduchim"], {
+      dataProvider,
+      store,
+    });
+
+    await expect
+      .element(screen.getByRole("heading", { name: /redts$/ }))
+      .toBeInTheDocument();
+
+    const mainRequest = requests.find(
+      (request) => request.pagination?.perPage === 200,
+    );
+    expect(mainRequest?.filter).toEqual({ single_id: 1 });
+    expect(
+      screen.getByRole("checkbox", { name: "Include archived" }),
+    ).toBeChecked();
+    expect(
+      screen.container
+        .querySelector('button[role="tab"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("false");
   });
 });
 
