@@ -1,6 +1,6 @@
 import type { Identifier } from "ra-core";
 import { useGetIdentity, useGetList, useListContext, useStore } from "ra-core";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -212,6 +212,14 @@ const ShidduchSearchInput = ({
     setValue(externalValue);
   }, [externalValue, searchValueRef]);
 
+  const clearSearch = () => {
+    const next = { ...(filterValues as Record<string, unknown>) };
+    delete next[source];
+    searchValueRef.current = "";
+    setValue("");
+    setFilters(next, displayedFilters);
+  };
+
   return (
     <div className="relative mt-auto flex flex-grow">
       <Input
@@ -227,9 +235,19 @@ const ShidduchSearchInput = ({
           else delete next[source];
           setFilters(next, displayedFilters);
         }}
-        className="flex-grow pr-8"
+        className={value ? "flex-grow pr-16" : "flex-grow pr-8"}
       />
-      <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+      <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      {value ? (
+        <button
+          type="button"
+          onClick={clearSearch}
+          className="absolute right-8 top-1/2 size-11 -translate-y-1/2 rounded-full p-0 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Clear search"
+        >
+          <X className="mx-auto size-3" aria-hidden="true" />
+        </button>
+      ) : null}
     </div>
   );
 };
