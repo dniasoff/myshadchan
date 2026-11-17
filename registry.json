@@ -780,6 +780,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/references/useReturnFromCall.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/references/useReferenceMatch.ts",
           "type": "registry:component"
         },
@@ -801,6 +805,10 @@
         },
         {
           "path": "src/components/atomic-crm/references/relationshipQuestions.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/references/phoneLinks.ts",
           "type": "registry:component"
         },
         {
@@ -837,6 +845,10 @@
         },
         {
           "path": "src/components/atomic-crm/references/ReferencesIndex.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/references/ReferencePhoneActions.tsx",
           "type": "registry:component"
         },
         {

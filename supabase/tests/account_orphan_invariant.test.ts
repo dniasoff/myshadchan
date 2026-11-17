@@ -115,7 +115,13 @@ describe("no orphaned accounts", () => {
       \\pset format unaligned
       select :account_id || ',' || :shidduch_id;
     `);
-    const [accountId, shidduchId] = setup.trim().split(",");
+    const setupLine = setup
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => /^\d+,\d+$/.test(line));
+    if (!setupLine)
+      throw new Error(`could not parse lock race setup: ${setup}`);
+    const [accountId, shidduchId] = setupLine.split(",");
 
     const writerFirst = async () => {
       const writer = runPsql(`

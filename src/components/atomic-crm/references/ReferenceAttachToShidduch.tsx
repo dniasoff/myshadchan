@@ -56,6 +56,7 @@ export const ReferenceAttachToShidduch = ({
   const { data: shidduchim, isPending } = useGetList<ShidduchSummary>(
     "shidduchim",
     {
+      filter: { "archived_at@is": null },
       pagination: { page: 1, perPage: 50 },
       sort: { field: "redt_date", order: "DESC" },
     },

@@ -86,4 +86,24 @@ describe("ReferenceHeader — isPending (RULING 7 false-empty finding)", () => {
     expect(screen.container.querySelector('[aria-busy="true"]')).not.toBeNull();
     expect(screen.container.querySelector('[role="progressbar"]')).toBeNull();
   });
+
+  it("loads only active shidduch conversations for repeat recognition", async () => {
+    const getList = vi.fn().mockResolvedValue({ data: [], total: 0 });
+
+    await render(
+      <StoryWrapper data={{ reference_links: [] }} dataProvider={{ getList }}>
+        <ReferenceHeader reference={reference} />
+      </StoryWrapper>,
+    );
+
+    expect(getList).toHaveBeenCalledWith(
+      "reference_links",
+      expect.objectContaining({
+        filter: {
+          reference_id: reference.id,
+          "shidduch_archived_at@is": null,
+        },
+      }),
+    );
+  });
 });
