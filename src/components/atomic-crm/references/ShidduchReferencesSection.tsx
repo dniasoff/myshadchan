@@ -8,6 +8,7 @@ import { RecordLink } from "../entity360/RecordLink";
 import type { ReferenceLinkSummary, ReferenceSummary } from "../types";
 import { CallStatusChip } from "./CallStatusChip";
 import { summarizeCallProgress } from "./callStatus";
+import { ReferencePhoneActions } from "./ReferencePhoneActions";
 
 /**
  * The references section of a shidduch's 360 view (FR38).
@@ -124,11 +125,16 @@ export const ShidduchReferencesSection = ({
                       </Badge>
                     ) : null}
                   </div>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {[link.effective_relationship, link.reference_phone]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
+                  {link.effective_relationship ? (
+                    <p className="truncate text-xs text-muted-foreground">
+                      {link.effective_relationship}
+                    </p>
+                  ) : null}
+                  <ReferencePhoneActions
+                    phone={link.reference_phone}
+                    referenceName={link.reference_name_en}
+                    referenceLink={link}
+                  />
                   {link.what_they_said ? (
                     <p className="mt-1 line-clamp-2 text-sm">
                       {link.what_they_said}

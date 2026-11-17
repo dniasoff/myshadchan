@@ -24,6 +24,7 @@ import type {
   ReferenceMergePreview,
 } from "../types";
 import { CollisionResolver } from "./ReferenceMergeCollision";
+import { ReferencePhoneActions } from "./ReferencePhoneActions";
 
 /**
  * Merging two duplicate references (§4).
@@ -158,21 +159,28 @@ export const ReferenceMergeButton = () => {
                 </p>
               ) : (
                 candidates.map((candidate) => (
-                  <Button
+                  <div
                     key={String(candidate.id)}
-                    type="button"
-                    variant="outline"
-                    className="justify-start"
-                    onClick={() => openWith(candidate.id)}
+                    className="flex flex-wrap items-center gap-2"
                   >
-                    <span className="truncate">
-                      {displayName(candidate)}
-                      {candidate.phone ? ` · ${candidate.phone}` : ""}
-                      {candidate.relationship
-                        ? ` · ${candidate.relationship}`
-                        : ""}
-                    </span>
-                  </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="justify-start"
+                      onClick={() => openWith(candidate.id)}
+                    >
+                      <span className="truncate">
+                        {displayName(candidate)}
+                        {candidate.relationship
+                          ? ` · ${candidate.relationship}`
+                          : ""}
+                      </span>
+                    </Button>
+                    <ReferencePhoneActions
+                      phone={candidate.phone}
+                      referenceName={displayName(candidate)}
+                    />
+                  </div>
                 ))
               )}
             </div>
@@ -196,8 +204,12 @@ export const ReferenceMergeButton = () => {
                     })}
                   </p>
                   <p>{displayName(preview.winner)}</p>
+                  <ReferencePhoneActions
+                    phone={preview.winner.phone}
+                    referenceName={displayName(preview.winner)}
+                  />
                   <p className="text-muted-foreground">
-                    {preview.winner.phone} {preview.winner.relationship}
+                    {preview.winner.relationship}
                   </p>
                 </div>
                 <div className="rounded-md border border-destructive/40 p-3">
@@ -207,8 +219,12 @@ export const ReferenceMergeButton = () => {
                     })}
                   </p>
                   <p>{displayName(preview.loser)}</p>
+                  <ReferencePhoneActions
+                    phone={preview.loser.phone}
+                    referenceName={displayName(preview.loser)}
+                  />
                   <p className="text-muted-foreground">
-                    {preview.loser.phone} {preview.loser.relationship}
+                    {preview.loser.relationship}
                   </p>
                 </div>
               </div>

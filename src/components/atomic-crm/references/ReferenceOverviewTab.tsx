@@ -3,6 +3,7 @@ import { useRecordContext, useTranslate } from "ra-core";
 import { OverviewTab } from "../entity360/tabs/OverviewTab";
 import type { OverviewFact } from "../entity360/tabs/OverviewFactGrid";
 import type { Reference } from "../types";
+import { ReferencePhoneActions } from "./ReferencePhoneActions";
 
 /**
  * The `overview` tab's content (Story 5.10, AC 4): the identity-fact block
@@ -27,7 +28,6 @@ export function ReferenceOverviewTab() {
 
   const facts: OverviewFact[] = [
     { label: "Relationship", plain: record.relationship ?? null },
-    { label: "Phone", plain: record.phone ?? null },
     { label: "School", plain: record.school ?? null },
     {
       label: "Graduation year",
@@ -37,6 +37,18 @@ export function ReferenceOverviewTab() {
 
   return (
     <OverviewTab facts={facts}>
+      <div className="flex flex-col gap-1">
+        <dt className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          Phone
+        </dt>
+        <dd>
+          <ReferencePhoneActions
+            phone={record.phone}
+            referenceName={record.name_en || record.name_he}
+          />
+          <p className="mt-2 text-xs text-muted-foreground">Not logged</p>
+        </dd>
+      </div>
       {record.relationship ? (
         <p className="text-xs text-muted-foreground">
           {translate("crm.references.header.relationshipNote", {

@@ -17,6 +17,7 @@ import { buildCallScript } from "./callScript";
 import { useCallSession } from "./useCallSession";
 import { countOtherConversations } from "./repeatRecognition";
 import { useReferenceLinks } from "./useReferenceLinks";
+import { ReferencePhoneActions } from "./ReferencePhoneActions";
 
 /**
  * Guided Call mode session — one question at a time, saved per answer.
@@ -168,6 +169,13 @@ export const GuidedCallSession = ({
               _: "About %{name}",
             })}
           </SheetDescription>
+          {link.reference_phone ? (
+            <ReferencePhoneActions
+              phone={link.reference_phone}
+              referenceName={link.reference_name_en}
+              referenceLink={link}
+            />
+          ) : null}
         </SheetHeader>
 
         <div className="p-4 flex flex-col gap-6">
