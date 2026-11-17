@@ -1959,3 +1959,5 @@ revoke all on function public.storage_account_write_allowed(bigint) from public,
 grant execute on function public.storage_account_write_allowed(bigint) to authenticated, service_role;
 revoke all on function public.shidduch_storage_path_allowed(text, text) from public, anon;
 grant execute on function public.shidduch_storage_path_allowed(text, text) to authenticated, service_role;
+revoke all on function public.shidduch_read_in_progress(bigint) from public, anon;
+grant execute on function public.shidduch_read_in_progress(bigint) to authenticated, service_role;

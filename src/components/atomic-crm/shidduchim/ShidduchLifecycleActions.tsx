@@ -1,7 +1,6 @@
 import { MoreVertical } from "lucide-react";
 import { useDataProvider, useNotify, useRefresh } from "ra-core";
 import { useEffect, useRef, useState } from "react";
-import type { useLocation} from "react-router";
 import { useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -26,28 +25,14 @@ import type { CrmDataProvider } from "../providers/types";
 import type { ShidduchSummary } from "../types";
 import {
   canManageShidduchLifecycle,
+  clearPendingShidduchDelete,
+  rememberPendingShidduchDelete,
   SHIDDUCH_ACTION_UNDO_MS,
   type ShidduchLifecycleAction,
 } from "./shidduchLifecycle";
 
 const nameFor = (record: ShidduchSummary): string =>
   record.name_en ?? record.single_first_name_en ?? `#${record.id}`;
-
-const actionFromLocation = (location: ReturnType<typeof useLocation>) => {
-  const value = (location.state as { shidduchLifecycle?: unknown } | null)
-    ?.shidduchLifecycle;
-  if (!value || typeof value !== "object") return null;
-  const action = value as Partial<ShidduchLifecycleAction>;
-  if (
-    (action.kind !== "archive" && action.kind !== "delete") ||
-    action.id == null ||
-    typeof action.name !== "string" ||
-    typeof action.deadline !== "number"
-  ) {
-    return null;
-  }
-  return action as ShidduchLifecycleAction;
-};
 
 /** Header actions and the manager-only archived state for one shidduch. */
 export const ShidduchLifecycleActions = ({
@@ -62,8 +47,35 @@ export const ShidduchLifecycleActions = ({
   const navigate = useNavigate();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [readInProgress, setReadInProgress] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const name = nameFor(record);
+  let getReadState: CrmDataProvider["getShidduchReadState"] | undefined;
+  try {
+    getReadState = dataProvider.getShidduchReadState;
+  } catch {
+    // Older test providers and integrations may not expose this optional
+    // guard yet; the server-side delete check remains authoritative.
+  }
+
+  useEffect(() => {
+    let mounted = true;
+    if (typeof getReadState !== "function") return undefined;
+    try {
+      void getReadState(record.id)
+        .then((state) => {
+          if (mounted) setReadInProgress(state.inProgress);
+        })
+        .catch(() => {
+          if (mounted) setReadInProgress(false);
+        });
+    } catch {
+      if (mounted) setReadInProgress(false);
+    }
+    return () => {
+      mounted = false;
+    };
+  }, [getReadState, record.id]);
 
   if (rolePending || !canManageShidduchLifecycle(role)) return null;
 
@@ -101,18 +113,32 @@ export const ShidduchLifecycleActions = ({
     }
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
+    if (busy) return;
     setDeleteOpen(false);
-    navigate("/shidduchim", {
-      state: {
-        shidduchLifecycle: {
-          kind: "delete",
-          id: record.id,
-          name,
-          deadline: Date.now() + SHIDDUCH_ACTION_UNDO_MS,
-        } satisfies ShidduchLifecycleAction,
-      },
-    });
+    setBusy(true);
+    const deadline = Date.now() + SHIDDUCH_ACTION_UNDO_MS;
+    try {
+      // Archive is the durable first step. A route change or reload can no
+      // longer make a suggestion reappear in active lists while the delete
+      // undo window is open.
+      await dataProvider.archiveShidduch(record.id);
+      rememberPendingShidduchDelete({ id: record.id, deadline });
+      navigate("/shidduchim", {
+        state: {
+          shidduchLifecycle: {
+            kind: "delete",
+            id: record.id,
+            name,
+            deadline,
+          } satisfies ShidduchLifecycleAction,
+        },
+      });
+    } catch {
+      notify("Could not delete. Nothing was changed.", { type: "error" });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -173,6 +199,7 @@ export const ShidduchLifecycleActions = ({
             <DropdownMenuItem
               variant="destructive"
               className="min-h-11 cursor-pointer"
+              disabled={busy || readInProgress}
               onSelect={() => setDeleteOpen(true)}
             >
               Delete suggestion
@@ -180,7 +207,14 @@ export const ShidduchLifecycleActions = ({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {readInProgress ? (
+        <p className="text-right text-xs text-muted-foreground" role="status">
+          Please wait: this resume is being made easy to read.
+        </p>
+      ) : null}
 
+      {/* UX-DR3 named exemption: this is a delete confirmation action for a
+          routed record, not the record surface itself. */}
       <Dialog
         open={deleteOpen}
         onOpenChange={(open) => {
@@ -215,7 +249,7 @@ export const ShidduchLifecycleActions = ({
               type="button"
               variant="destructive"
               className="min-h-11 w-full sm:w-auto"
-              onClick={confirmDelete}
+              onClick={() => void confirmDelete()}
               disabled={busy}
             >
               Delete
@@ -241,6 +275,11 @@ export const ShidduchPendingActionBar = ({
   const [busy, setBusy] = useState(false);
   const [purgePending, setPurgePending] = useState(false);
   const completed = useRef(false);
+  const undoButton = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    undoButton.current?.focus();
+  }, []);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 100);
@@ -260,6 +299,7 @@ export const ShidduchPendingActionBar = ({
     void dataProvider
       .deleteShidduch(action.id)
       .then((result) => {
+        clearPendingShidduchDelete();
         setPurgePending(result.purgePending);
         notify(
           result.purgePending ? "Files are being removed shortly." : "Deleted.",
@@ -282,10 +322,11 @@ export const ShidduchPendingActionBar = ({
   const undo = async () => {
     if (completed.current || busy) return;
     completed.current = true;
-    if (action.kind === "archive") {
+    if (action.kind === "archive" || action.kind === "delete") {
       setBusy(true);
       try {
         await dataProvider.restoreShidduch(action.id);
+        clearPendingShidduchDelete();
       } catch {
         completed.current = false;
         notify("Could not restore. Nothing was changed.", { type: "error" });
@@ -319,6 +360,7 @@ export const ShidduchPendingActionBar = ({
           </p>
         </div>
         <Button
+          ref={undoButton}
           type="button"
           variant="outline"
           className="min-h-11 shrink-0"
@@ -349,5 +391,3 @@ export const ShidduchPendingActionBar = ({
     </div>
   );
 };
-
-export const getPendingShidduchAction = actionFromLocation;

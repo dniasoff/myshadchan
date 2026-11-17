@@ -126,7 +126,7 @@ export function SinglePhotoTab(): ReactNode {
 const singleShidduchimRelationship: EntityRelationshipDescriptor = {
   key: "shidduchim",
   resource: "shidduchim",
-  getFilter: (record) => ({ single_id: record.id }),
+  getFilter: (record) => ({ single_id: record.id, "archived_at@is": null }),
   linkLabel: (row) => row.name_en ?? row.single_first_name_en ?? `#${row.id}`,
 };
 

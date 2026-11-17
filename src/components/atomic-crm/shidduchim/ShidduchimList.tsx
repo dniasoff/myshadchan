@@ -16,8 +16,9 @@ import { PipelineListSkeleton } from "./ShidduchimPipelineList";
 import { ShidduchimViewSwitch } from "./ShidduchimViewSwitch";
 import {
   getPendingShidduchAction,
-  ShidduchPendingActionBar,
-} from "./ShidduchLifecycleActions";
+  readPendingShidduchDelete,
+} from "./shidduchLifecycle";
+import { ShidduchPendingActionBar } from "./ShidduchLifecycleActions";
 
 const singleLabel = (single: Single) => single.first_name_en ?? `#${single.id}`;
 
@@ -88,12 +89,36 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
   const { data, filterValues, setFilters, displayedFilters } = useListContext();
   const location = useLocation();
   const navigate = useNavigate();
-  const [pendingLifecycle, setPendingLifecycle] = useState(() =>
-    getPendingShidduchAction(location),
+  const [pendingLifecycle, setPendingLifecycle] = useState(
+    () =>
+      getPendingShidduchAction(location.state) ??
+      (() => {
+        const marker = readPendingShidduchDelete();
+        return marker
+          ? {
+              kind: "delete" as const,
+              id: marker.id,
+              name: `#${marker.id}`,
+              deadline: marker.deadline,
+            }
+          : null;
+      })(),
   );
 
   useEffect(() => {
-    const action = getPendingShidduchAction(location);
+    const action =
+      getPendingShidduchAction(location.state) ??
+      (() => {
+        const marker = readPendingShidduchDelete();
+        return marker
+          ? {
+              kind: "delete" as const,
+              id: marker.id,
+              name: `#${marker.id}`,
+              deadline: marker.deadline,
+            }
+          : null;
+      })();
     if (!action) return;
     setPendingLifecycle(action);
     setFilters(
@@ -151,6 +176,13 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
               };
               delete next["id@neq"];
               setFilters(next, displayedFilters);
+              requestAnimationFrame(() => {
+                const selector =
+                  pendingLifecycle.kind === "delete"
+                    ? `[data-shidduch-id="${String(pendingLifecycle.id)}"] a`
+                    : '[data-slot="pipeline-row"] a';
+                document.querySelector<HTMLElement>(selector)?.focus();
+              });
             }}
           />
         </div>

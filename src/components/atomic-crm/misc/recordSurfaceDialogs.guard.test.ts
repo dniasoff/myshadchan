@@ -49,6 +49,7 @@ const ALLOWED = new Set([
   "TaskEdit.tsx", // AC 4's recorded exemption — see the doc comment on the file itself
   "SingleGrantManagement.tsx", // Story 13.1's grant lifecycle UI; it is an action dialog (propose / accept / sever / re-grant), not a record surface, so UX-DR3 does not govern it
   "ShadchanNoteAction.tsx", // ch8's read-only note popup; the shadchan record remains at its routed Notes tab, so this is an action dialog rather than a record surface
+  "ShidduchLifecycleActions.tsx", // delete confirmation for the routed shidduch; the record itself remains at its URL, so this is an action dialog
 ]);
 
 const dialogWrappedFiles = Object.entries(sources)

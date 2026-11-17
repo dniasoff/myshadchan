@@ -61,7 +61,7 @@ export function LinkToShidduchSearch({
   const { data, isPending, error } = useGetList<ShidduchSummary>(
     "shidduchim",
     {
-      filter: { q: trimmedQuery },
+      filter: { q: trimmedQuery, "archived_at@is": null },
       pagination: { page: 1, perPage: RESULT_LIMIT },
       sort: { field: "name_en", order: "ASC" },
     },

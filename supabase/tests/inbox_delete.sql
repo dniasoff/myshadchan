@@ -168,7 +168,12 @@ begin
     insert into results values (p_name, false, 'no exception');
   exception when others then
     get stacked diagnostics message = message_text;
-    insert into results values (p_name, message = 'Inbox attachment not found', message);
+    insert into results values (
+      p_name,
+      message like 'shidduch % not found in current account%'
+        or message = 'Inbox attachment not found',
+      message
+    );
   end;
 end
 $fn$;

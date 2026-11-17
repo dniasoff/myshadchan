@@ -2017,7 +2017,7 @@ end;
 $$;
 
 CREATE OR REPLACE FUNCTION "public"."add_resume_file"("p_path" "text", "p_filename" "text", "p_mime_type" "text", "p_size" bigint, "p_shidduchim_id" bigint DEFAULT NULL::bigint, "p_single_id" bigint DEFAULT NULL::bigint, "p_source_inbox_item_id" bigint DEFAULT NULL::bigint, "p_source_inbox_attachment_path" "text" DEFAULT NULL::"text") RETURNS SETOF "public"."resumes"
-    LANGUAGE "plpgsql"
+    LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
@@ -2027,12 +2027,15 @@ declare
   v_source_attachment jsonb;
 begin
   v_account_id := public.current_context_id();
+  if public.current_member_role() not in ('parent_admin', 'self_manager') then
+    raise exception 'new row violates row-level security policy for table "resumes"'
+      using errcode = 'insufficient_privilege';
+  end if;
 
-  -- Upload/catalog lock order is account -> shidduch parent -> Inbox source.
+  -- Upload/catalog lock order is shidduch parent -> account -> Inbox source.
   -- The parent FOR SHARE is taken before any resume row write so delete's
   -- parent FOR UPDATE cannot race a late catalog insert.
   if p_shidduchim_id is not null then
-    perform public.account_storage_lock(v_account_id);
     select s.id into v_parent_id
     from public.shidduchim s
     where s.id = p_shidduchim_id and s.account_id = v_account_id
@@ -2040,6 +2043,7 @@ begin
     if v_parent_id is null then
       raise exception 'shidduch % not found in current account', p_shidduchim_id;
     end if;
+    perform public.account_storage_lock(v_account_id);
     if exists (
       select 1 from public.deleted_shidduch_tombstones t
       where t.account_id = v_account_id and t.shidduch_id = p_shidduchim_id
@@ -2173,7 +2177,7 @@ end;
 $$;
 
 CREATE OR REPLACE FUNCTION "public"."add_resume_photo"("p_path" "text", "p_shidduchim_id" bigint DEFAULT NULL::bigint, "p_single_id" bigint DEFAULT NULL::bigint, "p_visibility" "text" DEFAULT 'shared'::"text") RETURNS SETOF "public"."resume_photos"
-    LANGUAGE "plpgsql"
+    LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
 declare
@@ -2182,13 +2186,16 @@ declare
   v_parent_id bigint;
 begin
   v_account_id := public.current_context_id();
+  if public.current_member_role() not in ('parent_admin', 'self_manager') then
+    raise exception 'new row violates row-level security policy for table "resumes"'
+      using errcode = 'insufficient_privilege';
+  end if;
 
   if (p_shidduchim_id is not null) = (p_single_id is not null) then
     raise exception 'exactly one of p_shidduchim_id/p_single_id must be provided';
   end if;
 
   if p_shidduchim_id is not null then
-    perform public.account_storage_lock(v_account_id);
     select s.id into v_parent_id
     from public.shidduchim s
     where s.id = p_shidduchim_id and s.account_id = v_account_id
@@ -2196,6 +2203,7 @@ begin
     if v_parent_id is null then
       raise exception 'shidduch % not found in current account', p_shidduchim_id;
     end if;
+    perform public.account_storage_lock(v_account_id);
     if exists (
       select 1 from public.deleted_shidduch_tombstones t
       where t.account_id = v_account_id and t.shidduch_id = p_shidduchim_id
@@ -2414,6 +2422,9 @@ begin
   if not found then
     raise exception 'shidduch % not found in current account', p_shidduchim_id;
   end if;
+  if v_s.archived_at is not null then
+    return jsonb_build_object('has_catch', false, 'suggestions', '[]'::jsonb, 'dates', '[]'::jsonb);
+  end if;
 
   -- Prior suggestions: the shared matcher, excluding this very row. Each
   -- candidate is joined back to its single/shadchan so the panel renders the
@@ -2455,7 +2466,8 @@ begin
       join public.shidduchim ps on ps.id = m.target_id
       left join public.singles c on c.id = ps.single_id
       left join public.shadchanim sh on sh.id = ps.shadchan_id
-    where not coalesce(public.shidduch_has_known_halachic_conflict(
+    where ps.archived_at is null
+      and not coalesce(public.shidduch_has_known_halachic_conflict(
       ps.single_id,
       ps.person_gender,
       ps.kohen_status,
@@ -3127,6 +3139,10 @@ declare
   v_gender text;
 begin
   v_account_id := public.current_context_id();
+  if public.current_member_role() = 'single' then
+    raise exception 'new row violates row-level security policy for table "shidduchim"'
+      using errcode = 'insufficient_privilege';
+  end if;
   if v_account_id is null then
     raise exception 'no account context for create_shidduch (no account exists)';
   end if;
@@ -7611,7 +7627,8 @@ CREATE OR REPLACE FUNCTION "public"."shidduch_row"("p_shidduchim_id" bigint) RET
     s.mother_en,
     s.mother_he,
     s.kohen_status,
-    s.person_gender
+    s.person_gender,
+    s.archived_at
   from public.shidduchim s
   where s.id = p_shidduchim_id;
 $$;
@@ -8125,6 +8142,7 @@ begin
       select 1
       from public.shidduchim s
       where s.id = v_thread.subject_id
+        and s.archived_at is null
         and s.visibility = 'shared'
         and public.is_single_visible_state(s.pipeline_state)
         and exists (
@@ -10190,7 +10208,6 @@ begin
       using errcode = 'check_violation';
   end if;
 
-  perform public.account_storage_lock(v_account_id);
   if new.target_type = 'shidduch' then
     select s.id into v_parent_id
     from public.shidduchim s
@@ -10200,6 +10217,7 @@ begin
       raise exception 'entity file shidduch target is missing'
         using errcode = 'foreign_key_violation';
     end if;
+    perform public.account_storage_lock(v_account_id);
     if exists (
       select 1 from public.deleted_shidduch_tombstones t
       where t.account_id = v_account_id and t.shidduch_id = new.target_id
@@ -10416,6 +10434,41 @@ begin
 end;
 $$;
 
+-- The routed lifecycle action exposes only this boolean lease state. Keep the
+-- same parent-first lock order as claim/apply/delete so a status read cannot
+-- deadlock with a delete or a worker lease transition.
+CREATE OR REPLACE FUNCTION public.shidduch_read_in_progress(p_id bigint)
+RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_parent_id bigint;
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    return false;
+  end if;
+  select s.id into v_parent_id
+  from public.shidduchim s
+  where s.id = p_id and s.account_id = v_account_id
+  for share;
+  if v_parent_id is null then
+    return false;
+  end if;
+  return exists (
+    select 1
+    from public.ai_reread_attempts a
+    join public.resumes r on r.id = a.resume_id
+    where r.shidduchim_id = p_id
+      and r.account_id = v_account_id
+      and a.status = 'in_progress'
+      and a.lease_expires_at > now()
+  );
+end;
+$$;
+
 CREATE OR REPLACE FUNCTION public.archive_shidduch(p_id bigint)
 RETURNS SETOF public.shidduchim
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
@@ -10593,19 +10646,3 @@ $$;
 
 -- Updated row shape used by all SETOF shidduchim RPCs. archived_at is the
 -- physical tail column and therefore the final expression in this projection.
-CREATE OR REPLACE FUNCTION public.shidduch_row(p_shidduchim_id bigint)
-RETURNS SETOF public.shidduchim
-LANGUAGE sql STABLE
-SET search_path TO ''
-AS $$
-  select
-    s.id, s.account_id, s.created_at, s.single_id, s.shadchan_id,
-    s.name_en, s.name_he, s.seminary_en, s.seminary_he,
-    s.shul_en, s.shul_he, s.location_en, s.location_he,
-    s.age, s.height, s.pipeline_state, s.first_suggested_by,
-    s.first_suggested_at, s.redt_date, public.shidduch_close_reason(s.id),
-    s.origin, s.owner_member_id, s.visibility, s.index, s.background, s.dob,
-    s.existing_children_note, s.father_en, s.father_he, s.marital_status,
-    s.mother_en, s.mother_he, s.kohen_status, s.person_gender, s.archived_at
-  from public.shidduchim s where s.id = p_shidduchim_id;
-$$;

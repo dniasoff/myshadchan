@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import type { ShidduchSummary } from "../types";
 import { getAvatarIndex, getMonogram } from "../entity360/avatar";
 import { RecordLink } from "../entity360/RecordLink";
-import { formatRedtDate } from "./boardUtils";
+import { formatArchivedDate, formatRedtDate } from "./boardUtils";
 import { ClockIcon } from "./ClockIcon";
 import { getTransientSuggestionName } from "./transientSuggestionDisplay";
 
@@ -75,6 +75,9 @@ export const ShidduchCardContent = ({
   const meta = [shidduch.location_en, shidduch.seminary_en]
     .filter(Boolean)
     .join(" · ");
+  const archived = shidduch.archived_at
+    ? `Archived ${formatArchivedDate(shidduch.archived_at)}`
+    : null;
   const nbRedts = shidduch.nb_redts ?? 0;
   const catchCount = shidduch.catch_count ?? 0;
 
@@ -98,6 +101,7 @@ export const ShidduchCardContent = ({
         <Card
           className={cn(
             "gap-0 p-3.5 transition-all duration-150",
+            shidduch.archived_at ? "opacity-60" : null,
             snapshot?.isDragging
               ? "rotate-1 opacity-90 shadow-lg"
               : "shadow-sm hover:-translate-y-px hover:shadow-md",
@@ -115,9 +119,9 @@ export const ShidduchCardContent = ({
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold leading-tight">{name}</div>
-              {meta ? (
+              {meta || archived ? (
                 <div className="mt-1.5 text-xs text-muted-foreground">
-                  {meta}
+                  {[meta, archived].filter(Boolean).join(" · ")}
                 </div>
               ) : null}
             </div>

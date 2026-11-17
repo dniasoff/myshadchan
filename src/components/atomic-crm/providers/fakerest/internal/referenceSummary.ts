@@ -57,6 +57,10 @@ export async function enrichReferences(
     }),
   ]);
 
+  // A few focused FakeRest stories deliberately provide only the link rows
+  // and an empty `shidduchim` collection. In that fixture there is no archive
+  // evidence to apply; production-shaped data includes every catalog row, so
+  // an archived target is still excluded there.
   const activeShidduchIds = new Set(
     shidduchim
       .filter((shidduch) => shidduch.archived_at == null)
@@ -67,7 +71,8 @@ export async function enrichReferences(
     const ownLinks = links.filter(
       (link) =>
         link.reference_id === reference.id &&
-        (link.shidduchim_id == null ||
+        (shidduchim.length === 0 ||
+          link.shidduchim_id == null ||
           activeShidduchIds.has(String(link.shidduchim_id))),
     );
     const linkedShidduchimCount = new Set(

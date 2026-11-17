@@ -114,7 +114,10 @@ import type {
   OwnedResumeDeleteParams,
   OwnedShidduchDeleteParams,
 } from "../supabase/inboxResolution";
-import type { ShidduchStoragePurgeResult } from "../../shidduchim/shidduchLifecycle";
+import type {
+  ShidduchReadState,
+  ShidduchStoragePurgeResult,
+} from "../../shidduchim/shidduchLifecycle";
 import {
   authProvider as defaultAuthProvider,
   USER_STORAGE_KEY,
@@ -752,25 +755,12 @@ export const createDataProvider = ({
   // the account/accepted-grant boundaries before any summary enrichment. This
   // keeps the demo honest about the same standalone shadchan, household, and
   // child-grant contexts that Postgres enforces.
-  const getVisibleShidduchim = async (
-    params: any,
-    includeArchivedDetail = false,
-  ) => {
+  const getVisibleShidduchim = async (params: any) => {
     const caller = await resolveCallerMembership();
     if (!caller?.membership) return { data: [] as any[], total: 0 };
     const membership = caller.membership;
-    const hasArchiveFilter = Object.keys(params.filter ?? {}).some((key) =>
-      key.startsWith("archived_at@"),
-    );
-    const listParams =
-      includeArchivedDetail || hasArchiveFilter
-        ? params
-        : {
-            ...params,
-            filter: { ...(params.filter ?? {}), "archived_at@is": null },
-          };
     const { data: rows } = await baseDataProvider.getList("shidduchim", {
-      ...listParams,
+      ...params,
       pagination: { page: 1, perPage: 10_000 },
     });
     const [{ data: singles }, grantedSingleIds] = await Promise.all([
@@ -1913,14 +1903,11 @@ export const createDataProvider = ({
         return { data: visible } as any;
       }
       if (resource === "shidduchim" || resource === "shidduchim_summary") {
-        const { data: rows } = await getVisibleShidduchim(
-          {
-            filter: { id: params.id },
-            pagination: { page: 1, perPage: 1 },
-            sort: { field: "id", order: "ASC" },
-          },
-          true,
-        );
+        const { data: rows } = await getVisibleShidduchim({
+          filter: { id: params.id },
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "id", order: "ASC" },
+        });
         const row = rows[0];
         if (!row) throw new Error("shidduch record not found");
         const [enriched] = await enrichShidduchim([row]);
@@ -2471,6 +2458,23 @@ export const createDataProvider = ({
         data: { archived_at: null },
         previousData: current,
       });
+    },
+    getShidduchReadState: async (
+      id: Identifier,
+    ): Promise<ShidduchReadState> => {
+      const resumes = await baseDataProvider.getList<Resume>("resumes", {
+        filter: { shidduchim_id: id },
+        pagination: { page: 1, perPage: 100 },
+        sort: { field: "id", order: "ASC" },
+      });
+      return {
+        inProgress: resumes.data.some((resume) =>
+          Boolean(
+            (resume as Resume & { read_in_progress?: boolean })
+              .read_in_progress,
+          ),
+        ),
+      };
     },
     deleteShidduch: async (
       id: Identifier,
@@ -3571,6 +3575,13 @@ export const createDataProvider = ({
       } satisfies ResourceCallbacks<Member>,
     ],
   ) as CrmDataProvider;
+
+  // Defer until module initialization has finished (the demo auth provider is
+  // declared below this factory) and keep a missing test/demo membership from
+  // becoming an unhandled rejection during boot.
+  queueMicrotask(() => {
+    void drainShidduchStoragePurge().catch(() => undefined);
+  });
 
   return dataProvider;
 };

@@ -38,7 +38,7 @@ export const useDashboardData = (): DashboardData => {
     useGetList(
       "shidduchim",
       {
-        filter: { single_id: selectedSingleId },
+        filter: { single_id: selectedSingleId, "archived_at@is": null },
         pagination: { page: 1, perPage: 1 },
       },
       { enabled: selectedSingleId != null },

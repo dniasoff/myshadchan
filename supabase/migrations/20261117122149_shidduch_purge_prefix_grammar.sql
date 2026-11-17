@@ -1,4 +1,16 @@
-alter table "public"."storage_purge_queue" add constraint "storage_purge_queue_prefix_grammar_check" CHECK (((kind <> 'prefix'::text) OR ((split_part(storage_path, '/'::text, 1) = (account_id)::text) AND ("right"(storage_path, 1) = '/'::text) AND (POSITION(('..'::text) IN (storage_path)) = 0) AND (POSITION(('*'::text) IN (storage_path)) = 0) AND (POSITION(('?'::text) IN (storage_path)) = 0) AND (((bucket = 'documents'::text) AND (storage_path ~ '^[0-9]+/resumes/[0-9]+/$'::text)) OR ((bucket = 'documents'::text) AND (storage_path ~ '^[0-9]+/photos/(shared|private_parent)/[0-9]+/$'::text)) OR ((bucket = 'entity-files'::text) AND (storage_path ~ '^[0-9]+/shidduch/[0-9]+/$'::text)))))) not valid;
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.storage_purge_queue'::regclass
+      and conname = 'storage_purge_queue_prefix_grammar_check'
+  ) then
+    alter table "public"."storage_purge_queue"
+      add constraint "storage_purge_queue_prefix_grammar_check" CHECK (((kind <> 'prefix'::text) OR ((split_part(storage_path, '/'::text, 1) = (account_id)::text) AND ("right"(storage_path, 1) = '/'::text) AND (POSITION(('..'::text) IN (storage_path)) = 0) AND (POSITION(('*'::text) IN (storage_path)) = 0) AND (POSITION(('?'::text) IN (storage_path)) = 0) AND (((bucket = 'documents'::text) AND (storage_path ~ '^[0-9]+/resumes/[0-9]+/$'::text)) OR ((bucket = 'documents'::text) AND (storage_path ~ '^[0-9]+/photos/(shared|private_parent)/[0-9]+/$'::text)) OR ((bucket = 'entity-files'::text) AND (storage_path ~ '^[0-9]+/shidduch/[0-9]+/$'::text)))))) not valid;
+  end if;
+end;
+$$;
 
 alter table "public"."storage_purge_queue" validate constraint "storage_purge_queue_prefix_grammar_check";
 

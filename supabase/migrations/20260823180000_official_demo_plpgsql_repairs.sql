@@ -11,6 +11,7 @@ CREATE OR REPLACE FUNCTION public.delete_demo_companion_contexts(p_run_id bigint
 AS $function$
 declare
   v_run public.demo_runs;
+  v_companion_account_id bigint;
 begin
   select * into v_run from public.demo_runs where id = p_run_id for update;
   if not found or p_operation not in ('seed', 'clear')
@@ -22,6 +23,16 @@ begin
     raise exception 'demo run % lease is stale or fenced', p_run_id
       using errcode = 'serialization_failure';
   end if;
+
+  for v_companion_account_id in
+    select dra.account_id from public.demo_run_accounts dra
+    where dra.run_id = p_run_id and not dra.is_root
+  loop
+    if not public.account_storage_cleanup_fence(v_companion_account_id) then
+      raise exception 'demo companion account % has pending Storage cleanup', v_companion_account_id
+        using errcode = 'check_violation';
+    end if;
+  end loop;
 
   delete from public.account_members am
   where am.account_id in (

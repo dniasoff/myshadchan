@@ -150,7 +150,9 @@ export const InboxResumeActionsDialog = ({
     useGetList<ShidduchSummary>(
       "shidduchim",
       {
-        filter: debouncedSearch.trim() ? { q: debouncedSearch.trim() } : {},
+        filter: debouncedSearch.trim()
+          ? { q: debouncedSearch.trim(), "archived_at@is": null }
+          : { "archived_at@is": null },
         pagination: { page: 1, perPage: 50 },
         sort: { field: "created_at", order: "DESC" },
       },

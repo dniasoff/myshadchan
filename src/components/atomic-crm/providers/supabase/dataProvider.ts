@@ -127,7 +127,10 @@ import {
   type InboxDeleteResult,
   isInboxAttachmentPurgePath,
 } from "../../inbox/inboxDelete";
-import type { ShidduchStoragePurgeResult } from "../../shidduchim/shidduchLifecycle";
+import type {
+  ShidduchReadState,
+  ShidduchStoragePurgeResult,
+} from "../../shidduchim/shidduchLifecycle";
 
 // Story 9.3: `public.listing_withdrawal_locks` deliberately has no `id`
 // column at all (Dev Notes "Why a lock table, not a column on `singles`" —
@@ -756,8 +759,17 @@ export const getDataProviderWithCustomMethods = () => {
       if (error)
         throw new Error(error.message || "Could not restore this shidduch");
     },
+    async getShidduchReadState(id: Identifier): Promise<ShidduchReadState> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "shidduch_read_in_progress",
+        { p_id: id },
+      );
+      if (error)
+        throw new Error(error.message || "Could not check resume state");
+      return { inProgress: Boolean(data) };
+    },
     async deleteShidduch(id: Identifier): Promise<ShidduchStoragePurgeResult> {
-      const { data, error } = await getSupabaseClient().rpc("delete_shidduch", {
+      const { error } = await getSupabaseClient().rpc("delete_shidduch", {
         p_id: id,
       });
       if (error) {
@@ -772,7 +784,10 @@ export const getDataProviderWithCustomMethods = () => {
         }
         throw new Error("Could not delete. Nothing was changed.");
       }
-      return { purgePending: Boolean(data) };
+      // The delete transaction commits the durable queue before this best-
+      // effort Storage pass. The returned row is not a pending-state signal:
+      // PostgREST represents SETOF as an array, including an empty array.
+      return drainShidduchStoragePurge();
     },
     // Append a redt to a shidduch (same or different shadchan, new date). The DB
     // trigger keeps shidduchim.redt_date (= latest) in sync. Returns the
@@ -1623,10 +1638,12 @@ export const getDataProvider = () => {
       "Please set the VITE_SB_PUBLISHABLE_KEY environment variable",
     );
   }
-  return withLifecycleCallbacks(
+  const provider = withLifecycleCallbacks(
     getDataProviderWithCustomMethods(),
     lifeCycleCallbacks,
   ) as CrmDataProvider;
+  void drainShidduchStoragePurge().catch(() => undefined);
+  return provider;
 };
 
 // Exported for `dataProvider.test.ts` (review fix, F1/F2): the sanitization
@@ -1885,7 +1902,15 @@ export const drainShidduchStoragePurge =
       if (acknowledgeError || !acknowledged) pending = true;
     }
 
-    return { purgePending: pending };
+    try {
+      const { count, error } = await getSupabaseClient()
+        .from("storage_purge_queue")
+        .select("id", { count: "exact", head: true });
+      if (error) return { purgePending: true };
+      return { purgePending: pending || (count ?? 0) > 0 };
+    } catch {
+      return { purgePending: true };
+    }
   };
 
 // Story 10.1 (Task 4): exported so `ShareTarget.tsx` can upload a shared

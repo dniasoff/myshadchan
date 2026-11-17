@@ -221,6 +221,25 @@ insert into results
 select 'tombstone client INSERT is denied',
   not has_table_privilege('authenticated', 'public.deleted_shidduch_tombstones', 'INSERT');
 insert into results
+select 'lifecycle queue tables use FORCE RLS',
+  (select c.relforcerowsecurity from pg_class c
+   where c.oid = 'public.deleted_shidduch_tombstones'::regclass)
+  and (select c.relforcerowsecurity from pg_class c
+       where c.oid = 'public.storage_purge_queue'::regclass);
+insert into results
+select 'authenticated can read archived_at but not sequence writes',
+  has_column_privilege('authenticated', 'public.shidduchim', 'archived_at', 'SELECT')
+  and not has_sequence_privilege('authenticated', 'public.shidduchim_id_seq', 'USAGE')
+  and not has_sequence_privilege('authenticated', 'public.shidduchim_id_seq', 'SELECT');
+insert into results
+select 'lifecycle RPCs are not public or anonymous',
+  not has_function_privilege('public', 'public.archive_shidduch(bigint)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.archive_shidduch(bigint)', 'EXECUTE')
+  and not has_function_privilege('public', 'public.delete_shidduch(bigint)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.delete_shidduch(bigint)', 'EXECUTE')
+  and not has_function_privilege('public', 'public.ack_shidduch_storage_purge(text,text,text)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.ack_shidduch_storage_purge(text,text,text)', 'EXECUTE');
+insert into results
 select 'queue is a live account cleanup obligation',
   public.account_has_domain_data((select value::bigint from ids where name = 'acct_a'));
 

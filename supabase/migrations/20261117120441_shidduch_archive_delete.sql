@@ -5,7 +5,7 @@ revoke insert on table "public"."shidduchim" from "authenticated";
 revoke update on table "public"."shidduchim" from "authenticated";
 
 
-  create table "public"."deleted_shidduch_tombstones" (
+  create table if not exists "public"."deleted_shidduch_tombstones" (
     "account_id" bigint not null,
     "shidduch_id" bigint not null,
     "deleted_at" timestamp with time zone not null default now()
@@ -15,7 +15,7 @@ revoke update on table "public"."shidduchim" from "authenticated";
 alter table "public"."deleted_shidduch_tombstones" enable row level security;
 
 
-  create table "public"."storage_purge_queue" (
+  create table if not exists "public"."storage_purge_queue" (
     "id" bigint generated always as identity not null,
     "account_id" bigint not null,
     "kind" text not null,
@@ -33,47 +33,178 @@ alter table "public"."deleted_shidduch_tombstones" enable row level security;
 
 alter table "public"."storage_purge_queue" enable row level security;
 
-alter table "public"."shidduchim" add column "archived_at" timestamp with time zone;
+alter table "public"."shidduchim" add column if not exists "archived_at" timestamp with time zone;
 
-alter table "public"."shidduchim" alter column "id" set generated always;
+do $$
+begin
+  if exists (
+    select 1
+    from pg_attribute a
+    join pg_class c on c.oid = a.attrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'shidduchim'
+      and a.attname = 'id'
+      and not a.attgenerated = 'a'
+  ) then
+    alter table "public"."shidduchim" alter column "id" set generated always;
+  end if;
+end
+$$;
 
-CREATE UNIQUE INDEX deleted_shidduch_tombstones_pkey ON public.deleted_shidduch_tombstones USING btree (account_id, shidduch_id);
+CREATE UNIQUE INDEX IF NOT EXISTS deleted_shidduch_tombstones_pkey ON public.deleted_shidduch_tombstones USING btree (account_id, shidduch_id);
 
-CREATE INDEX storage_purge_queue_account_idx ON public.storage_purge_queue USING btree (account_id);
+CREATE INDEX IF NOT EXISTS storage_purge_queue_account_idx ON public.storage_purge_queue USING btree (account_id);
 
-CREATE UNIQUE INDEX storage_purge_queue_account_kind_bucket_path_key ON public.storage_purge_queue USING btree (account_id, kind, bucket, storage_path);
+CREATE UNIQUE INDEX IF NOT EXISTS storage_purge_queue_account_kind_bucket_path_key ON public.storage_purge_queue USING btree (account_id, kind, bucket, storage_path);
 
-CREATE INDEX storage_purge_queue_claim_idx ON public.storage_purge_queue USING btree (account_id, not_before, claimed_at, id);
+CREATE INDEX IF NOT EXISTS storage_purge_queue_claim_idx ON public.storage_purge_queue USING btree (account_id, not_before, claimed_at, id);
 
-CREATE UNIQUE INDEX storage_purge_queue_pkey ON public.storage_purge_queue USING btree (id);
+CREATE UNIQUE INDEX IF NOT EXISTS storage_purge_queue_pkey ON public.storage_purge_queue USING btree (id);
 
-alter table "public"."deleted_shidduch_tombstones" add constraint "deleted_shidduch_tombstones_pkey" PRIMARY KEY using index "deleted_shidduch_tombstones_pkey";
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_class r on r.oid = c.conrelid
+    join pg_namespace n on n.oid = r.relnamespace
+    where n.nspname = 'public'
+      and r.relname = 'deleted_shidduch_tombstones'
+      and c.conname = 'deleted_shidduch_tombstones_pkey'
+  ) then
+    alter table "public"."deleted_shidduch_tombstones"
+      add constraint "deleted_shidduch_tombstones_pkey"
+      primary key using index "deleted_shidduch_tombstones_pkey";
+  end if;
+end
+$$;
 
-alter table "public"."storage_purge_queue" add constraint "storage_purge_queue_pkey" PRIMARY KEY using index "storage_purge_queue_pkey";
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_class r on r.oid = c.conrelid
+    join pg_namespace n on n.oid = r.relnamespace
+    where n.nspname = 'public'
+      and r.relname = 'storage_purge_queue'
+      and c.conname = 'storage_purge_queue_pkey'
+  ) then
+    alter table "public"."storage_purge_queue"
+      add constraint "storage_purge_queue_pkey"
+      primary key using index "storage_purge_queue_pkey";
+  end if;
+end
+$$;
 
-alter table "public"."deleted_shidduch_tombstones" add constraint "deleted_shidduch_tombstones_account_id_fkey" FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE not valid;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_class r on r.oid = c.conrelid
+    join pg_namespace n on n.oid = r.relnamespace
+    where n.nspname = 'public'
+      and r.relname = 'storage_purge_queue'
+      and c.conname = 'storage_purge_queue_account_id_fkey'
+  ) then
+    alter table "public"."storage_purge_queue"
+      add constraint "storage_purge_queue_account_id_fkey"
+      foreign key (account_id) references public.accounts(id) on delete restrict not valid;
+  end if;
+end
+$$;
+alter table "public"."storage_purge_queue"
+  validate constraint "storage_purge_queue_account_id_fkey";
 
-alter table "public"."deleted_shidduch_tombstones" validate constraint "deleted_shidduch_tombstones_account_id_fkey";
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_class r on r.oid = c.conrelid
+    join pg_namespace n on n.oid = r.relnamespace
+    where n.nspname = 'public'
+      and r.relname = 'storage_purge_queue'
+      and c.conname = 'storage_purge_queue_account_kind_bucket_path_key'
+  ) then
+    alter table "public"."storage_purge_queue"
+      add constraint "storage_purge_queue_account_kind_bucket_path_key"
+      unique using index "storage_purge_queue_account_kind_bucket_path_key";
+  end if;
+end
+$$;
 
-alter table "public"."storage_purge_queue" add constraint "storage_purge_queue_account_id_fkey" FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE RESTRICT not valid;
-
-alter table "public"."storage_purge_queue" validate constraint "storage_purge_queue_account_id_fkey";
-
-alter table "public"."storage_purge_queue" add constraint "storage_purge_queue_account_kind_bucket_path_key" UNIQUE using index "storage_purge_queue_account_kind_bucket_path_key";
-
-alter table "public"."storage_purge_queue" add constraint "storage_purge_queue_attempt_check" CHECK ((attempt >= 0)) not valid;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_class r on r.oid = c.conrelid
+    join pg_namespace n on n.oid = r.relnamespace
+    where n.nspname = 'public'
+      and r.relname = 'storage_purge_queue'
+      and c.conname = 'storage_purge_queue_attempt_check'
+  ) then
+    alter table "public"."storage_purge_queue"
+      add constraint "storage_purge_queue_attempt_check"
+      check ((attempt >= 0)) not valid;
+  end if;
+end
+$$;
 
 alter table "public"."storage_purge_queue" validate constraint "storage_purge_queue_attempt_check";
 
-alter table "public"."storage_purge_queue" add constraint "storage_purge_queue_kind_check" CHECK ((kind = ANY (ARRAY['object'::text, 'prefix'::text, 'quarantine'::text]))) not valid;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_class r on r.oid = c.conrelid
+    join pg_namespace n on n.oid = r.relnamespace
+    where n.nspname = 'public'
+      and r.relname = 'storage_purge_queue'
+      and c.conname = 'storage_purge_queue_kind_check'
+  ) then
+    alter table "public"."storage_purge_queue"
+      add constraint "storage_purge_queue_kind_check"
+      check ((kind = any (array['object'::text, 'prefix'::text, 'quarantine'::text]))) not valid;
+  end if;
+end
+$$;
 
 alter table "public"."storage_purge_queue" validate constraint "storage_purge_queue_kind_check";
 
-alter table "public"."storage_purge_queue" add constraint "storage_purge_queue_phase_check" CHECK ((((kind = 'prefix'::text) AND (phase = ANY (ARRAY[1, 2]))) OR ((kind <> 'prefix'::text) AND (phase = 1)))) not valid;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_class r on r.oid = c.conrelid
+    join pg_namespace n on n.oid = r.relnamespace
+    where n.nspname = 'public'
+      and r.relname = 'storage_purge_queue'
+      and c.conname = 'storage_purge_queue_phase_check'
+  ) then
+    alter table "public"."storage_purge_queue"
+      add constraint "storage_purge_queue_phase_check"
+      check ((((kind = 'prefix'::text) and (phase = any (array[1, 2]))) or ((kind <> 'prefix'::text) and (phase = 1)))) not valid;
+  end if;
+end
+$$;
 
 alter table "public"."storage_purge_queue" validate constraint "storage_purge_queue_phase_check";
 
-alter table "public"."storage_purge_queue" add constraint "storage_purge_queue_reason_check" CHECK ((((kind = 'quarantine'::text) AND (reason = ANY (ARRAY['unsupported_path'::text, 'legacy_path'::text, 'unknown_bucket'::text]))) OR ((kind <> 'quarantine'::text) AND (reason IS NULL)))) not valid;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_class r on r.oid = c.conrelid
+    join pg_namespace n on n.oid = r.relnamespace
+    where n.nspname = 'public'
+      and r.relname = 'storage_purge_queue'
+      and c.conname = 'storage_purge_queue_reason_check'
+  ) then
+    alter table "public"."storage_purge_queue"
+      add constraint "storage_purge_queue_reason_check"
+      check ((((kind = 'quarantine'::text) and (reason = any (array['unsupported_path'::text, 'legacy_path'::text, 'unknown_bucket'::text]))) or ((kind <> 'quarantine'::text) and (reason is null)))) not valid;
+  end if;
+end
+$$;
 
 alter table "public"."storage_purge_queue" validate constraint "storage_purge_queue_reason_check";
 
@@ -1785,6 +1916,8 @@ grant truncate on table "public"."storage_purge_queue" to "service_role";
 
 grant update on table "public"."storage_purge_queue" to "service_role";
 
+drop policy if exists "Storage purge queue readable by owning managers" on "public"."storage_purge_queue";
+
 
   create policy "Storage purge queue readable by owning managers"
   on "public"."storage_purge_queue"
@@ -1794,17 +1927,19 @@ grant update on table "public"."storage_purge_queue" to "service_role";
 using (((account_id = public.current_context_id()) AND (public.current_member_role() = ANY (ARRAY['parent_admin'::text, 'self_manager'::text]))));
 
 
+drop trigger if exists validate_entity_files_shidduch_target on public.entity_files;
 CREATE TRIGGER validate_entity_files_shidduch_target BEFORE INSERT OR UPDATE OF account_id, target_type, target_id, storage_path ON public.entity_files FOR EACH ROW EXECUTE FUNCTION public.entity_files_target_guard();
 
+drop trigger if exists tombstone_shidduch_before_delete on public.shidduchim;
 CREATE TRIGGER tombstone_shidduch_before_delete BEFORE DELETE ON public.shidduchim FOR EACH ROW EXECUTE FUNCTION public.shidduch_delete_tombstone();
 
-drop policy "Attachments writable within account" on "storage"."objects";
+drop policy if exists "Attachments writable within account" on "storage"."objects";
 
-drop policy "Documents photos writable within account" on "storage"."objects";
+drop policy if exists "Documents photos writable within account" on "storage"."objects";
 
-drop policy "Documents resumes writable within account" on "storage"."objects";
+drop policy if exists "Documents resumes writable within account" on "storage"."objects";
 
-drop policy "Entity files writable within account" on "storage"."objects";
+drop policy if exists "Entity files writable within account" on "storage"."objects";
 
 
   create policy "Attachments writable within account"

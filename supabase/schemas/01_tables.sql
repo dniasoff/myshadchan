@@ -882,8 +882,11 @@ create table public.inbox_attachment_purge (
 -- A permanent deletion fence for shidduch-owned storage prefixes. The id is
 -- never reused: shidduchim.id is GENERATED ALWAYS, and this row remains after
 -- the suggestion and its catalog rows are gone. No names or paths are stored.
+-- It intentionally has no account FK: a direct/cascading delete can write the
+-- fence while the account row is being removed, and the permanent fence must
+-- not disappear with that account.
 create table public.deleted_shidduch_tombstones (
-    account_id bigint not null references public.accounts(id) on delete cascade,
+    account_id bigint not null,
     shidduch_id bigint not null,
     deleted_at timestamp with time zone not null default now(),
     primary key (account_id, shidduch_id)
