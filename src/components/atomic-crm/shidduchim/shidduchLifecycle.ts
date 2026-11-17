@@ -145,6 +145,23 @@ export const getPendingShidduchActions = (
   return actions;
 };
 
+export const getPendingShidduchExclusionFilter = (
+  state: unknown,
+): Record<string, string> => {
+  const ids = [
+    ...new Set(
+      getPendingShidduchActions(state)
+        .map((action) => String(action.id))
+        .filter((id) => /^\d+$/.test(id)),
+    ),
+  ];
+  return ids.length > 0 ? { "id@not.in": `(${ids.join(",")})` } : {};
+};
+
+export const getRetryNotificationKey = (
+  action: Pick<ShidduchLifecycleAction, "id" | "kind" | "deadline">,
+): string => `${action.kind}:${String(action.id)}:${action.deadline}`;
+
 export const getPendingShidduchAction = (state: unknown) => {
   const value = (state as { shidduchLifecycle?: unknown } | null)
     ?.shidduchLifecycle;

@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearPendingShidduchDelete,
   getPendingShidduchAction,
+  getPendingShidduchActions,
+  getPendingShidduchExclusionFilter,
+  getRetryNotificationKey,
   readPendingShidduchActions,
   readPendingShidduchDelete,
   rememberPendingShidduchAction,
@@ -63,6 +66,30 @@ describe("shidduch lifecycle persistence", () => {
       kind: "archive",
       deadline: 123,
     });
+
+    // A reload has no route state, so the complete collection must still
+    // produce one exclusion filter for both pending rows.
+    expect(getPendingShidduchActions(undefined)).toHaveLength(2);
+    expect(getPendingShidduchExclusionFilter(undefined)).toEqual({
+      "id@not.in": "(42,43)",
+    });
+  });
+
+  it("deduplicates retry notifications by marker transition", () => {
+    const action = {
+      id: 42,
+      kind: "delete" as const,
+      deadline: 123,
+      name: "#42",
+      retryRequired: true,
+    };
+    expect(getRetryNotificationKey(action)).toBe("delete:42:123");
+    expect(getRetryNotificationKey(action)).toBe(
+      getRetryNotificationKey(action),
+    );
+    expect(getRetryNotificationKey({ ...action, id: 43 })).not.toBe(
+      getRetryNotificationKey(action),
+    );
   });
 
   it("fails closed when the marker is lost or malformed", () => {

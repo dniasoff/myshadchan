@@ -17,6 +17,7 @@ import { ShidduchimViewSwitch } from "./ShidduchimViewSwitch";
 import {
   getPendingShidduchAction,
   getPendingShidduchActions,
+  getPendingShidduchExclusionFilter,
   type ShidduchLifecycleAction,
 } from "./shidduchLifecycle";
 import { ShidduchPendingActionBar } from "./ShidduchLifecycleActions";
@@ -96,21 +97,26 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
   const heading = useRef<HTMLHeadingElement | null>(null);
 
   useEffect(() => {
-    if (!getPendingShidduchAction(location.state)) return;
     const actions = getPendingShidduchActions(location.state);
-    if (actions.length === 0) return;
     setPendingLifecycle(actions);
-    setFilters(
-      {
-        ...(filterValues as Record<string, unknown>),
-        "id@neq": actions[0].id,
-      },
-      displayedFilters,
-    );
-    navigate(`${location.pathname}${location.search}`, {
-      replace: true,
-      state: null,
-    });
+    const currentFilters = filterValues as Record<string, unknown>;
+    const pendingFilter = getPendingShidduchExclusionFilter(location.state);
+    const nextFilters = { ...currentFilters };
+    delete nextFilters["id@neq"];
+    delete nextFilters["id@not.in"];
+    Object.assign(nextFilters, pendingFilter);
+    if (
+      currentFilters["id@neq"] !== undefined ||
+      currentFilters["id@not.in"] !== pendingFilter["id@not.in"]
+    ) {
+      setFilters(nextFilters, displayedFilters);
+    }
+    if (getPendingShidduchAction(location.state)) {
+      navigate(`${location.pathname}${location.search}`, {
+        replace: true,
+        state: null,
+      });
+    }
   }, [displayedFilters, filterValues, location, navigate, setFilters]);
 
   const singleId = (filterValues as Record<string, unknown> | undefined)
@@ -154,20 +160,30 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
               key={`${String(action.id)}:${action.kind}`}
               action={action}
               onDone={(result) => {
-                setPendingLifecycle((current) =>
-                  current.filter(
-                    (candidate) => String(candidate.id) !== String(action.id),
-                  ),
-                );
-                const remaining = pendingLifecycle.filter(
-                  (candidate) => String(candidate.id) !== String(action.id),
-                );
+                const remaining =
+                  result === "failed"
+                    ? pendingLifecycle.map((candidate) =>
+                        String(candidate.id) === String(action.id)
+                          ? { ...candidate, retryRequired: true }
+                          : candidate,
+                      )
+                    : pendingLifecycle.filter(
+                        (candidate) =>
+                          String(candidate.id) !== String(action.id),
+                      );
+                setPendingLifecycle(remaining);
                 const next = {
                   ...(filterValues as Record<string, unknown>),
                 };
-                if (remaining[0]) next["id@neq"] = remaining[0].id;
-                else delete next["id@neq"];
+                delete next["id@neq"];
+                delete next["id@not.in"];
+                if (remaining.length > 0) {
+                  next["id@not.in"] = `(${remaining
+                    .map((candidate) => String(candidate.id))
+                    .join(",")})`;
+                }
                 setFilters(next, displayedFilters);
+                if (result === "failed") return;
                 requestAnimationFrame(() => {
                   if (result === "restored") {
                     const row = document.querySelector<HTMLElement>(

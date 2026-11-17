@@ -33,6 +33,12 @@ export function transformFilter(filter: Record<string, any>) {
       continue;
     }
 
+    if (key.endsWith("@not.in")) {
+      transformedFilters[`${key.slice(0, -7)}_neq_any`] =
+        transformInFilter(value);
+      continue;
+    }
+
     if (key.endsWith("@in")) {
       transformedFilters[`${key.slice(0, -3)}_eq_any`] =
         transformInFilter(value);

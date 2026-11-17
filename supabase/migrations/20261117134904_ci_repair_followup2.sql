@@ -110,11 +110,14 @@ CREATE OR REPLACE FUNCTION public.account_storage_cleanup_fence(p_account_id big
  SET search_path TO ''
 AS $function$
 begin
+  -- Account deletion and shidduch-owned writers use parent -> advisory
+  -- ordering. Lock parents in id order before the fence so the later FK
+  -- cascade cannot deadlock with a writer holding the advisory lock.
   perform 1
   from public.shidduchim
   where account_id = p_account_id
   order by id
-  for share;
+  for update;
   perform public.account_storage_lock(p_account_id);
   if not exists (select 1 from public.accounts where id = p_account_id) then
     return true;
@@ -183,6 +186,7 @@ begin
   v_shul_norm := public.normalize_identity_text(p_shul);
   v_location_norm := public.normalize_identity_text(p_location);
 
+  -- Nothing identifying was supplied: no candidates, no guessing.
   if v_phone_norm is null and v_name_en_norm is null and v_name_he_norm is null then
     return;
   end if;

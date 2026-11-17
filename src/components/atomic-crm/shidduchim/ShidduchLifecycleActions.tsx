@@ -26,6 +26,7 @@ import type { ShidduchSummary } from "../types";
 import {
   canManageShidduchLifecycle,
   clearPendingShidduchAction,
+  getRetryNotificationKey,
   rememberPendingShidduchAction,
   SHIDDUCH_ACTION_UNDO_MS,
   type ShidduchLifecycleAction,
@@ -296,24 +297,37 @@ export const ShidduchPendingActionBar = ({
   const [purgePending, setPurgePending] = useState(false);
   const completed = useRef(false);
   const undoButton = useRef<HTMLButtonElement | null>(null);
+  const retryNotificationKey = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!action.retryRequired) undoButton.current?.focus();
+    if (
+      !action.retryRequired &&
+      Date.now() < action.deadline &&
+      !completed.current
+    ) {
+      undoButton.current?.focus();
+    }
+  }, [action.deadline, action.retryRequired]);
+
+  useEffect(() => {
+    if (action.retryRequired) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 100);
+    return () => window.clearInterval(interval);
   }, [action.retryRequired]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 100);
-    return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
     if (action.retryRequired) {
-      notify(
-        "Could not delete. It is in Archived: you can restore or delete it from there.",
-        { type: "error" },
-      );
+      const key = getRetryNotificationKey(action);
+      if (retryNotificationKey.current !== key) {
+        retryNotificationKey.current = key;
+        notify(
+          "Could not delete. It is in Archived: you can restore or delete it from there.",
+          { type: "error" },
+        );
+      }
       return;
     }
+    retryNotificationKey.current = null;
     if (now < action.deadline || completed.current || busy) return;
     completed.current = true;
     setBusy(true);

@@ -10427,7 +10427,7 @@ begin
   from public.shidduchim
   where account_id = p_account_id
   order by id
-  for share;
+  for update;
   perform public.account_storage_lock(p_account_id);
   if not exists (select 1 from public.accounts where id = p_account_id) then
     return true;
