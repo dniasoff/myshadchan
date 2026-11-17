@@ -212,6 +212,119 @@ describe("re-read diagnostics", () => {
     ).toBe(true);
   });
 
+  it("keeps allow-listed Cloudflare metadata in actual sanitized log output", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const counts = {
+      rawFieldsNonNull: 1,
+      keptFields: 1,
+      rawReferences: 8,
+      keptReferences: 8,
+      rawLearning: 1,
+      keptLearning: 1,
+      rawAdditionalSections: 0,
+      keptAdditionalSections: 0,
+      droppedByPrivacyFilter: 0,
+    };
+
+    logExtractorAttempt("openai/gpt-6-luna", 1);
+    logExtractorShape(counts, {
+      model: "openai/gpt-6-luna",
+      finishReason: "completed",
+      usageMetadata: {
+        promptTokenCount: 12,
+        candidatesTokenCount: 8,
+        thoughtsTokenCount: 0,
+      },
+    });
+    logExtractorAttempt("openai/gpt-9-luna", 1);
+    logExtractorShape(counts, {
+      model: "openai/gpt-9-luna",
+      finishReason: "provider leaked resume text",
+      usageMetadata: {},
+    });
+
+    expect(warn).toHaveBeenNthCalledWith(1, "parse.extract.attempt", {
+      model: "openai/gpt-6-luna",
+      attempt: 1,
+    });
+    expect(warn).toHaveBeenNthCalledWith(2, "parse.extract.shape", {
+      ...counts,
+      finishReason: "completed",
+      promptTokens: 12,
+      candidateTokens: 8,
+      thoughtTokens: 0,
+      model: "openai/gpt-6-luna",
+    });
+    expect(warn).toHaveBeenNthCalledWith(3, "parse.extract.attempt", {
+      model: "unknown",
+      attempt: 1,
+    });
+    expect(warn).toHaveBeenNthCalledWith(4, "parse.extract.shape", {
+      ...counts,
+      finishReason: "UNKNOWN",
+      promptTokens: 0,
+      candidateTokens: 0,
+      thoughtTokens: 0,
+      model: "unknown",
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(
+      "provider leaked resume text",
+    );
+    warn.mockRestore();
+  });
+
+  it("rejects prototype names in Cloudflare model and status diagnostics", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const counts = {
+      rawFieldsNonNull: 0,
+      keptFields: 0,
+      rawReferences: 0,
+      keptReferences: 0,
+      rawLearning: 0,
+      keptLearning: 0,
+      rawAdditionalSections: 0,
+      keptAdditionalSections: 0,
+      droppedByPrivacyFilter: 0,
+    };
+    const prototypeNames = [
+      "toString",
+      "constructor",
+      "__proto__",
+      "hasOwnProperty",
+      "valueOf",
+    ];
+
+    for (const name of prototypeNames) {
+      logExtractorAttempt(name, 1);
+      logExtractorShape(counts, {
+        model: name,
+        finishReason: name,
+        usageMetadata: {},
+      });
+    }
+
+    for (const [index] of prototypeNames.entries()) {
+      expect(warn).toHaveBeenNthCalledWith(
+        index * 2 + 1,
+        "parse.extract.attempt",
+        { model: "unknown", attempt: 1 },
+      );
+      expect(warn).toHaveBeenNthCalledWith(
+        index * 2 + 2,
+        "parse.extract.shape",
+        {
+          ...counts,
+          finishReason: "UNKNOWN",
+          promptTokens: 0,
+          candidateTokens: 0,
+          thoughtTokens: 0,
+          model: "unknown",
+        },
+      );
+    }
+    warn.mockRestore();
+  });
+
   it("defaults missing shape metadata to static enums and zero counts", () => {
     expect(
       buildExtractorShapeLog({

@@ -80,6 +80,24 @@ type GeminiFinishReason = (typeof GEMINI_FINISH_REASON_VALUES)[number];
 
 const GEMINI_FINISH_REASONS = new Set<string>(GEMINI_FINISH_REASON_VALUES);
 
+const CLOUDFLARE_RESPONSES_STATUS_VALUES = [
+  "completed",
+  "incomplete",
+  "failed",
+  "cancelled",
+  "in_progress",
+  "queued",
+] as const;
+
+type CloudflareResponsesStatus =
+  (typeof CLOUDFLARE_RESPONSES_STATUS_VALUES)[number];
+
+const CLOUDFLARE_RESPONSES_STATUSES = new Set<string>(
+  CLOUDFLARE_RESPONSES_STATUS_VALUES,
+);
+
+type ExtractorFinishReason = GeminiFinishReason | CloudflareResponsesStatus;
+
 const DOCX_FAILURE_VALUES = [
   "empty",
   "password_protected",
@@ -110,7 +128,7 @@ export type ExtractorFailureLog = {
   statusClass?: ExtractorStatusClass;
   reason?: "bad_request";
   httpStatus?: number;
-  finishReason?: GeminiFinishReason;
+  finishReason?: ExtractorFinishReason;
   promptTokenCount?: number;
   candidatesTokenCount?: number;
   thoughtsTokenCount?: number;
@@ -132,6 +150,11 @@ export type ExtractorStatusClass =
 const EXTRACTOR_STATUS_CLASSES = new Set<string>(EXTRACTOR_STATUS_CLASS_VALUES);
 
 const GEMINI_MODEL_PATTERN = /^gemini-[a-z0-9.-]{1,60}$/;
+const CLOUDFLARE_MODEL_VALUES = [
+  "openai/gpt-6-luna",
+  "openai/gpt-5.6-luna",
+] as const;
+const CLOUDFLARE_MODELS = new Set<string>(CLOUDFLARE_MODEL_VALUES);
 const EXTRACTOR_REASON_VALUES = ["bad_request"] as const;
 const EXTRACTOR_REASONS = new Set<string>(EXTRACTOR_REASON_VALUES);
 const EXTRACTOR_FALLBACK_REASON_VALUES = [
@@ -237,9 +260,11 @@ export function getExtractorShapeMetadata(
 }
 
 function safeModel(value: unknown): string {
-  return typeof value === "string" && GEMINI_MODEL_PATTERN.test(value)
-    ? value
-    : "unknown";
+  if (typeof value !== "string") return "unknown";
+  if (GEMINI_MODEL_PATTERN.test(value) || CLOUDFLARE_MODELS.has(value)) {
+    return value;
+  }
+  return "unknown";
 }
 
 function safeFallbackReason(
@@ -305,7 +330,7 @@ export type ExtractorShapeLog = {
   rawAdditionalSections: number;
   keptAdditionalSections: number;
   droppedByPrivacyFilter: number;
-  finishReason: GeminiFinishReason;
+  finishReason: ExtractorFinishReason;
   promptTokens: number;
   candidateTokens: number;
   thoughtTokens: number;
@@ -371,10 +396,13 @@ function safeCount(value: unknown): number | undefined {
     : undefined;
 }
 
-function safeFinishReason(value: unknown): GeminiFinishReason | undefined {
+function safeFinishReason(value: unknown): ExtractorFinishReason | undefined {
   if (typeof value !== "string") return undefined;
-  return GEMINI_FINISH_REASONS.has(value)
-    ? (value as GeminiFinishReason)
+  if (GEMINI_FINISH_REASONS.has(value)) {
+    return value as GeminiFinishReason;
+  }
+  return CLOUDFLARE_RESPONSES_STATUSES.has(value)
+    ? (value as CloudflareResponsesStatus)
     : "UNKNOWN";
 }
 

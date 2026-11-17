@@ -574,6 +574,9 @@ jobs:
       AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
       AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
       GOOGLE_AI_STUDIO_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
+      # Optional unified-billing token. The default google-key path does not
+      # require it, so validation below intentionally does not include it.
+      CF_AI_TOKEN: ${{ secrets.CF_AI_TOKEN }}
 
     steps:
       - name: 📥 Checkout repo
@@ -631,6 +634,7 @@ jobs:
                 -u AI_GATEWAY_ACCOUNT_ID \
                 -u AI_GATEWAY_ID \
                 -u GOOGLE_AI_STUDIO_API_KEY \
+                -u CF_AI_TOKEN \
                 CLOUDFLARE_INCLUDE_PROCESS_ENV=false \
                 npx wrangler deploy \
                   --config "$bootstrap_config" \
@@ -802,6 +806,7 @@ jobs:
               printf 'AI_GATEWAY_ACCOUNT_ID=%s\n' "$AI_GATEWAY_ACCOUNT_ID"
               printf 'AI_GATEWAY_ID=%s\n' "$AI_GATEWAY_ID"
               printf 'GOOGLE_AI_STUDIO_API_KEY=%s\n' "$GOOGLE_AI_STUDIO_API_KEY"
+              [ -n "${CF_AI_TOKEN:-}" ] && printf 'CF_AI_TOKEN=%s\n' "$CF_AI_TOKEN"
             fi
             if [ "${{ matrix.worker }}" = "cron" ]; then
               printf 'RESEND_API_KEY=%s\n' "$RESEND_API_KEY"

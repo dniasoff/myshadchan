@@ -29,6 +29,8 @@ import {
 import { TEST_ENV } from "./parseTestFixtures";
 import { getExtractorShapeMetadata } from "./rereadDiagnostics";
 
+const CF_TEST_ACCOUNT_ID = "a".repeat(32);
+
 async function makeDocxFixture(): Promise<ArrayBuffer> {
   const zip = new JSZip();
   zip.file(
@@ -1130,6 +1132,330 @@ describe("geminiExtractor", () => {
         docxFailure: "malformed",
       }),
     );
+  });
+
+  describe("Cloudflare AI Gateway unified billing", () => {
+    it("uses the Responses API with bearer auth, a strict JSON schema, and no Google key", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            status: "completed",
+            output: [
+              {
+                type: "message",
+                content: [
+                  {
+                    type: "output_text",
+                    text: JSON.stringify({ name_en: null }),
+                  },
+                ],
+              },
+            ],
+            usage: { input_tokens: 11, output_tokens: 7, total_tokens: 18 },
+          }),
+          { status: 200 },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await geminiExtractor({
+        ...TEST_ENV,
+        AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
+        EXTRACT_PROVIDER: "cf-unified",
+        CF_AI_TOKEN: "cf-token-that-must-not-leak",
+        EXTRACT_MODEL: "openai/gpt-6-luna",
+      }).extract(new Uint8Array([1, 2, 3]).buffer, "application/pdf");
+
+      expect(result).toEqual({ name_en: null });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        `https://api.cloudflare.com/client/v4/accounts/${CF_TEST_ACCOUNT_ID}/ai/v1/responses`,
+      );
+      expect(init.headers).toEqual({
+        Authorization: "Bearer cf-token-that-must-not-leak",
+        "Content-Type": "application/json",
+      });
+      expect(init.headers).not.toHaveProperty("x-goog-api-key");
+
+      const body = JSON.parse(init.body as string) as {
+        model: string;
+        input: Array<{
+          role: string;
+          content: Array<Record<string, unknown>>;
+        }>;
+        text: {
+          format: {
+            type: string;
+            name: string;
+            strict: boolean;
+            schema: Record<string, unknown>;
+          };
+        };
+      };
+      expect(body.model).toBe("openai/gpt-6-luna");
+      expect(body.input[0].content[1]).toMatchObject({
+        type: "input_file",
+        filename: "resume.pdf",
+      });
+      expect(String(body.input[0].content[1].file_data)).toMatch(
+        /^data:application\/pdf;base64,/,
+      );
+      expect(body.text.format).toMatchObject({
+        type: "json_schema",
+        name: "resume_extraction",
+        strict: true,
+      });
+      expect(body.text.format.schema).toMatchObject({
+        type: "object",
+        additionalProperties: false,
+      });
+    });
+
+    it("maps Responses API output metadata without retaining provider bodies or secrets", async () => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            status: "completed",
+            output: [
+              {
+                type: "message",
+                content: [
+                  {
+                    type: "output_text",
+                    text: JSON.stringify({ name_en: { value: "Rivky" } }),
+                  },
+                ],
+              },
+            ],
+            usage: {
+              input_tokens: 1214,
+              output_tokens: 512,
+              total_tokens: 1726,
+              privateText: "must not be retained",
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await geminiExtractor({
+        ...TEST_ENV,
+        AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
+        EXTRACT_PROVIDER: "cf-unified",
+        CF_AI_TOKEN: "cf-secret",
+        EXTRACT_MODEL: "openai/gpt-6-luna",
+      }).extract(new ArrayBuffer(0), "application/pdf");
+
+      expect(getExtractorShapeMetadata(result)).toEqual({
+        model: "openai/gpt-6-luna",
+        finishReason: "completed",
+        usageMetadata: {
+          promptTokenCount: 1214,
+          candidatesTokenCount: 512,
+          thoughtsTokenCount: 0,
+        },
+      });
+      expect(JSON.stringify(log.mock.calls)).not.toContain("cf-secret");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("privateText");
+    });
+
+    it("uses the unified fallback after primary transient exhaustion", async () => {
+      vi.useFakeTimers();
+      vi.spyOn(Math, "random").mockReturnValue(1);
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+        .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              status: "completed",
+              output: [
+                {
+                  type: "message",
+                  content: [{ type: "output_text", text: JSON.stringify({}) }],
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const pending = geminiExtractor({
+        ...TEST_ENV,
+        AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
+        EXTRACT_PROVIDER: "cf-unified",
+        CF_AI_TOKEN: "cf-token",
+        EXTRACT_MODEL: "openai/gpt-6-luna",
+        EXTRACT_FALLBACK_MODEL: "openai/gpt-5.6-luna",
+      }).extract(new ArrayBuffer(0), "application/pdf");
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(GEMINI_RETRY_INITIAL_BACKOFF_MS);
+
+      await expect(pending).resolves.toEqual({});
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect((fetchMock.mock.calls[2] as [string, RequestInit])[0]).toContain(
+        "/ai/v1/responses",
+      );
+      expect((fetchMock.mock.calls[2][1] as RequestInit).headers).toEqual({
+        Authorization: "Bearer cf-token",
+        "Content-Type": "application/json",
+      });
+    });
+
+    it("retries a unified-billing 429 response", async () => {
+      vi.useFakeTimers();
+      vi.spyOn(Math, "random").mockReturnValue(1);
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response("rate limited", {
+            status: 429,
+            headers: { "Retry-After": "0" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              status: "completed",
+              output: [
+                {
+                  type: "message",
+                  content: [{ type: "output_text", text: JSON.stringify({}) }],
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const pending = geminiExtractor({
+        ...TEST_ENV,
+        AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
+        EXTRACT_PROVIDER: "cf-unified",
+        CF_AI_TOKEN: "cf-token",
+        EXTRACT_MODEL: "openai/gpt-6-luna",
+      }).extract(new ArrayBuffer(0), "application/pdf");
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(GEMINI_RETRY_INITIAL_BACKOFF_MS);
+
+      await expect(pending).resolves.toEqual({});
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("treats a unified-billing 4xx as terminal without retrying", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          new Response("provider body must not be read", { status: 400 }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        geminiExtractor({
+          ...TEST_ENV,
+          AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
+          EXTRACT_PROVIDER: "cf-unified",
+          CF_AI_TOKEN: "cf-token",
+          EXTRACT_MODEL: "openai/gpt-6-luna",
+        }).extract(new ArrayBuffer(0), "application/pdf"),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(init.headers).not.toHaveProperty("x-goog-api-key");
+    });
+
+    it("falls back to Gemini only when the Google key is explicitly available", async () => {
+      vi.useFakeTimers();
+      vi.spyOn(Math, "random").mockReturnValue(1);
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+        .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+        .mockResolvedValueOnce(gatewayResponse("{}"));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const pending = geminiExtractor({
+        ...TEST_ENV,
+        AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
+        EXTRACT_PROVIDER: "cf-unified",
+        CF_AI_TOKEN: "cf-token",
+        EXTRACT_MODEL: "openai/gpt-6-luna",
+        EXTRACT_FALLBACK_MODEL: "gemini-3.6-flash",
+      }).extract(new ArrayBuffer(0), "application/pdf");
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(GEMINI_RETRY_INITIAL_BACKOFF_MS);
+
+      await expect(pending).resolves.toEqual({});
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      const [url, init] = fetchMock.mock.calls[2] as [string, RequestInit];
+      expect(url).toContain("/google-ai-studio/v1beta/models/gemini-3.6-flash");
+      expect(init.headers).toMatchObject({
+        "x-goog-api-key": TEST_ENV.GOOGLE_AI_STUDIO_API_KEY,
+      });
+      expect(init.headers).not.toHaveProperty("Authorization");
+    });
+
+    it("rejects an unallow-listed unified model before making a provider request", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        geminiExtractor({
+          ...TEST_ENV,
+          AI_GATEWAY_ACCOUNT_ID: CF_TEST_ACCOUNT_ID,
+          EXTRACT_PROVIDER: "cf-unified",
+          CF_AI_TOKEN: "cf-token",
+          EXTRACT_MODEL: "openai/not-approved",
+        }).extract(new ArrayBuffer(0), "application/pdf"),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects hostile unified account IDs before token checks, logs, or URLs", async () => {
+      const fetchMock = vi.fn();
+      const consoleSpies = ["error", "warn", "info", "log", "debug"].map(
+        (method) =>
+          vi.spyOn(console, method as "error").mockImplementation(() => {}),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const hostileAccountIds = ["/", "?", "#", "..", "%2f", " ", ""];
+
+      await expect(
+        geminiExtractor({
+          ...TEST_ENV,
+          AI_GATEWAY_ACCOUNT_ID: hostileAccountIds[0],
+          EXTRACT_PROVIDER: "cf-unified",
+          EXTRACT_MODEL: "openai/gpt-6-luna",
+        }).extract(new ArrayBuffer(0), "application/pdf"),
+      ).rejects.toMatchObject({ status: 400 });
+
+      for (const accountId of hostileAccountIds.slice(1)) {
+        await expect(
+          geminiExtractor({
+            ...TEST_ENV,
+            AI_GATEWAY_ACCOUNT_ID: accountId,
+            EXTRACT_PROVIDER: "cf-unified",
+            CF_AI_TOKEN: "cf-token",
+            EXTRACT_MODEL: "openai/gpt-6-luna",
+          }).extract(new ArrayBuffer(0), "application/pdf"),
+        ).rejects.toMatchObject({ status: 400 });
+      }
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(consoleSpies.every((spy) => spy.mock.calls.length === 0)).toBe(
+        true,
+      );
+      for (const spy of consoleSpies) spy.mockRestore();
+    });
   });
 
   // Finding 7: a live-but-slow Gemini call must be bounded, well under the

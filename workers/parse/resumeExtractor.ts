@@ -44,6 +44,14 @@ export type ParseEnv = {
   AI_GATEWAY_ACCOUNT_ID: string;
   AI_GATEWAY_ID: string;
   GOOGLE_AI_STUDIO_API_KEY: string;
+  /** Optional Cloudflare AI Gateway token for the unified-billing provider. */
+  CF_AI_TOKEN?: string;
+  /** `google-key` preserves the existing path; `cf-unified` opts into Responses API. */
+  EXTRACT_PROVIDER?: string;
+  /** Allow-listed Cloudflare model used when EXTRACT_PROVIDER is cf-unified. */
+  EXTRACT_MODEL?: string;
+  /** Optional Cloudflare or explicitly Google fallback model. */
+  EXTRACT_FALLBACK_MODEL?: string;
   /** Optional model override; invalid values fall back to the default. */
   GEMINI_MODEL?: string;
   /** Optional one-shot fallback after primary transient exhaustion or 404. */
@@ -96,6 +104,16 @@ export const GEMINI_RETRY_INITIAL_BACKOFF_MS = 1_000;
 export const GEMINI_RETRY_MAX_BACKOFF_MS = 2_000;
 export const GEMINI_RETRY_AFTER_CAP_MS = 5_000;
 export const GEMINI_MIN_ATTEMPT_TIMEOUT_MS = 5_000;
+
+export const DEFAULT_CF_MODEL = "openai/gpt-6-luna";
+const CF_MODEL_ALLOWLIST = new Set([
+  "openai/gpt-6-luna",
+  "openai/gpt-5.6-luna",
+]);
+const CF_MODEL_PATTERN = /^openai\/[a-z0-9.-]{1,80}$/u;
+const CLOUDFLARE_ACCOUNT_ID_PATTERN = /^[A-Za-z0-9]{16,64}$/u;
+const EXTRACT_PROVIDER_VALUES = new Set(["google-key", "cf-unified"]);
+type ExtractProvider = "google-key" | "cf-unified";
 
 /**
  * Finding 5 (Epic 11 adversarial review, P1): thrown when Gemini responds
@@ -165,7 +183,7 @@ function isTimeoutAbort(error: unknown): boolean {
 
 function configuredModel(
   value: unknown,
-  variable: "GEMINI_MODEL" | "GEMINI_FALLBACK_MODEL",
+  variable: "GEMINI_MODEL" | "GEMINI_FALLBACK_MODEL" | "EXTRACT_FALLBACK_MODEL",
   defaultValue: string | undefined,
 ): string | undefined {
   if (value === undefined || value === "") return defaultValue;
@@ -176,6 +194,97 @@ function configuredModel(
   console.error("parse.extract.config.invalid", { variable });
   return defaultValue;
 }
+
+function configuredProvider(value: unknown): ExtractProvider {
+  if (value === undefined || value === "") return "google-key";
+  if (typeof value === "string" && EXTRACT_PROVIDER_VALUES.has(value)) {
+    return value as ExtractProvider;
+  }
+  console.error("parse.extract.config.invalid", {
+    variable: "EXTRACT_PROVIDER",
+  });
+  return "google-key";
+}
+
+function configuredCloudflareModel(
+  value: unknown,
+  variable: "EXTRACT_MODEL" | "EXTRACT_FALLBACK_MODEL",
+  defaultValue: string | undefined,
+): string | undefined {
+  if (value === undefined || value === "") return defaultValue;
+  if (
+    typeof value === "string" &&
+    CF_MODEL_PATTERN.test(value) &&
+    CF_MODEL_ALLOWLIST.has(value)
+  ) {
+    return value;
+  }
+  console.error("parse.extract.config.invalid", { variable });
+  return undefined;
+}
+
+function isGeminiModel(value: string): boolean {
+  return GEMINI_MODEL_PATTERN.test(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type JsonSchema = {
+  type: string;
+  nullable?: boolean;
+  enum?: string[];
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  items?: JsonSchema;
+};
+
+function toOpenAiJsonSchema(schema: JsonSchema): Record<string, unknown> {
+  const typeMap: Record<string, string> = {
+    STRING: "string",
+    NUMBER: "number",
+    INTEGER: "integer",
+    BOOLEAN: "boolean",
+    ARRAY: "array",
+    OBJECT: "object",
+  };
+  const mappedType = typeMap[schema.type] ?? "string";
+  const result: Record<string, unknown> = { type: mappedType };
+  if (schema.enum) result.enum = [...schema.enum];
+  if (schema.items) result.items = toOpenAiJsonSchema(schema.items);
+  if (schema.type === "OBJECT") {
+    const properties = schema.properties ?? {};
+    const required = new Set(schema.required ?? []);
+    const mappedProperties: Record<string, Record<string, unknown>> = {};
+    for (const [key, property] of Object.entries(properties)) {
+      const mapped = toOpenAiJsonSchema(property);
+      if (!required.has(key)) {
+        const propertyType = mapped.type;
+        mapped.type = [propertyType, "null"];
+        if (Array.isArray(mapped.enum) && !mapped.enum.includes(null)) {
+          mapped.enum.push(null);
+        }
+      }
+      mappedProperties[key] = mapped;
+    }
+    result.properties = mappedProperties;
+    result.required = Object.keys(properties);
+    result.additionalProperties = false;
+  }
+  if (schema.nullable) {
+    const propertyType = result.type;
+    result.type = [propertyType, "null"];
+    if (Array.isArray(result.enum) && !result.enum.includes(null)) {
+      result.enum.push(null);
+    }
+  }
+  return result;
+}
+
+const OPENAI_RESUME_RESPONSE_SCHEMA = toOpenAiJsonSchema(
+  GEMINI_RESUME_RESPONSE_SCHEMA as JsonSchema,
+);
 
 function configuredThinkingBudget(value: unknown): number | undefined {
   if (value === undefined || value === "") return undefined;
@@ -254,15 +363,96 @@ function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+function cloudflareResponsesEndpoint(accountId: string): string {
+  if (!CLOUDFLARE_ACCOUNT_ID_PATTERN.test(accountId)) {
+    throw new ExtractorProviderError(400);
+  }
+  return `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/v1/responses`;
+}
+
+function cloudflareInputPart(
+  contentPart:
+    { text: string } | { inline_data: { mime_type: string; data: string } },
+  mimeType: string,
+): Record<string, unknown> {
+  if ("text" in contentPart) {
+    return { type: "input_text", text: contentPart.text };
+  }
+  return {
+    type: "input_file",
+    filename: mimeType === "application/pdf" ? "resume.pdf" : "resume",
+    file_data: `data:${mimeType};base64,${contentPart.inline_data.data}`,
+  };
+}
+
+function buildCloudflareRequestBody(
+  model: string,
+  prompt: string,
+  contentPart:
+    { text: string } | { inline_data: { mime_type: string; data: string } },
+  mimeType: string,
+): Record<string, unknown> {
+  return {
+    model,
+    input: [
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: `${prompt}${SAFETY_PROMPT}` },
+          cloudflareInputPart(contentPart, mimeType),
+        ],
+      },
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "resume_extraction",
+        strict: true,
+        schema: OPENAI_RESUME_RESPONSE_SCHEMA,
+      },
+    },
+    max_output_tokens: GEMINI_MAX_OUTPUT_TOKENS,
+  };
+}
+
+function cloudflareOutputText(value: unknown): string {
+  if (!isRecord(value) || !Array.isArray(value.output)) return "{}";
+  for (const outputItem of value.output) {
+    if (!isRecord(outputItem) || !Array.isArray(outputItem.content)) continue;
+    for (const content of outputItem.content) {
+      if (
+        isRecord(content) &&
+        content.type === "output_text" &&
+        typeof content.text === "string"
+      ) {
+        return content.text;
+      }
+    }
+  }
+  return "{}";
+}
+
+function cloudflareUsageMetadata(value: unknown): Record<string, number> {
+  const usage = isRecord(value) && isRecord(value.usage) ? value.usage : {};
+  return {
+    promptTokenCount:
+      typeof usage.input_tokens === "number" ? usage.input_tokens : 0,
+    candidatesTokenCount:
+      typeof usage.output_tokens === "number" ? usage.output_tokens : 0,
+    thoughtsTokenCount: 0,
+  };
+}
+
 type ProviderRequestBudget = {
   max: number;
   used: number;
 };
 
 /**
- * Production resume extractor. Calls Google's Gemini API **only through the
- * Cloudflare AI Gateway** (AD-8). The prompt is narrow and grounded: it may
- * extract the listed bilingual fields, but nothing else.
+ * Production resume extractor. The default path calls Google's Gemini API
+ * through the Cloudflare AI Gateway (AD-8); `cf-unified` opts into the
+ * Cloudflare Responses API with unified billing. The prompt is narrow and
+ * grounded: it may extract the listed bilingual fields, but nothing else.
  *
  * Finding 14 (Epic 11 adversarial review, P2): the request now sends an
  * explicit `generationConfig.responseSchema`
@@ -283,6 +473,13 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
     async extract(fileBytes: ArrayBuffer, mimeType: string): Promise<unknown> {
       let contentPart:
         { text: string } | { inline_data: { mime_type: string; data: string } };
+      const extractProvider = configuredProvider(env.EXTRACT_PROVIDER);
+      if (
+        extractProvider === "cf-unified" &&
+        !CLOUDFLARE_ACCOUNT_ID_PATTERN.test(env.AI_GATEWAY_ACCOUNT_ID)
+      ) {
+        throw new ExtractorProviderError(400);
+      }
       const contentStartedAt = Date.now();
       try {
         contentPart =
@@ -323,6 +520,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
       let sawTimeout = false;
       let lastTimeoutMs: number | undefined;
       const requestOnce = async (
+        provider: ExtractProvider,
         model: string,
         prompt: string,
         responseSchema: typeof GEMINI_RESUME_RESPONSE_SCHEMA,
@@ -353,38 +551,62 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
           fallbackReason,
           modelUsesThinkingLevel ? modelThinkingLevel : undefined,
         );
-        const baseUrl = `https://gateway.ai.cloudflare.com/v1/${env.AI_GATEWAY_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/google-ai-studio/v1beta/models/${model}:generateContent`;
+        if (provider === "cf-unified" && !env.CF_AI_TOKEN) {
+          const missingToken = new ExtractorProviderError(401);
+          logExtractorFailure(missingToken, {
+            durationMs: Date.now() - requestStartedAt,
+            attempt,
+            statusClass: "permanent",
+            reason: "bad_request",
+            httpStatus: 401,
+          });
+          throw missingToken;
+        }
+        const baseUrl =
+          provider === "cf-unified"
+            ? cloudflareResponsesEndpoint(env.AI_GATEWAY_ACCOUNT_ID)
+            : `https://gateway.ai.cloudflare.com/v1/${env.AI_GATEWAY_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/google-ai-studio/v1beta/models/${model}:generateContent`;
         let httpStatus: number | undefined;
         let finishReason: unknown;
         let usageMetadata: unknown;
-        const requestBody = {
-          contents: [
-            {
-              parts: [{ text: `${prompt}${SAFETY_PROMPT}` }, contentPart],
-            },
-          ],
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema,
-            maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
-            ...(modelUsesThinkingLevel
-              ? { thinkingConfig: { thinkingLevel: modelThinkingLevel } }
-              : !isGemini3Model(model) &&
-                  thinkingBudget !== undefined &&
-                  model.includes("flash")
-                ? { thinkingConfig: { thinkingBudget } }
-                : {}),
-          },
-        };
+        const requestBody =
+          provider === "cf-unified"
+            ? buildCloudflareRequestBody(model, prompt, contentPart, mimeType)
+            : {
+                contents: [
+                  {
+                    parts: [{ text: `${prompt}${SAFETY_PROMPT}` }, contentPart],
+                  },
+                ],
+                generationConfig: {
+                  responseMimeType: "application/json",
+                  responseSchema,
+                  maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+                  ...(modelUsesThinkingLevel
+                    ? { thinkingConfig: { thinkingLevel: modelThinkingLevel } }
+                    : !isGemini3Model(model) &&
+                        thinkingBudget !== undefined &&
+                        model.includes("flash")
+                      ? { thinkingConfig: { thinkingBudget } }
+                      : {}),
+                },
+              };
+        const headers: Record<string, string> =
+          provider === "cf-unified"
+            ? {
+                Authorization: `Bearer ${env.CF_AI_TOKEN}`,
+                "Content-Type": "application/json",
+              }
+            : {
+                "Content-Type": "application/json",
+                "x-goog-api-key": env.GOOGLE_AI_STUDIO_API_KEY,
+              };
 
         let response: Response;
         try {
           response = await fetch(baseUrl, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-goog-api-key": env.GOOGLE_AI_STUDIO_API_KEY,
-            },
+            headers,
             body: JSON.stringify(requestBody),
             signal: AbortSignal.timeout(attemptTimeoutMs),
           });
@@ -427,16 +649,35 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         }
 
         try {
-          const json = (await response.json()) as {
-            candidates?: Array<{
-              finishReason?: unknown;
-              content?: { parts?: Array<{ text?: string }> };
-            }>;
-            usageMetadata?: unknown;
-          };
-          finishReason = json.candidates?.[0]?.finishReason;
-          usageMetadata = json.usageMetadata;
-          const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+          const json = (await response.json()) as unknown;
+          finishReason =
+            provider === "cf-unified"
+              ? isRecord(json) && typeof json.status === "string"
+                ? json.status
+                : "UNKNOWN"
+              : isRecord(json) &&
+                  Array.isArray(json.candidates) &&
+                  isRecord(json.candidates[0])
+                ? json.candidates[0].finishReason
+                : undefined;
+          usageMetadata =
+            provider === "cf-unified"
+              ? cloudflareUsageMetadata(json)
+              : isRecord(json)
+                ? json.usageMetadata
+                : undefined;
+          const text =
+            provider === "cf-unified"
+              ? cloudflareOutputText(json)
+              : isRecord(json) &&
+                  Array.isArray(json.candidates) &&
+                  isRecord(json.candidates[0]) &&
+                  isRecord(json.candidates[0].content) &&
+                  Array.isArray(json.candidates[0].content.parts) &&
+                  isRecord(json.candidates[0].content.parts[0]) &&
+                  typeof json.candidates[0].content.parts[0].text === "string"
+                ? json.candidates[0].content.parts[0].text
+                : "{}";
 
           // Finding 14: no `.parse()`/`.safeParse()` here — this function stops
           // being a validation gate. `toDraft()` (parsedResumeDraft.ts)
@@ -465,6 +706,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
       };
 
       const requestWithRetries = async (
+        provider: ExtractProvider,
         model: string,
         prompt: string,
         responseSchema: typeof GEMINI_RESUME_RESPONSE_SCHEMA,
@@ -480,6 +722,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
           if (Date.now() >= modelDeadline || budget.used >= budget.max) break;
           try {
             return await requestOnce(
+              provider,
               model,
               prompt,
               responseSchema,
@@ -509,6 +752,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
       };
 
       const runModel = async (
+        provider: ExtractProvider,
         model: string,
         budget: ProviderRequestBudget,
         modelDeadline: number,
@@ -520,6 +764,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
       ): Promise<unknown> => {
         try {
           return await requestWithRetries(
+            provider,
             model,
             FULL_RESUME_PROMPT,
             GEMINI_RESUME_RESPONSE_SCHEMA,
@@ -542,6 +787,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
           // A successful response with invalid JSON gets the existing one-shot
           // legacy recovery. It is validation recovery, not a retry.
           return requestWithRetries(
+            provider,
             model,
             LEGACY_RECOVERY_PROMPT,
             GEMINI_LEGACY_RESUME_RESPONSE_SCHEMA,
@@ -555,18 +801,53 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
         }
       };
 
-      const primaryModel = configuredModel(
-        env.GEMINI_MODEL,
-        "GEMINI_MODEL",
-        DEFAULT_GEMINI_MODEL,
-      ) as string;
-      const fallbackModel = configuredModel(
-        env.GEMINI_FALLBACK_MODEL,
-        "GEMINI_FALLBACK_MODEL",
-        undefined,
-      );
+      let primaryProvider = extractProvider;
+      let primaryModel: string;
+      let fallbackProvider = extractProvider;
+      let fallbackModel: string | undefined;
+      if (extractProvider === "cf-unified") {
+        const configuredPrimaryModel = configuredCloudflareModel(
+          env.EXTRACT_MODEL,
+          "EXTRACT_MODEL",
+          DEFAULT_CF_MODEL,
+        );
+        if (configuredPrimaryModel === undefined) {
+          throw new ExtractorProviderError(400);
+        }
+        primaryModel = configuredPrimaryModel;
+        const configuredFallback = env.EXTRACT_FALLBACK_MODEL;
+        if (
+          typeof configuredFallback === "string" &&
+          isGeminiModel(configuredFallback)
+        ) {
+          if (env.GOOGLE_AI_STUDIO_API_KEY) {
+            fallbackProvider = "google-key";
+            fallbackModel = configuredFallback;
+          }
+        } else {
+          fallbackModel = configuredCloudflareModel(
+            configuredFallback,
+            "EXTRACT_FALLBACK_MODEL",
+            undefined,
+          );
+        }
+      } else {
+        primaryProvider = "google-key";
+        primaryModel = configuredModel(
+          env.GEMINI_MODEL,
+          "GEMINI_MODEL",
+          DEFAULT_GEMINI_MODEL,
+        ) as string;
+        fallbackModel = configuredModel(
+          env.GEMINI_FALLBACK_MODEL,
+          "GEMINI_FALLBACK_MODEL",
+          undefined,
+        );
+      }
       const hasFallbackModel =
-        fallbackModel !== undefined && fallbackModel !== primaryModel;
+        fallbackModel !== undefined &&
+        (fallbackProvider !== primaryProvider ||
+          fallbackModel !== primaryModel);
       const primaryDeadline = hasFallbackModel
         ? deadline - GEMINI_FALLBACK_RESERVE_MS
         : deadline;
@@ -587,6 +868,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
       };
       try {
         return await runModel(
+          primaryProvider,
           primaryModel,
           primaryBudget,
           primaryDeadline,
@@ -601,7 +883,11 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             : error instanceof ExtractorProviderError && error.status === 404
               ? "model_not_found"
               : undefined;
-        if (fallbackReason !== undefined && hasFallbackModel) {
+        if (
+          fallbackReason !== undefined &&
+          hasFallbackModel &&
+          fallbackModel !== undefined
+        ) {
           const fallbackBudget: ProviderRequestBudget = {
             max: GEMINI_FALLBACK_MAX_PROVIDER_REQUESTS,
             used: 0,
@@ -611,6 +897,7 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
             // full retry or legacy-recovery sequence. It shares the primary's
             // overall deadline.
             return await runModel(
+              fallbackProvider,
               fallbackModel,
               fallbackBudget,
               deadline,

@@ -91,4 +91,22 @@ describe("outbound email deploy plumbing", () => {
     expect(uploadStep).not.toContain("GEMINI_FALLBACK_MODEL");
     expect(uploadStep).not.toContain("GEMINI_FALLBACK_THINKING_LEVEL");
   });
+
+  it("passes optional CF_AI_TOKEN only through the parse secrets file", () => {
+    expect(workflow).toContain("CF_AI_TOKEN: ${{ secrets.CF_AI_TOKEN }}");
+    expect(uploadStep).toContain(
+      '[ -n "${CF_AI_TOKEN:-}" ] && printf \'CF_AI_TOKEN=%s\\n\' "$CF_AI_TOKEN"',
+    );
+
+    const requiredStepStart = workflow.indexOf(
+      "name: 🔎 Required Worker secrets present?",
+    );
+    const requiredStepEnd = workflow.indexOf(
+      "\n      # External review Finding 1",
+      requiredStepStart,
+    );
+    const requiredStep = workflow.slice(requiredStepStart, requiredStepEnd);
+    expect(requiredStep).not.toContain("CF_AI_TOKEN");
+    expect(parseWranglerConfig).toContain('EXTRACT_PROVIDER = "google-key"');
+  });
 });
