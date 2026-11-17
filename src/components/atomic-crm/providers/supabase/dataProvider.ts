@@ -127,6 +127,10 @@ import {
   type InboxDeleteResult,
   isInboxAttachmentPurgePath,
 } from "../../inbox/inboxDelete";
+import type {
+  ShidduchReadState,
+  ShidduchStoragePurgeResult,
+} from "../../shidduchim/shidduchLifecycle";
 
 // Story 9.3: `public.listing_withdrawal_locks` deliberately has no `id`
 // column at all (Dev Notes "Why a lock table, not a column on `singles`" —
@@ -618,6 +622,19 @@ export const getDataProviderWithCustomMethods = () => {
     // Any NEW read of shidduchim must go through the view for the same reason.
     async getMany(resource: string, params: any) {
       if (resource === "shidduchim") {
+        if (params.meta?.shidduchActiveOnly) {
+          return baseDataProvider.getList("shidduchim_summary", {
+            filter: {
+              "id@in": `(${(params.ids ?? []).join(",")})`,
+              "archived_at@is": null,
+            },
+            pagination: {
+              page: 1,
+              perPage: Math.max(1, (params.ids ?? []).length),
+            },
+            sort: { field: "id", order: "ASC" },
+          });
+        }
         return baseDataProvider.getMany("shidduchim_summary", params);
       }
       return baseDataProvider.getMany(resource, params);
@@ -738,6 +755,52 @@ export const getDataProviderWithCustomMethods = () => {
       }
       const row = Array.isArray(data) ? data[0] : data;
       return row as Shidduch;
+    },
+    /** Manager-only lifecycle RPCs. Account and role are always derived by the
+     * database; these methods intentionally do not accept either as input. */
+    async archiveShidduch(id: Identifier): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("archive_shidduch", {
+        p_id: id,
+      });
+      if (error)
+        throw new Error(error.message || "Could not archive this shidduch");
+    },
+    async restoreShidduch(id: Identifier): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("restore_shidduch", {
+        p_id: id,
+      });
+      if (error)
+        throw new Error(error.message || "Could not restore this shidduch");
+    },
+    async getShidduchReadState(id: Identifier): Promise<ShidduchReadState> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "shidduch_read_in_progress",
+        { p_id: id },
+      );
+      if (error)
+        throw new Error(error.message || "Could not check resume state");
+      return { inProgress: Boolean(data) };
+    },
+    async deleteShidduch(id: Identifier): Promise<ShidduchStoragePurgeResult> {
+      const { error } = await getSupabaseClient().rpc("delete_shidduch", {
+        p_id: id,
+      });
+      if (error) {
+        if (
+          /being made easy to read|read.*progress|in flight/i.test(
+            error.message,
+          )
+        ) {
+          throw new Error(
+            "Please wait: this resume is being made easy to read.",
+          );
+        }
+        throw new Error("Could not delete. Nothing was changed.");
+      }
+      // The delete transaction commits the durable queue before this best-
+      // effort Storage pass. The returned row is not a pending-state signal:
+      // PostgREST represents SETOF as an array, including an empty array.
+      return drainShidduchStoragePurge();
     },
     // Append a redt to a shidduch (same or different shadchan, new date). The DB
     // trigger keeps shidduchim.redt_date (= latest) in sync. Returns the
@@ -1339,6 +1402,7 @@ export const getDataProviderWithCustomMethods = () => {
     /** Drain all pending private Inbox objects for the active account. Missing
      * objects are successful; failed removals stay queued for a later load. */
     drainInboxAttachmentPurge,
+    drainShidduchStoragePurge,
     // Epic 11 (Needs review tab): the "TRUST SENDER" action — see
     // ./trustedSenders.ts's own doc comment for the atomicity/idempotency
     // reasoning (no schema change available in this pass, so this is two
@@ -1587,10 +1651,12 @@ export const getDataProvider = () => {
       "Please set the VITE_SB_PUBLISHABLE_KEY environment variable",
     );
   }
-  return withLifecycleCallbacks(
+  const provider = withLifecycleCallbacks(
     getDataProviderWithCustomMethods(),
     lifeCycleCallbacks,
   ) as CrmDataProvider;
+  void drainShidduchStoragePurge().catch(() => undefined);
+  return provider;
 };
 
 // Exported for `dataProvider.test.ts` (review fix, F1/F2): the sanitization
@@ -1725,6 +1791,140 @@ const drainInboxAttachmentPurge = async (): Promise<InboxDeleteResult> => {
     purgePending: rows.length > acknowledgedPaths.length,
   };
 };
+
+type StoragePurgeRow = {
+  id: Identifier;
+  kind: "object" | "prefix" | "quarantine";
+  bucket: string;
+  storage_path: string;
+  phase: number;
+};
+
+type ListedStorageEntry = {
+  name?: string;
+  id?: string | null;
+  metadata?: unknown;
+};
+
+const isStorageDirectory = (entry: ListedStorageEntry): boolean =>
+  entry.id == null && entry.metadata == null;
+
+const childStoragePath = (prefix: string, name: string): string =>
+  `${prefix}${name.replace(/^\/+/, "")}`;
+
+const listStoragePrefix = async (
+  bucket: string,
+  prefix: string,
+): Promise<string[]> => {
+  const files: string[] = [];
+  const directories = [prefix];
+  const storage = getSupabaseClient().storage.from(bucket);
+
+  while (directories.length > 0) {
+    const directory = directories.shift();
+    if (!directory) continue;
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await storage.list(directory, {
+        limit: 1000,
+        offset,
+        sortBy: { column: "name", order: "asc" },
+      });
+      if (error) throw error;
+      const entries = (data ?? []) as ListedStorageEntry[];
+      if (entries.length === 0) break;
+      for (const entry of entries) {
+        if (!entry.name) continue;
+        const fullPath = childStoragePath(directory, entry.name);
+        if (isStorageDirectory(entry)) directories.push(`${fullPath}/`);
+        else files.push(fullPath);
+      }
+      if (entries.length < 1000) break;
+    }
+  }
+
+  return files;
+};
+
+/** Drain the generalized shidduch-owned object queue. Storage is best effort;
+ * the Postgres queue remains the source of truth until every remove succeeds. */
+export const drainShidduchStoragePurge =
+  async (): Promise<ShidduchStoragePurgeResult> => {
+    let rows: StoragePurgeRow[] = [];
+    try {
+      const { data, error } = await getSupabaseClient().rpc(
+        "claim_shidduch_storage_purge",
+      );
+      if (error) throw error;
+      rows = (data ?? []) as StoragePurgeRow[];
+    } catch {
+      return { purgePending: true };
+    }
+
+    let pending = false;
+    for (const row of rows) {
+      if (!row.bucket || !row.storage_path) continue;
+      if (row.kind === "quarantine") {
+        pending = true;
+        continue;
+      }
+      let paths: string[];
+      try {
+        paths =
+          row.kind === "prefix"
+            ? await listStoragePrefix(row.bucket, row.storage_path)
+            : [row.storage_path];
+      } catch {
+        pending = true;
+        continue;
+      }
+
+      let rowComplete = true;
+      for (const objectPath of paths) {
+        const { data: authorized, error: authorizationError } =
+          await getSupabaseClient().rpc("authorize_shidduch_storage_removal", {
+            p_kind: row.kind,
+            p_bucket: row.bucket,
+            p_queue_path: row.storage_path,
+            p_object_path: objectPath,
+          });
+        if (authorizationError) {
+          rowComplete = false;
+          continue;
+        }
+        if (!authorized) continue;
+        try {
+          const { error } = await getSupabaseClient()
+            .storage.from(row.bucket)
+            .remove([objectPath]);
+          if (error && !isMissingStorageObject(error)) rowComplete = false;
+        } catch {
+          rowComplete = false;
+        }
+      }
+
+      if (!rowComplete) {
+        pending = true;
+        continue;
+      }
+      const { data: acknowledged, error: acknowledgeError } =
+        await getSupabaseClient().rpc("ack_shidduch_storage_purge", {
+          p_kind: row.kind,
+          p_bucket: row.bucket,
+          p_path: row.storage_path,
+        });
+      if (acknowledgeError || !acknowledged) pending = true;
+    }
+
+    try {
+      const { count, error } = await getSupabaseClient()
+        .from("storage_purge_queue")
+        .select("id", { count: "exact", head: true });
+      if (error) return { purgePending: true };
+      return { purgePending: pending || (count ?? 0) > 0 };
+    } catch {
+      return { purgePending: true };
+    }
+  };
 
 // Story 10.1 (Task 4): exported so `ShareTarget.tsx` can upload a shared
 // photo through the exact same path `members.avatar` already uses — one

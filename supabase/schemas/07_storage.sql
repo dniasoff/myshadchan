@@ -231,3 +231,54 @@ create policy "Documents photos deletable within account" on storage.objects
         and (storage.foldername(name))[2] = 'photos'
         and (storage.foldername(name))[3] in ('shared', 'private_parent')
     );
+
+-- Story 5xr: every authenticated account upload takes the same account
+-- advisory reservation as account deletion. Shidduch-owned paths additionally
+-- require the exact grammar and no permanent tombstone. The parent catalog
+-- row may be created in the guarded RPC immediately after the PUT. The
+-- entity_files trigger repeats target/path validation for service_role, which
+-- bypasses Storage RLS.
+drop policy if exists "Attachments writable within account" on storage.objects;
+drop policy if exists "Entity files writable within account" on storage.objects;
+drop policy if exists "Documents resumes writable within account" on storage.objects;
+drop policy if exists "Documents photos writable within account" on storage.objects;
+
+create policy "Attachments writable within account" on storage.objects
+    for insert to authenticated
+    with check (
+        bucket_id = 'attachments'
+        and (storage.foldername(name))[1] = public.current_context_id()::text
+        and public.storage_account_write_allowed((storage.foldername(name))[1]::bigint)
+    );
+
+create policy "Entity files writable within account" on storage.objects
+    for insert to authenticated
+    with check (
+        bucket_id = 'entity-files'
+        and (storage.foldername(name))[1] = public.current_context_id()::text
+        and public.current_member_role() <> 'single'
+        and public.storage_account_write_allowed((storage.foldername(name))[1]::bigint)
+        and public.shidduch_storage_path_allowed(bucket_id, name)
+    );
+
+create policy "Documents resumes writable within account" on storage.objects
+    for insert to authenticated
+    with check (
+        bucket_id = 'documents'
+        and (storage.foldername(name))[1] = public.current_context_id()::text
+        and (storage.foldername(name))[2] = 'resumes'
+        and public.current_member_role() <> 'single'
+        and public.storage_account_write_allowed((storage.foldername(name))[1]::bigint)
+        and public.shidduch_storage_path_allowed(bucket_id, name)
+    );
+
+create policy "Documents photos writable within account" on storage.objects
+    for insert to authenticated
+    with check (
+        bucket_id = 'documents'
+        and (storage.foldername(name))[1] = public.current_context_id()::text
+        and (storage.foldername(name))[2] = 'photos'
+        and (storage.foldername(name))[3] in ('shared', 'private_parent')
+        and public.storage_account_write_allowed((storage.foldername(name))[1]::bigint)
+        and public.shidduch_storage_path_allowed(bucket_id, name)
+    );

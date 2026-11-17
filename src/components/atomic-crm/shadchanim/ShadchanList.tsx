@@ -39,6 +39,7 @@ const ShadchanRowList = ({
   );
   const { data: shidduchim, isPending: shidduchimPending } =
     useGetList<ShidduchSummary>("shidduchim", {
+      filter: { "archived_at@is": null },
       pagination: { page: 1, perPage: 500 },
       sort: { field: "id", order: "ASC" },
     });

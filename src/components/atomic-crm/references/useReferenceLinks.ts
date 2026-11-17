@@ -20,7 +20,10 @@ export const useReferenceLinks = (referenceId?: Identifier) => {
   const { data, isPending, error } = useGetList<ReferenceLinkSummary>(
     "reference_links",
     {
-      filter: { reference_id: referenceId },
+      filter: {
+        reference_id: referenceId,
+        "shidduch_archived_at@is": null,
+      },
       pagination: { page: 1, perPage: 100 },
       sort: { field: "created_at", order: "DESC" },
     },

@@ -239,7 +239,7 @@ export function useDueReminders(): UseDueRemindersResult {
 
   const shidduchim = useGetMany(
     RESOURCE_FOR_LABEL_TYPE.shidduch,
-    { ids: shidduchIds },
+    { ids: shidduchIds, meta: { shidduchActiveOnly: true } },
     { enabled: shidduchIds.length > 0 },
   );
   const shadchanim = useGetMany(
@@ -295,6 +295,13 @@ export function useDueReminders(): UseDueRemindersResult {
     ];
     byType.forEach(([type, result]) => {
       (result.data ?? []).forEach((record) => {
+        if (
+          type === "shidduch" &&
+          "archived_at" in record &&
+          record.archived_at != null
+        ) {
+          return;
+        }
         lookup.set(`${type}:${record.id}`, record as Record<string, unknown>);
       });
     });

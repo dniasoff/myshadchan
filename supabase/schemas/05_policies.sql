@@ -1825,6 +1825,20 @@ create policy "Entity files scoped to account" on public.entity_files
         and public.current_member_role() <> 'single'
     );
 
+-- Story 5xr: queue rows are private cleanup work, never direct client DML.
+alter table public.deleted_shidduch_tombstones enable row level security;
+alter table public.deleted_shidduch_tombstones force row level security;
+
+alter table public.storage_purge_queue enable row level security;
+alter table public.storage_purge_queue force row level security;
+
+create policy "Storage purge queue readable by owning managers"
+    on public.storage_purge_queue for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() in ('parent_admin', 'self_manager')
+    );
+
 -- =====================================================================
 -- MyShadchan — Communication (Epic 7: threads, AD-1, AD-3, AD-20, AD-22)
 -- =====================================================================

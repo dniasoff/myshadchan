@@ -153,8 +153,10 @@ returning id as single_id \gset
 -- join (see the note above (b), below) requires the SAME AC-1 three-part
 -- test "Resumes visible to single" already does. 'look_into' is legal for a
 -- raw insert (enforce_shidduch_initial_state).
+set local role service_role;
 insert into public.shidduchim (single_id, name_en, pipeline_state) values (:single_id, 'RP Shidduch', 'look_into')
 returning id as shidduch_id \gset
+set local role authenticated;
 
 insert into ids values ('single_id', :'single_id'), ('shidduch_id', :'shidduch_id');
 

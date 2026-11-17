@@ -640,3 +640,20 @@ create constraint trigger z_assert_account_not_orphaned_accounts
 after insert or update on public.accounts
 deferrable initially deferred
 for each row execute function public.assert_account_not_orphaned();
+
+-- Story 5xr: every privileged/direct/cascade shidduch delete writes the
+-- permanent fence before the row disappears. Client DELETE is revoked too,
+-- but the trigger is defense-in-depth for account cascades and service code.
+drop trigger if exists tombstone_shidduch_before_delete on public.shidduchim;
+create trigger tombstone_shidduch_before_delete
+before delete on public.shidduchim
+for each row execute function public.shidduch_delete_tombstone();
+
+-- entity_files is polymorphic and has no FK to shidduchim. The trigger locks
+-- a shidduch parent FOR SHARE and enforces target/path agreement even for
+-- service_role, which bypasses storage.objects RLS.
+drop trigger if exists validate_entity_files_shidduch_target on public.entity_files;
+create trigger validate_entity_files_shidduch_target
+before insert or update of account_id, target_type, target_id, storage_path
+on public.entity_files
+for each row execute function public.entity_files_target_guard();

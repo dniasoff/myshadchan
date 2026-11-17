@@ -87,7 +87,7 @@ const useLinkedEntityRecords = (
 
   const shidduchim = useGetMany(
     RESOURCE_FOR_TARGET.shidduch,
-    { ids: shidduchIds },
+    { ids: shidduchIds, meta: { shidduchActiveOnly: true } },
     { enabled: shidduchIds.length > 0 },
   );
   const references = useGetMany(

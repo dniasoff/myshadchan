@@ -831,6 +831,7 @@ from public.account_members where user_id = '61810000-0000-0000-0000-00000000000
 -- file), zero rows on one of 6.3's deny tables (entity_files), and
 -- own-row-only on account_members (the household now has three real
 -- members: the admin, the helper, and this newly-linked single).
+set local role service_role;
 insert into public.shidduchim (account_id, single_id, name_en, visibility, pipeline_state)
 values (:acct_household, :target_single_id, 'Chana Visible Suggestion', 'shared', 'look_into')
 returning id as chana_visible_shidduch_id \gset
@@ -845,7 +846,8 @@ values (:acct_household, 'shidduch', :chana_visible_shidduch_id, 'Follow up with
 insert into public.entity_files (account_id, target_type, target_id, storage_path, file_name, mime_type, size_bytes)
 values (
   :acct_household, 'shidduch', :chana_visible_shidduch_id,
-  :'acct_household' || '/x/y.pdf', 'y.pdf', 'application/pdf', 1
+  :'acct_household' || '/shidduch/' || :chana_visible_shidduch_id || '/y.pdf',
+  'y.pdf', 'application/pdf', 1
 );
 
 set local role authenticated;

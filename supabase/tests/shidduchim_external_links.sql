@@ -104,8 +104,10 @@ set local request.jwt.claims = '{"sub":"e7111111-1111-1111-1111-111111111111","r
 insert into public.singles (first_name_en) values ('SEL Single Person')
 returning id as single_id \gset
 
+set local role service_role;
 insert into public.shidduchim (single_id, name_en) values (:single_id, 'SEL Shidduch')
 returning id as shidduch_id \gset
+set local role authenticated;
 
 insert into ids values ('single_id', :'single_id'), ('shidduch_id', :'shidduch_id');
 
@@ -115,8 +117,10 @@ set local request.jwt.claims = '{"sub":"e7333333-3333-3333-3333-333333333333","r
 insert into public.singles (first_name_en) values ('SEL Foreign Single')
 returning id as foreign_single_id \gset
 
+set local role service_role;
 insert into public.shidduchim (single_id, name_en) values (:foreign_single_id, 'SEL Foreign Shidduch')
 returning id as foreign_shidduch_id \gset
+set local role authenticated;
 
 insert into ids values ('foreign_shidduch_id', :'foreign_shidduch_id');
 

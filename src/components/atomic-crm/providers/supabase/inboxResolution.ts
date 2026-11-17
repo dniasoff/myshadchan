@@ -91,16 +91,14 @@ export async function deleteOwnedInboxResume(
 export async function deleteOwnedInboxShidduch(
   params: OwnedShidduchDeleteParams,
 ): Promise<boolean> {
-  let query = getSupabaseClient()
-    .from("shidduchim")
-    .delete()
-    .eq("id", params.id)
-    .is("name_en", null);
-  if (params.singleId != null) query = query.eq("single_id", params.singleId);
-  if (params.expectedCreatedAt != null) {
-    query = query.eq("created_at", params.expectedCreatedAt);
-  }
-  const { data, error } = await query.select("id");
+  const { data, error } = await getSupabaseClient().rpc(
+    "delete_owned_inbox_shidduch",
+    {
+      p_id: params.id,
+      p_single_id: params.singleId ?? null,
+      p_created_at: params.expectedCreatedAt ?? null,
+    },
+  );
   if (error) throw new Error("Could not remove the failed suggestion attempt.");
-  return Array.isArray(data) ? data.length > 0 : data != null;
+  return Boolean(data);
 }

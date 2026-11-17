@@ -222,6 +222,21 @@ describe("getList", () => {
     });
   });
 
+  it("should transform '@not.in'", async () => {
+    const getList = vi.fn();
+    const dataProvider = withSupabaseFilterAdapter({
+      getList,
+    } as any);
+
+    await dataProvider.getList("resource", {
+      filter: { "id@not.in": "(1,2)" },
+    });
+
+    expect(getList).toHaveBeenCalledWith("resource", {
+      filter: { id_neq_any: [1, 2] },
+    });
+  });
+
   it("should transform '@cs'", async () => {
     const getList = vi.fn();
     const mockDataProvider = {

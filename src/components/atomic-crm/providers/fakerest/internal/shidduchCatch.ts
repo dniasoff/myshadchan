@@ -119,12 +119,14 @@ export const computeShidduchCatchCount = (
   target: Shidduch,
   all: Shidduch[],
 ): number => {
+  if (target.archived_at != null) return 0;
   const a = signalsOf(target);
   if (!hasName(a)) return 0;
   return all.filter(
     (other) =>
       String(other.id) !== String(target.id) &&
       other.account_id === target.account_id &&
+      other.archived_at == null &&
       gate(a, signalsOf(other)) !== null,
   ).length;
 };
@@ -174,11 +176,15 @@ export async function catchShidduch(
   const a = signalsOf(target);
 
   const suggestions: ShidduchCatchSuggestion[] = [];
+  if (target.archived_at != null) {
+    return { has_catch: false, suggestions: [], dates: [] };
+  }
   if (hasName(a)) {
     for (const ps of shidduchim) {
       if (
         String(ps.id) === String(target.id) ||
-        ps.account_id !== target.account_id
+        ps.account_id !== target.account_id ||
+        ps.archived_at != null
       ) {
         continue;
       }

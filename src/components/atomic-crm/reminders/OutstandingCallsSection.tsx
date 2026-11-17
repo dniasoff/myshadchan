@@ -42,6 +42,7 @@ export const OutstandingCallsSection = () => {
   const { data, isPending } = useGetList<ReferenceLinkSummary>(
     "reference_links",
     {
+      filter: { "shidduch_archived_at@is": null },
       pagination: { page: 1, perPage: FETCH_LIMIT },
       sort: { field: "created_at", order: "ASC" },
     },

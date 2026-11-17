@@ -12,6 +12,7 @@ import {
   randomSecret,
   insertAndResolveDemoListing,
   requireSafePositiveBigintId,
+  assertCurrentRunShidduchId,
   uploadSeededResumeFile,
 } from "./index.ts";
 
@@ -636,6 +637,67 @@ describe("seed_demo direct harness", () => {
       ),
     ).rejects.toThrow("manifest unavailable");
     expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("allows only a shidduch created by this seed run", () => {
+    expect(() =>
+      assertCurrentRunShidduchId(17, new Set([17]), "target"),
+    ).not.toThrow();
+    expect(() =>
+      assertCurrentRunShidduchId(18, new Set([17]), "target"),
+    ).toThrow("not a shidduch created by this seed run");
+  });
+
+  it("keeps service-role shidduch storage writes on the guarded allowlist", () => {
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const uploadLines = source
+      .split("\n")
+      .filter((line) => line.includes(".upload(path, bytes"));
+    expect(uploadLines).toHaveLength(3);
+    expect(source).toContain("currentRunShidduchIds");
+    expect(source).toContain("add_resume_file");
+    expect(source).toContain("add_resume_photo");
+    expect(source).toContain('from("entity_files")');
+  });
+
+  it("removes a just-uploaded object when its guarded catalog write fails", async () => {
+    const upload = vi.fn().mockResolvedValue({ error: null });
+    const remove = vi.fn().mockResolvedValue({ data: [], error: null });
+    const storageClient = {
+      from: vi.fn().mockReturnValue({ upload, remove }),
+    };
+    adminRpc.mockImplementation((fn: string) => {
+      if (fn === "add_resume_file") {
+        return Promise.resolve({
+          data: null,
+          error: { message: "parent was deleted" },
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    await expect(
+      uploadSeededResumeFile(
+        7,
+        "lease-token",
+        42,
+        {
+          filename: "resume.pdf",
+          assetKey: "resume:root" as never,
+          mimeType: "application/pdf",
+          shidduchimId: 17,
+          currentRunShidduchIds: new Set([17]),
+        },
+        {
+          rpc: (...args: unknown[]) =>
+            adminRpc(...(args as [string, Record<string, unknown>])),
+          storage: storageClient,
+        } as never,
+      ),
+    ).rejects.toThrow("parent was deleted");
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove.mock.calls[0]?.[0]).toEqual([expect.any(String)]);
   });
 
   it("resolves every real root member from public.members without auth pagination", async () => {

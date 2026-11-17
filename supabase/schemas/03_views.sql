@@ -42,6 +42,8 @@ from public.identity_signals a
     join public.shidduchim ash on ash.id = a.target_id
     join public.shidduchim bsh on bsh.id = b.target_id
 where a.target_type = 'shidduch'
+    and ash.archived_at is null
+    and bsh.archived_at is null
     and not coalesce(public.shidduch_has_known_halachic_conflict(
         ash.single_id, ash.person_gender, ash.kohen_status, ash.marital_status
     ), false)
@@ -50,7 +52,10 @@ where a.target_type = 'shidduch'
     ), false)
 group by a.target_id, a.account_id;
 
--- Board list/detail read path for the shidduchim pipeline (AD-10). Joins the
+-- Board list/detail read path for the shidduchim pipeline (AD-10). This is an
+-- archived-detail view: list callers apply `archived_at is null` for active
+-- defaults, while an id deep link can still fetch an archived row.
+-- Joins the
 -- shadchan ("via {shadchan}")
 -- and the single so the board card needs a single fetch. security_invoker
 -- so the base-table RLS still applies to the caller. catch_count (E3) is a
@@ -125,7 +130,8 @@ select
     count(distinct r.id) as nb_redts,
     coalesce(max(cat.catch_count), 0) as catch_count,
     s.person_gender,
-    s.kohen_status
+    s.kohen_status,
+    s.archived_at
 from public.shidduchim s
     left join public.shadchanim sh on sh.id = s.shadchan_id
     left join public.singles c on c.id = s.single_id
@@ -162,7 +168,7 @@ select
     r.name_norm_en,
     r.name_norm_he,
     r.phone_norm,
-    count(distinct rl.shidduchim_id) as linked_shidduchim_count,
+    count(distinct rl.shidduchim_id) filter (where s.archived_at is null) as linked_shidduchim_count,
     count(distinct rl.id) filter (
         where rl.call_status in ('answered', 'they_will_call_back')
     ) as contacted_count,
@@ -170,6 +176,7 @@ select
     count(distinct t.id) filter (where t.done_date is null) as open_task_count
 from public."references" r
     left join public.reference_links rl on rl.reference_id = r.id
+    left join public.shidduchim s on s.id = rl.shidduchim_id
     left join public.interactions i on i.target_type = 'reference' and i.target_id = r.id
     left join public.tasks t on t.target_type = 'reference' and t.target_id = r.id
 group by r.id;
@@ -204,6 +211,7 @@ select
     s.single_id,
     c.first_name_en as single_first_name_en,
     c.first_name_he as single_first_name_he
+    ,s.archived_at as shidduch_archived_at
 from public.reference_links rl
     left join public."references" r on r.id = rl.reference_id
     left join public.shidduchim s on s.id = rl.shidduchim_id
@@ -238,16 +246,11 @@ select
           and g.status = 'accepted'
           and g.proposer_account_id <> public.current_context_id()
     ) as is_shared_with_me,
-    count(s.id) filter (
-        where not coalesce(public.shidduch_has_known_halachic_conflict(
+    count(s.id) filter (where s.archived_at is null) as total_shidduchim,
+    count(s.id) filter (where s.archived_at is null and s.pipeline_state in ('new', 'look_into', 'not_sure')
+        and not coalesce(public.shidduch_has_known_halachic_conflict(
             s.single_id, s.person_gender, s.kohen_status, s.marital_status
         ), false)
-    ) as total_shidduchim,
-    count(s.id) filter (
-        where s.pipeline_state in ('new', 'look_into', 'not_sure')
-          and not coalesce(public.shidduch_has_known_halachic_conflict(
-              s.single_id, s.person_gender, s.kohen_status, s.marital_status
-          ), false)
     ) as open_shidduchim,
     c.kohen_status,
     c.marital_status
@@ -286,12 +289,13 @@ create or replace view public.shadchan_stats with (security_invoker = on) as
 select
     sh.id,
     sh.account_id,
-    count(s.id) as nb_suggestions,
-    count(s.id) filter (where s.pipeline_state <> 'new') as nb_progressed,
-    count(s.id) filter (where s.pipeline_state = 'yes') as nb_reached_yes,
-    max(s.redt_date) as last_redt_date,
+    count(s.id) filter (where s.archived_at is null) as nb_suggestions,
+    count(s.id) filter (where s.archived_at is null and s.pipeline_state <> 'new') as nb_progressed,
+    count(s.id) filter (where s.archived_at is null and s.pipeline_state = 'yes') as nb_reached_yes,
+    max(s.redt_date) filter (where s.archived_at is null) as last_redt_date,
     count(distinct s.single_id) filter (
-        where s.pipeline_state in ('new', 'look_into', 'not_sure')
+        where s.archived_at is null
+          and s.pipeline_state in ('new', 'look_into', 'not_sure')
     ) as nb_open_singles
 from public.shadchanim sh
     left join public.shidduchim s on s.shadchan_id = sh.id

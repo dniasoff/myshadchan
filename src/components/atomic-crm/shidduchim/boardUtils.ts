@@ -38,3 +38,10 @@ export const formatRedtDate = (dateString?: string | null): string => {
   if (!year || !month || !day) return dateString;
   return format(new Date(year, month - 1, day), "d MMM yyyy");
 };
+
+/** Format the archive timestamp without letting the browser timezone move the date. */
+export const formatArchivedDate = (dateString?: string | null): string => {
+  if (!dateString) return "";
+  const date = new Date(`${dateString.slice(0, 10)}T00:00:00`);
+  return Number.isNaN(date.valueOf()) ? dateString : format(date, "d MMM yyyy");
+};

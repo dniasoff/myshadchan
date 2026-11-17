@@ -103,7 +103,7 @@ export interface ParentFocusCardsProps {
  */
 export const ParentFocusCards = ({ singleId, now }: ParentFocusCardsProps) => {
   const { data, isPending } = useGetList<ShidduchSummary>("shidduchim", {
-    filter: { single_id: singleId },
+    filter: { single_id: singleId, "archived_at@is": null },
     pagination: { page: 1, perPage: 200 },
     sort: { field: "index", order: "ASC" },
   });

@@ -9,6 +9,7 @@ import { ShidduchReferencesSection } from "../references/ShidduchReferencesSecti
 import { DiligenceDossierCard } from "../references/DiligenceDossierCard";
 import type { Shadchan, ShidduchSummary } from "../types";
 import { ShidduchShowHeader } from "./ShidduchShowHeader";
+import { ShidduchLifecycleActions } from "./ShidduchLifecycleActions";
 import { ShidduchStateControl } from "./ShidduchStateControl";
 
 /**
@@ -57,11 +58,14 @@ export const ShidduchIdentityHeader = ({
  * stays reachable from every tab, exactly as it was on the routed dialog.
  */
 export const ShidduchActions = ({ record }: { record: ShidduchSummary }) => (
-  <ShidduchStateControl
-    id={record.id}
-    currentState={record.pipeline_state}
-    name={record.name_en}
-  />
+  <>
+    <ShidduchStateControl
+      id={record.id}
+      currentState={record.pipeline_state}
+      name={record.name_en}
+    />
+    <ShidduchLifecycleActions record={record} />
+  </>
 );
 
 /**

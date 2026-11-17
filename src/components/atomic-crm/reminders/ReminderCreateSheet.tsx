@@ -59,6 +59,7 @@ const useShidduchOptions = (enabled: boolean) => {
   const { data, isPending } = useGetList<ShidduchSummary>(
     "shidduchim",
     {
+      filter: { "archived_at@is": null },
       pagination: { page: 1, perPage: 100 },
       sort: { field: "created_at", order: "DESC" },
     },

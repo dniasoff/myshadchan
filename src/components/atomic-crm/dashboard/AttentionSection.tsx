@@ -21,6 +21,7 @@ const MAX_SHOWN = 4;
 
 export const AttentionSection = () => {
   const { data, isPending } = useGetList<ShidduchSummary>("shidduchim", {
+    filter: { "archived_at@is": null },
     pagination: { page: 1, perPage: 100 },
     sort: { field: "redt_date", order: "DESC" },
   });

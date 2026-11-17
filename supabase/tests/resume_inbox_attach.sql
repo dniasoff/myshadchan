@@ -29,8 +29,10 @@ set local request.jwt.claims = '{"sub":"df222222-2222-2222-2222-222222222222","r
 
 insert into public.singles (account_id, first_name_en, last_name_en)
 values (:acct_a, 'David', 'Levi') returning id as single_id \gset
+set local role service_role;
 insert into public.shidduchim (account_id, single_id, name_en)
 values (:acct_a, :single_id, 'David Levi') returning id as shidduch_id \gset
+set local role authenticated;
 insert into ids values ('single_id', :'single_id'), ('shidduch_id', :'shidduch_id');
 
 insert into public.inbox_items (

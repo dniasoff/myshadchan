@@ -741,7 +741,12 @@ set local request.jwt.claims = '{"sub":"d1d1d1d1-1111-1111-1111-111111111111","r
 -- ten still prove the ordering.
 insert into public.singles (first_name_en) values ('AC-3a Single') returning id as ac3a_single \gset
 insert into public.shadchanim (name) values ('AC-3a Shadchan') returning id as ac3a_shadchan \gset
+-- Base shidduch INSERT is intentionally revoked from authenticated. Keep the
+-- trigger-ordering fixture's direct insert on the trusted test role; the
+-- request claims and active household context remain the same.
+set local role service_role;
 insert into public.shidduchim (single_id, name_en) values (:ac3a_single, 'AC-3a Shidduch') returning id as ac3a_shidduch \gset
+set local role authenticated;
 insert into public.resumes (shidduchim_id) values (:ac3a_shidduch) returning id as ac3a_resume \gset
 insert into public.reference_links (reference_id) values (:ac3a_reference) returning id as ac3a_link \gset
 insert into public.date_records (single_id) values (:ac3a_single) returning id as ac3a_date_record \gset
