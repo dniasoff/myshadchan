@@ -49,20 +49,20 @@ reached by drag at any hold duration.** The board also hides 718px of itself at 
 
 1. **One three-position control, keyed to the store — never the URL.** `/shidduchim` renders a
    three-position segmented control (**Board · List · Cards**) with the page's toolbar. The
-   choice persists per user via ra-core's `useStore` under key `"shidduchim.pageView"` and
-   survives navigation and reload. The **default** (nothing stored yet) is `"list"` on a phone and
-   `"board"` otherwise.
+   choice persists per user via ra-core's `useStore` under key `"shidduchim.pageView.v2"` and
+   survives navigation and reload. The **default** (nothing stored yet) is `"list"` at every
+   viewport. A value under the legacy `"shidduchim.pageView"` key is ignored once so existing
+   users do not land on the sideways-scrolling Board after this change.
    *Failing looks like:* (a) `grep -rn "view=" src/components/atomic-crm/shidduchim/` matches a
    query-param read or write; (b) typing in the search box or clicking a single pill returns the
    user to the Board (that is the URL-param failure mode — see Dev Notes "Why the view choice
    cannot live in the URL"); (c) two adjacent toggles (Board/List plus a separate List/Cards)
    render.
 
-2. **`useIsMobile()` chooses a default, never a rendering.** Exactly one `useIsMobile()` call
-   exists under `shidduchim/`, and its only consumer is the `useStore` default in AC-1. Board,
-   List and Cards are each reachable at **every** viewport width.
-   *Failing looks like:* `LSP findReferences` on `useIsMobile` shows a `shidduchim/` call site
-   inside a render branch; or a 390px viewport cannot reach the Board.
+2. **The default is viewport-independent.** No viewport check participates in choosing the
+   initial position. Board, List and Cards are each reachable at **every** viewport width.
+   *Failing looks like:* a 390px or desktop viewport chooses a different position when nothing
+   is stored, or a viewport check reintroduces a first-paint branch.
 
 3. **The list view is searchable.** A `q` search box (wired to a new `applyFullTextSearch` hook
    for resource `"shidduchim"`) filters server-side against Supabase in both List and Cards
@@ -205,15 +205,13 @@ reached by drag at any hold duration.** The board also hides 718px of itself at 
         loading / error(+retry) states for anything other than `"ready"` / `"no-matches"`.
   - [x] View resolution, verbatim shape:
         ```ts
-        const isMobile = useIsMobile();                                   // AC-2: the ONLY call
-        const [stored, setStored] = useStore<"board"|"list"|"cards">("shidduchim.pageView");
-        const view = stored ?? (isMobile ? "list" : "board");
+        const [stored, setStored] = useStore<"board"|"list"|"cards">("shidduchim.pageView.v2");
+        const view = stored ?? "list";
         ```
         `useStore`'s one-argument overload returns `[T | undefined, setter]`
         (`node_modules/ra-core/dist/store/useStore.d.ts`), which is what makes "no stored choice
-        yet" distinguishable from "the user chose board". Passing `isMobile ? … : …` as
-        `useStore`'s *default argument* instead would make the default flip under a resize and is
-        forbidden.
+        yet" distinguishable from "the user chose board". The v2 key intentionally leaves the
+        legacy key unread so the new List default is applied once to existing users.
   - [x] Render `ShidduchimListContent` (the existing Kanban, unchanged in layout) for `"board"`,
         or the pipeline list sub-view (Task 4) for `"list"` / `"cards"`.
   - [x] The three-position segmented control (Kanban / `LayoutList` / `LayoutGrid` icons,
@@ -352,10 +350,12 @@ only** (`filter`, `sort`, `order`, `page`, `perPage`, `displayedFilters`) on eve
 write. Any foreign query param is silently dropped, so the first search keystroke or single-pill
 click would wipe `?view=list` and dump the user back onto the Board mid-action.
 
-Hence one store-persisted key, `"shidduchim.pageView"` (`useStore`, the same `"CRM"` localStorage
-namespace as 4.2), holding `board | list | cards`. The trade — no view-addressable deep link — is
-accepted: the epic's AC demands shared filters/context between views, not linkable views, and
-everything shareable (`q`, `single_id`, sort) still lives in the URL via the `<List>`'s own sync.
+Hence one store-persisted key, `"shidduchim.pageView.v2"` (`useStore`, the same `"CRM"` localStorage
+namespace as 4.2), holding `board | list | cards`. Bumping the key deliberately ignores one old
+saved choice so existing users receive the new List default; later explicit picks persist normally.
+The trade — no view-addressable deep link — is accepted: the epic's AC demands shared
+filters/context between views, not linkable views, and everything shareable (`q`, `single_id`, sort)
+still lives in the URL via the `<List>`'s own sync.
 
 **All three mobile-redesign proposals independently reached for `?view=`.** It is rejected on the
 record. One control, three renderings; do not split it into a Board/List toggle plus a separate

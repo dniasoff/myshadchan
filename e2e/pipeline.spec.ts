@@ -51,13 +51,13 @@ declare const document: {
 };
 
 // The core sign-in-and-see-the-pipeline smoke spec (AC-14), split per
-// position by project: chromium (desktop) asserts the Board — its own
-// default view (AC-1) — and Mobile Chrome asserts the List position, which
-// is ITS default. Sign-in itself waits on the "Shidduchim" nav link
+// viewport project: both chromium (desktop) and Mobile Chrome assert the List
+// position, which is the default at every viewport. Sign-in itself waits on the
+// "Shidduchim" nav link
 // (relabelled from "Pipeline" by Story 4.4) — shared between the desktop
 // Sidebar and the mobile bottom nav via the same PRIMARY_NAV list.
 
-test("member signs in and sees the pipeline board (chromium)", async ({
+test("member signs in and sees the pipeline list (chromium)", async ({
   page,
   createMember,
   createSingle,
@@ -65,33 +65,35 @@ test("member signs in and sees the pipeline board (chromium)", async ({
 }, testInfo) => {
   test.skip(
     testInfo.project.name !== "chromium",
-    "the Board is chromium's (desktop) default view — see the Mobile Chrome test below for the List position",
+    "the desktop smoke assertion runs only in chromium — see the Mobile Chrome test below for the phone viewport",
   );
 
   const member = await createMember({
     first_name: "Ada",
     last_name: "Shadchan",
-    email: `e2e-pipeline-board-${Date.now()}@example.com`,
+    email: `e2e-pipeline-list-${Date.now()}@example.com`,
   });
 
-  // The pipeline route renders a "no singles yet" empty state instead of the
-  // board when the account has zero singles, so the seed is what makes the
-  // board assertion meaningful.
-  await createSingle({ member, first_name_en: "Chaya" });
+  // The pipeline route renders a genuinely empty state when no shidduch is
+  // present, so the seed is what makes the List's "New" region meaningful.
+  const single = await createSingle({ member, first_name_en: "Chaya" });
+  await seedShidduch({
+    accountId: single.account_id as number,
+    singleId: single.id as number,
+    nameEn: "Ari Rosenberg",
+  });
 
   await signIn(page, member.email!);
 
   await page.getByRole("link", { name: "Shidduchim" }).click();
 
-  // AC-1: nothing is stored yet, so the desktop default is the Board.
-  await expect(
-    page.getByRole("button", { name: "Board view" }),
-  ).toHaveAttribute("aria-pressed", "true");
-  // AC-2: the Board is reachable, and it is NOT the List/Cards position — a
-  // `<section aria-label>` (List/Cards) gets an implicit "region" role; the
-  // Board's own `<section>` carries no accessible name and gets none.
-  await expect(page.getByRole("region", { name: "New" })).toHaveCount(0);
-  await expect(page.getByText("New", { exact: true })).toBeVisible();
+  // AC-1: nothing is stored yet, so the desktop default is the List.
+  await expect(page.getByRole("button", { name: "List view" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  // AC-2: a List section gets an implicit "region" role.
+  await expect(page.getByRole("region", { name: "New" })).toBeVisible();
 });
 
 test("member signs in and sees the pipeline list (Mobile Chrome), with no horizontal scroll (AC-2, AC-11)", async ({
@@ -102,7 +104,7 @@ test("member signs in and sees the pipeline list (Mobile Chrome), with no horizo
 }, testInfo) => {
   test.skip(
     testInfo.project.name !== "Mobile Chrome",
-    "the List is Mobile Chrome's default view — see the chromium test above for the Board",
+    "the phone viewport smoke assertion runs only in Mobile Chrome — see the chromium test above for desktop",
   );
 
   const member = await createMember({

@@ -59,7 +59,7 @@ for its own three-position Board · List · Cards control.
 
 4. **`viewMode` is a prop, never a store read inside `EntityListView`.** `EntityListView` stays a
    pure function of its props so 4.1's unit tests keep passing with a trivial update and Story
-   4.3 can drive it from a *different* store key (`"shidduchim.pageView"`).
+   4.3 can drive it from a *different* store key (`"shidduchim.pageView.v2"`).
    *Failing looks like:* `grep -n "useStore\|useEntityListViewMode" misc/EntityListView.tsx`
    returns a hit.
 
@@ -175,7 +175,7 @@ first-visit experience. (The earlier draft justified a `defaultViewMode="list"` 
 that same `"CRM"` localStorage namespace, keyed by the string passed as the first argument. Using
 `` `${resource}.entityListViewMode` `` as that key is what makes AC-3's per-resource independence
 hold: `"shadchanim.entityListViewMode"` and `"singles.entityListViewMode"` are simply different
-keys. Story 4.3 uses a **third**, deliberately different key (`"shidduchim.pageView"`) because
+keys. Story 4.3 uses a **third**, deliberately different key (`"shidduchim.pageView.v2"`) because
 that page's control has three positions, not two — see 4.3.
 
 ### The route table is untouched

@@ -25,6 +25,8 @@ import { ShidduchimViewSwitch } from "./ShidduchimViewSwitch";
 
 const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 } as const;
+const PAGE_VIEW_STORE_KEY = "shidduchim.pageView.v2";
+const LEGACY_PAGE_VIEW_STORE_KEY = "shidduchim.pageView";
 
 /** At least one shidduch so the pipeline list actually renders sections
  * instead of its own "genuinely empty" EmptyState (ShidduchimPipelineList.tsx). */
@@ -75,15 +77,22 @@ const buildListContextValue = (
     ...overrides,
   }) as unknown as ListControllerResult;
 
-const renderSwitch = (
-  overrides: Partial<ListControllerResult> = {},
-  store: Store = memoryStore(),
-) => {
+type SwitchTestAppProps = {
+  overrides?: Partial<ListControllerResult>;
+  store: Store;
+  viewKey?: number;
+};
+
+const SwitchTestApp = ({
+  overrides = {},
+  store,
+  viewKey = 0,
+}: SwitchTestAppProps) => {
   const dataProvider = {
     transitionShidduch: vi.fn().mockResolvedValue({}),
   } as unknown as CrmDataProvider;
 
-  return render(
+  return (
     <TestMemoryRouter>
       <CoreAdminContext
         store={store}
@@ -91,19 +100,38 @@ const renderSwitch = (
         i18nProvider={testI18nProvider}
       >
         <ListContextProvider value={buildListContextValue(overrides)}>
-          <ShidduchimViewSwitch />
+          <ShidduchimViewSwitch key={viewKey} />
         </ListContextProvider>
       </CoreAdminContext>
-    </TestMemoryRouter>,
+    </TestMemoryRouter>
+  );
+};
+
+const renderSwitch = (
+  overrides: Partial<ListControllerResult> = {},
+  store: Store = memoryStore(),
+) => render(<SwitchTestApp overrides={overrides} store={store} />);
+
+const mockMatchMedia = (matches: boolean) => {
+  vi.spyOn(window, "matchMedia").mockImplementation(
+    (query) =>
+      ({
+        matches,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }) as MediaQueryList,
   );
 };
 
 /**
  * Captures the DOM as of the FIRST commit: a layout effect runs during the
- * commit, before any passive effect — so it sees exactly what a phone would
- * paint for one frame. Once passive effects have flushed, an effect-resolved
- * viewport hook and a synchronous one agree, which is why every other test in
- * this file passed while the Board still flashed.
+ * commit, before any passive effect — so it verifies the default position is
+ * already the List on the first paint.
  */
 const FirstCommitProbe = ({
   onCommit,
@@ -118,6 +146,7 @@ const FirstCommitProbe = ({
 
 describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5, AC-6)", () => {
   afterEach(async () => {
+    vi.restoreAllMocks();
     await page.viewport(DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height);
   });
 
@@ -125,7 +154,7 @@ describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5,
     // Arrange / Act
     const screen = await renderSwitch(
       {},
-      memoryStore({ "shidduchim.pageView": "list" }),
+      memoryStore({ [PAGE_VIEW_STORE_KEY]: "list" }),
     );
 
     // Assert
@@ -141,7 +170,7 @@ describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5,
     // Arrange / Act
     const screen = await renderSwitch(
       {},
-      memoryStore({ "shidduchim.pageView": "cards" }),
+      memoryStore({ [PAGE_VIEW_STORE_KEY]: "cards" }),
     );
 
     // Assert
@@ -157,7 +186,7 @@ describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5,
     // Arrange / Act
     const screen = await renderSwitch(
       {},
-      memoryStore({ "shidduchim.pageView": "board" }),
+      memoryStore({ [PAGE_VIEW_STORE_KEY]: "board" }),
     );
 
     // Assert
@@ -169,8 +198,29 @@ describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5,
       .not.toBeInTheDocument();
   });
 
-  it("defaults to 'list' under a mobile viewport when nothing is stored yet (AC-1, AC-2)", async () => {
+  it("ignores a legacy Board choice and defaults to List", async () => {
+    // Arrange — the v2 key deliberately does not read the old persisted choice.
+    mockMatchMedia(false);
+    await page.viewport(DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height);
+
+    // Act
+    const screen = await renderSwitch(
+      {},
+      memoryStore({ [LEGACY_PAGE_VIEW_STORE_KEY]: "board" }),
+    );
+
+    // Assert
+    await expect
+      .element(screen.getByRole("button", { name: "List view" }))
+      .toHaveAttribute("aria-pressed", "true");
+    await expect
+      .element(screen.getByRole("button", { name: "Board view" }))
+      .toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("defaults to 'list' under a mobile viewport when nothing is stored yet", async () => {
     // Arrange
+    mockMatchMedia(true);
     await page.viewport(MOBILE_VIEWPORT.width, MOBILE_VIEWPORT.height);
 
     // Act
@@ -182,8 +232,9 @@ describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5,
       .toHaveAttribute("aria-pressed", "true");
   });
 
-  it("defaults to 'board' at a desktop viewport when nothing is stored yet (AC-1, AC-2)", async () => {
+  it("defaults to 'list' at a desktop viewport when nothing is stored yet", async () => {
     // Arrange
+    mockMatchMedia(false);
     await page.viewport(DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height);
 
     // Act
@@ -191,15 +242,45 @@ describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5,
 
     // Assert
     await expect
-      .element(screen.getByRole("button", { name: "Board view" }))
+      .element(screen.getByRole("button", { name: "List view" }))
+      .toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("persists an explicit view choice under the new key and honors it after remount", async () => {
+    // Arrange — an explicit Board pick is still available at every viewport.
+    mockMatchMedia(false);
+    const store = memoryStore();
+    const firstScreen = await renderSwitch({}, store);
+
+    // Act
+    await firstScreen.getByRole("button", { name: "Board view" }).click();
+
+    // Assert — all three controls retain their accessible labels and pressed state.
+    await expect
+      .element(firstScreen.getByRole("button", { name: "Board view" }))
+      .toHaveAttribute("aria-pressed", "true");
+    await expect
+      .element(firstScreen.getByRole("button", { name: "List view" }))
+      .toHaveAttribute("aria-pressed", "false");
+    await expect
+      .element(firstScreen.getByRole("button", { name: "Cards view" }))
+      .toHaveAttribute("aria-pressed", "false");
+    expect(store.getItem(PAGE_VIEW_STORE_KEY, undefined)).toBe("board");
+
+    // Act — remount the switch with the same store and context.
+    await firstScreen.rerender(<SwitchTestApp store={store} viewKey={1} />);
+
+    // Assert
+    await expect
+      .element(firstScreen.getByRole("button", { name: "Board view" }))
       .toHaveAttribute("aria-pressed", "true");
   });
 
   it("paints the list on its FIRST commit at a mobile viewport — never a frame of the Board", async () => {
-    // Arrange — the defect this pins: `useIsMobile()` starts `undefined` and
-    // resolves in an effect, so the first paint chose "board" and a phone
-    // rendered the 7-column, ~1850px-wide horizontal scroller for one frame.
+    // Arrange — this pins the first-paint default at a phone viewport while
+    // matchMedia reports the mobile branch.
     await page.viewport(MOBILE_VIEWPORT.width, MOBILE_VIEWPORT.height);
+    mockMatchMedia(true);
     let firstCommitHtml: string | null = null;
     const capture = (html: string) => {
       firstCommitHtml ??= html;
@@ -235,7 +316,7 @@ describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5,
     // Act
     const screen = await renderSwitch(
       {},
-      memoryStore({ "shidduchim.pageView": "list" }),
+      memoryStore({ [PAGE_VIEW_STORE_KEY]: "list" }),
     );
     const box = screen
       .getByRole("button", { name: "List view" })
@@ -255,7 +336,7 @@ describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5,
     // Act
     const screen = await renderSwitch(
       {},
-      memoryStore({ "shidduchim.pageView": "list" }),
+      memoryStore({ [PAGE_VIEW_STORE_KEY]: "list" }),
     );
     const box = screen
       .getByRole("button", { name: "List view" })
@@ -273,7 +354,7 @@ describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5,
     // Act
     const screen = await renderSwitch(
       { error: new Error("boom"), refetch },
-      memoryStore({ "shidduchim.pageView": "board" }),
+      memoryStore({ [PAGE_VIEW_STORE_KEY]: "board" }),
     );
 
     // Assert
@@ -299,7 +380,7 @@ describe("ShidduchimViewSwitch — one three-position control (AC-1, AC-2, AC-5,
     // not merely that the pipeline list happens to show a skeleton too.
     const screen = await renderSwitch(
       { isPending: true, data: undefined },
-      memoryStore({ "shidduchim.pageView": "board" }),
+      memoryStore({ [PAGE_VIEW_STORE_KEY]: "board" }),
     );
 
     // Assert
