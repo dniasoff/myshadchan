@@ -35,6 +35,26 @@ import {
 const nameFor = (record: ShidduchSummary): string =>
   record.name_en ?? record.single_first_name_en ?? `#${record.id}`;
 
+const reconcileArchivedMarker = async (
+  dataProvider: Pick<CrmDataProvider, "getOne">,
+  marker: Parameters<typeof rememberPendingShidduchAction>[0],
+): Promise<boolean> => {
+  try {
+    const { data } = await dataProvider.getOne("shidduchim", {
+      id: marker.id,
+    });
+    if ((data as { archived_at?: string | null } | null)?.archived_at) {
+      rememberPendingShidduchAction(marker);
+      return true;
+    }
+  } catch {
+    // An unavailable state read cannot prove that the server archived the
+    // suggestion, so fail closed and remove the client-only marker below.
+  }
+  clearPendingShidduchAction(marker.id);
+  return false;
+};
+
 /** Header actions and the manager-only archived state for one shidduch. */
 export const ShidduchLifecycleActions = ({
   record,
@@ -83,14 +103,13 @@ export const ShidduchLifecycleActions = ({
   const archive = async () => {
     setBusy(true);
     const deadline = Date.now() + SHIDDUCH_ACTION_UNDO_MS;
+    const marker = {
+      id: record.id,
+      kind: "archive" as const,
+      deadline,
+    };
     try {
-      if (
-        !rememberPendingShidduchAction({
-          id: record.id,
-          kind: "archive",
-          deadline,
-        })
-      ) {
+      if (!rememberPendingShidduchAction(marker)) {
         notify("Could not archive. Nothing was changed.", { type: "error" });
         return;
       }
@@ -106,7 +125,13 @@ export const ShidduchLifecycleActions = ({
         },
       });
     } catch {
-      notify("Could not archive. Nothing was changed.", { type: "error" });
+      if (await reconcileArchivedMarker(dataProvider, marker)) {
+        navigate("/shidduchim", {
+          state: { shidduchLifecycle: { ...marker, name } },
+        });
+      } else {
+        notify("Could not archive. Nothing was changed.", { type: "error" });
+      }
     } finally {
       setBusy(false);
     }
@@ -129,6 +154,11 @@ export const ShidduchLifecycleActions = ({
     if (busy) return;
     setBusy(true);
     const deadline = Date.now() + SHIDDUCH_ACTION_UNDO_MS;
+    const marker = {
+      id: record.id,
+      kind: "delete" as const,
+      deadline,
+    };
     try {
       if (typeof getReadState === "function") {
         const state = await getReadState(record.id);
@@ -140,13 +170,7 @@ export const ShidduchLifecycleActions = ({
           return;
         }
       }
-      if (
-        !rememberPendingShidduchAction({
-          id: record.id,
-          kind: "delete",
-          deadline,
-        })
-      ) {
+      if (!rememberPendingShidduchAction(marker)) {
         notify("Could not delete. Nothing was changed.", { type: "error" });
         return;
       }
@@ -166,7 +190,14 @@ export const ShidduchLifecycleActions = ({
         },
       });
     } catch {
-      notify("Could not delete. Nothing was changed.", { type: "error" });
+      if (await reconcileArchivedMarker(dataProvider, marker)) {
+        setDeleteOpen(false);
+        navigate("/shidduchim", {
+          state: { shidduchLifecycle: { ...marker, name } },
+        });
+      } else {
+        notify("Could not delete. Nothing was changed.", { type: "error" });
+      }
     } finally {
       setBusy(false);
     }
