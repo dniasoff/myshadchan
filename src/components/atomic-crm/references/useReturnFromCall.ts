@@ -14,6 +14,14 @@ type PendingReferenceCall = {
   promptedAt?: number;
 };
 
+const withoutHiddenAt = (
+  pending: PendingReferenceCall,
+): PendingReferenceCall => {
+  const next = { ...pending };
+  delete next.hiddenAt;
+  return next;
+};
+
 const keyFor = (referenceKey: Identifier | null | undefined): string | null =>
   referenceKey == null ? null : String(referenceKey);
 
@@ -100,7 +108,13 @@ export const useReturnFromCall = (
         return;
       }
 
-      if (pending.promptedAt) return;
+      if (pending.promptedAt) {
+        if (pending.hiddenAt != null) {
+          writePending(withoutHiddenAt(pending));
+          notifyPendingChange();
+        }
+        return;
+      }
       const now = Date.now();
       const hiddenFor = pending.hiddenAt == null ? 0 : now - pending.hiddenAt;
       const totalElapsed = now - pending.tappedAt;
@@ -111,20 +125,22 @@ export const useReturnFromCall = (
         return;
       }
 
-      if (hiddenFor < MIN_HIDDEN_MS) return;
+      const visiblePending = withoutHiddenAt(pending);
+      if (hiddenFor < MIN_HIDDEN_MS) {
+        writePending(visiblePending);
+        notifyPendingChange();
+        return;
+      }
 
-      writePending({ ...pending, promptedAt: now });
+      writePending({ ...visiblePending, promptedAt: now });
+      notifyPendingChange();
       setIsPromptOpen(true);
     };
 
     const onVisibilityChange = () => {
       const pending = readPending();
       if (document.visibilityState === "hidden") {
-        if (
-          pending &&
-          pending.referenceKey === stableKey &&
-          !pending.hiddenAt
-        ) {
+        if (pending && pending.referenceKey === stableKey) {
           writePending({ ...pending, hiddenAt: Date.now() });
         }
         return;

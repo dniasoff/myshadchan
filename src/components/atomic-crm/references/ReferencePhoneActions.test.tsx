@@ -59,6 +59,27 @@ describe("ReferencePhoneActions", () => {
       .not.toBeInTheDocument();
   });
 
+  it("does not guess across multiple numbers and keeps desktop copy available", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const phone = "732-930-6891; 201-555-0100";
+    const screen = await render(
+      <ReferencePhoneActions phone={phone} referenceName="Rivka Levi" />,
+    );
+
+    await expect
+      .element(screen.getByText("Check this number before calling"))
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("link", { name: /Call/i }))
+      .not.toBeInTheDocument();
+    await screen.getByRole("button", { name: "Copy number" }).click();
+    expect(writeText).toHaveBeenCalledWith(phone);
+  });
+
   it("renders no phone actions when there is no number", async () => {
     const screen = await render(
       <ReferencePhoneActions phone={null} referenceName="Rivka Levi" />,

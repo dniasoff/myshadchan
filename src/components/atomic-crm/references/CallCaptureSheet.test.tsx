@@ -6,6 +6,7 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type { ReferenceLinkSummary } from "../types";
 import { CallCaptureSheet } from "./CallCaptureSheet";
+import { CALL_STATUS_DESCRIPTORS } from "./callStatus";
 
 /**
  * Story 5.11 — this file did not exist before this story (Task 3: the
@@ -42,8 +43,15 @@ const renderCallCaptureSheet = async (
   dataProviderOverrides: Partial<CrmDataProvider> = {},
   returnFromCall = false,
 ) => {
+  const loggedStatuses: Array<string | null | undefined> = [];
+  const logReferenceCall = vi.fn(
+    async (input: Parameters<CrmDataProvider["logReferenceCall"]>[0]) => {
+      loggedStatuses.push(input.call_status);
+      return { ...link };
+    },
+  );
   const dataProvider = {
-    logReferenceCall: vi.fn().mockResolvedValue({ ...link }),
+    logReferenceCall,
     ...dataProviderOverrides,
   } as unknown as CrmDataProvider;
   const onOpenChange = vi.fn();
@@ -64,7 +72,7 @@ const renderCallCaptureSheet = async (
     </TestMemoryRouter>,
   );
 
-  return { screen, dataProvider, onOpenChange };
+  return { screen, dataProvider, loggedStatuses, onOpenChange };
 };
 
 describe("CallCaptureSheet — tailored questions, no paywall (AC 1)", () => {
@@ -192,13 +200,10 @@ describe("CallCaptureSheet — questions toggle label (review fix F5)", () => {
 });
 
 describe("CallCaptureSheet — return-from-call copy", () => {
-  it("shows the four return choices and a dismissible Skip action", async () => {
+  it("keeps the pre-existing status labels and mappings", async () => {
     const link = buildLink({ effective_relationship: "Family friend" });
-    const { screen, dataProvider, onOpenChange } = await renderCallCaptureSheet(
-      link,
-      {},
-      true,
-    );
+    const { screen, loggedStatuses, onOpenChange } =
+      await renderCallCaptureSheet(link, {}, true);
 
     await expect
       .element(screen.getByRole("heading", { name: "How did the call go?" }))
@@ -206,22 +211,43 @@ describe("CallCaptureSheet — return-from-call copy", () => {
     await expect
       .element(screen.getByText("For Chana Levy · Family friend"))
       .toBeVisible();
-    for (const label of [
-      "Answered",
-      "Left a message",
-      "No answer",
-      "Call back",
-      "Skip",
-      "Save call",
-    ]) {
+    const returnDescriptors = CALL_STATUS_DESCRIPTORS.filter(
+      (descriptor) => descriptor.id !== "not_started",
+    );
+    for (const descriptor of returnDescriptors) {
       await expect
-        .element(screen.getByRole("button", { name: label }))
+        .element(
+          screen.getByRole("button", {
+            name: descriptor.label,
+            exact: true,
+          }),
+        )
         .toBeVisible();
     }
+    expect(
+      (
+        await screen
+          .getByRole("button", { name: "Answered", exact: true })
+          .element()
+      ).className,
+    ).toContain("focus-visible:ring-2");
+    await expect
+      .element(screen.getByRole("button", { name: "Left a message" }))
+      .not.toBeInTheDocument();
 
-    await screen.getByRole("button", { name: "Left a message" }).click();
+    for (const [index, descriptor] of returnDescriptors.entries()) {
+      await screen
+        .getByRole("button", { name: descriptor.label, exact: true })
+        .click();
+      await screen.getByRole("button", { name: "Save call" }).click();
+      await expect.poll(() => loggedStatuses.length).toBe(index + 1);
+    }
+
+    expect(loggedStatuses).toEqual(
+      returnDescriptors.map((descriptor) => descriptor.id),
+    );
+
     await screen.getByRole("button", { name: "Skip" }).click();
-    expect(dataProvider.logReferenceCall).not.toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

@@ -74,6 +74,49 @@ describe("useReturnFromCall", () => {
       .toHaveTextContent("closed");
   });
 
+  it("measures each hidden interval independently", async () => {
+    const screen = await render(<TestHook referenceKey="link-1" />);
+    await screen.getByRole("button", { name: "Arm" }).click();
+
+    setVisibility("hidden");
+    vi.advanceTimersByTime(2_000);
+    setVisibility("visible");
+    setVisibility("hidden");
+    vi.advanceTimersByTime(2_000);
+    setVisibility("visible");
+    await expect
+      .element(screen.getByTestId("prompt-state"))
+      .toHaveTextContent("closed");
+
+    setVisibility("hidden");
+    vi.advanceTimersByTime(5_000);
+    setVisibility("visible");
+    await expect
+      .element(screen.getByTestId("prompt-state"))
+      .toHaveTextContent("open");
+  });
+
+  it("prompts only the reference link that armed the latest call", async () => {
+    const screen = await render(
+      <>
+        <TestHook referenceKey="link-1" />
+        <TestHook referenceKey="link-2" />
+      </>,
+    );
+    await screen.getByRole("button", { name: "Arm" }).first().click();
+
+    setVisibility("hidden");
+    vi.advanceTimersByTime(5_000);
+    setVisibility("visible");
+
+    await expect
+      .element(screen.getByTestId("prompt-state").first())
+      .toHaveTextContent("open");
+    await expect
+      .element(screen.getByTestId("prompt-state").last())
+      .toHaveTextContent("closed");
+  });
+
   it("stores only the reference key and timestamps, and Skip clears it", async () => {
     const screen = await render(<TestHook referenceKey="link-1" />);
     await screen.getByRole("button", { name: "Arm" }).click();

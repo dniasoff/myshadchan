@@ -6,10 +6,10 @@ export type PhoneLinkResult = {
   status: "ok" | "check";
 };
 
-const PHONE_SEPARATORS = /[\s().\-–—−·]/gu;
-const FORMAT_OR_DIGIT_ONLY = /^[+0-9\s().\-–—−·]+$/u;
-const EXTENSION_SUFFIX = /\s+(?:x|ext\.?)[\s=.-]*[0-9]+$/iu;
-const CONTROL_MARKS = /\p{Cf}/gu;
+const PHONE_SEPARATORS = /[ ().-]/g;
+const FORMAT_OR_DIGIT_ONLY = /^[+0-9 ().-]+$/;
+const EXTENSION_SUFFIX = / +(?:x|ext\.?)[ .=-]*[0-9]+$/i;
+const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}]/u;
 
 const invalid = (display: string): PhoneLinkResult => ({
   display,
@@ -26,6 +26,19 @@ const valid = (display: string, digits: string): PhoneLinkResult => ({
 });
 
 /**
+ * A single phone field must not silently choose one of several numbers. This
+ * is intentionally a conservative display-only signal; it never participates
+ * in href construction.
+ */
+export const looksLikeMultiplePhoneNumbers = (
+  raw: string | null | undefined,
+): boolean => {
+  if (typeof raw !== "string") return false;
+  const digitCount = (raw.match(/[0-9]/g) ?? []).length;
+  return /[,;/]/u.test(raw) || /\bor\b/iu.test(raw) || digitCount > 15;
+};
+
+/**
  * Keep the entered phone text for display while deriving action URLs from a
  * separately validated value. Raw text must never reach either href.
  */
@@ -35,12 +48,17 @@ export const normalizePhoneForLinks = (
   const display = typeof raw === "string" ? raw : "";
   if (display.trim() === "") return invalid(display);
 
-  // Directional marks and ZWJ are layout metadata, not phone characters. The
-  // extension rule is intentionally narrow: `x123`/`ext. 123` is accepted only
-  // as a whitespace-delimited suffix. Strings such as `+1;ext=1` stay invalid.
+  // Directional marks, ZWJ/ZWSP, and other controls are layout or control
+  // metadata, not phone characters. Reject them before any trimming so they
+  // cannot be normalized into an otherwise valid action URL.
+  if (CONTROL_CHARACTERS.test(display)) return invalid(display);
+
+  // The extension rule is intentionally narrow: `x123`/`ext. 123` is accepted
+  // only as a whitespace-delimited suffix. Trim ASCII spaces only so other
+  // Unicode whitespace cannot disappear before validation. Strings such as
+  // `+1;ext=1` stay invalid.
   const candidate = display
-    .trim()
-    .replace(CONTROL_MARKS, "")
+    .replace(/^ +| +$/g, "")
     .replace(EXTENSION_SUFFIX, "");
 
   if (!FORMAT_OR_DIGIT_ONLY.test(candidate)) return invalid(display);

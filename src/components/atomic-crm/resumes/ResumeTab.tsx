@@ -43,10 +43,10 @@ export function ResumeTab(): ReactNode {
     "this suggestion";
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
+    <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
       <section
         aria-labelledby="resume-original-heading"
-        className="flex min-w-0 flex-col gap-4 rounded-2xl border p-4 sm:p-6"
+        className="flex min-w-0 flex-col gap-4 rounded-2xl border p-4 sm:p-6 lg:col-start-1 lg:row-start-1"
       >
         <div>
           <h2 id="resume-original-heading" className="text-xl font-semibold">
@@ -58,7 +58,7 @@ export function ResumeTab(): ReactNode {
         </div>
         <ResumeDocument shidduchimId={record.id} canReread={canReread} />
       </section>
-      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
+      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start lg:col-start-1 lg:row-start-2">
         <ResumeUpload shidduchimId={record.id} autoRead={canReread} />
         {canPickInboxResume ? (
           <ResumeInboxPicker
@@ -72,6 +72,7 @@ export function ResumeTab(): ReactNode {
         record={record}
         canViewReferences={canViewReferences}
         canRead={canReread}
+        className="lg:col-start-2 lg:row-span-2 lg:row-start-1"
       />
     </div>
   );

@@ -152,6 +152,7 @@ export const ReferencesIndex = () => {
                   phone={reference.phone}
                   referenceName={reference.name_en}
                 />
+                <p className="mt-2 text-xs text-muted-foreground">Not logged</p>
               </div>
 
               <ReferenceAttachToShidduch

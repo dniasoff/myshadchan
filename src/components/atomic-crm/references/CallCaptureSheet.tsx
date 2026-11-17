@@ -90,10 +90,6 @@ export const CallCaptureSheet = ({
   );
   const returnStatusDescriptors = CALL_STATUS_DESCRIPTORS.filter(
     (descriptor) => descriptor.id !== "not_started",
-  ).map((descriptor) =>
-    descriptor.id === "they_will_call_back"
-      ? { ...descriptor, label: "Left a message" }
-      : descriptor,
   );
   const statusDescriptors = returnFromCall
     ? returnStatusDescriptors
@@ -151,6 +147,7 @@ export const CallCaptureSheet = ({
                     className={cn(
                       "min-h-[56px] rounded-xl border px-4 py-3 text-base font-medium",
                       "transition-[box-shadow,transform] duration-[160ms] ease-[var(--ease-spring)]",
+                      "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                       "active:scale-[0.97]",
                       isSelected ? "" : "opacity-80 hover:opacity-100",
                     )}

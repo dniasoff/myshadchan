@@ -46,6 +46,7 @@ export function ReferenceOverviewTab() {
             phone={record.phone}
             referenceName={record.name_en || record.name_he}
           />
+          <p className="mt-2 text-xs text-muted-foreground">Not logged</p>
         </dd>
       </div>
       {record.relationship ? (

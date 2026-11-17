@@ -508,13 +508,7 @@ describe("ResumeReadableSections", () => {
       .toBeInTheDocument();
     await expect.element(screen.getByText("No number yet")).toBeInTheDocument();
     await expect
-      .element(
-        screen
-          .getByText(
-            "This reference is not linked yet; call details will appear when it is matched.",
-          )
-          .first(),
-      )
+      .element(screen.getByText("Not logged").first())
       .toBeInTheDocument();
 
     const hebrew = screen.getByText("בית הכנסת שערי תפילה");
@@ -1208,7 +1202,7 @@ describe("ResumeReadableSections", () => {
     expect(screen.container.querySelectorAll("strong")).toHaveLength(1);
   });
 
-  it("uses the canonical call-log path and clears a selected status on retap", async () => {
+  it("uses the canonical call-log path from the compact reference row", async () => {
     const { screen, dataProvider, db, getList } = await renderSections();
     const logReferenceCall = vi.spyOn(dataProvider, "logReferenceCall");
     const chaimLink = db.reference_links.find(
@@ -1216,54 +1210,29 @@ describe("ResumeReadableSections", () => {
         candidate.reference_id === 1 && candidate.shidduchim_id === 1,
     );
     expect(chaimLink).toBeDefined();
-    const statusGroupLocator = screen.getByRole("group", {
-      name: /Call status for (Chaim Feldman|חיים פלדמן)/,
-    });
-    await expect.element(statusGroupLocator).toBeInTheDocument();
-    const statusGroup = await statusGroupLocator.element();
-    const answered = statusGroupLocator.getByRole("button", {
-      name: "Answered",
-      exact: true,
-    });
-    await expect.element(answered).toBeInTheDocument();
-    const statusButtons = Array.from(statusGroup.querySelectorAll("button"));
-    expect(statusButtons.map((button) => button.textContent)).toEqual([
-      "Answered",
-      "I will call back",
-      "They will call back",
-      "Did not answer",
-    ]);
-    expect(statusGroup.className).toContain("grid-cols-3");
-    expect(
-      statusButtons.every(
-        (button) =>
-          button.className.includes("h-12") &&
-          button.className.includes("sm:h-11"),
-      ),
-    ).toBe(true);
+    const queueLocator = screen.getByTestId("reference-queue");
+    await expect.element(queueLocator).toBeInTheDocument();
+    expect((await queueLocator.element()).className).toContain(
+      "sm:grid-cols-2",
+    );
+    const logCall = screen.getByRole("button", { name: "Log call" }).first();
+    await logCall.click();
     await expect
-      .element(
-        statusGroupLocator.getByRole("button", {
-          name: "I will call back",
-          exact: true,
-        }),
-      )
-      .toHaveAttribute("aria-pressed", "false");
-    await expect
-      .element(screen.getByRole("button", { name: "Not started", exact: true }))
-      .not.toBeInTheDocument();
-
-    await expect.element(answered).toHaveAttribute("aria-pressed", "true");
+      .element(screen.getByRole("heading", { name: "Chaim Feldman" }))
+      .toBeInTheDocument();
     const referenceLinkReadsBeforeSave = getList.mock.calls.filter(
       ([resource]) => resource === "reference_links",
     ).length;
-    await answered.click();
-    await expect.element(answered).toHaveAttribute("aria-pressed", "false");
-    expect(logReferenceCall).toHaveBeenLastCalledWith({
-      reference_link_id: chaimLink?.id,
-      call_status: "not_started",
-      source: "manual",
-    });
+    await screen.getByRole("button", { name: "Answered", exact: true }).click();
+    await screen.getByRole("button", { name: "Save and add to log" }).click();
+    await expect.poll(() => logReferenceCall.mock.calls.length).toBe(1);
+    expect(logReferenceCall).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        reference_link_id: chaimLink?.id,
+        call_status: "answered",
+        source: "manual",
+      }),
+    );
     await expect
       .poll(
         () =>
@@ -1272,9 +1241,6 @@ describe("ResumeReadableSections", () => {
           ).length,
       )
       .toBeGreaterThan(referenceLinkReadsBeforeSave);
-    await expect
-      .element(screen.getByText("No choice selected yet."))
-      .toBeInTheDocument();
   });
 
   it("opens a note editor with an accessible name and saves through log_reference_call", async () => {
@@ -1342,12 +1308,7 @@ describe("ResumeReadableSections", () => {
       pagination: { page: 1, perPage: 50 },
     });
     await expect
-      .element(
-        screen
-          .getByRole("group")
-          .first()
-          .getByRole("button", { name: "Answered", exact: true }),
-      )
+      .element(screen.getByRole("button", { name: "Log call" }).first())
       .toBeInTheDocument();
     await expect
       .element(screen.getByText("References are being prepared."))
@@ -1375,24 +1336,47 @@ describe("ResumeReadableSections", () => {
       .not.toBeInTheDocument();
   });
 
-  it("keeps all status controls exactly the same height at every approved width", async () => {
-    const { screen } = await renderSections();
-    const widths = [320, 375, 430, 1280];
-    for (const width of widths) {
-      await page.viewport(width, 720);
-      const group = await screen
-        .getByRole("group", { name: "Call status for Chaim Feldman" })
-        .element();
-      const heights = Array.from(group.querySelectorAll("button")).map(
-        (button) => button.getBoundingClientRect().height,
-      );
-      expect(new Set(heights).size, `width ${width}`).toBe(1);
-    }
+  it("keeps the 11-row queue compact, ordered, and overflow-free", async () => {
+    const references = Array.from({ length: 11 }, (_, index) => ({
+      name: `Reference ${index + 1}`,
+      relationship: "Friend",
+      phone: `732-930-${String(6800 + index).padStart(4, "0")}`,
+    }));
+    const { screen } = await renderSections({
+      withLinks: false,
+      sections: { learningHistory: [], references, additionalSections: [] },
+    });
+    const queueLocator = screen.getByTestId("reference-queue");
+    await expect.element(queueLocator).toBeInTheDocument();
+    const queue = await queueLocator.element();
+    const rows = Array.from(
+      screen.container.querySelectorAll<HTMLElement>(
+        "[data-reference-row-index]",
+      ),
+    );
+    expect(rows).toHaveLength(11);
+    await expect
+      .element(
+        screen.getByRole("button", { name: "Next uncalled", exact: true }),
+      )
+      .toBeInTheDocument();
+
+    await page.viewport(390, 844);
+    expect(queue.scrollWidth).toBeLessThanOrEqual(queue.clientWidth);
+
+    await page.viewport(1280, 844);
+    expect(queue.scrollWidth).toBeLessThanOrEqual(queue.clientWidth);
+    expect(queue.className).toContain("sm:grid-cols-2");
+
+    await screen
+      .getByRole("button", { name: "Next uncalled", exact: true })
+      .click();
+    expect(document.activeElement).toBe(rows[0]);
     await page.viewport(1280, 720);
   });
 
-  it("pins the note marker, empty-field omission, clear prevention, and status rollback", async () => {
-    const { screen, dataProvider } = await renderSections();
+  it("pins the note marker, empty-field omission, and clear prevention", async () => {
+    const { screen } = await renderSections();
     const noteButton = screen.getByRole("button", {
       name: /Open note for Chaim Feldman; note saved/i,
     });
@@ -1409,29 +1393,8 @@ describe("ResumeReadableSections", () => {
       .element(screen.getByText("Write a note to save it."))
       .toBeInTheDocument();
 
-    const logReferenceCall = vi
-      .spyOn(dataProvider, "logReferenceCall")
-      .mockRejectedValueOnce(new Error("status failed"));
     await screen.getByRole("button", { name: "Close" }).click();
     await expect.element(noteButton).toHaveFocus();
-    const callBack = screen
-      .getByRole("group", { name: "Call status for Chaim Feldman" })
-      .getByRole("button", { name: "I will call back", exact: true });
-    await callBack.click();
-    await expect.element(callBack).toHaveAttribute("aria-pressed", "false");
-    expect(logReferenceCall).toHaveBeenCalledWith(
-      expect.objectContaining({
-        call_status: "call_back",
-        source: "manual",
-      }),
-    );
-    await expect
-      .element(
-        screen.getByText(
-          "We could not save this. Nothing was changed. Try again.",
-        ),
-      )
-      .toBeInTheDocument();
   });
 
   it("keeps an unsaved note draft when the sheet is dismissed", async () => {

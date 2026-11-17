@@ -20,13 +20,7 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-
-import type {
-  CallStatus,
-  ReferenceLinkSummary,
-  Resume,
-  ShidduchSummary,
-} from "../types";
+import type { ReferenceLinkSummary, Resume, ShidduchSummary } from "../types";
 import type { CrmDataProvider } from "../providers/types";
 import { CallStatusChip } from "../references/CallStatusChip";
 import { CallCaptureSheet } from "../references/CallCaptureSheet";
@@ -199,16 +193,6 @@ function buildReadableGroups(
   return entries;
 }
 
-const STATUS_OPTIONS: ReadonlyArray<{
-  id: CallStatus;
-  label: string;
-}> = [
-  { id: "answered", label: "Answered" },
-  { id: "call_back", label: "I will call back" },
-  { id: "they_will_call_back", label: "They will call back" },
-  { id: "no_answer", label: "Did not answer" },
-];
-
 const asText = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
 
@@ -328,10 +312,12 @@ export function ResumeReadableSections({
   record,
   canViewReferences,
   canRead = false,
+  className,
 }: {
   record: ShidduchSummary;
   canViewReferences: boolean;
   canRead?: boolean;
+  className?: string;
 }): ReactElement | null {
   const translate = useTranslate();
   const { data: resumes, isPending: isResumePending } = useGetList<Resume>(
@@ -401,7 +387,7 @@ export function ResumeReadableSections({
     (isUnread || (!hasReadableContent && !hasReadMarker));
 
   return (
-    <Card className="gap-0 overflow-hidden rounded-2xl">
+    <Card className={cn("gap-0 overflow-hidden rounded-2xl", className)}>
       <CardHeader className="gap-1 border-b px-4 py-4 sm:px-6">
         <h2 className="text-xl font-semibold">
           {translate("crm.entity360.resume.readable.title", {
@@ -615,7 +601,10 @@ function ReferenceGroup({
         </p>
       ) : null}
       {!isPending ? (
-        <div className="flex flex-col gap-3">
+        <div
+          className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2"
+          data-testid="reference-queue"
+        >
           {rows.map((row, index) => (
             <ReferenceResumeCard
               key={`${row.reference.name}-${row.link?.id ?? "unlinked"}-${index}`}
@@ -639,12 +628,10 @@ function ReferenceResumeCard({
   link: ReferenceLinkSummary | null;
   rowIndex: number;
 }): ReactElement {
-  const translate = useTranslate();
-
   if (!link) {
     return (
       <article
-        className="rounded-xl border p-3 outline-none sm:p-4"
+        className="min-w-0 rounded-xl border p-3 outline-none"
         data-reference-row-index={rowIndex}
         tabIndex={-1}
       >
@@ -663,13 +650,9 @@ function ReferenceResumeCard({
           <ReferencePhoneActions
             phone={reference.phone}
             referenceName={reference.name}
+            className="sm:flex-row sm:items-center sm:justify-between"
           />
           <p className="mt-3 text-xs text-muted-foreground">Not logged</p>
-          <p className="mt-3 text-xs text-muted-foreground">
-            {translate("crm.entity360.resume.readable.referenceUnlinked", {
-              _: "This reference is not linked yet; call details will appear when it is matched.",
-            })}
-          </p>
         </div>
       </article>
     );
@@ -694,16 +677,10 @@ function LinkedReferenceResumeCard({
   rowIndex: number;
 }): ReactElement {
   const translate = useTranslate();
-  const dataProvider = useDataProvider<CrmDataProvider>();
-  const notify = useNotify();
-  const refresh = useRefresh();
-  const [status, setStatus] = useState<CallStatus>(
-    (link.call_status as CallStatus) ?? "not_started",
-  );
-  const [isSavingStatus, setIsSavingStatus] = useState(false);
   const [isNoteOpen, setIsNoteOpen] = useState(false);
   const [isCallCaptureOpen, setIsCallCaptureOpen] = useState(false);
   const noteTriggerRef = useRef<HTMLButtonElement>(null);
+  const manualLogTriggerRef = useRef<HTMLButtonElement>(null);
   const didOpenNote = useRef(false);
 
   useEffect(() => {
@@ -714,10 +691,6 @@ function LinkedReferenceResumeCard({
       requestAnimationFrame(() => noteTriggerRef.current?.focus());
     }
   }, [isNoteOpen]);
-
-  useEffect(() => {
-    setStatus((link.call_status as CallStatus) ?? "not_started");
-  }, [link.call_status]);
 
   const displayRelationship =
     link.effective_relationship || reference.relationship;
@@ -738,31 +711,6 @@ function LinkedReferenceResumeCard({
       : ""
   }`;
 
-  const saveStatus = async (nextStatus: CallStatus) => {
-    if (isSavingStatus) return;
-    const previousStatus = status;
-    setStatus(nextStatus);
-    setIsSavingStatus(true);
-    try {
-      await dataProvider.logReferenceCall({
-        reference_link_id: link.id,
-        call_status: nextStatus,
-        source: "manual",
-      });
-      refresh();
-    } catch {
-      setStatus(previousStatus);
-      notify(
-        translate("crm.entity360.resume.readable.saveError", {
-          _: "We could not save this. Nothing was changed. Try again.",
-        }),
-        { type: "error" },
-      );
-    } finally {
-      setIsSavingStatus(false);
-    }
-  };
-
   const callStatus = getCallStatusDescriptor(link.call_status);
   const lastCallAt = [...(link.conversation_log ?? [])].sort((a, b) =>
     a.at < b.at ? 1 : a.at > b.at ? -1 : 0,
@@ -776,7 +724,7 @@ function LinkedReferenceResumeCard({
 
   return (
     <article
-      className="rounded-xl border p-3 outline-none sm:p-4"
+      className="min-w-0 rounded-xl border p-3 outline-none"
       data-reference-row-index={rowIndex}
       tabIndex={-1}
     >
@@ -797,7 +745,9 @@ function LinkedReferenceResumeCard({
             phone={displayPhone}
             referenceName={displayName}
             referenceLink={link}
+            manualLogRef={manualLogTriggerRef}
             onManualLog={() => setIsCallCaptureOpen(true)}
+            className="sm:flex-row sm:items-center sm:justify-between"
           />
         </div>
         <Button
@@ -837,51 +787,6 @@ function LinkedReferenceResumeCard({
           </>
         )}
       </div>
-      <p className="mt-4 text-xs font-medium text-muted-foreground">
-        {translate("crm.entity360.resume.readable.callQuestion", {
-          _: "How did the call go?",
-        })}
-      </p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {status === "not_started"
-          ? translate("crm.entity360.resume.readable.noStatus", {
-              _: "No choice selected yet.",
-            })
-          : translate("crm.entity360.resume.readable.clearStatus", {
-              _: "Tap the selected choice again to clear it.",
-            })}
-      </p>
-      <div
-        className="mt-2 grid grid-cols-3 gap-2"
-        role="group"
-        aria-label={`Call status for ${displayName}`}
-      >
-        {STATUS_OPTIONS.map((option) => {
-          const isSelected = status === option.id;
-          return (
-            <button
-              key={option.id}
-              type="button"
-              aria-pressed={isSelected}
-              disabled={isSavingStatus}
-              className={cn(
-                "h-12 min-w-0 rounded-full border px-2 py-1 text-xs font-medium leading-tight sm:h-11",
-                "break-words transition-[box-shadow,background-color]",
-                "disabled:cursor-wait disabled:opacity-60",
-                isSelected
-                  ? "border-primary bg-primary/10 text-primary shadow-[0_0_0_2px_hsl(var(--background)),0_0_0_4px_hsl(var(--primary))]"
-                  : "bg-background hover:bg-muted",
-                option.id === "no_answer" ? "col-start-1" : "",
-              )}
-              onClick={() =>
-                void saveStatus(isSelected ? "not_started" : option.id)
-              }
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
       <ReferenceNoteEditor
         link={link}
         referenceName={displayName}
@@ -891,7 +796,12 @@ function LinkedReferenceResumeCard({
       <CallCaptureSheet
         link={link}
         open={isCallCaptureOpen}
-        onOpenChange={setIsCallCaptureOpen}
+        onOpenChange={(open) => {
+          setIsCallCaptureOpen(open);
+          if (!open) {
+            requestAnimationFrame(() => manualLogTriggerRef.current?.focus());
+          }
+        }}
       />
     </article>
   );
