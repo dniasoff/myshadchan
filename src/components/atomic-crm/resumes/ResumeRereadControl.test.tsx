@@ -12,10 +12,8 @@ import { REREAD_COPY, ResumeRereadControl } from "./ResumeRereadControl";
 import { resetResumeReadAttemptsForTests } from "./resumeReadRequest";
 
 const buildDataProvider = (
-  reReadResume: CrmDataProvider["reReadResume"],
-  readResume: CrmDataProvider["readResume"] = vi.fn(),
-): CrmDataProvider =>
-  ({ reReadResume, readResume }) as unknown as CrmDataProvider;
+  readResume: CrmDataProvider["readResume"],
+): CrmDataProvider => ({ readResume }) as unknown as CrmDataProvider;
 
 const mountedScreens: Array<{ unmount: () => void }> = [];
 
@@ -26,7 +24,7 @@ function unmountScreen(screen: { unmount: () => void }): void {
 }
 
 const renderControl = async (
-  reReadResume: CrmDataProvider["reReadResume"],
+  readResume: CrmDataProvider["readResume"],
   resumeId = 22,
   fileIdentity = `current-${resumeId}`,
   options: {
@@ -34,7 +32,7 @@ const renderControl = async (
     readResume?: CrmDataProvider["readResume"];
   } = {},
 ) => {
-  const dataProvider = buildDataProvider(reReadResume, options.readResume);
+  const dataProvider = buildDataProvider(options.readResume ?? readResume);
   const queryClient = new QueryClient();
   const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
   const screen = await render(
@@ -145,6 +143,7 @@ describe("ResumeRereadControl", () => {
         resumeId: 22,
         requestId: "00000000-0000-4000-8000-000000000001",
         fileIdentity: "current-22",
+        mode: "fill_empty",
       }),
     );
 

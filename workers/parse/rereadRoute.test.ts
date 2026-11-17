@@ -2,17 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyResumeRead,
-  applyRereadSections,
   claimRereadAttempt,
   releaseRereadAttempt,
 } from "./rereadQuota";
-import {
-  isResumeUnread,
-  rereadResume,
-  REREAD_FAILURE_MESSAGE,
-} from "./rereadRoute";
+import { rereadResume, REREAD_FAILURE_MESSAGE } from "./rereadRoute";
 import { makeExtract, TEST_ENV } from "./parseTestFixtures";
-import { RESUME_UNREAD_PARITY_FIXTURES } from "./resumeUnreadFixtures";
 import {
   ExtractorProviderBusyError,
   ExtractorTimeoutError,
@@ -20,14 +14,12 @@ import {
 
 vi.mock("./rereadQuota", () => ({
   applyResumeRead: vi.fn(),
-  applyRereadSections: vi.fn(),
   claimRereadAttempt: vi.fn(),
   releaseRereadAttempt: vi.fn(),
 }));
 
 const applyResume = vi.mocked(applyResumeRead);
 const claim = vi.mocked(claimRereadAttempt);
-const apply = vi.mocked(applyRereadSections);
 const release = vi.mocked(releaseRereadAttempt);
 
 const requestId = "8f7d6f38-a1ea-4f04-9b14-1e68b2c9f4e3";
@@ -212,17 +204,9 @@ describe("re-read route", () => {
       ok: true,
       outcome: { outcome: "reserved", attempt_id: 41, generation: 1 },
     });
-    apply.mockResolvedValue({ outcome: "applied" });
     applyResume.mockResolvedValue({ outcome: "applied" });
     release.mockResolvedValue({ outcome: "applied" });
   });
-
-  it.each(RESUME_UNREAD_PARITY_FIXTURES)(
-    "matches the shared raw-shape parity fixture: $name",
-    ({ sections, extracted, expectedUnread }) => {
-      expect(isResumeUnread({ sections, extracted })).toBe(expectedUnread);
-    },
-  );
 
   it("uses the authenticated user id for a distinct member profile", async () => {
     const { caller, service, memberBuilder } = makeClients();
@@ -286,100 +270,6 @@ describe("re-read route", () => {
     expect(memberBuilder.maybeSingle).not.toHaveBeenCalled();
   });
 
-  it("writes only additionalSections and the schema marker, preserving legacy sections", async () => {
-    const { caller, service } = makeClients();
-    const references = [
-      {
-        name: "Reference",
-        relationship: "friend",
-        phone: "unchanged",
-      },
-    ];
-    const learningHistory = [{ label: "old", value: "keep" }];
-    const extractor = {
-      extract: vi.fn(async () =>
-        makeExtract({
-          sections: {
-            learningHistory: [{ label: "new", value: "must ignore" }],
-            references: [
-              {
-                name: "new",
-                relationship: "friend",
-                phone: "must ignore",
-              },
-            ],
-            additionalSections: [
-              {
-                key: "work",
-                title: "Work",
-                items: [{ label: "Role", value: "Teacher" }],
-                order: 0,
-              },
-            ],
-          },
-        }),
-      ),
-    };
-
-    const result = await rereadResume(
-      { resume_id: 22, request_id: requestId },
-      {
-        caller: caller as never,
-        service: service as never,
-        extractor,
-        env: TEST_ENV,
-        userId: AUTH_USER_ID,
-      },
-    );
-
-    expect(result.status).toBe(200);
-    expect(release).not.toHaveBeenCalled();
-    expect(apply).toHaveBeenCalledWith(
-      TEST_ENV,
-      10,
-      22,
-      41,
-      1,
-      {
-        learningHistory,
-        references,
-        additionalSections: [{ title: "Old", items: [] }],
-      },
-      {
-        learningHistory,
-        references,
-        schemaVersion: 4,
-        additionalSections: [
-          {
-            key: "work",
-            title: "Work",
-            items: [{ label: "Role", value: "Teacher" }],
-            order: 0,
-          },
-        ],
-      },
-      4,
-    );
-    expect(apply).toHaveBeenCalledTimes(1);
-    expect((apply.mock.calls[0] as unknown[])[6]).toMatchObject({
-      learningHistory,
-      references,
-      schemaVersion: 4,
-      additionalSections: [
-        {
-          key: "work",
-          title: "Work",
-          items: [{ label: "Role", value: "Teacher" }],
-          order: 0,
-        },
-      ],
-    });
-    expect((apply.mock.calls[0] as unknown[])[6]).toMatchObject({
-      learningHistory,
-      references,
-    });
-  });
-
   it("fill-empty mode applies the exact uploaded file and the validated draft", async () => {
     const { caller, service } = makeClients();
     const raw = makeExtract({
@@ -424,7 +314,7 @@ describe("re-read route", () => {
       raw.sections,
       4,
     );
-    expect(apply).not.toHaveBeenCalled();
+    expect(applyResume).not.toHaveBeenCalled();
   });
 
   it("passes a complete model answer through toDraft and the full apply payload", async () => {
@@ -519,23 +409,15 @@ describe("re-read route", () => {
     });
   });
 
-  it("upgrades a legacy unread request to the full fill-empty apply", async () => {
-    const { caller, service } = makeClients(
-      null,
-      true,
-      undefined,
-      AUTH_USER_ID,
-      undefined,
-      null,
-      null,
-    );
+  it("upgrades every legacy request to the full fill-empty apply", async () => {
+    const { caller, service } = makeClients();
     const extractor = { extract: vi.fn(async () => makeExtract()) };
 
     const result = await rereadResume(
       {
         resume_id: 22,
         request_id: requestId,
-        file_identity: "stale-old-path.pdf",
+        file_identity: file.path,
       },
       {
         caller: caller as never,
@@ -560,27 +442,6 @@ describe("re-read route", () => {
       expect.anything(),
       4,
     );
-    expect(apply).not.toHaveBeenCalled();
-  });
-
-  it("keeps legacy mode as additional-sections reread for an already-read resume", async () => {
-    const { caller, service } = makeClients();
-    const extractor = { extract: vi.fn(async () => makeExtract()) };
-
-    const result = await rereadResume(
-      { resume_id: 22, request_id: requestId },
-      {
-        caller: caller as never,
-        service: service as never,
-        extractor,
-        env: TEST_ENV,
-        userId: AUTH_USER_ID,
-      },
-    );
-
-    expect(result.status).toBe(200);
-    expect(apply).toHaveBeenCalledTimes(1);
-    expect(applyResume).not.toHaveBeenCalled();
   });
 
   it("maps entitlement outcomes to distinct static response codes", async () => {
@@ -655,7 +516,7 @@ describe("re-read route", () => {
       error: REREAD_FAILURE_MESSAGE,
     });
     expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
-    expect(apply).not.toHaveBeenCalled();
+    expect(applyResume).not.toHaveBeenCalled();
   });
 
   it("returns a static timeout code while releasing the reservation", async () => {
@@ -716,7 +577,7 @@ describe("re-read route", () => {
       },
     });
     expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
-    expect(apply).not.toHaveBeenCalled();
+    expect(applyResume).not.toHaveBeenCalled();
   });
 
   it.each(["metadata", "download", "arrayBuffer", "cas"] as const)(
@@ -724,7 +585,9 @@ describe("re-read route", () => {
     async (throwPoint) => {
       const { caller, service } = makeClients(undefined, true, throwPoint);
       if (throwPoint === "cas") {
-        apply.mockRejectedValueOnce(new Error("atomic apply unavailable"));
+        applyResume.mockRejectedValueOnce(
+          new Error("atomic apply unavailable"),
+        );
       }
 
       const result = await rereadResume(
@@ -741,9 +604,9 @@ describe("re-read route", () => {
       expect(result.status).toBe(422);
       expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
       if (throwPoint === "cas") {
-        expect(apply).toHaveBeenCalledTimes(1);
+        expect(applyResume).toHaveBeenCalledTimes(1);
       } else {
-        expect(apply).not.toHaveBeenCalled();
+        expect(applyResume).not.toHaveBeenCalled();
       }
     },
   );
@@ -830,7 +693,7 @@ describe("re-read route", () => {
     );
 
     expect(result.status).toBe(422);
-    expect(apply).not.toHaveBeenCalled();
+    expect(applyResume).not.toHaveBeenCalled();
     expect(error).toHaveBeenCalledWith("parse.reread.fail", {
       reason: "release",
     });
@@ -845,7 +708,7 @@ describe("re-read route", () => {
 
   it("releases when the atomic apply RPC throws", async () => {
     const { caller, service } = makeClients();
-    apply.mockRejectedValueOnce(new Error("atomic apply unavailable"));
+    applyResume.mockRejectedValueOnce(new Error("atomic apply unavailable"));
 
     const result = await rereadResume(
       { resume_id: 22, request_id: requestId },
@@ -860,26 +723,6 @@ describe("re-read route", () => {
 
     expect(result.status).toBe(422);
     expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
-  });
-
-  it("releases on a compare-and-set miss and never overwrites newer edits", async () => {
-    const { caller, service } = makeClients();
-    apply.mockResolvedValueOnce({ outcome: "cas_failed" });
-
-    const result = await rereadResume(
-      { resume_id: 22, request_id: requestId },
-      {
-        caller: caller as never,
-        service: service as never,
-        extractor: { extract: vi.fn(async () => makeExtract()) },
-        env: TEST_ENV,
-        userId: AUTH_USER_ID,
-      },
-    );
-
-    expect(result.status).toBe(409);
-    expect(release).toHaveBeenCalledWith(TEST_ENV, 10, 41, 1);
-    expect(apply).toHaveBeenCalledTimes(1);
   });
 
   it("does not touch service storage when the stored path is not owned by the account", async () => {

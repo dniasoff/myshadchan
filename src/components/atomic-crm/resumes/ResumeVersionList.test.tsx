@@ -215,8 +215,8 @@ describe("ResumeVersionList — signed URL minted per click, never cached (AC 5)
   });
 });
 
-describe("ResumeVersionList — unread read mode", () => {
-  it("uses the full read for an unread resume and the easy-to-read action for a read resume", async () => {
+describe("ResumeVersionList — fill-empty read mode", () => {
+  it("uses fill-empty reads for both unread and already-read resumes", async () => {
     const version = buildVersion();
     const readResume = vi.fn().mockResolvedValue("completed");
     const reReadResume = vi.fn().mockResolvedValue("completed");
@@ -303,9 +303,12 @@ describe("ResumeVersionList — unread read mode", () => {
       .getByRole("button", { name: "Make it easy to read", exact: true })
       .last()
       .click();
-    await expect.poll(() => reReadResume.mock.calls.length).toBe(1);
-    expect(reReadResume).toHaveBeenCalledWith(
+    await expect.poll(() => readResume.mock.calls.length).toBe(2);
+    expect(readResume.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({ resumeId: 1, fileIdentity: version.path }),
+    );
+    expect(readResume.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ mode: "fill_empty" }),
     );
   });
 });
