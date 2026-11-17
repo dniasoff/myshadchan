@@ -503,7 +503,7 @@ values (
 insert into public.resumes (id, account_id, shidduchim_id, files, extracted, sections)
 values (
     9000001, 9000001, 9000001,
-    '[{"path": "9000001/resume.pdf", "title": "resume.pdf"}]'::jsonb,
+    '[{"path": "9000001/resumes/9000001/guard-resume.pdf", "title": "resume.pdf"}]'::jsonb,
     '{"age": 24}'::jsonb,
     jsonb_build_object('references', jsonb_build_array(
         jsonb_build_object('name', 'Rabbi Shloime Green', 'phone', '054-123-4567', 'relationship', 'rebbe'),
@@ -720,6 +720,12 @@ values (
     'Possible shidduch for Leah', 'seminary.office@example.test', 'unresolved',
     '[{"type": "application/pdf", "path": "9000001/inbox/9000001/resume.pdf", "title": "resume.pdf"}]'::jsonb
 );
+
+-- The Inbox attachment purge queue is populated when an Inbox item is deleted.
+-- Keep one row tied to the attachment above so the populated-fixture guard
+-- protects this live cleanup obligation as well as the source catalog row.
+insert into public.inbox_attachment_purge (account_id, storage_path)
+values (9000001, '9000001/inbox/9000001/resume.pdf');
 
 -- Epic 11 Findings 6/7/8 closure: ai_parse_attempts is the per-attachment
 -- parse claim/idempotency ledger. Same `to_regclass` guard as the

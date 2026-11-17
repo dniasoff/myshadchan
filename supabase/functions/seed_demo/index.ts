@@ -2656,6 +2656,30 @@ function deriveExtension(fileName: string): string {
   return parts.length > 1 ? `.${parts.pop()}` : "";
 }
 
+export function assertCurrentRunShidduchId(
+  targetId: number | undefined,
+  currentRunIds: ReadonlySet<number> | undefined,
+  label: string,
+): void {
+  if (targetId == null) return;
+  if (!currentRunIds?.has(targetId)) {
+    throw new Error(`${label} is not a shidduch created by this seed run`);
+  }
+}
+
+async function removeSeededObjectAfterCatalogFailure(
+  db: SupabaseClient,
+  bucket: string,
+  path: string,
+): Promise<void> {
+  try {
+    await db.storage.from(bucket).remove([path]);
+  } catch {
+    // The durable demo_run_storage receipt and account cleanup are the
+    // backstop when the best-effort compensating remove cannot reach Storage.
+  }
+}
+
 export async function registerStorageObject(
   runId: number,
   leaseToken: string,
@@ -2689,9 +2713,15 @@ export async function uploadSeededResumeFile(
     mimeType: string;
     singleId?: number;
     shidduchimId?: number;
+    currentRunShidduchIds?: ReadonlySet<number>;
   },
   db: SupabaseClient,
 ): Promise<void> {
+  assertCurrentRunShidduchId(
+    params.shidduchimId,
+    params.currentRunShidduchIds,
+    "resume shidduch target",
+  );
   const bytes = await getAssetBytes(params.assetKey);
   const path = `${accountId}/resumes/${resumeOwnerSegment(params)}/${crypto.randomUUID()}-${params.filename}`;
   await registerStorageObject(
@@ -2720,6 +2750,7 @@ export async function uploadSeededResumeFile(
     p_single_id: params.singleId ?? null,
   });
   if (rpcError) {
+    await removeSeededObjectAfterCatalogFailure(db, "documents", path);
     throw new Error(
       `add_resume_file failed for ${params.filename}: ${rpcError.message}`,
     );
@@ -2736,9 +2767,15 @@ async function uploadSeededResumePhoto(
     visibility: string;
     singleId?: number;
     shidduchimId?: number;
+    currentRunShidduchIds?: ReadonlySet<number>;
   },
   db: SupabaseClient,
 ): Promise<void> {
+  assertCurrentRunShidduchId(
+    params.shidduchimId,
+    params.currentRunShidduchIds,
+    "photo shidduch target",
+  );
   const bytes = await getAssetBytes(params.assetKey);
   const path = `${accountId}/photos/${params.visibility}/${resumeOwnerSegment(params)}/${crypto.randomUUID()}-${params.filename}`;
   await registerStorageObject(
@@ -2765,6 +2802,7 @@ async function uploadSeededResumePhoto(
     p_visibility: params.visibility,
   });
   if (rpcError) {
+    await removeSeededObjectAfterCatalogFailure(db, "documents", path);
     throw new Error(
       `add_resume_photo failed for ${params.filename}: ${rpcError.message}`,
     );
@@ -2782,9 +2820,17 @@ async function uploadSeededEntityFile(
     assetKey: AssetKey;
     mimeType: string;
     visibility: string;
+    currentRunShidduchIds?: ReadonlySet<number>;
   },
   db: SupabaseClient,
 ): Promise<void> {
+  if (params.targetType === "shidduch") {
+    assertCurrentRunShidduchId(
+      params.targetId,
+      params.currentRunShidduchIds,
+      "entity-file shidduch target",
+    );
+  }
   const bytes = await getAssetBytes(params.assetKey);
   const ext = deriveExtension(params.filename);
   const path = `${accountId}/${params.targetType}/${params.targetId}/${crypto.randomUUID()}${ext}`;
@@ -2815,6 +2861,7 @@ async function uploadSeededEntityFile(
     visibility: params.visibility,
   });
   if (insertError) {
+    await removeSeededObjectAfterCatalogFailure(db, "entity-files", path);
     throw new Error(
       `insert entity_files failed for ${params.filename}: ${insertError.message}`,
     );
@@ -2918,6 +2965,10 @@ async function seedDemoData(
     ...girlSuggestionIds,
     ...boySuggestionIds,
   ]);
+  // Service-role Storage bypasses RLS. Keep the allowlist tied to IDs created
+  // by this invocation, so a seed request can never upload into an old or
+  // concurrently-deleted shidduch namespace.
+  const currentRunShidduchIds = new Set(suggestionIdByKey.values());
 
   for (const extra of EXTRA_REDTS) {
     const { error } = await db.rpc("add_redt", {
@@ -3058,7 +3109,7 @@ async function seedDemoData(
       runId,
       leaseToken,
       accountId,
-      { ...file, singleId, shidduchimId },
+      { ...file, singleId, shidduchimId, currentRunShidduchIds },
       db,
     );
   }
@@ -3077,7 +3128,7 @@ async function seedDemoData(
       runId,
       leaseToken,
       accountId,
-      { ...photo, singleId, shidduchimId },
+      { ...photo, singleId, shidduchimId, currentRunShidduchIds },
       db,
     );
   }
@@ -3094,7 +3145,7 @@ async function seedDemoData(
       runId,
       leaseToken,
       accountId,
-      { ...file, targetId },
+      { ...file, targetId, currentRunShidduchIds },
       db,
     );
   }

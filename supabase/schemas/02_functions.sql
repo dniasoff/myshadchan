@@ -896,6 +896,9 @@ CREATE OR REPLACE FUNCTION "public"."account_has_domain_data"("p_account_id" big
     -- A queued Inbox object is a live cleanup obligation. Letting account
     -- disposal cascade this row would orphan the Storage object permanently.
     or exists (select 1 from public.inbox_attachment_purge where account_id = p_account_id)
+    -- Shidduch object/prefix/quarantine work is equally live. Account
+    -- deletion must not cascade this queue before the Storage drain.
+    or exists (select 1 from public.storage_purge_queue where account_id = p_account_id)
     or exists (select 1 from public.tasks where account_id = p_account_id)
     or exists (select 1 from public.outbound_share_history where account_id = p_account_id);
 $$;
@@ -1088,6 +1091,7 @@ CREATE OR REPLACE FUNCTION "public"."account_is_disposable"("p_account_id" bigin
     or exists (select 1 from public.demo_runs where root_account_id = p_account_id)
     or exists (select 1 from public.demo_run_accounts where account_id = p_account_id)
     or exists (select 1 from public.demo_run_ingest_claims where account_id = p_account_id)
+    or exists (select 1 from public.storage_purge_queue where account_id = p_account_id)
     -- Uploaded bytes. Deleting the row would leave the object unreferenced
     -- and unreachable, which is a leak in the other direction.
     or exists (
@@ -1185,6 +1189,13 @@ begin
     return false;
   end if;
 
+  -- The same queue/object fence used by delete_account_data(). This path is
+  -- service_role-only but is still an account deletion path, so it must not
+  -- erase a pending prefix sweep or race a Storage upload.
+  if not public.account_storage_cleanup_fence(p_account_id) then
+    return false;
+  end if;
+
   -- Release the two references that must survive the account rather than
   -- cascade with it. member_state would be SET NULL anyway; the intent would
   -- be DELETED, taking the caller's retry state and attempts counter with it
@@ -1260,6 +1271,11 @@ begin
   end if;
   if v_demo then
     raise exception 'demo accounts must be cleared through the demo lifecycle'
+      using errcode = 'check_violation';
+  end if;
+
+  if not public.account_storage_cleanup_fence(p_account_id) then
+    raise exception 'account has pending Storage cleanup; drain it before deletion'
       using errcode = 'check_violation';
   end if;
 
@@ -2006,10 +2022,32 @@ CREATE OR REPLACE FUNCTION "public"."add_resume_file"("p_path" "text", "p_filena
     AS $$
 declare
   v_account_id bigint;
+  v_parent_id bigint;
   v_entry jsonb;
   v_source_attachment jsonb;
 begin
   v_account_id := public.current_context_id();
+
+  -- Upload/catalog lock order is account -> shidduch parent -> Inbox source.
+  -- The parent FOR SHARE is taken before any resume row write so delete's
+  -- parent FOR UPDATE cannot race a late catalog insert.
+  if p_shidduchim_id is not null then
+    perform public.account_storage_lock(v_account_id);
+    select s.id into v_parent_id
+    from public.shidduchim s
+    where s.id = p_shidduchim_id and s.account_id = v_account_id
+    for share;
+    if v_parent_id is null then
+      raise exception 'shidduch % not found in current account', p_shidduchim_id;
+    end if;
+    if exists (
+      select 1 from public.deleted_shidduch_tombstones t
+      where t.account_id = v_account_id and t.shidduch_id = p_shidduchim_id
+    ) then
+      raise exception 'shidduch % is deleted', p_shidduchim_id
+        using errcode = 'foreign_key_violation';
+    end if;
+  end if;
 
   if (p_shidduchim_id is not null) = (p_single_id is not null) then
     raise exception 'exactly one of p_shidduchim_id/p_single_id must be provided';
@@ -2141,6 +2179,7 @@ CREATE OR REPLACE FUNCTION "public"."add_resume_photo"("p_path" "text", "p_shidd
 declare
   v_account_id bigint;
   v_resume_id bigint;
+  v_parent_id bigint;
 begin
   v_account_id := public.current_context_id();
 
@@ -2149,6 +2188,21 @@ begin
   end if;
 
   if p_shidduchim_id is not null then
+    perform public.account_storage_lock(v_account_id);
+    select s.id into v_parent_id
+    from public.shidduchim s
+    where s.id = p_shidduchim_id and s.account_id = v_account_id
+    for share;
+    if v_parent_id is null then
+      raise exception 'shidduch % not found in current account', p_shidduchim_id;
+    end if;
+    if exists (
+      select 1 from public.deleted_shidduch_tombstones t
+      where t.account_id = v_account_id and t.shidduch_id = p_shidduchim_id
+    ) then
+      raise exception 'shidduch % is deleted', p_shidduchim_id
+        using errcode = 'foreign_key_violation';
+    end if;
     if not exists (
       select 1 from public.shidduchim s
       where s.id = p_shidduchim_id and s.account_id = v_account_id
@@ -3061,6 +3115,7 @@ end;
 $$;
 
 CREATE OR REPLACE FUNCTION "public"."create_shidduch"("p_single_id" bigint, "p_shadchan_id" bigint DEFAULT NULL::bigint, "p_name_en" "text" DEFAULT NULL::"text", "p_name_he" "text" DEFAULT NULL::"text", "p_father_en" "text" DEFAULT NULL::"text", "p_father_he" "text" DEFAULT NULL::"text", "p_mother_en" "text" DEFAULT NULL::"text", "p_mother_he" "text" DEFAULT NULL::"text", "p_dob" "date" DEFAULT NULL::"date", "p_background" "text" DEFAULT NULL::"text", "p_marital_status" "text" DEFAULT NULL::"text", "p_existing_children_note" "text" DEFAULT NULL::"text", "p_seminary_en" "text" DEFAULT NULL::"text", "p_seminary_he" "text" DEFAULT NULL::"text", "p_shul_en" "text" DEFAULT NULL::"text", "p_shul_he" "text" DEFAULT NULL::"text", "p_location_en" "text" DEFAULT NULL::"text", "p_location_he" "text" DEFAULT NULL::"text", "p_age" integer DEFAULT NULL::integer, "p_height" "text" DEFAULT NULL::"text", "p_origin" "text" DEFAULT 'manual'::"text", "p_initial_state" "public"."pipeline_state" DEFAULT 'new'::"public"."pipeline_state", "p_visibility" "text" DEFAULT 'shared'::"text", "p_redt_date" "date" DEFAULT NULL::"date", "p_person_gender" "text" DEFAULT NULL::"text", "p_kohen_status" "text" DEFAULT 'unknown'::"text") RETURNS SETOF "public"."shidduchim"
+    SECURITY DEFINER
     LANGUAGE "plpgsql"
     SET "search_path" TO ''
     AS $$
@@ -6147,11 +6202,20 @@ declare
   v_limit integer;
   v_new_count integer;
   v_reclaim_attempt_id bigint;
+  v_shidduch_id bigint;
 begin
   if p_account_id is null or p_resume_id is null or p_request_id is null then
     raise exception 're-read claim requires account, resume and request'
       using errcode = 'invalid_parameter_value';
   end if;
+
+  -- Lock order is parent shidduch FOR SHARE -> attempts. A delete takes the
+  -- same parent first FOR UPDATE order, so claim/delete cannot deadlock.
+  select s.id into v_shidduch_id
+  from public.shidduchim s
+  join public.resumes r on r.shidduchim_id = s.id
+  where r.id = p_resume_id and r.account_id = p_account_id
+  for share of s;
 
   -- The service-role RPC is an independent trust boundary from the Worker.
   -- Reject a forged account/resume pair before retention, quota reservation,
@@ -6296,6 +6360,7 @@ CREATE OR REPLACE FUNCTION "public"."apply_ai_reread_sections"("p_account_id" bi
     AS $$
 declare
   v_attempt public.ai_reread_attempts;
+  v_shidduch_id bigint;
 begin
   if p_account_id is null or p_resume_id is null or p_attempt_id is null
      or p_generation is null or p_next_sections is null
@@ -6303,6 +6368,14 @@ begin
     raise exception 're-read apply requires account, resume, attempt, generation, sections and schema version'
       using errcode = 'invalid_parameter_value';
   end if;
+
+  -- Lock the shidduch parent before the ledger generation. Delete takes the
+  -- parent FOR UPDATE first, so apply/delete share one lock order.
+  select s.id into v_shidduch_id
+  from public.shidduchim s
+  join public.resumes r on r.shidduchim_id = s.id
+  where r.id = p_resume_id and r.account_id = p_account_id
+  for share of s;
 
   -- Lock the ledger generation before touching the resume. The sections CAS
   -- and this completion update are one transaction, so an exception after
@@ -6367,6 +6440,7 @@ CREATE OR REPLACE FUNCTION "public"."apply_ai_resume_read"("p_account_id" bigint
 declare
   v_attempt public.ai_reread_attempts;
   v_resume public.resumes;
+  v_shidduch_id bigint;
   v_sections jsonb;
   v_extracted jsonb;
   v_selected_uploaded_at timestamptz;
@@ -6382,6 +6456,13 @@ begin
     raise exception 'resume read apply requires account, resume, attempt, generation, file, fields, sections and schema version'
       using errcode = 'invalid_parameter_value';
   end if;
+
+  -- Lock order is parent shidduch FOR SHARE -> attempt -> resume.
+  select s.id into v_shidduch_id
+  from public.shidduchim s
+  join public.resumes r on r.shidduchim_id = s.id
+  where r.id = p_resume_id and r.account_id = p_account_id
+  for share of s;
 
   select * into v_attempt
   from public.ai_reread_attempts
@@ -8863,6 +8944,7 @@ CREATE OR REPLACE FUNCTION "public"."delete_demo_companion_contexts"(
     AS $$
 declare
   v_run public.demo_runs;
+  v_companion_account_id bigint;
 begin
   select * into v_run from public.demo_runs where id = p_run_id for update;
   if not found or p_operation not in ('seed', 'clear')
@@ -8874,6 +8956,16 @@ begin
     raise exception 'demo run % lease is stale or fenced', p_run_id
       using errcode = 'serialization_failure';
   end if;
+
+  for v_companion_account_id in
+    select dra.account_id from public.demo_run_accounts dra
+    where dra.run_id = p_run_id and not dra.is_root
+  loop
+    if not public.account_storage_cleanup_fence(v_companion_account_id) then
+      raise exception 'demo companion account % has pending Storage cleanup', v_companion_account_id
+        using errcode = 'check_violation';
+    end if;
+  end loop;
 
   delete from public.account_members am
   where am.account_id in (
@@ -8948,6 +9040,7 @@ declare
   v_active_members integer;
   v_completed_at timestamp with time zone := now();
   v_archived_membership_id bigint;
+  v_companion_account_id bigint;
 begin
   select * into v_run from public.demo_runs where id = p_run_id for update;
   if not found or v_run.status <> 'clearing'
@@ -8993,6 +9086,16 @@ begin
   -- Companion accounts stay present until this transaction. That keeps a
   -- failed clear's manifest strictly valid after every external/Auth step and
   -- makes account removal atomic with finalization.
+  for v_companion_account_id in
+    select dra.account_id from public.demo_run_accounts dra
+    where dra.run_id = p_run_id and not dra.is_root
+  loop
+    if not public.account_storage_cleanup_fence(v_companion_account_id) then
+      raise exception 'demo companion account % has pending Storage cleanup', v_companion_account_id
+        using errcode = 'check_violation';
+    end if;
+  end loop;
+
   delete from public.account_members am
   where am.account_id in (
     select dra.account_id
@@ -9970,4 +10073,539 @@ begin
     perform pg_sleep(0.05);
   end loop;
 end;
+$$;
+
+-- =====================================================================
+-- Story 5xr: shidduch archive/delete, tombstone and Storage purge fence.
+-- These definitions are intentionally kept together at the tail of the
+-- declarative function dump. The migration carries the same function bodies.
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.account_storage_lock(p_account_id bigint)
+RETURNS void
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+begin
+  if p_account_id is null then
+    raise exception 'account storage lock requires an account'
+      using errcode = 'invalid_parameter_value';
+  end if;
+  perform pg_advisory_xact_lock(
+    hashtextextended(format('myshadchan-account-storage:%s', p_account_id), 0)
+  );
+end;
+$$;
+
+-- Storage INSERT policies call this before accepting an account-prefixed
+-- object. Holding the advisory lock until the transaction commits makes the
+-- account-delete race deterministic: upload wins -> the delete sees the
+-- object; delete wins -> the later upload sees no account.
+CREATE OR REPLACE FUNCTION public.storage_account_write_allowed(p_account_id bigint)
+RETURNS boolean
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+begin
+  if p_account_id is null or p_account_id is distinct from public.current_context_id() then
+    return false;
+  end if;
+  perform public.account_storage_lock(p_account_id);
+  return exists (select 1 from public.accounts where id = p_account_id);
+end;
+$$;
+
+-- Stable, path-blind tombstone policy helper. It accepts the legacy single
+-- path grammar and the exact shidduch-owned grammar. Storage PUTs happen
+-- before the catalog RPC, so the parent need not exist yet; the permanent
+-- tombstone is the only post-delete fence.
+CREATE OR REPLACE FUNCTION public.shidduch_storage_path_allowed(
+  p_bucket text,
+  p_name text
+) RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_shidduch_id bigint;
+begin
+  if v_account_id is null or p_bucket is null or p_name is null then
+    return false;
+  end if;
+
+  if p_bucket = 'documents'
+     and p_name ~ ('^' || v_account_id::text || '/resumes/single-[0-9]+/[^/]+$') then
+    return true;
+  end if;
+  if p_bucket = 'documents'
+     and p_name ~ ('^' || v_account_id::text || '/photos/(shared|private_parent)/single-[0-9]+/[^/]+$') then
+    return true;
+  end if;
+  if p_bucket = 'entity-files'
+     and p_name ~ ('^' || v_account_id::text || '/(reference|shadchan|single|connection)/[0-9]+/[^/]+$') then
+    return true;
+  end if;
+
+  if p_bucket = 'documents'
+     and p_name ~ ('^' || v_account_id::text || '/resumes/[0-9]+/[^/]+$') then
+    v_shidduch_id := split_part(p_name, '/', 3)::bigint;
+  elsif p_bucket = 'documents'
+     and p_name ~ ('^' || v_account_id::text || '/photos/(shared|private_parent)/[0-9]+/[^/]+$') then
+    v_shidduch_id := split_part(p_name, '/', 4)::bigint;
+  elsif p_bucket = 'entity-files'
+     and p_name ~ ('^' || v_account_id::text || '/shidduch/[0-9]+/[^/]+$') then
+    v_shidduch_id := split_part(p_name, '/', 3)::bigint;
+  else
+    return false;
+  end if;
+
+  return not exists (
+    select 1
+    from public.deleted_shidduch_tombstones t
+    where t.account_id = v_account_id and t.shidduch_id = v_shidduch_id
+  );
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.entity_files_target_guard()
+RETURNS trigger
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_context_id bigint := public.current_context_id();
+  v_account_id bigint := coalesce(v_context_id, new.account_id);
+  v_parent_id bigint;
+begin
+  if v_account_id is null or new.account_id is distinct from v_account_id then
+    raise exception 'entity file account context mismatch'
+      using errcode = 'insufficient_privilege';
+  end if;
+  if new.storage_path is null
+     or new.storage_path !~ ('^' || v_account_id::text || '/' || new.target_type || '/' || new.target_id::text || '/[^/]+$')
+     or new.storage_path ~ '(^|/)(\.\.?)(/|$)'
+     or new.storage_path ~ '[*?]' then
+    raise exception 'entity file storage path does not match its target'
+      using errcode = 'check_violation';
+  end if;
+
+  perform public.account_storage_lock(v_account_id);
+  if new.target_type = 'shidduch' then
+    select s.id into v_parent_id
+    from public.shidduchim s
+    where s.id = new.target_id and s.account_id = v_account_id
+    for share;
+    if v_parent_id is null then
+      raise exception 'entity file shidduch target is missing'
+        using errcode = 'foreign_key_violation';
+    end if;
+    if exists (
+      select 1 from public.deleted_shidduch_tombstones t
+      where t.account_id = v_account_id and t.shidduch_id = new.target_id
+    ) then
+      raise exception 'entity file shidduch target is deleted'
+        using errcode = 'foreign_key_violation';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.shidduch_delete_tombstone()
+RETURNS trigger
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+begin
+  insert into public.deleted_shidduch_tombstones (account_id, shidduch_id, deleted_at)
+  values (old.account_id, old.id, now())
+  on conflict (account_id, shidduch_id) do nothing;
+  return old;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.storage_purge_path_referenced(
+  p_bucket text,
+  p_path text
+) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+  select
+    (p_bucket = 'documents' and exists (
+      select 1
+      from public.resumes r
+      cross join lateral jsonb_array_elements(
+        case when jsonb_typeof(r.files) = 'array' then r.files else '[]'::jsonb end
+      ) f(value)
+      where f.value->>'path' = p_path
+         or f.value->>'source_inbox_attachment_path' = p_path
+    ))
+    or (p_bucket = 'documents' and exists (
+      select 1 from public.resume_photos rp where rp.path = p_path
+    ))
+    or (p_bucket = 'entity-files' and exists (
+      select 1 from public.entity_files ef where ef.storage_path = p_path
+    ))
+    or (p_bucket = 'attachments' and exists (
+      select 1
+      from public.inbox_items i
+      cross join lateral jsonb_array_elements(
+        case when jsonb_typeof(i.attachments) = 'array' then i.attachments else '[]'::jsonb end
+      ) a(value)
+      where a.value->>'path' = p_path
+    ));
+$$;
+
+CREATE OR REPLACE FUNCTION public.storage_purge_queue_object(
+  p_account_id bigint,
+  p_bucket text,
+  p_path text
+) RETURNS void
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+begin
+  if p_bucket not in ('documents', 'entity-files')
+     or p_path is null
+     or public.storage_purge_path_referenced(p_bucket, p_path) then
+    return;
+  end if;
+  insert into public.storage_purge_queue (account_id, kind, bucket, storage_path)
+  values (p_account_id, 'object', p_bucket, p_path)
+  on conflict (account_id, kind, bucket, storage_path) do nothing;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.storage_purge_queue_quarantine(
+  p_account_id bigint,
+  p_bucket text,
+  p_path text,
+  p_reason text
+) RETURNS void
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+begin
+  if p_reason not in ('unsupported_path', 'legacy_path', 'unknown_bucket') then
+    raise exception 'invalid Storage quarantine reason' using errcode = 'invalid_parameter_value';
+  end if;
+  insert into public.storage_purge_queue (account_id, kind, bucket, storage_path, reason)
+  values (p_account_id, 'quarantine', p_bucket, p_path, p_reason)
+  on conflict (account_id, kind, bucket, storage_path) do nothing;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.claim_shidduch_storage_purge()
+RETURNS SETOF public.storage_purge_queue
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+begin
+  if v_account_id is null or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    raise exception 'Storage purge is not available to this role'
+      using errcode = 'insufficient_privilege';
+  end if;
+  return query
+  update public.storage_purge_queue q
+  set claimed_at = now(), attempt = q.attempt + 1, updated_at = now()
+  from (
+    select id
+    from public.storage_purge_queue
+    where account_id = v_account_id
+      and not_before <= now()
+      and (claimed_at is null or claimed_at < now() - interval '5 minutes')
+    order by id
+    limit 100
+    for update skip locked
+  ) picked
+  where q.id = picked.id
+  returning q.*;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.authorize_shidduch_storage_removal(
+  p_kind text,
+  p_bucket text,
+  p_queue_path text,
+  p_object_path text
+) RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+begin
+  if v_account_id is null or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    return false;
+  end if;
+  return exists (
+    select 1
+    from public.storage_purge_queue q
+    where q.account_id = v_account_id
+      and q.kind = p_kind
+      and q.bucket = p_bucket
+      and q.storage_path = p_queue_path
+      and q.claimed_at is not null
+      and (
+        (p_kind = 'object' and p_object_path = p_queue_path)
+        or (p_kind = 'prefix' and p_object_path like p_queue_path || '%')
+      )
+  ) and not public.storage_purge_path_referenced(p_bucket, p_object_path);
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.ack_shidduch_storage_purge(
+  p_kind text,
+  p_bucket text,
+  p_path text
+) RETURNS boolean
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_row public.storage_purge_queue;
+begin
+  if v_account_id is null or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    raise exception 'Storage purge is not available to this role'
+      using errcode = 'insufficient_privilege';
+  end if;
+  select * into v_row
+  from public.storage_purge_queue
+  where account_id = v_account_id
+    and kind = p_kind and bucket = p_bucket and storage_path = p_path
+    and claimed_at is not null
+  for update;
+  if not found then
+    return false;
+  end if;
+  if v_row.kind = 'prefix' and v_row.phase = 1 then
+    update public.storage_purge_queue
+    set phase = 2, not_before = now() + interval '24 hours',
+        claimed_at = null, updated_at = now()
+    where id = v_row.id;
+  else
+    delete from public.storage_purge_queue where id = v_row.id;
+  end if;
+  return true;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.account_storage_cleanup_fence(p_account_id bigint)
+RETURNS boolean
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+begin
+  perform public.account_storage_lock(p_account_id);
+  if not exists (select 1 from public.accounts where id = p_account_id) then
+    return true;
+  end if;
+  return not exists (
+    select 1 from public.storage_purge_queue where account_id = p_account_id
+  ) and not exists (
+    select 1
+    from storage.objects
+    where bucket_id in ('documents', 'entity-files', 'attachments')
+      and (name = p_account_id::text or name like p_account_id::text || '/%')
+  );
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.archive_shidduch(p_id bigint)
+RETURNS SETOF public.shidduchim
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_row public.shidduchim;
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    raise exception 'archive_shidduch requires an owning manager'
+      using errcode = 'insufficient_privilege';
+  end if;
+  select s.* into v_row from public.shidduchim s
+  where s.id = p_id and s.account_id = v_account_id
+  for update;
+  if not found then return; end if;
+  update public.shidduchim set archived_at = coalesce(archived_at, now()) where id = p_id;
+  return query select * from public.shidduch_row(p_id);
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.restore_shidduch(p_id bigint)
+RETURNS SETOF public.shidduchim
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_row public.shidduchim;
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    raise exception 'restore_shidduch requires an owning manager'
+      using errcode = 'insufficient_privilege';
+  end if;
+  select s.* into v_row from public.shidduchim s
+  where s.id = p_id and s.account_id = v_account_id
+  for update;
+  if not found then return; end if;
+  update public.shidduchim set archived_at = null where id = p_id;
+  return query select * from public.shidduch_row(p_id);
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.delete_shidduch(p_id bigint)
+RETURNS SETOF public.shidduchim
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_shidduch public.shidduchim;
+  v_resume public.resumes;
+  v_file jsonb;
+  v_path text;
+  v_prefix text;
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    raise exception 'delete_shidduch requires an owning manager'
+      using errcode = 'insufficient_privilege';
+  end if;
+  select s.* into v_shidduch from public.shidduchim s
+  where s.id = p_id and s.account_id = v_account_id
+  for update;
+  if not found then return; end if;
+
+  if exists (
+    select 1
+    from public.ai_reread_attempts a
+    join public.resumes r on r.id = a.resume_id
+    where r.shidduchim_id = p_id
+      and a.status = 'in_progress'
+      and a.lease_expires_at > now()
+  ) then
+    raise exception 'Please wait: this resume is being made easy to read.'
+      using errcode = '55P03';
+  end if;
+
+  for v_resume in
+    select r.* from public.resumes r where r.shidduchim_id = p_id
+  loop
+    if jsonb_typeof(v_resume.files) = 'array' then
+      for v_file in select value from jsonb_array_elements(v_resume.files) loop
+        v_path := v_file->>'path';
+        if v_path is null or v_path = v_file->>'source_inbox_attachment_path' then
+          continue;
+        elsif v_path ~ ('^' || v_account_id::text || '/resumes/' || p_id::text || '/[^/]+$')
+              and not v_path ~ '(^|/)(\.\.?)(/|$)' and not v_path ~ '[*?]' then
+          perform public.storage_purge_queue_object(v_account_id, 'documents', v_path);
+        else
+          perform public.storage_purge_queue_quarantine(v_account_id, 'documents', v_path, 'unsupported_path');
+        end if;
+      end loop;
+    end if;
+  end loop;
+
+  for v_path in
+    select rp.path
+    from public.resume_photos rp
+    join public.resumes r on r.id = rp.resume_id
+    where r.shidduchim_id = p_id
+  loop
+    if v_path ~ ('^' || v_account_id::text || '/photos/(shared|private_parent)/' || p_id::text || '/[^/]+$')
+       and not v_path ~ '(^|/)(\.\.?)(/|$)' and not v_path ~ '[*?]' then
+      perform public.storage_purge_queue_object(v_account_id, 'documents', v_path);
+    else
+      perform public.storage_purge_queue_quarantine(v_account_id, 'documents', v_path, 'unsupported_path');
+    end if;
+  end loop;
+
+  for v_path in
+    select ef.storage_path
+    from public.entity_files ef
+    where ef.account_id = v_account_id
+      and ef.target_type = 'shidduch' and ef.target_id = p_id
+  loop
+    if v_path ~ ('^' || v_account_id::text || '/shidduch/' || p_id::text || '/[^/]+$')
+       and not v_path ~ '(^|/)(\.\.?)(/|$)' and not v_path ~ '[*?]' then
+      perform public.storage_purge_queue_object(v_account_id, 'entity-files', v_path);
+    else
+      perform public.storage_purge_queue_quarantine(v_account_id, 'entity-files', v_path, 'unsupported_path');
+    end if;
+  end loop;
+
+  foreach v_prefix in array array[
+    v_account_id::text || '/resumes/' || p_id::text || '/',
+    v_account_id::text || '/photos/shared/' || p_id::text || '/',
+    v_account_id::text || '/photos/private_parent/' || p_id::text || '/',
+    v_account_id::text || '/shidduch/' || p_id::text || '/'
+  ] loop
+    insert into public.storage_purge_queue (account_id, kind, bucket, storage_path)
+    values (
+      v_account_id, 'prefix',
+      case when v_prefix like '%/shidduch/%' then 'entity-files' else 'documents' end,
+      v_prefix
+    ) on conflict (account_id, kind, bucket, storage_path) do nothing;
+  end loop;
+
+  delete from public.shidduchim where id = p_id and account_id = v_account_id;
+  return;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.delete_owned_inbox_shidduch(
+  p_id bigint,
+  p_single_id bigint DEFAULT NULL,
+  p_created_at timestamp with time zone DEFAULT NULL
+) RETURNS boolean
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+begin
+  if v_account_id is null or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    raise exception 'Inbox suggestion cleanup requires an owning manager'
+      using errcode = 'insufficient_privilege';
+  end if;
+  if not exists (
+    select 1 from public.shidduchim s
+    where s.id = p_id and s.account_id = v_account_id
+      and s.name_en is null
+      and (p_single_id is null or s.single_id = p_single_id)
+      and (p_created_at is null or s.created_at = p_created_at)
+  ) then
+    return false;
+  end if;
+  perform public.delete_shidduch(p_id);
+  return true;
+end;
+$$;
+
+-- Updated row shape used by all SETOF shidduchim RPCs. archived_at is the
+-- physical tail column and therefore the final expression in this projection.
+CREATE OR REPLACE FUNCTION public.shidduch_row(p_shidduchim_id bigint)
+RETURNS SETOF public.shidduchim
+LANGUAGE sql STABLE
+SET search_path TO ''
+AS $$
+  select
+    s.id, s.account_id, s.created_at, s.single_id, s.shadchan_id,
+    s.name_en, s.name_he, s.seminary_en, s.seminary_he,
+    s.shul_en, s.shul_he, s.location_en, s.location_he,
+    s.age, s.height, s.pipeline_state, s.first_suggested_by,
+    s.first_suggested_at, s.redt_date, public.shidduch_close_reason(s.id),
+    s.origin, s.owner_member_id, s.visibility, s.index, s.background, s.dob,
+    s.existing_children_note, s.father_en, s.father_he, s.marital_status,
+    s.mother_en, s.mother_he, s.kohen_status, s.person_gender, s.archived_at
+  from public.shidduchim s where s.id = p_shidduchim_id;
 $$;

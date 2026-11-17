@@ -1764,8 +1764,55 @@ const drainInboxAttachmentPurge = async (): Promise<InboxDeleteResult> => {
 
 type StoragePurgeRow = {
   id: Identifier;
+  kind: "object" | "prefix" | "quarantine";
   bucket: string;
   storage_path: string;
+  phase: number;
+};
+
+type ListedStorageEntry = {
+  name?: string;
+  id?: string | null;
+  metadata?: unknown;
+};
+
+const isStorageDirectory = (entry: ListedStorageEntry): boolean =>
+  entry.id == null && entry.metadata == null;
+
+const childStoragePath = (prefix: string, name: string): string =>
+  `${prefix}${name.replace(/^\/+/, "")}`;
+
+const listStoragePrefix = async (
+  bucket: string,
+  prefix: string,
+): Promise<string[]> => {
+  const files: string[] = [];
+  const directories = [prefix];
+  const storage = getSupabaseClient().storage.from(bucket);
+
+  while (directories.length > 0) {
+    const directory = directories.shift();
+    if (!directory) continue;
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await storage.list(directory, {
+        limit: 1000,
+        offset,
+        sortBy: { column: "name", order: "asc" },
+      });
+      if (error) throw error;
+      const entries = (data ?? []) as ListedStorageEntry[];
+      if (entries.length === 0) break;
+      for (const entry of entries) {
+        if (!entry.name) continue;
+        const fullPath = childStoragePath(directory, entry.name);
+        if (isStorageDirectory(entry)) directories.push(`${fullPath}/`);
+        else files.push(fullPath);
+      }
+      if (entries.length < 1000) break;
+    }
+  }
+
+  return files;
 };
 
 /** Drain the generalized shidduch-owned object queue. Storage is best effort;
@@ -1783,30 +1830,62 @@ export const drainShidduchStoragePurge =
       return { purgePending: true };
     }
 
-    const acknowledgedKeys: string[] = [];
+    let pending = false;
     for (const row of rows) {
       if (!row.bucket || !row.storage_path) continue;
-      try {
-        const { error } = await getSupabaseClient()
-          .storage.from(row.bucket)
-          .remove([row.storage_path]);
-        if (!error || isMissingStorageObject(error)) {
-          acknowledgedKeys.push(`${row.bucket}:${row.storage_path}`);
-        }
-      } catch {
-        // Leave failed rows for the next load.
+      if (row.kind === "quarantine") {
+        pending = true;
+        continue;
       }
+      let paths: string[];
+      try {
+        paths =
+          row.kind === "prefix"
+            ? await listStoragePrefix(row.bucket, row.storage_path)
+            : [row.storage_path];
+      } catch {
+        pending = true;
+        continue;
+      }
+
+      let rowComplete = true;
+      for (const objectPath of paths) {
+        const { data: authorized, error: authorizationError } =
+          await getSupabaseClient().rpc("authorize_shidduch_storage_removal", {
+            p_kind: row.kind,
+            p_bucket: row.bucket,
+            p_queue_path: row.storage_path,
+            p_object_path: objectPath,
+          });
+        if (authorizationError) {
+          rowComplete = false;
+          continue;
+        }
+        if (!authorized) continue;
+        try {
+          const { error } = await getSupabaseClient()
+            .storage.from(row.bucket)
+            .remove([objectPath]);
+          if (error && !isMissingStorageObject(error)) rowComplete = false;
+        } catch {
+          rowComplete = false;
+        }
+      }
+
+      if (!rowComplete) {
+        pending = true;
+        continue;
+      }
+      const { data: acknowledged, error: acknowledgeError } =
+        await getSupabaseClient().rpc("ack_shidduch_storage_purge", {
+          p_kind: row.kind,
+          p_bucket: row.bucket,
+          p_path: row.storage_path,
+        });
+      if (acknowledgeError || !acknowledged) pending = true;
     }
 
-    if (acknowledgedKeys.length > 0) {
-      const { error } = await getSupabaseClient().rpc(
-        "ack_shidduch_storage_purge",
-        { p_keys: acknowledgedKeys },
-      );
-      if (error) return { purgePending: true };
-    }
-
-    return { purgePending: rows.length > acknowledgedKeys.length };
+    return { purgePending: pending };
   };
 
 // Story 10.1 (Task 4): exported so `ShareTarget.tsx` can upload a shared

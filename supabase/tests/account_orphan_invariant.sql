@@ -184,6 +184,68 @@ select 'dispose REFUSES an account with a queued Inbox purge obligation',
   and exists (select 1 from public.inbox_attachment_purge where account_id = :'inbox_purge_acct');
 update public.account_members set status = 'active' where account_id = :'inbox_purge_acct';
 
+-- 7c. The generalized shidduch queue is the same live cleanup obligation in
+-- every queue phase: unclaimed, claimed, and between prefix sweeps. It must
+-- block the service-role disposer until the exact rows are drained.
+select pg_temp.new_household('shidduch purge obligation hh', '0a1a0000-0000-0000-0000-000000000002') as shidduch_purge_acct \gset
+insert into public.storage_purge_queue (account_id, kind, bucket, storage_path)
+values (:'shidduch_purge_acct', 'object', 'documents', :'shidduch_purge_acct'::text || '/resumes/77/file.pdf');
+update public.account_members set status = 'archived' where account_id = :'shidduch_purge_acct';
+insert into orphan_checks
+select 'dispose REFUSES an unclaimed shidduch purge obligation',
+  public.dispose_orphaned_account(:'shidduch_purge_acct') is false;
+update public.storage_purge_queue
+set claimed_at = now(), attempt = 1
+where account_id = :'shidduch_purge_acct';
+insert into orphan_checks
+select 'dispose REFUSES a claimed shidduch purge obligation',
+  public.dispose_orphaned_account(:'shidduch_purge_acct') is false;
+delete from public.storage_purge_queue where account_id = :'shidduch_purge_acct';
+insert into public.storage_purge_queue (account_id, kind, bucket, storage_path, phase, not_before)
+values (:'shidduch_purge_acct', 'prefix', 'documents', :'shidduch_purge_acct'::text || '/resumes/77/', 2, now() + interval '24 hours');
+insert into orphan_checks
+select 'dispose REFUSES a prefix between sweeps',
+  public.dispose_orphaned_account(:'shidduch_purge_acct') is false;
+delete from public.storage_purge_queue where account_id = :'shidduch_purge_acct';
+select public.account_has_domain_data(:'shidduch_purge_acct') as purge_domain,
+       public.account_is_disposable(:'shidduch_purge_acct') as purge_disposable,
+       public.account_storage_cleanup_fence(:'shidduch_purge_acct') as purge_storage_fence \gset
+select public.dispose_orphaned_account(:'shidduch_purge_acct') as purge_disposed \gset
+select exists (select 1 from public.accounts where id = :'shidduch_purge_acct') as purge_still_exists \gset
+insert into orphan_checks
+select 'dispose succeeds after all shidduch purge phases drain',
+  :'purge_disposed'::boolean and not :'purge_still_exists'::boolean,
+  format('domain=%s disposable=%s storage_fence=%s disposed=%s exists=%s', :'purge_domain', :'purge_disposable', :'purge_storage_fence', :'purge_disposed', :'purge_still_exists');
+
+-- 7d. The authenticated account-deletion RPC uses the same fence and must
+-- leave the account/queue intact. This is deliberately a queue-only account;
+-- there is no domain row for a different check to accidentally trip first.
+select pg_temp.new_household('delete queue fence hh', '0a1a0000-0000-0000-0000-000000000001') as delete_fence_acct \gset
+insert into public.storage_purge_queue (account_id, kind, bucket, storage_path)
+values (:'delete_fence_acct', 'object', 'entity-files', :'delete_fence_acct'::text || '/shidduch/88/file.pdf');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"0a1a0000-0000-0000-0000-000000000001","role":"authenticated"}';
+select public.set_active_context(:'delete_fence_acct');
+do $$
+declare v_acct bigint;
+begin
+  select id into v_acct from public.accounts where name = 'delete queue fence hh';
+  perform public.delete_account_data(v_acct, auth.uid(), false);
+  insert into orphan_checks values ('delete_account_data REFUSES a queue-only account', false, 'delete unexpectedly succeeded');
+exception when others then
+  insert into orphan_checks values ('delete_account_data REFUSES a queue-only account',
+    sqlerrm like '%pending Storage cleanup%', sqlerrm);
+end $$;
+set local role postgres;
+insert into orphan_checks
+select 'delete_account_data leaves the queue-only account and queue intact',
+  exists (select 1 from public.accounts where id = :'delete_fence_acct')
+  and exists (select 1 from public.storage_purge_queue where account_id = :'delete_fence_acct');
+delete from public.storage_purge_queue where account_id = :'delete_fence_acct';
+delete from public.account_members where account_id = :'delete_fence_acct';
+delete from public.accounts where id = :'delete_fence_acct';
+reset request.jwt.claims;
+
 -- 8. It REFUSES an account that still holds a live membership.
 select pg_temp.new_household('orphan live hh', '0a1a0000-0000-0000-0000-000000000002') as live_acct \gset
 insert into orphan_checks
@@ -245,6 +307,7 @@ begin
       'proposer_account_id', 'grantee_account_id', 'inviter_account_id',
       'accepted_by_account_id', 'root_account_id'
     )
+    and c.relname not in ('deleted_shidduch_tombstones')
     and position(c.relname in v_def) = 0;
 
   insert into orphan_checks

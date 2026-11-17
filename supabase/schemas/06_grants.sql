@@ -1902,3 +1902,60 @@ revoke all on function public.delete_demo_actor_rows(bigint, text, text, uuid, t
 grant execute on function public.delete_demo_actor_rows(bigint, text, text, uuid, text) to service_role;
 revoke all on function public.delete_demo_resource(bigint, text, text, bigint, text) from public, anon, authenticated;
 grant execute on function public.delete_demo_resource(bigint, text, text, bigint, text) to service_role;
+
+-- =====================================================================
+-- Story 5xr lifecycle hardening.
+-- =====================================================================
+
+-- Internal purge/fence helpers are never RPC entry points. Keep the one
+-- advisory-lock primitive reachable by the existing SECURITY INVOKER resume
+-- writers; every queue/path helper is only callable through a guarded definer.
+revoke all on function public.account_storage_lock(bigint) from public, anon;
+grant execute on function public.account_storage_lock(bigint) to authenticated, service_role;
+revoke all on function public.storage_purge_path_referenced(text, text) from public, anon, authenticated;
+revoke all on function public.storage_purge_queue_object(bigint, text, text) from public, anon, authenticated;
+revoke all on function public.storage_purge_queue_quarantine(bigint, text, text, text) from public, anon, authenticated;
+revoke all on function public.account_storage_cleanup_fence(bigint) from public, anon, authenticated;
+
+-- No authenticated base INSERT/DELETE path exists for shidduchim. Creation is
+-- the create_shidduch RPC; deletion is delete_shidduch (and the guarded Inbox
+-- cleanup RPC). Persist-order is the only direct client update and id cannot
+-- be updated to a tombstoned value because it is not granted at all.
+revoke insert, delete, update on table public.shidduchim from authenticated;
+grant update (index) on table public.shidduchim to authenticated;
+grant select (
+    id, account_id, created_at, single_id, shadchan_id, name_en, name_he,
+    seminary_en, seminary_he, shul_en, shul_he, location_en, location_he,
+    age, height, pipeline_state, first_suggested_by, first_suggested_at,
+    redt_date, origin, owner_member_id, visibility, index, background, dob,
+    existing_children_note, father_en, father_he, marital_status, mother_en,
+    mother_he, kohen_status, person_gender, archived_at
+) on table public.shidduchim to authenticated;
+revoke all on sequence public.shidduchim_id_seq from authenticated;
+
+revoke all on table public.deleted_shidduch_tombstones from public, anon, authenticated;
+grant all on table public.deleted_shidduch_tombstones to service_role;
+revoke all on table public.storage_purge_queue from public, anon, authenticated;
+grant select on table public.storage_purge_queue to authenticated;
+grant all on table public.storage_purge_queue to service_role;
+revoke all on sequence public.storage_purge_queue_id_seq from anon, authenticated;
+grant all on sequence public.storage_purge_queue_id_seq to service_role;
+
+revoke all on function public.archive_shidduch(bigint) from public, anon;
+grant execute on function public.archive_shidduch(bigint) to authenticated, service_role;
+revoke all on function public.restore_shidduch(bigint) from public, anon;
+grant execute on function public.restore_shidduch(bigint) to authenticated, service_role;
+revoke all on function public.delete_shidduch(bigint) from public, anon;
+grant execute on function public.delete_shidduch(bigint) to authenticated, service_role;
+revoke all on function public.delete_owned_inbox_shidduch(bigint, bigint, timestamptz) from public, anon;
+grant execute on function public.delete_owned_inbox_shidduch(bigint, bigint, timestamptz) to authenticated, service_role;
+revoke all on function public.claim_shidduch_storage_purge() from public, anon;
+grant execute on function public.claim_shidduch_storage_purge() to authenticated, service_role;
+revoke all on function public.authorize_shidduch_storage_removal(text, text, text, text) from public, anon;
+grant execute on function public.authorize_shidduch_storage_removal(text, text, text, text) to authenticated, service_role;
+revoke all on function public.ack_shidduch_storage_purge(text, text, text) from public, anon;
+grant execute on function public.ack_shidduch_storage_purge(text, text, text) to authenticated, service_role;
+revoke all on function public.storage_account_write_allowed(bigint) from public, anon;
+grant execute on function public.storage_account_write_allowed(bigint) to authenticated, service_role;
+revoke all on function public.shidduch_storage_path_allowed(text, text) from public, anon;
+grant execute on function public.shidduch_storage_path_allowed(text, text) to authenticated, service_role;
