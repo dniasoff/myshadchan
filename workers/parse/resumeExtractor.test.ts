@@ -1420,13 +1420,25 @@ describe("geminiExtractor", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("rejects hostile unified account IDs without putting them in logs or URLs", async () => {
+    it("rejects hostile unified account IDs before token checks, logs, or URLs", async () => {
       const fetchMock = vi.fn();
-      const configLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      const consoleSpies = ["error", "warn", "info", "log", "debug"].map(
+        (method) =>
+          vi.spyOn(console, method as "error").mockImplementation(() => {}),
+      );
       vi.stubGlobal("fetch", fetchMock);
       const hostileAccountIds = ["/", "?", "#", "..", "%2f", " ", ""];
 
-      for (const accountId of hostileAccountIds) {
+      await expect(
+        geminiExtractor({
+          ...TEST_ENV,
+          AI_GATEWAY_ACCOUNT_ID: hostileAccountIds[0],
+          EXTRACT_PROVIDER: "cf-unified",
+          EXTRACT_MODEL: "openai/gpt-6-luna",
+        }).extract(new ArrayBuffer(0), "application/pdf"),
+      ).rejects.toMatchObject({ status: 400 });
+
+      for (const accountId of hostileAccountIds.slice(1)) {
         await expect(
           geminiExtractor({
             ...TEST_ENV,
@@ -1439,14 +1451,10 @@ describe("geminiExtractor", () => {
       }
 
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(configLog.mock.calls).toHaveLength(hostileAccountIds.length);
-      expect(configLog.mock.calls).toEqual(
-        hostileAccountIds.map(() => [
-          "parse.extract.config.invalid",
-          { variable: "AI_GATEWAY_ACCOUNT_ID" },
-        ]),
+      expect(consoleSpies.every((spy) => spy.mock.calls.length === 0)).toBe(
+        true,
       );
-      configLog.mockRestore();
+      for (const spy of consoleSpies) spy.mockRestore();
     });
   });
 

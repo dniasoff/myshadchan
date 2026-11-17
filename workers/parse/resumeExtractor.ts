@@ -111,6 +111,7 @@ const CF_MODEL_ALLOWLIST = new Set([
   "openai/gpt-5.6-luna",
 ]);
 const CF_MODEL_PATTERN = /^openai\/[a-z0-9.-]{1,80}$/u;
+const CLOUDFLARE_ACCOUNT_ID_PATTERN = /^[A-Za-z0-9]{16,64}$/u;
 const EXTRACT_PROVIDER_VALUES = new Set(["google-key", "cf-unified"]);
 type ExtractProvider = "google-key" | "cf-unified";
 
@@ -363,10 +364,7 @@ function sleep(delayMs: number): Promise<void> {
 }
 
 function cloudflareResponsesEndpoint(accountId: string): string {
-  if (!/^[A-Za-z0-9]{16,64}$/u.test(accountId)) {
-    console.error("parse.extract.config.invalid", {
-      variable: "AI_GATEWAY_ACCOUNT_ID",
-    });
+  if (!CLOUDFLARE_ACCOUNT_ID_PATTERN.test(accountId)) {
     throw new ExtractorProviderError(400);
   }
   return `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/v1/responses`;
@@ -476,6 +474,12 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
       let contentPart:
         { text: string } | { inline_data: { mime_type: string; data: string } };
       const extractProvider = configuredProvider(env.EXTRACT_PROVIDER);
+      if (
+        extractProvider === "cf-unified" &&
+        !CLOUDFLARE_ACCOUNT_ID_PATTERN.test(env.AI_GATEWAY_ACCOUNT_ID)
+      ) {
+        throw new ExtractorProviderError(400);
+      }
       const contentStartedAt = Date.now();
       try {
         contentPart =
