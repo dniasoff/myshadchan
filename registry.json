@@ -336,10 +336,6 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/shidduchim/ShidduchEducationSection.tsx",
-          "type": "registry:component"
-        },
-        {
           "path": "src/components/atomic-crm/shidduchim/ShidduchDiscussionsTab.tsx",
           "type": "registry:component"
         },

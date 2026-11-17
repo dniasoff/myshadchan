@@ -37,8 +37,8 @@ import "./entityDescriptor";
  * carries `visibleTo: ["parent_admin", "self_manager"]`. Mounted through the
  * real FakeRest data provider (not a mock) because the shidduch's Overview
  * tab — the default landing tab — performs several of its own fetches
- * (`ShidduchOverviewTab.tsx`: redts, shadchanim, shidduch_education), the same
- * "real provider, not a mock" reasoning `PhotoTab.test.tsx` and
+ * (`ShidduchOverviewTab.tsx`: redts and shadchanim), the same "real provider,
+ * not a mock" reasoning `PhotoTab.test.tsx` and
  * `MedicalTab.test.tsx` use for their own deep component trees.
  */
 
@@ -185,6 +185,21 @@ describe("shidduchimDescriptor — tab strip order (Story 5.6, AC 1 / AC 2; Stor
       "Activity",
       "Discussions",
     ]);
+  });
+});
+
+describe("shidduchimDescriptor — Overview education card", () => {
+  it("does not render the Schools & seminaries card or its add form", async () => {
+    const { screen } = await renderShidduchShow("parent_admin");
+
+    await expect
+      .element(screen.getByRole("tab", { name: "Overview" }))
+      .toBeInTheDocument();
+
+    const overviewText = screen.container.textContent ?? "";
+    expect(overviewText).not.toContain("Schools & seminaries");
+    expect(overviewText).not.toContain("Add a school");
+    expect(overviewText).not.toContain("Add school");
   });
 });
 
