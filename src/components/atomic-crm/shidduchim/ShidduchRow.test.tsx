@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import { TestMemoryRouter } from "ra-core";
+import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 
 // Side-effect import — registers the "shidduchim" entity descriptor, exactly
 // as `shidduchim/index.ts` does at boot.
 import "./entityDescriptor";
 import { buildRecordPath } from "../entity360/entityPaths";
+import { testI18nProvider } from "../providers/commons/i18nProvider";
+import type { CrmDataProvider } from "../providers/types";
 import type { ShidduchSummary } from "../types";
 import { ShidduchRow } from "./ShidduchRow";
 import { rememberTransientSuggestionName } from "./transientSuggestionDisplay";
@@ -38,6 +40,37 @@ const renderRow = async (
   );
   return { screen, onMove };
 };
+
+const renderManagedRow = async (
+  overrides: Partial<ShidduchSummary> = {},
+  canManageLifecycle = true,
+) =>
+  render(
+    <TestMemoryRouter initialEntries={["/shidduchim"]}>
+      <CoreAdminContext
+        dataProvider={
+          {
+            archiveShidduch: vi.fn().mockResolvedValue(undefined),
+            deleteShidduch: vi.fn().mockResolvedValue({ purgePending: false }),
+            getOne: vi
+              .fn()
+              .mockResolvedValue({ data: buildShidduch(overrides) }),
+            getShidduchReadState: vi
+              .fn()
+              .mockResolvedValue({ inProgress: false }),
+            restoreShidduch: vi.fn().mockResolvedValue(undefined),
+          } as unknown as CrmDataProvider
+        }
+        i18nProvider={testI18nProvider}
+      >
+        <ShidduchRow
+          shidduch={buildShidduch(overrides)}
+          onMove={vi.fn()}
+          canManageLifecycle={canManageLifecycle}
+        />
+      </CoreAdminContext>
+    </TestMemoryRouter>,
+  );
 
 describe("ShidduchRow — RecordLink mention, Move as a sibling (AC-12)", () => {
   it("wraps the record mention in an anchor at buildRecordPath('shidduchim', id)", async () => {
@@ -132,5 +165,87 @@ describe("ShidduchRow — RecordLink mention, Move as a sibling (AC-12)", () => 
     const { screen } = await renderRow({ name_en: null });
 
     await expect.element(screen.getByText("Unnamed")).toBeInTheDocument();
+  });
+
+  it("hides More for roles that cannot manage lifecycle actions", async () => {
+    const screen = await renderManagedRow({}, false);
+
+    await expect
+      .element(screen.getByRole("button", { name: /More actions/ }))
+      .not.toBeInTheDocument();
+  });
+
+  it("shows the shared active-row menu with the exact archive and delete copy", async () => {
+    const screen = await renderManagedRow();
+
+    await screen
+      .getByRole("button", { name: /More actions for Chaim Cohen/ })
+      .click();
+
+    await expect
+      .element(screen.getByRole("menuitem", { name: /Archive suggestion/ }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Keeps the file and history"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("menuitem", { name: /Delete suggestion/ }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Removes the file and history"))
+      .toBeInTheDocument();
+  });
+
+  it("uses the shared delete confirmation and returns focus to More on Cancel", async () => {
+    const screen = await renderManagedRow();
+    const more = screen.getByRole("button", {
+      name: /More actions for Chaim Cohen/,
+    });
+
+    await more.click();
+    await screen.getByRole("menuitem", { name: "Delete suggestion" }).click();
+
+    await expect.element(screen.getByRole("dialog")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Delete Chaim Cohen?"))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "This also removes its resume files, references links, notes and call history. This cannot be undone after the Undo time.",
+        ),
+      )
+      .toBeInTheDocument();
+    const cancel = screen.getByRole("button", { name: "Cancel", exact: true });
+    await expect
+      .poll(
+        () => cancel.element().ownerDocument.activeElement === cancel.element(),
+      )
+      .toBe(true);
+    await cancel.click();
+    await expect
+      .poll(() =>
+        more.element().ownerDocument.activeElement?.getAttribute("aria-label"),
+      )
+      .toBe("More actions for Chaim Cohen");
+  });
+
+  it("shows Restore and Delete, without Move or More, for archived rows", async () => {
+    const screen = await renderManagedRow({
+      archived_at: "2026-11-17T15:00:00.000Z",
+    });
+
+    await expect
+      .element(screen.getByRole("button", { name: "Restore" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Delete" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: /Move/ }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: /More actions/ }))
+      .not.toBeInTheDocument();
   });
 });

@@ -5,11 +5,13 @@ import { getAvatarIndex, getMonogram } from "../entity360/avatar";
 import { RecordLink } from "../entity360/RecordLink";
 import type { ShidduchSummary } from "../types";
 import { formatArchivedDate, formatRedtDate } from "./boardUtils";
+import { ShidduchRowLifecycleActions } from "./ShidduchLifecycleActions";
 import { getTransientSuggestionName } from "./transientSuggestionDisplay";
 
 export interface ShidduchRowProps {
   shidduch: ShidduchSummary;
   onMove: () => void;
+  canManageLifecycle?: boolean;
   /** "row" (List position, default) or "card" (Cards position) — identical
    * content either way (Task 4), only the outer container chrome differs. */
   layout?: "row" | "card";
@@ -35,6 +37,7 @@ export interface ShidduchRowProps {
 export const ShidduchRow = ({
   shidduch,
   onMove,
+  canManageLifecycle = false,
   layout = "row",
   tourAnchor = false,
 }: ShidduchRowProps) => {
@@ -91,11 +94,17 @@ export const ShidduchRow = ({
           {monogram}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold leading-tight">
+          <span
+            dir="auto"
+            className="block truncate text-sm font-semibold leading-tight"
+          >
             {name}
           </span>
           {lineTwo ? (
-            <span className="block truncate text-xs text-muted-foreground">
+            <span
+              dir="auto"
+              className="block truncate text-xs text-muted-foreground"
+            >
               {lineTwo}
             </span>
           ) : null}
@@ -111,15 +120,32 @@ export const ShidduchRow = ({
         </span>
       </RecordLink>
       {/* AC-12: a sibling of the anchor above, never inside it. */}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="min-h-11 shrink-0"
-        onClick={onMove}
-      >
-        ⇄ Move
-      </Button>
+      {shidduch.archived_at ? (
+        canManageLifecycle ? (
+          <ShidduchRowLifecycleActions
+            record={shidduch}
+            variant="archived-row"
+          />
+        ) : null
+      ) : (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-11 shrink-0"
+            onClick={onMove}
+          >
+            ⇄ Move
+          </Button>
+          {canManageLifecycle ? (
+            <ShidduchRowLifecycleActions
+              record={shidduch}
+              variant="active-row"
+            />
+          ) : null}
+        </>
+      )}
     </div>
   );
 };

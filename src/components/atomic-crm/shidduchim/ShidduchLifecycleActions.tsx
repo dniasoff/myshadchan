@@ -55,13 +55,9 @@ const reconcileArchivedMarker = async (
   return false;
 };
 
-/** Header actions and the manager-only archived state for one shidduch. */
-export const ShidduchLifecycleActions = ({
-  record,
-}: {
-  record: ShidduchSummary;
-}) => {
-  const { role, isPending: rolePending } = useViewerRole();
+type LifecycleMenuVariant = "page" | "active-row" | "archived-row";
+
+const useShidduchLifecycle = (record: ShidduchSummary) => {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const refresh = useRefresh();
@@ -98,9 +94,8 @@ export const ShidduchLifecycleActions = ({
     };
   }, [getReadState, record.id]);
 
-  if (rolePending || !canManageShidduchLifecycle(role)) return null;
-
   const archive = async () => {
+    if (busy) return;
     setBusy(true);
     const deadline = Date.now() + SHIDDUCH_ACTION_UNDO_MS;
     const marker = {
@@ -138,6 +133,7 @@ export const ShidduchLifecycleActions = ({
   };
 
   const restore = async () => {
+    if (busy) return;
     setBusy(true);
     try {
       await dataProvider.restoreShidduch(record.id);
@@ -203,6 +199,208 @@ export const ShidduchLifecycleActions = ({
     }
   };
 
+  return {
+    archive,
+    busy,
+    confirmDelete,
+    deleteOpen,
+    name,
+    readInProgress,
+    restore,
+    setDeleteOpen,
+    trigger,
+  };
+};
+
+const ShidduchLifecycleMenu = ({
+  record,
+  variant,
+}: {
+  record: ShidduchSummary;
+  variant: LifecycleMenuVariant;
+}) => {
+  const {
+    archive,
+    busy,
+    confirmDelete,
+    deleteOpen,
+    name,
+    readInProgress,
+    restore,
+    setDeleteOpen,
+    trigger,
+  } = useShidduchLifecycle(record);
+  const isArchivedRow = variant === "archived-row";
+  const isPage = variant === "page";
+  const cancelButton = useRef<HTMLButtonElement | null>(null);
+  const closeDelete = () => {
+    setDeleteOpen(false);
+    requestAnimationFrame(() => trigger.current?.focus());
+  };
+
+  return (
+    <>
+      {isArchivedRow ? (
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            disabled={busy}
+            onClick={() => void restore()}
+          >
+            Restore
+          </Button>
+          <Button
+            ref={trigger}
+            type="button"
+            variant="outline"
+            className="min-h-11 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={busy || readInProgress}
+            onClick={() => setDeleteOpen(true)}
+          >
+            Delete
+          </Button>
+        </div>
+      ) : (
+        <div className="flex shrink-0 items-center justify-end">
+          {isPage && record.archived_at ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="me-3 min-h-11"
+              disabled={busy}
+              onClick={() => void restore()}
+            >
+              Restore
+            </Button>
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                ref={trigger}
+                type="button"
+                variant="outline"
+                className="min-h-11 gap-2"
+                aria-label={
+                  isPage ? "More actions" : `More actions for ${name}`
+                }
+              >
+                <MoreVertical className="size-4" aria-hidden="true" />
+                <span className={isPage ? undefined : "hidden md:inline"}>
+                  {isPage ? "More actions" : "More"}
+                </span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {!record.archived_at ? (
+                <DropdownMenuItem
+                  className="min-h-11 cursor-pointer"
+                  aria-label="Archive suggestion"
+                  onSelect={() => void archive()}
+                >
+                  <span className="flex flex-col text-start">
+                    <span>Archive suggestion</span>
+                    <span className="text-xs font-normal text-muted-foreground">
+                      Keeps the file and history
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+              ) : null}
+              {isPage ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuItem
+                className="min-h-11 cursor-pointer border border-destructive/40 text-destructive focus:bg-destructive/10 focus:text-destructive"
+                aria-label="Delete suggestion"
+                disabled={busy || readInProgress}
+                onSelect={() => setDeleteOpen(true)}
+              >
+                <span className="flex flex-col text-start">
+                  <span>Delete suggestion</span>
+                  <span className="text-xs font-normal text-destructive/80">
+                    Removes the file and history
+                  </span>
+                </span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
+      {readInProgress ? (
+        <p className="text-right text-xs text-muted-foreground" role="status">
+          Please wait: this resume is being made easy to read.
+        </p>
+      ) : null}
+
+      {/* UX-DR3 named exemption: this is a delete confirmation action for a
+          routed record, not the record surface itself. */}
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          if (open) setDeleteOpen(true);
+          else closeDelete();
+        }}
+      >
+        <DialogContent
+          hideClose
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            cancelButton.current?.focus();
+          }}
+          className="top-auto bottom-0 max-w-md translate-y-0 rounded-b-none border-border bg-popover shadow-lg sm:top-1/2 sm:bottom-auto sm:-translate-y-1/2 sm:rounded-lg"
+        >
+          <DialogHeader>
+            <DialogTitle className="font-display text-2xl font-semibold tracking-tight">
+              Delete {name}?
+            </DialogTitle>
+            <DialogDescription>
+              This also removes its resume files, references links, notes and
+              call history. This cannot be undone after the Undo time.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-2">
+            <Button
+              ref={cancelButton}
+              type="button"
+              variant="outline"
+              className="min-h-11 w-full sm:w-auto"
+              onClick={closeDelete}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="min-h-11 w-full sm:w-auto"
+              onClick={() => void confirmDelete()}
+              disabled={busy}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+};
+
+export const ShidduchRowLifecycleActions = ({
+  record,
+  variant,
+}: {
+  record: ShidduchSummary;
+  variant: "active-row" | "archived-row";
+}) => <ShidduchLifecycleMenu record={record} variant={variant} />;
+
+/** Header actions and the manager-only archived state for one shidduch. */
+export const ShidduchLifecycleActions = ({
+  record,
+}: {
+  record: ShidduchSummary;
+}) => {
+  const { role, isPending: rolePending } = useViewerRole();
+  if (rolePending || !canManageShidduchLifecycle(role)) return null;
+
   return (
     <div className="flex flex-col gap-4">
       {record.archived_at ? (
@@ -222,103 +420,9 @@ export const ShidduchLifecycleActions = ({
             It is hidden from the active pipeline, dashboard counts, and cards
             while its file and history are kept.
           </p>
-          <Button
-            type="button"
-            variant="outline"
-            className="mt-3 min-h-11"
-            disabled={busy}
-            onClick={() => void restore()}
-          >
-            Restore
-          </Button>
         </section>
       ) : null}
-
-      <div className="flex items-center justify-end">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              ref={trigger}
-              type="button"
-              variant="outline"
-              className="min-h-11 gap-2"
-              aria-label="More actions"
-            >
-              <MoreVertical className="size-4" aria-hidden="true" />
-              <span>More actions</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {!record.archived_at ? (
-              <DropdownMenuItem
-                className="min-h-11 cursor-pointer"
-                onSelect={() => void archive()}
-              >
-                Archive suggestion
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              variant="destructive"
-              className="min-h-11 cursor-pointer"
-              disabled={busy || readInProgress}
-              onSelect={() => setDeleteOpen(true)}
-            >
-              Delete suggestion
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      {readInProgress ? (
-        <p className="text-right text-xs text-muted-foreground" role="status">
-          Please wait: this resume is being made easy to read.
-        </p>
-      ) : null}
-
-      {/* UX-DR3 named exemption: this is a delete confirmation action for a
-          routed record, not the record surface itself. */}
-      <Dialog
-        open={deleteOpen}
-        onOpenChange={(open) => {
-          setDeleteOpen(open);
-          if (!open) requestAnimationFrame(() => trigger.current?.focus());
-        }}
-      >
-        <DialogContent
-          hideClose
-          className="top-auto bottom-0 max-w-md translate-y-0 rounded-b-none border-border bg-popover shadow-lg sm:top-1/2 sm:bottom-auto sm:-translate-y-1/2 sm:rounded-lg"
-        >
-          <DialogHeader>
-            <DialogTitle className="font-display text-2xl font-semibold tracking-tight">
-              Delete {name}?
-            </DialogTitle>
-            <DialogDescription>
-              This also removes its resume files, references links, notes and
-              call history. This cannot be undone after the Undo time.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="min-h-11 w-full sm:w-auto"
-              onClick={() => setDeleteOpen(false)}
-              disabled={busy}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              className="min-h-11 w-full sm:w-auto"
-              onClick={() => void confirmDelete()}
-              disabled={busy}
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ShidduchLifecycleMenu record={record} variant="page" />
     </div>
   );
 };
@@ -446,6 +550,7 @@ export const ShidduchPendingActionBar = ({
     <div
       className="rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm"
       aria-live="polite"
+      role="status"
     >
       <div className="flex items-center justify-between gap-3">
         <div>

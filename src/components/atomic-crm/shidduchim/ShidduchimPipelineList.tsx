@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useListContext } from "ra-core";
 
 import { buildNewPath } from "../entity360/entityPaths";
+import { useViewerRole } from "../entity360/useViewerRole";
 import type { EmptyStateProps } from "../misc/EmptyState";
 import { EmptyState } from "../misc/EmptyState";
 import { EntityListView } from "../misc/EntityListView";
@@ -12,6 +13,7 @@ import { PipelineSection } from "./PipelineSection";
 import { PIPELINE_STATES } from "./pipelineStates";
 import { ShidduchMoveSheet } from "./ShidduchMoveSheet";
 import { ShidduchRowSkeleton } from "./ShidduchRow";
+import { canManageShidduchLifecycle } from "./shidduchLifecycle";
 
 export interface ShidduchimPipelineListProps {
   view: "list" | "cards";
@@ -80,6 +82,8 @@ export const ShidduchimPipelineList = ({
   view,
 }: ShidduchimPipelineListProps) => {
   const { data, filterValues } = useListContext<ShidduchSummary>();
+  const { role, isPending: rolePending } = useViewerRole();
+  const canManageLifecycle = !rolePending && canManageShidduchLifecycle(role);
   const [moveTarget, setMoveTarget] = useState<ShidduchSummary | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -116,6 +120,7 @@ export const ShidduchimPipelineList = ({
           shidduchim={byState[state.value] ?? []}
           variant={variant}
           onMove={openMoveSheetFor}
+          canManageLifecycle={canManageLifecycle}
           tourAnchor={index === 0}
         />
       ))}
