@@ -1,11 +1,12 @@
 import type { Identifier } from "ra-core";
 import { useGetIdentity, useGetList, useListContext, useStore } from "ra-core";
-import { useEffect, useRef, useState } from "react";
+import { Search } from "lucide-react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { CreateButton } from "@/components/admin/create-button";
 import { List } from "@/components/admin/list";
-import { SearchInput } from "@/components/admin/search-input";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import { buildNewPath } from "../entity360/entityPaths";
@@ -97,6 +98,7 @@ const ShidduchimList = () => {
   );
   const archiveModeRef = useRef(archiveMode);
   const previousSearch = useRef(location.search);
+  const searchValueRef = useRef("");
 
   useEffect(() => {
     if (previousSearch.current === location.search) return;
@@ -145,12 +147,21 @@ const ShidduchimList = () => {
       // guard above already guarantees `singles` is loaded here.
       filterDefaultValues={{
         single_id: singles[0].id,
+        "archived_at@is": null,
       }}
-      // `ra-core` ignores filterDefaultValues when old stored list params
-      // contain any custom filter. Keep the active default in the permanent
-      // filter so the first request is safe even before normalization runs.
+      // `ra-core` removes null values from ordinary list filters. Keep the
+      // active archive predicate permanent so it cannot disappear from the
+      // request after a search or single switch; archived/all modes replace
+      // it from the parent state.
       filter={getArchiveFilter(archiveMode)}
-      filters={[<SearchInput source="q" alwaysOn key="q" />]}
+      filters={[
+        <ShidduchSearchInput
+          key="q"
+          source="q"
+          alwaysOn
+          searchValueRef={searchValueRef}
+        />,
+      ]}
       sort={{ field: "index", order: "ASC" }}
       pagination={null}
       actions={<ShidduchimActions />}
@@ -161,6 +172,7 @@ const ShidduchimList = () => {
           archiveModeRef.current = mode;
           setArchiveMode(mode);
         }}
+        searchValueRef={searchValueRef}
         singleList={singles}
       />
     </List>
@@ -182,13 +194,55 @@ const ShidduchimActions = () => (
   </TopToolbar>
 );
 
+const ShidduchSearchInput = ({
+  source = "q",
+  searchValueRef,
+}: {
+  source?: string;
+  alwaysOn?: boolean;
+  searchValueRef: MutableRefObject<string>;
+}) => {
+  const { filterValues, setFilters, displayedFilters } = useListContext();
+  const filterValue = (filterValues as Record<string, unknown>)[source];
+  const externalValue = typeof filterValue === "string" ? filterValue : "";
+  const [value, setValue] = useState(externalValue);
+
+  useEffect(() => {
+    searchValueRef.current = externalValue;
+    setValue(externalValue);
+  }, [externalValue, searchValueRef]);
+
+  return (
+    <div className="relative mt-auto flex flex-grow">
+      <Input
+        name={source}
+        placeholder="Search"
+        value={value}
+        onChange={(event) => {
+          const next = { ...(filterValues as Record<string, unknown>) };
+          const nextValue = event.target.value;
+          searchValueRef.current = nextValue;
+          setValue(nextValue);
+          if (nextValue) next[source] = nextValue;
+          else delete next[source];
+          setFilters(next, displayedFilters);
+        }}
+        className="flex-grow pr-8"
+      />
+      <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+    </div>
+  );
+};
+
 const ShidduchimBody = ({
   archiveMode,
   onArchiveModeChange,
+  searchValueRef,
   singleList,
 }: {
   archiveMode: ArchiveFilterMode;
   onArchiveModeChange: (mode: ArchiveFilterMode) => void;
+  searchValueRef: MutableRefObject<string>;
   singleList: Single[];
 }) => {
   const { data, filterValues, setFilters, displayedFilters } = useListContext();
@@ -209,20 +263,6 @@ const ShidduchimBody = ({
     delete nextFilters["id@not.in"];
     Object.assign(nextFilters, pendingFilter);
     const nextDisplayedFilters = { ...displayedFilters };
-    if (
-      archiveMode === "active" &&
-      !hasOwn(nextFilters, "archived_at@is") &&
-      !hasOwn(nextFilters, "archived_at@not.is")
-    ) {
-      nextFilters["archived_at@is"] = null;
-    }
-    if (
-      archiveMode === "archived" &&
-      !hasOwn(nextFilters, "archived_at@is") &&
-      !hasOwn(nextFilters, "archived_at@not.is")
-    ) {
-      nextFilters["archived_at@not.is"] = null;
-    }
     if (archiveMode === "all") {
       nextDisplayedFilters[ARCHIVE_ALL_DISPLAYED_FILTER] = true;
     } else {
@@ -231,9 +271,6 @@ const ShidduchimBody = ({
     if (
       currentFilters["id@neq"] !== undefined ||
       currentFilters["id@not.in"] !== pendingFilter["id@not.in"] ||
-      currentFilters["archived_at@is"] !== nextFilters["archived_at@is"] ||
-      currentFilters["archived_at@not.is"] !==
-        nextFilters["archived_at@not.is"] ||
       displayedFilters[ARCHIVE_ALL_DISPLAYED_FILTER] !==
         nextDisplayedFilters[ARCHIVE_ALL_DISPLAYED_FILTER]
     ) {
@@ -285,6 +322,13 @@ const ShidduchimBody = ({
     }
     onArchiveModeChange(mode);
     setFilters(next, nextDisplayedFilters);
+  };
+
+  const getCurrentFilters = () => {
+    const next = { ...(filterValues as Record<string, unknown>) };
+    if (searchValueRef.current) next.q = searchValueRef.current;
+    else delete next.q;
+    return next;
   };
 
   return (
@@ -400,12 +444,12 @@ const ShidduchimBody = ({
                   // Task 2 (AC 4): setFilters is what writes single_id into
                   // the URL's `filter` param — filterDefaultValues only ever
                   // supplies the INITIAL value.
-                  onClick={() =>
+                  onClick={() => {
                     setFilters(
-                      { ...filterValues, single_id: single.id },
+                      { ...getCurrentFilters(), single_id: single.id },
                       displayedFilters,
-                    )
-                  }
+                    );
+                  }}
                   className={cn(
                     // Task 7: 32px -> 44px touch targets.
                     "min-h-11 rounded-full px-4 text-[13px] font-semibold transition-colors",
