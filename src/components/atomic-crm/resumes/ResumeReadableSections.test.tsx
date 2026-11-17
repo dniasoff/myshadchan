@@ -506,9 +506,7 @@ describe("ResumeReadableSections", () => {
     await expect
       .element(screen.getByText("References are being prepared."))
       .toBeInTheDocument();
-    await expect
-      .element(screen.getByText("No phone number saved"))
-      .toBeInTheDocument();
+    await expect.element(screen.getByText("No number yet")).toBeInTheDocument();
     await expect
       .element(
         screen

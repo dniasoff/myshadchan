@@ -40,6 +40,7 @@ const buildLink = (
 const renderCallCaptureSheet = async (
   link: ReferenceLinkSummary,
   dataProviderOverrides: Partial<CrmDataProvider> = {},
+  returnFromCall = false,
 ) => {
   const dataProvider = {
     logReferenceCall: vi.fn().mockResolvedValue({ ...link }),
@@ -53,7 +54,12 @@ const renderCallCaptureSheet = async (
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <CallCaptureSheet link={link} open onOpenChange={onOpenChange} />
+        <CallCaptureSheet
+          link={link}
+          open
+          onOpenChange={onOpenChange}
+          returnFromCall={returnFromCall}
+        />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -182,5 +188,40 @@ describe("CallCaptureSheet — questions toggle label (review fix F5)", () => {
     await expect
       .element(screen.getByText("Show questions"))
       .not.toBeInTheDocument();
+  });
+});
+
+describe("CallCaptureSheet — return-from-call copy", () => {
+  it("shows the four return choices and a dismissible Skip action", async () => {
+    const link = buildLink({ effective_relationship: "Family friend" });
+    const { screen, dataProvider, onOpenChange } = await renderCallCaptureSheet(
+      link,
+      {},
+      true,
+    );
+
+    await expect
+      .element(screen.getByRole("heading", { name: "How did the call go?" }))
+      .toBeVisible();
+    await expect
+      .element(screen.getByText("For Chana Levy · Family friend"))
+      .toBeVisible();
+    for (const label of [
+      "Answered",
+      "Left a message",
+      "No answer",
+      "Call back",
+      "Skip",
+      "Save call",
+    ]) {
+      await expect
+        .element(screen.getByRole("button", { name: label }))
+        .toBeVisible();
+    }
+
+    await screen.getByRole("button", { name: "Left a message" }).click();
+    await screen.getByRole("button", { name: "Skip" }).click();
+    expect(dataProvider.logReferenceCall).not.toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

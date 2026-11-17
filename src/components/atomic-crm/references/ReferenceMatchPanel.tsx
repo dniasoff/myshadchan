@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { RecordLink } from "../entity360/RecordLink";
 import type { ReferenceMatchCandidate } from "../types";
+import { ReferencePhoneActions } from "./ReferencePhoneActions";
 
 /**
  * The confirm-or-dismiss surface for match-on-entry (FR20/FR42).
@@ -81,10 +82,14 @@ export const ReferenceMatchPanel = ({
                   {displayName(candidate)}
                 </RecordLink>
                 <p className="text-sm text-muted-foreground">
-                  {[candidate.relationship, candidate.phone, candidate.school]
+                  {[candidate.relationship, candidate.school]
                     .filter(Boolean)
                     .join(" · ")}
                 </p>
+                <ReferencePhoneActions
+                  phone={candidate.phone}
+                  referenceName={displayName(candidate)}
+                />
               </div>
               <span className="text-xs font-medium text-muted-foreground">
                 {translate(confidenceLabel(candidate.confidence), {

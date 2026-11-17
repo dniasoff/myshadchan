@@ -28,6 +28,10 @@ import type {
   ShidduchSummary,
 } from "../types";
 import type { CrmDataProvider } from "../providers/types";
+import { CallStatusChip } from "../references/CallStatusChip";
+import { CallCaptureSheet } from "../references/CallCaptureSheet";
+import { ReferencePhoneActions } from "../references/ReferencePhoneActions";
+import { getCallStatusDescriptor } from "../references/callStatus";
 import { resumeSubjectFilter } from "./resumeSubject";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 import {
@@ -546,19 +550,52 @@ function ReferenceGroup({
   hasLinks: boolean;
 }): ReactElement {
   const translate = useTranslate();
+  const loggedCount = rows.filter(
+    (row) =>
+      row.link &&
+      getCallStatusDescriptor(row.link.call_status).id !== "not_started",
+  ).length;
+  const nextUncalledIndex = rows.findIndex(
+    (row) =>
+      !row.link ||
+      getCallStatusDescriptor(row.link.call_status).id === "not_started",
+  );
+
+  const focusNextUncalled = () => {
+    if (nextUncalledIndex < 0) return;
+    const nextRow = document.querySelector<HTMLElement>(
+      `[data-reference-row-index="${nextUncalledIndex}"]`,
+    );
+    nextRow?.scrollIntoView({ behavior: "smooth", block: "center" });
+    nextRow?.focus({ preventScroll: true });
+  };
 
   return (
     <section className="border-t py-5">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-base font-semibold">
-          {translate("crm.entity360.resume.readable.references", {
-            _: "References",
-          })}
-        </h3>
+        <div>
+          <h3 className="text-base font-semibold">
+            {translate("crm.entity360.resume.readable.references", {
+              _: "References",
+            })}
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Call each person, then record what happened while it is fresh.
+          </p>
+        </div>
         <span className="text-xs text-muted-foreground">
-          {rows.length} {rows.length === 1 ? "reference" : "references"}
+          {loggedCount} of {rows.length} logged
         </span>
       </div>
+      {nextUncalledIndex >= 0 ? (
+        <button
+          type="button"
+          className="mb-3 min-h-11 rounded-md border border-dashed px-3 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          onClick={focusNextUncalled}
+        >
+          Next uncalled
+        </button>
+      ) : null}
       {isPending ? (
         <div
           aria-label={translate(
@@ -584,6 +621,7 @@ function ReferenceGroup({
               key={`${row.reference.name}-${row.link?.id ?? "unlinked"}-${index}`}
               reference={row.reference}
               link={row.link}
+              rowIndex={index}
             />
           ))}
         </div>
@@ -595,30 +633,38 @@ function ReferenceGroup({
 function ReferenceResumeCard({
   reference,
   link,
+  rowIndex,
 }: {
   reference: ParsedResumeReference;
   link: ReferenceLinkSummary | null;
+  rowIndex: number;
 }): ReactElement {
   const translate = useTranslate();
 
   if (!link) {
     return (
-      <article className="rounded-xl border p-3 sm:p-4">
+      <article
+        className="rounded-xl border p-3 outline-none sm:p-4"
+        data-reference-row-index={rowIndex}
+        tabIndex={-1}
+      >
         <div className="min-w-0">
           <p dir="auto" className="break-words text-sm font-semibold">
             {reference.name}
           </p>
-          <p
-            dir="auto"
-            className="mt-1 break-words text-sm text-muted-foreground"
-          >
-            {[
-              reference.relationship,
-              reference.phone || "No phone number saved",
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
+          {reference.relationship ? (
+            <p
+              dir="auto"
+              className="mt-1 break-words text-sm text-muted-foreground"
+            >
+              {reference.relationship}
+            </p>
+          ) : null}
+          <ReferencePhoneActions
+            phone={reference.phone}
+            referenceName={reference.name}
+          />
+          <p className="mt-3 text-xs text-muted-foreground">Not logged</p>
           <p className="mt-3 text-xs text-muted-foreground">
             {translate("crm.entity360.resume.readable.referenceUnlinked", {
               _: "This reference is not linked yet; call details will appear when it is matched.",
@@ -629,15 +675,23 @@ function ReferenceResumeCard({
     );
   }
 
-  return <LinkedReferenceResumeCard reference={reference} link={link} />;
+  return (
+    <LinkedReferenceResumeCard
+      reference={reference}
+      link={link}
+      rowIndex={rowIndex}
+    />
+  );
 }
 
 function LinkedReferenceResumeCard({
   reference,
   link,
+  rowIndex,
 }: {
   reference: ParsedResumeReference;
   link: ReferenceLinkSummary;
+  rowIndex: number;
 }): ReactElement {
   const translate = useTranslate();
   const dataProvider = useDataProvider<CrmDataProvider>();
@@ -648,6 +702,7 @@ function LinkedReferenceResumeCard({
   );
   const [isSavingStatus, setIsSavingStatus] = useState(false);
   const [isNoteOpen, setIsNoteOpen] = useState(false);
+  const [isCallCaptureOpen, setIsCallCaptureOpen] = useState(false);
   const noteTriggerRef = useRef<HTMLButtonElement>(null);
   const didOpenNote = useRef(false);
 
@@ -708,21 +763,42 @@ function LinkedReferenceResumeCard({
     }
   };
 
+  const callStatus = getCallStatusDescriptor(link.call_status);
+  const lastCallAt = [...(link.conversation_log ?? [])].sort((a, b) =>
+    a.at < b.at ? 1 : a.at > b.at ? -1 : 0,
+  )[0]?.at;
+  const formattedCallDate = lastCallAt
+    ? new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+      }).format(new Date(lastCallAt))
+    : null;
+
   return (
-    <article className="rounded-xl border p-3 sm:p-4">
+    <article
+      className="rounded-xl border p-3 outline-none sm:p-4"
+      data-reference-row-index={rowIndex}
+      tabIndex={-1}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p dir="auto" className="break-words text-sm font-semibold">
             {displayName}
           </p>
-          <p
-            dir="auto"
-            className="mt-1 break-words text-sm text-muted-foreground"
-          >
-            {[displayRelationship, displayPhone || "No phone number saved"]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
+          {displayRelationship ? (
+            <p
+              dir="auto"
+              className="mt-1 break-words text-sm text-muted-foreground"
+            >
+              {displayRelationship}
+            </p>
+          ) : null}
+          <ReferencePhoneActions
+            phone={displayPhone}
+            referenceName={displayName}
+            referenceLink={link}
+            onManualLog={() => setIsCallCaptureOpen(true)}
+          />
         </div>
         <Button
           ref={noteTriggerRef}
@@ -743,6 +819,23 @@ function LinkedReferenceResumeCard({
             />
           ) : null}
         </Button>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+        {callStatus.id === "not_started" ? (
+          <span className="text-muted-foreground">Not logged</span>
+        ) : (
+          <>
+            <CallStatusChip status={link.call_status} />
+            {formattedCallDate ? (
+              <span className="text-muted-foreground">
+                · {formattedCallDate}
+              </span>
+            ) : null}
+            <span aria-label="Logged" className="font-semibold text-primary">
+              ✓
+            </span>
+          </>
+        )}
       </div>
       <p className="mt-4 text-xs font-medium text-muted-foreground">
         {translate("crm.entity360.resume.readable.callQuestion", {
@@ -794,6 +887,11 @@ function LinkedReferenceResumeCard({
         referenceName={displayName}
         open={isNoteOpen}
         onOpenChange={setIsNoteOpen}
+      />
+      <CallCaptureSheet
+        link={link}
+        open={isCallCaptureOpen}
+        onOpenChange={setIsCallCaptureOpen}
       />
     </article>
   );

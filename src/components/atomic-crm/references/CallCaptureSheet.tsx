@@ -28,11 +28,13 @@ export const CallCaptureSheet = ({
   open,
   onOpenChange,
   source = "manual",
+  returnFromCall = false,
 }: {
   link: ReferenceLinkSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   source?: "manual" | "assistant";
+  returnFromCall?: boolean;
 }) => {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
@@ -86,6 +88,18 @@ export const CallCaptureSheet = ({
   const { questions } = getQuestionsForRelationship(
     link.effective_relationship,
   );
+  const returnStatusDescriptors = CALL_STATUS_DESCRIPTORS.filter(
+    (descriptor) => descriptor.id !== "not_started",
+  ).map((descriptor) =>
+    descriptor.id === "they_will_call_back"
+      ? { ...descriptor, label: "Left a message" }
+      : descriptor,
+  );
+  const statusDescriptors = returnFromCall
+    ? returnStatusDescriptors
+    : CALL_STATUS_DESCRIPTORS.filter(
+        (descriptor) => descriptor.id !== "not_started",
+      );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -96,12 +110,20 @@ export const CallCaptureSheet = ({
           border-[var(--glass-border)]"
       >
         <SheetHeader>
-          <SheetTitle>{link.reference_name_en}</SheetTitle>
+          <SheetTitle>
+            {returnFromCall ? "How did the call go?" : link.reference_name_en}
+          </SheetTitle>
           <SheetDescription>
-            {translate("crm.references.call.about", {
-              name: subject ?? "",
-              _: "About %{name}",
-            })}
+            {returnFromCall
+              ? `For ${link.reference_name_en || "this reference"}${
+                  link.effective_relationship
+                    ? ` · ${link.effective_relationship}`
+                    : ""
+                }`
+              : translate("crm.references.call.about", {
+                  name: subject ?? "",
+                  _: "About %{name}",
+                })}
           </SheetDescription>
         </SheetHeader>
 
@@ -117,9 +139,7 @@ export const CallCaptureSheet = ({
               })}
             </p>
             <div className="grid grid-cols-2 gap-2">
-              {CALL_STATUS_DESCRIPTORS.filter(
-                (descriptor) => descriptor.id !== "not_started",
-              ).map((descriptor) => {
+              {statusDescriptors.map((descriptor) => {
                 const tokenVar = `var(${descriptor.token})`;
                 const isSelected = status === descriptor.id;
                 return (
@@ -143,7 +163,11 @@ export const CallCaptureSheet = ({
                         : undefined,
                     }}
                   >
-                    {translate(descriptor.labelKey, { _: descriptor.label })}
+                    {returnFromCall
+                      ? descriptor.label
+                      : translate(descriptor.labelKey, {
+                          _: descriptor.label,
+                        })}
                   </button>
                 );
               })}
@@ -185,7 +209,7 @@ export const CallCaptureSheet = ({
           <div>
             <label htmlFor="what-they-said" className="text-sm font-medium">
               {translate("crm.references.call.whatTheySaid", {
-                _: "What they said",
+                _: returnFromCall ? "Note (optional)" : "What they said",
               })}
             </label>
             <Textarea
@@ -195,27 +219,48 @@ export const CallCaptureSheet = ({
               rows={5}
               className="mt-2 text-base"
               placeholder={translate("crm.references.call.placeholder", {
-                _: "What was said on the call",
+                _: returnFromCall
+                  ? "answered call back"
+                  : "What was said on the call",
               })}
             />
           </div>
 
-          <Button
-            type="button"
-            size="lg"
-            className="min-h-[48px] w-full text-base text-primary-foreground
+          <div className="flex flex-col gap-2">
+            {returnFromCall ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="min-h-[48px] w-full text-base"
+                onClick={() => {
+                  setNote("");
+                  onOpenChange(false);
+                }}
+              >
+                Skip
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="lg"
+              className="min-h-[48px] w-full text-base text-primary-foreground
               bg-[linear-gradient(135deg,var(--accent-grad-from),var(--accent-grad-to))]
               shadow-sm shadow-[0_8px_24px_-6px_var(--glow-accent)]
               transition-[transform,box-shadow] duration-[160ms] ease-[var(--ease-spring)]
               hover:shadow-[0_10px_30px_-6px_var(--glow-accent-strong)]
               active:scale-[0.97]"
-            disabled={isSaving}
-            onClick={handleSave}
-          >
-            {translate("crm.references.call.save", {
-              _: "Save and add to log",
-            })}
-          </Button>
+              disabled={isSaving}
+              onClick={handleSave}
+            >
+              {returnFromCall ? "Save call" : "Save and add to log"}
+            </Button>
+          </div>
+          {returnFromCall ? (
+            <p className="text-xs text-center text-muted-foreground">
+              You can close this and keep working. We show this once after a
+              return from Call.
+            </p>
+          ) : null}
         </div>
       </SheetContent>
     </Sheet>

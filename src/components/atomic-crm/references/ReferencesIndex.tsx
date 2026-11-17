@@ -7,6 +7,7 @@ import { EntityAvatar } from "../entity360/EntityAvatar";
 import { RecordLink } from "../entity360/RecordLink";
 import type { ReferenceSummary } from "../types";
 import { ReferenceAttachToShidduch } from "./ReferenceAttachToShidduch";
+import { ReferencePhoneActions } from "./ReferencePhoneActions";
 
 /**
  * What `#/references` resolves to under RULING 7 — the unattached-references
@@ -143,10 +144,14 @@ export const ReferencesIndex = () => {
                   {reference.name_en || "?"}
                 </RecordLink>
                 <p className="mt-1 truncate text-xs text-muted-foreground">
-                  {[reference.relationship, reference.phone, reference.school]
+                  {[reference.relationship, reference.school]
                     .filter(Boolean)
                     .join(" · ")}
                 </p>
+                <ReferencePhoneActions
+                  phone={reference.phone}
+                  referenceName={reference.name_en}
+                />
               </div>
 
               <ReferenceAttachToShidduch
