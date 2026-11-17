@@ -188,9 +188,12 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   await expect(page.getByRole("heading", { name: "References" })).toBeVisible();
   await expect(page.getByText("Miriam E2E")).toBeVisible();
   await expect(page.getByText("No number yet")).toBeVisible();
+  await expect(page.getByText("Not logged", { exact: true })).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Answered", exact: true }),
-  ).toBeVisible();
+    page.locator(
+      '[data-testid="reference-phone-actions"] a[href^="tel:"], [data-testid="reference-phone-actions"] a[href*="wa.me"]',
+    ),
+  ).toHaveCount(0);
   expect(
     await page.evaluate(() => {
       const browserGlobal = globalThis as typeof globalThis & {
