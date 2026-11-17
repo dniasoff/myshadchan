@@ -73,7 +73,7 @@ const renderList = async (
 describe("resume file deletion contract", () => {
   beforeEach(() => {
     pendingResumeFileDeletes.clear();
-    window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
   it("allows only manager roles and names common stored file types", () => {
@@ -102,7 +102,7 @@ describe("resume file deletion contract", () => {
       },
     ]);
     expect(
-      window.sessionStorage.getItem("myshadchan:pending-resume-file-delete"),
+      window.localStorage.getItem("myshadchan:pending-resume-file-delete"),
     ).not.toContain("photo.jpg");
   });
 

@@ -40,7 +40,7 @@ const readMarkerCollection = (): Record<
   PendingResumeFileDeleteMarker
 > => {
   try {
-    const raw = window.sessionStorage.getItem(RESUME_FILE_DELETE_MARKER_KEY);
+    const raw = window.localStorage.getItem(RESUME_FILE_DELETE_MARKER_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -71,9 +71,9 @@ const writeMarkerCollection = (
 ): boolean => {
   try {
     if (Object.keys(markers).length === 0) {
-      window.sessionStorage.removeItem(RESUME_FILE_DELETE_MARKER_KEY);
+      window.localStorage.removeItem(RESUME_FILE_DELETE_MARKER_KEY);
     } else {
-      window.sessionStorage.setItem(
+      window.localStorage.setItem(
         RESUME_FILE_DELETE_MARKER_KEY,
         JSON.stringify(markers),
       );
@@ -119,7 +119,7 @@ export const resumeFileDeleteMarkerToken = (
 /**
  * Keep the expiry timer outside the tab component. A route change must not
  * cancel the pending action; a reload rehydrates the marker and schedules it
- * again. Session storage carries only a deterministic opaque token and
+ * again. Local storage carries only a deterministic opaque token and
  * deadline, never a filename, path or id.
  */
 export const schedulePendingResumeFileDelete = (
