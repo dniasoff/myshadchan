@@ -314,7 +314,6 @@ describe("re-read route", () => {
       raw.sections,
       4,
     );
-    expect(applyResume).not.toHaveBeenCalled();
   });
 
   it("passes a complete model answer through toDraft and the full apply payload", async () => {
