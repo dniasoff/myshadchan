@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { page } from "vitest/browser";
 
 import { ReferencePhoneActions } from "./ReferencePhoneActions";
 
@@ -17,6 +18,10 @@ const setMatchMedia = (matches: boolean) => {
 };
 
 describe("ReferencePhoneActions", () => {
+  afterEach(async () => {
+    await page.viewport(1280, 720);
+  });
+
   beforeEach(() => {
     window.sessionStorage.clear();
     setMatchMedia(true);
@@ -32,10 +37,12 @@ describe("ReferencePhoneActions", () => {
 
     await expect.element(screen.getByText("(732) 930-6891")).toBeVisible();
     await expect
-      .element(screen.getByRole("link", { name: "Call Rivka Levi" }))
+      .element(screen.getByRole("link", { name: "Call Rivka Levi, number 1" }))
       .toHaveAttribute("href", "tel:+17329306891");
     await expect
-      .element(screen.getByRole("link", { name: "WhatsApp Rivka Levi" }))
+      .element(
+        screen.getByRole("link", { name: "WhatsApp Rivka Levi, number 1" }),
+      )
       .toHaveAttribute("href", "https://wa.me/17329306891");
   });
 
@@ -59,7 +66,7 @@ describe("ReferencePhoneActions", () => {
       .not.toBeInTheDocument();
   });
 
-  it("does not guess across multiple numbers and keeps desktop copy available", async () => {
+  it("splits explicit separators into independently actionable numbers", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -70,13 +77,92 @@ describe("ReferencePhoneActions", () => {
       <ReferencePhoneActions phone={phone} referenceName="Rivka Levi" />,
     );
 
+    await expect.element(screen.getByText("732-930-6891")).toBeVisible();
+    await expect.element(screen.getByText("201-555-0100")).toBeVisible();
+    await expect
+      .element(screen.getByRole("link", { name: "Call Rivka Levi, number 1" }))
+      .toHaveAttribute("href", "tel:+17329306891");
+    await expect
+      .element(screen.getByRole("link", { name: "Call Rivka Levi, number 2" }))
+      .toHaveAttribute("href", "tel:+12015550100");
+    await expect
+      .element(
+        screen.getByRole("link", {
+          name: "WhatsApp Rivka Levi, number 2",
+        }),
+      )
+      .toHaveAttribute("href", "https://wa.me/12015550100");
+    await screen
+      .getByRole("button", { name: "Copy Rivka Levi, number 2" })
+      .click();
+    expect(writeText).toHaveBeenCalledWith("201-555-0100");
+  });
+
+  it("keeps valid parts actionable when another separated part is hostile", async () => {
+    const screen = await render(
+      <ReferencePhoneActions
+        phone="732-930-6891; javascript:alert(1)"
+        referenceName="Rivka Levi"
+      />,
+    );
+
+    await expect
+      .element(screen.getByRole("link", { name: "Call Rivka Levi, number 1" }))
+      .toBeVisible();
+    await expect.element(screen.getByText("javascript:alert(1)")).toBeVisible();
+    await expect
+      .element(screen.getByText("Check this number before calling"))
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("link", { name: "Call Rivka Levi, number 2" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("caps actionable parts at three and keeps extras as text", async () => {
+    const screen = await render(
+      <ReferencePhoneActions
+        phone="732-930-6891, 201-555-0100, 212-555-0100, 646-555-0100"
+        referenceName="Rivka Levi"
+      />,
+    );
+
+    for (const number of [1, 2, 3]) {
+      await expect
+        .element(
+          screen.getByRole("link", {
+            name: `Call Rivka Levi, number ${number}`,
+          }),
+        )
+        .toBeVisible();
+    }
+    await expect
+      .element(screen.getByRole("link", { name: "Call Rivka Levi, number 4" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByTestId("reference-phone-extra-numbers"))
+      .toHaveTextContent("646-555-0100");
+  });
+
+  it("keeps an unsplittable odd value on the conservative fallback", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const phone = "732-930-6891 201-555-0100";
+    const screen = await render(
+      <ReferencePhoneActions phone={phone} referenceName="Rivka Levi" />,
+    );
+
     await expect
       .element(screen.getByText("Check this number before calling"))
       .toBeVisible();
     await expect
       .element(screen.getByRole("link", { name: /Call/i }))
       .not.toBeInTheDocument();
-    await screen.getByRole("button", { name: "Copy number" }).click();
+    await screen
+      .getByRole("button", { name: "Copy Rivka Levi, number 1" })
+      .click();
     expect(writeText).toHaveBeenCalledWith(phone);
   });
 
@@ -100,7 +186,9 @@ describe("ReferencePhoneActions", () => {
       <ReferencePhoneActions phone="732-930-6891" referenceName="Rivka Levi" />,
     );
 
-    await screen.getByRole("button", { name: "Copy number" }).click();
+    await screen
+      .getByRole("button", { name: "Copy Rivka Levi, number 1" })
+      .click();
     expect(writeText).toHaveBeenCalledWith("732-930-6891");
     await expect
       .element(screen.getByRole("button", { name: "Copied" }))
@@ -116,13 +204,66 @@ describe("ReferencePhoneActions", () => {
       <ReferencePhoneActions phone="732-930-6891" referenceName="Rivka Levi" />,
     );
     await expect
-      .element(screen.getByRole("link", { name: "Call Rivka Levi" }))
+      .element(screen.getByRole("link", { name: "Call Rivka Levi, number 1" }))
       .toBeVisible();
     await expect
-      .element(screen.getByRole("link", { name: "WhatsApp Rivka Levi" }))
+      .element(
+        screen.getByRole("link", {
+          name: "WhatsApp Rivka Levi, number 1",
+        }),
+      )
       .toBeVisible();
     await expect
-      .element(screen.getByRole("button", { name: "Copy number" }))
+      .element(
+        screen.getByRole("button", { name: "Copy Rivka Levi, number 1" }),
+      )
       .not.toBeInTheDocument();
   });
+
+  it("keeps every valid number actionable on a coarse pointer", async () => {
+    setMatchMedia(false);
+    const screen = await render(
+      <ReferencePhoneActions
+        phone="732-930-6891; 201-555-0100"
+        referenceName="Rivka Levi"
+      />,
+    );
+
+    await expect
+      .element(screen.getByRole("link", { name: "Call Rivka Levi, number 1" }))
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("link", { name: "Call Rivka Levi, number 2" }))
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: /Copy Rivka Levi/ }))
+      .not.toBeInTheDocument();
+  });
+
+  it.each([390, 1280])(
+    "keeps split-number actions visible at the mockup width %dpx",
+    async (width) => {
+      await page.viewport(width, 844);
+      const screen = await render(
+        <ReferencePhoneActions
+          phone="732-930-6891; 201-555-0100"
+          referenceName="Rivka Levi"
+        />,
+      );
+
+      await expect
+        .element(
+          screen.getByRole("link", { name: "Call Rivka Levi, number 1" }),
+        )
+        .toBeVisible();
+      await expect
+        .element(
+          screen.getByRole("link", { name: "Call Rivka Levi, number 2" }),
+        )
+        .toBeVisible();
+      expect(screen.container.querySelectorAll('a[href^="tel:"]').length).toBe(
+        2,
+      );
+    },
+  );
 });

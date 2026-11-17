@@ -10,6 +10,7 @@ const PHONE_SEPARATORS = /[ ().-]/g;
 const FORMAT_OR_DIGIT_ONLY = /^[+0-9 ().-]+$/;
 const EXTENSION_SUFFIX = / +(?:x|ext\.?)[ .=-]*[0-9]+$/i;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}]/u;
+const PHONE_VALUE_SEPARATOR = /(?:\r?\n|[,;/|]|\s+(?:or|and|או)\s+)/iu;
 
 const invalid = (display: string): PhoneLinkResult => ({
   display,
@@ -25,17 +26,52 @@ const valid = (display: string, digits: string): PhoneLinkResult => ({
   status: "ok",
 });
 
+export type PhoneValueParts = {
+  parts: string[];
+  hadExplicitSeparator: boolean;
+};
+
+/**
+ * Split only on separators that unambiguously introduce another phone value.
+ * Plain spaces and dashes remain part of one value because they are common
+ * phone formatting characters.
+ */
+export const splitPhoneValue = (
+  raw: string | null | undefined,
+): PhoneValueParts => {
+  if (typeof raw !== "string" || raw.trim() === "") {
+    return { parts: [], hadExplicitSeparator: false };
+  }
+
+  const hadExplicitSeparator = PHONE_VALUE_SEPARATOR.test(raw);
+  if (!hadExplicitSeparator) {
+    return { parts: [raw], hadExplicitSeparator: false };
+  }
+
+  const parts = raw
+    .split(PHONE_VALUE_SEPARATOR)
+    .map((part) => part.trim())
+    .filter((part) => part !== "");
+
+  return {
+    parts: parts.length > 0 ? parts : [raw],
+    hadExplicitSeparator: true,
+  };
+};
+
 /**
  * A single phone field must not silently choose one of several numbers. This
- * is intentionally a conservative display-only signal; it never participates
- * in href construction.
+ * signal is retained for the conservative fallback when a value is too odd to
+ * split into independent parts; it never participates in href construction.
  */
 export const looksLikeMultiplePhoneNumbers = (
   raw: string | null | undefined,
 ): boolean => {
+  const split = splitPhoneValue(raw);
+  if (split.hadExplicitSeparator) return true;
   if (typeof raw !== "string") return false;
   const digitCount = (raw.match(/[0-9]/g) ?? []).length;
-  return /[,;/]/u.test(raw) || /\bor\b/iu.test(raw) || digitCount > 15;
+  return digitCount > 15;
 };
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizePhoneForLinks } from "./phoneLinks";
+import { normalizePhoneForLinks, splitPhoneValue } from "./phoneLinks";
 
 describe("normalizePhoneForLinks", () => {
   it.each([
@@ -49,5 +49,40 @@ describe("normalizePhoneForLinks", () => {
     // The display value is intentionally preserved for correction; only the
     // derived action values must be empty.
     expect(result.display).toBe("javascript:alert(1)");
+  });
+});
+
+describe("splitPhoneValue", () => {
+  it.each([
+    ["732-930-6891, +972 54-222-3344", ["732-930-6891", "+972 54-222-3344"]],
+    ["732-930-6891; +972 54-222-3344", ["732-930-6891", "+972 54-222-3344"]],
+    ["732-930-6891 / +972 54-222-3344", ["732-930-6891", "+972 54-222-3344"]],
+    ["732-930-6891 | +972 54-222-3344", ["732-930-6891", "+972 54-222-3344"]],
+    ["732-930-6891 or +972 54-222-3344", ["732-930-6891", "+972 54-222-3344"]],
+    ["732-930-6891 and +972 54-222-3344", ["732-930-6891", "+972 54-222-3344"]],
+    ["732-930-6891 או +972 54-222-3344", ["732-930-6891", "+972 54-222-3344"]],
+    ["732-930-6891\n+972 54-222-3344", ["732-930-6891", "+972 54-222-3344"]],
+  ] as const)("splits explicit separator %s", (raw, parts) => {
+    expect(splitPhoneValue(raw)).toEqual({
+      parts,
+      hadExplicitSeparator: true,
+    });
+  });
+
+  it.each(["732 930 6891", "732-930-6891 201-555-0100"])(
+    "does not split phone formatting or plain digit groups: %s",
+    (raw) => {
+      expect(splitPhoneValue(raw)).toEqual({
+        parts: [raw],
+        hadExplicitSeparator: false,
+      });
+    },
+  );
+
+  it("keeps hostile pieces separate for independent validation", () => {
+    expect(splitPhoneValue("732-930-6891; javascript:alert(1)")).toMatchObject({
+      parts: ["732-930-6891", "javascript:alert(1)"],
+      hadExplicitSeparator: true,
+    });
   });
 });
