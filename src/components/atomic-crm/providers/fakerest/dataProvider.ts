@@ -82,6 +82,7 @@ import type {
 import {
   attachInboxAttachmentToResumeFile as attachInboxAttachmentToResumeFileImpl,
   readResume as readResumeImpl,
+  removeResumeFile as removeResumeFileImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
   rereadResume as rereadResumeImpl,
   uploadResumeFile as uploadResumeFileImpl,
@@ -393,6 +394,7 @@ export const createDataProvider = ({
   // map (a different bucket, `documents`, in the real backend) — see
   // ./internal/resumes.ts.
   const resumeFileBlobUrls: ResumeFileBlobUrls = new Map();
+  const removedResumeFilePaths = new Set<string>();
 
   // Photo tab (Story 5.4): the same in-memory "bytes" idea again, its own
   // map (a different `photos/` prefix of the same `documents` bucket in the
@@ -3508,6 +3510,21 @@ export const createDataProvider = ({
         if (blobUrl?.startsWith("blob:")) URL.revokeObjectURL(blobUrl);
         resumeFileBlobUrls.delete(path);
       }
+    },
+    removeResumeFile: async ({ resumeId, path }) => {
+      const [accountId, caller] = await Promise.all([
+        resolveCurrentAccountId(),
+        resolveCallerMembership(),
+      ]);
+      return removeResumeFileImpl(
+        baseDataProvider,
+        resumeFileBlobUrls,
+        removedResumeFilePaths,
+        accountId,
+        caller?.membership?.role,
+        resumeId,
+        path,
+      );
     },
     signResumeFileUrl: (params: {
       storagePath: string;

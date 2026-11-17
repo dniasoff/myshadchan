@@ -80,7 +80,7 @@ describe("ResumeVersionList — loading, empty and error states (AC 1 / AC 3)", 
     // Assert
     expect(screen.container.querySelector('[aria-busy="true"]')).not.toBeNull();
     await expect
-      .element(screen.getByText("No resume uploaded yet."))
+      .element(screen.getByText("No resume files attached"))
       .not.toBeInTheDocument();
   });
 
@@ -93,7 +93,7 @@ describe("ResumeVersionList — loading, empty and error states (AC 1 / AC 3)", 
 
     // Assert
     await expect
-      .element(screen.getByText("No resume uploaded yet."))
+      .element(screen.getByText("No resume files attached"))
       .toBeInTheDocument();
   });
 
@@ -108,7 +108,7 @@ describe("ResumeVersionList — loading, empty and error states (AC 1 / AC 3)", 
 
     // Assert
     await expect
-      .element(screen.getByText("No resume uploaded yet."))
+      .element(screen.getByText("No resume files attached"))
       .toBeInTheDocument();
   });
 
@@ -177,7 +177,9 @@ describe("ResumeVersionList — signed URL minted per click, never cached (AC 5)
 
     // Act
     const { screen } = await renderList(1, { getList, signResumeFileUrl });
-    const downloadButton = screen.getByRole("button", { name: "Download" });
+    const downloadButton = screen.getByRole("button", {
+      name: "Download resume.pdf",
+    });
     await downloadButton.click();
     await downloadButton.click();
 
@@ -205,12 +207,12 @@ describe("ResumeVersionList — signed URL minted per click, never cached (AC 5)
 
     // Act
     const { screen } = await renderList(1, { getList, signResumeFileUrl });
-    await screen.getByRole("button", { name: "Download" }).click();
+    await screen.getByRole("button", { name: "Download resume.pdf" }).click();
 
     // Assert
     await expect.element(screen.getByText("boom")).toBeInTheDocument();
     await expect
-      .element(screen.getByRole("button", { name: "Download" }))
+      .element(screen.getByRole("button", { name: "Download resume.pdf" }))
       .toBeInTheDocument();
   });
 });

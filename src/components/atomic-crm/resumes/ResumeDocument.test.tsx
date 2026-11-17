@@ -172,7 +172,7 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     // Assert — but Download stays, because keeping a copy is still meaningful.
     expect(screen.getByRole("button", { name: "Show" }).query()).toBeNull();
     await expect
-      .element(screen.getByRole("button", { name: "Download" }))
+      .element(screen.getByRole("button", { name: "Download only-d.pdf" }))
       .toBeVisible();
   });
 
@@ -185,7 +185,7 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     // even if a blank canvas were rendered, which is the exact vacuity this
     // change could otherwise have introduced here.
     await expect
-      .element(screen.getByText("No resume uploaded yet."))
+      .element(screen.getByText("No resume files attached"))
       .toBeVisible();
     expect(anyPageCanvas()).toBeNull();
     expect(document.querySelector("iframe")).toBeNull();

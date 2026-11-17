@@ -1,8 +1,32 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
-import { useDataProvider, useGetList, useNotify, useTranslate } from "ra-core";
+import {
+  useDataProvider,
+  useGetList,
+  useNotify,
+  useRefresh,
+  useTranslate,
+} from "ra-core";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 import { formatTimelineDate } from "../entity360/tabs/interactionLabels";
 import type { CrmDataProvider } from "../providers/types";
@@ -13,6 +37,18 @@ import {
   RESUME_AUTO_READ_COPY,
 } from "./resumeAutoReadHelpers";
 import { isResumeUnread } from "./resumeReadableSections";
+import {
+  clearPendingResumeFileDelete,
+  pendingResumeFileDeletes,
+  readPendingResumeFileDeletes,
+  rememberPendingResumeFileDelete,
+  resumeFileDeleteKey,
+  resumeFileDeleteMarkerToken,
+  resumeFileTypeLabel,
+  RESUME_FILE_DELETE_UNDO_MS,
+  schedulePendingResumeFileDelete,
+  type PendingResumeFileDelete,
+} from "./resumeFileDelete";
 import { resumeSubjectFilter, type ResumeSubject } from "./resumeSubject";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 
@@ -30,11 +66,17 @@ function ResumeListSkeleton(): ReactElement {
 function ResumeEmpty(): ReactElement {
   const translate = useTranslate();
   return (
-    <p className="text-sm text-muted-foreground">
-      {translate("crm.entity360.resume.empty", {
-        _: "No resume uploaded yet.",
-      })}
-    </p>
+    <div>
+      <p className="text-sm text-muted-foreground">
+        {translate("crm.entity360.resume.empty", {
+          _: "No resume files attached",
+        })}
+      </p>
+      <p className="mt-2 max-w-sm text-sm leading-5 text-muted-foreground">
+        Choose the resume file (PDF or Word; a photo of a resume also works).
+        Profile pictures go on the Photos tab.
+      </p>
+    </div>
   );
 }
 
@@ -65,6 +107,10 @@ function ResumeVersionRow({
   onShow,
   canReread,
   isUnread,
+  canDelete,
+  isReadInProgress,
+  onDelete,
+  deleteButtonRef,
 }: {
   resumeId: Resume["id"];
   version: ResumeFileVersion;
@@ -72,6 +118,10 @@ function ResumeVersionRow({
   onShow?: (path: string) => void;
   canReread: boolean;
   isUnread: boolean;
+  canDelete: boolean;
+  isReadInProgress: boolean;
+  onDelete?: (version: ResumeFileVersion) => void;
+  deleteButtonRef?: (element: HTMLButtonElement | null) => void;
 }): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
@@ -104,7 +154,9 @@ function ResumeVersionRow({
     >
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">
-          {version.filename}
+          <span dir="auto" title={version.filename}>
+            {version.filename}
+          </span>
           {isShown ? (
             <span className="ms-2 text-xs font-normal text-muted-foreground">
               {translate("crm.entity360.resume.shownNow", { _: "· shown" })}
@@ -112,10 +164,11 @@ function ResumeVersionRow({
           ) : null}
         </p>
         <p className="text-xs text-muted-foreground">
-          {formatTimelineDate(version.uploaded_at)}
+          {resumeFileTypeLabel(version.mime_type, version.filename)} ·{" "}
+          {version.size} B · {formatTimelineDate(version.uploaded_at)}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex w-full shrink-0 flex-wrap items-center gap-1 sm:w-auto">
         {onShow && !isShown ? (
           <Button
             type="button"
@@ -130,10 +183,26 @@ function ResumeVersionRow({
           type="button"
           variant="ghost"
           size="sm"
+          className="min-h-11 w-full sm:w-auto"
           onClick={handleDownload}
+          aria-label={`Download ${version.filename}`}
         >
           {translate("crm.entity360.resume.download", { _: "Download" })}
         </Button>
+        {canDelete ? (
+          <Button
+            ref={deleteButtonRef}
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-11 w-full border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
+            disabled={isReadInProgress}
+            onClick={() => onDelete?.(version)}
+            aria-label={`Delete ${version.filename}`}
+          >
+            Delete
+          </Button>
+        ) : null}
         {canReread && isAutomaticallyReadableResume(version) ? (
           <ResumeRereadControl
             resumeId={resumeId}
@@ -165,45 +234,406 @@ export type ResumeVersionListProps = ResumeSubject & {
   onShow?: (path: string) => void;
   /** Only manager roles may invoke the deployed re-read route. */
   canReread?: boolean;
+  /** Only parent_admin/self_manager may see the per-file Delete action. */
+  canDelete?: boolean;
 };
 
 export function ResumeVersionList({
   shownPath,
   onShow,
   canReread = false,
+  canDelete = false,
   ...subject
 }: ResumeVersionListProps): ReactElement {
+  const dataProvider = useDataProvider<CrmDataProvider>();
+  const notify = useNotify();
+  const refresh = useRefresh();
+  const isMobile = useIsMobile();
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const deleteButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const finalizePendingRef = useRef<
+    ((marker: PendingResumeFileDelete) => Promise<void>) | null
+  >(null);
+  const [confirming, setConfirming] = useState<ResumeFileVersion | null>(null);
+  const [pending, setPending] = useState<PendingResumeFileDelete[]>([]);
+  const [now, setNow] = useState(() => Date.now());
+  const [readInProgress, setReadInProgress] = useState(false);
+  const [purgePending, setPurgePending] = useState(false);
+  const shidduchimId =
+    "shidduchimId" in subject ? subject.shidduchimId : undefined;
+
   const { data, error, isPending } = useGetList<Resume>("resumes", {
     filter: resumeSubjectFilter(subject as ResumeSubject),
     pagination: { page: 1, perPage: 1 },
     sort: { field: "id", order: "ASC" },
   });
 
+  const resumeFiles = data?.[0]?.files;
+  const versions = useMemo(
+    () => sortResumeFilesNewestFirst(resumeFiles ?? []),
+    [resumeFiles],
+  );
+  const isUnread = data?.[0] != null && isResumeUnread(data[0]);
+  const resumeId = data?.[0]?.id;
+
+  useEffect(() => {
+    if (!canDelete || resumeId == null) return;
+    const existing = readPendingResumeFileDeletes().flatMap((marker) => {
+      const file = versions.find(
+        (version) =>
+          resumeFileDeleteMarkerToken(resumeId, version.path) === marker.token,
+      );
+      if (!file) return [];
+      const pendingDelete = { resumeId, deadline: marker.deadline, file };
+      pendingResumeFileDeletes.set(
+        resumeFileDeleteKey(resumeId, file.path),
+        pendingDelete,
+      );
+      return [pendingDelete];
+    });
+    setPending(existing);
+    existing.forEach((marker) => {
+      schedulePendingResumeFileDelete(marker, () => {
+        void finalizePendingRef.current?.(marker);
+      });
+    });
+  }, [canDelete, resumeId, versions]);
+
+  useEffect(() => {
+    if (!canDelete || shidduchimId == null) {
+      setReadInProgress(false);
+      return;
+    }
+    const getReadState = dataProvider.getShidduchReadState;
+    if (typeof getReadState !== "function") return;
+    let mounted = true;
+    void getReadState(shidduchimId)
+      .then((state) => {
+        if (mounted) setReadInProgress(state.inProgress);
+      })
+      .catch(() => {
+        if (mounted) setReadInProgress(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [canDelete, dataProvider, shidduchimId]);
+
+  const focusAfterDelete = useCallback(
+    (removedPath: string) => {
+      const next = versions.find((version) => version.path !== removedPath);
+      window.requestAnimationFrame(() => {
+        if (next) deleteButtonRefs.current.get(next.path)?.focus();
+        else headingRef.current?.focus();
+      });
+    },
+    [versions],
+  );
+
+  const finalizePending = useCallback(
+    async (marker: PendingResumeFileDelete) => {
+      const key = resumeFileDeleteKey(marker.resumeId, marker.file.path);
+      const current = readPendingResumeFileDeletes().find(
+        (candidate) =>
+          candidate.token ===
+            resumeFileDeleteMarkerToken(marker.resumeId, marker.file.path) &&
+          candidate.deadline === marker.deadline,
+      );
+      if (!current) return;
+      try {
+        const result = await dataProvider.removeResumeFile({
+          resumeId: marker.resumeId,
+          path: marker.file.path,
+        });
+        clearPendingResumeFileDelete(marker.resumeId, marker.file.path);
+        pendingResumeFileDeletes.delete(key);
+        setPending((value) =>
+          value.filter(
+            (candidate) =>
+              resumeFileDeleteKey(candidate.resumeId, candidate.file.path) !==
+              key,
+          ),
+        );
+        setPurgePending(result.purgePending);
+        refresh();
+        focusAfterDelete(marker.file.path);
+      } catch (error) {
+        clearPendingResumeFileDelete(marker.resumeId, marker.file.path);
+        pendingResumeFileDeletes.delete(key);
+        setPending((value) =>
+          value.filter(
+            (candidate) =>
+              resumeFileDeleteKey(candidate.resumeId, candidate.file.path) !==
+              key,
+          ),
+        );
+        notify(
+          error instanceof Error &&
+            error.message ===
+              "Please wait: this resume is being made easy to read."
+            ? error.message
+            : "Could not delete. Nothing was changed.",
+          { type: "error" },
+        );
+        refresh();
+        window.requestAnimationFrame(() =>
+          deleteButtonRefs.current.get(marker.file.path)?.focus(),
+        );
+      }
+    },
+    [dataProvider, focusAfterDelete, notify, refresh],
+  );
+
+  finalizePendingRef.current = finalizePending;
+
+  useEffect(() => {
+    if (pending.length === 0) return;
+    pending.forEach((marker) => {
+      schedulePendingResumeFileDelete(marker, () => {
+        void finalizePendingRef.current?.(marker);
+      });
+    });
+  }, [pending]);
+
+  useEffect(() => {
+    if (pending.length === 0) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 100);
+    return () => window.clearInterval(interval);
+  }, [pending.length]);
+
+  const closeConfirmation = () => {
+    const path = confirming?.path;
+    setConfirming(null);
+    if (path) {
+      window.requestAnimationFrame(() =>
+        deleteButtonRefs.current.get(path)?.focus(),
+      );
+    }
+  };
+
+  const requestDelete = (version: ResumeFileVersion) => {
+    if (!canDelete || readInProgress || resumeId == null) return;
+    setPurgePending(false);
+    setConfirming(version);
+  };
+
+  const confirmDelete = () => {
+    if (!confirming || !canDelete || readInProgress || resumeId == null) {
+      return;
+    }
+    const marker: PendingResumeFileDelete = {
+      resumeId,
+      file: confirming,
+      deadline: Date.now() + RESUME_FILE_DELETE_UNDO_MS,
+    };
+    const key = resumeFileDeleteKey(marker.resumeId, marker.file.path);
+    if (!rememberPendingResumeFileDelete(marker)) {
+      notify("Could not delete. Nothing was changed.", { type: "error" });
+      setConfirming(null);
+      return;
+    }
+    pendingResumeFileDeletes.set(key, marker);
+    setPending((value) => [...value, marker]);
+    setConfirming(null);
+  };
+
+  const undo = (marker: PendingResumeFileDelete) => {
+    const key = resumeFileDeleteKey(marker.resumeId, marker.file.path);
+    clearPendingResumeFileDelete(marker.resumeId, marker.file.path);
+    pendingResumeFileDeletes.delete(key);
+    setPending((value) =>
+      value.filter(
+        (candidate) =>
+          resumeFileDeleteKey(candidate.resumeId, candidate.file.path) !== key,
+      ),
+    );
+  };
+
+  const pendingPaths = new Set(pending.map((marker) => marker.file.path));
+  const visibleVersions = versions.filter(
+    (version) => !pendingPaths.has(version.path),
+  );
+
   if (isPending) return <ResumeListSkeleton />;
   if (error) return <ResumeError />;
 
-  const versions = sortResumeFilesNewestFirst(data?.[0]?.files ?? []);
-  const isUnread = data?.[0] != null && isResumeUnread(data[0]);
-
-  if (versions.length === 0) return <ResumeEmpty />;
+  const dialogDescription = confirming
+    ? `${resumeFileTypeLabel(confirming.mime_type, confirming.filename)} · ${confirming.filename}. The stored file will be removed. The Easy to read cards and readings stay. If this is the only file, the reading stays and Original resume shows as removed.`
+    : "";
+  const content =
+    visibleVersions.length === 0 ? (
+      <ResumeEmpty />
+    ) : (
+      <ul className="flex flex-col gap-3">
+        {visibleVersions.map((version) => (
+          <ResumeVersionRow
+            key={version.path}
+            resumeId={resumeId ?? ""}
+            version={version}
+            isShown={version.path === shownPath}
+            onShow={onShow}
+            canReread={
+              canReread &&
+              resumeId != null &&
+              version.path === versions[0]?.path
+            }
+            isUnread={isUnread}
+            canDelete={canDelete}
+            isReadInProgress={readInProgress}
+            onDelete={requestDelete}
+            deleteButtonRef={(element) => {
+              if (element) deleteButtonRefs.current.set(version.path, element);
+              else deleteButtonRefs.current.delete(version.path);
+            }}
+          />
+        ))}
+      </ul>
+    );
 
   return (
-    <ul className="flex flex-col gap-3">
-      {versions.map((version) => (
-        <ResumeVersionRow
-          key={version.path}
-          resumeId={data?.[0]?.id ?? ""}
-          version={version}
-          isShown={version.path === shownPath}
-          onShow={onShow}
-          canReread={
-            canReread &&
-            data?.[0]?.id != null &&
-            version.path === versions[0]?.path
-          }
-          isUnread={isUnread}
-        />
-      ))}
-    </ul>
+    <section
+      aria-labelledby="resume-files-heading"
+      className="flex flex-col gap-3"
+    >
+      <div>
+        <h2
+          ref={headingRef}
+          id="resume-files-heading"
+          tabIndex={-1}
+          className="text-lg font-semibold"
+        >
+          Resume files
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Files attached to this suggestion.
+        </p>
+      </div>
+      {canDelete && readInProgress ? (
+        <p role="status" className="text-xs text-muted-foreground">
+          Please wait: this resume is being made easy to read.
+        </p>
+      ) : null}
+      {content}
+      {purgePending ? (
+        <p role="status" className="text-xs text-muted-foreground">
+          Files are being removed shortly.
+        </p>
+      ) : null}
+      {pending.map((marker) => {
+        const undoRemaining = Math.max(0, marker.deadline - now);
+        const undoProgress = Math.max(
+          0,
+          Math.min(100, (undoRemaining / RESUME_FILE_DELETE_UNDO_MS) * 100),
+        );
+        return (
+          <div
+            key={resumeFileDeleteKey(marker.resumeId, marker.file.path)}
+            className="rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold">Deleted.</p>
+                <p className="text-xs text-muted-foreground">
+                  Undo is available for 10 seconds.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 shrink-0"
+                onClick={() => undo(marker)}
+                disabled={undoRemaining === 0}
+              >
+                Undo
+              </Button>
+            </div>
+            <div
+              className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-label="Undo time remaining"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={undoProgress}
+            >
+              <div
+                className="h-full bg-primary transition-[width]"
+                style={{ width: `${undoProgress}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+      {isMobile ? (
+        <Sheet
+          open={confirming != null}
+          onOpenChange={(open) => {
+            if (!open) closeConfirmation();
+          }}
+        >
+          <SheetContent
+            side="bottom"
+            hideClose
+            className="max-h-[85dvh] overflow-y-auto"
+          >
+            <SheetHeader>
+              <SheetTitle>Delete this file?</SheetTitle>
+              <SheetDescription>{dialogDescription}</SheetDescription>
+            </SheetHeader>
+            <SheetFooter className="flex-col gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 w-full"
+                onClick={closeConfirmation}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="min-h-11 w-full"
+                onClick={confirmDelete}
+              >
+                Delete
+              </Button>
+            </SheetFooter>
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <Dialog
+          open={confirming != null}
+          onOpenChange={(open) => {
+            if (!open) closeConfirmation();
+          }}
+        >
+          <DialogContent hideClose className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete this file?</DialogTitle>
+              <DialogDescription>{dialogDescription}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 w-full sm:w-auto"
+                onClick={closeConfirmation}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="min-h-11 w-full sm:w-auto"
+                onClick={confirmDelete}
+              >
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </section>
   );
 }

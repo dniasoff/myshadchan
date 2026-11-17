@@ -45,7 +45,7 @@ const EMBED_HEIGHT = "h-[60svh] min-h-[18rem] md:h-[70vh] md:min-h-[24rem]";
  * doc comment).
  */
 export function ResumeDocument(
-  subject: ResumeSubject & { canReread?: boolean },
+  subject: ResumeSubject & { canDelete?: boolean; canReread?: boolean },
 ): ReactElement | null {
   const { data } = useGetList<Resume>("resumes", {
     filter: resumeSubjectFilter(subject),
@@ -63,14 +63,22 @@ export function ResumeDocument(
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
   const versions = sortResumeFilesNewestFirst(data?.[0]?.files ?? []);
+  const resumeWasRemoved =
+    data?.[0] != null && Array.isArray(data[0].files) && versions.length === 0;
   const shown =
     versions.find((version) => version.path === selectedPath) ?? versions[0];
 
   return (
     <div className="flex flex-col gap-4">
       {shown ? <ResumeEmbed version={shown} /> : null}
+      {resumeWasRemoved ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          Original resume · Removed
+        </p>
+      ) : null}
       <ResumeVersionList
         {...subject}
+        canDelete={subject.canDelete}
         canReread={subject.canReread}
         shownPath={shown?.path}
         onShow={versions.length > 1 ? setSelectedPath : undefined}

@@ -223,6 +223,53 @@ export async function uploadResumeFile(
   return data;
 }
 
+/** FakeRest mirror of `remove_resume_file`: manager-only, exact-path removal
+ * from the catalog, with the in-memory object removed only after the row write
+ * succeeds. There is no durable queue in demo mode, so the cleanup result is
+ * always settled synchronously. */
+export async function removeResumeFile(
+  baseDataProvider: DataProvider,
+  blobUrls: ResumeFileBlobUrls,
+  removedPaths: Set<string>,
+  accountId: Identifier,
+  callerRole: MemberRole | undefined,
+  resumeId: Identifier,
+  path: string,
+): Promise<{ purgePending: boolean }> {
+  if (callerRole !== "parent_admin" && callerRole !== "self_manager") {
+    throw new Error("Could not delete. Nothing was changed.");
+  }
+
+  const { data: resume } = await baseDataProvider.getOne<Resume>("resumes", {
+    id: resumeId,
+  });
+  if (!resume || String(resume.account_id) !== String(accountId)) {
+    throw new Error("Could not delete. Nothing was changed.");
+  }
+  if ((resume as Resume & { read_in_progress?: boolean }).read_in_progress) {
+    throw new Error("Please wait: this resume is being made easy to read.");
+  }
+
+  const files = resume.files ?? [];
+  const deletionKey = `${String(accountId)}\u0000${String(resumeId)}\u0000${path}`;
+  const remaining = files.filter((file) => file.path !== path);
+  if (remaining.length === files.length) {
+    if (removedPaths.has(deletionKey)) return { purgePending: false };
+    throw new Error("Could not delete. Nothing was changed.");
+  }
+
+  await baseDataProvider.update<Resume>("resumes", {
+    id: resume.id,
+    data: { files: remaining },
+    previousData: resume,
+  });
+  const blobUrl = blobUrls.get(path);
+  if (blobUrl?.startsWith("blob:")) URL.revokeObjectURL(blobUrl);
+  blobUrls.delete(path);
+  removedPaths.add(deletionKey);
+  return { purgePending: false };
+}
+
 /**
  * FakeRest mirror of the server's provenance-validated, idempotent attach.
  * The destination key is deterministic and shared by retries. Once the blob

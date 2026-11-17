@@ -11,6 +11,7 @@ import {
   canRereadResume,
   canViewResumeReferences,
 } from "./resumeReferenceVisibility";
+import { canDeleteResumeFile as canDeleteResumeFileForRole } from "./resumeFileDelete";
 import { canPickResumeFromInbox } from "./resumeInbox";
 
 /**
@@ -34,6 +35,7 @@ export function ResumeTab(): ReactNode {
   // Fail closed while the active context is settling.
   const canViewReferences = canViewResumeReferences(role, isRolePending);
   const canReread = canRereadResume(role, isRolePending);
+  const canDelete = canDeleteResumeFileForRole(role, isRolePending);
   const canPickInboxResume = canPickResumeFromInbox(role, isRolePending);
   const targetLabel =
     record.name_en?.trim() ||
@@ -56,7 +58,11 @@ export function ResumeTab(): ReactNode {
             Keep the file exactly as it was uploaded.
           </p>
         </div>
-        <ResumeDocument shidduchimId={record.id} canReread={canReread} />
+        <ResumeDocument
+          shidduchimId={record.id}
+          canReread={canReread}
+          canDelete={canDelete}
+        />
       </section>
       <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start lg:col-start-1 lg:row-start-2">
         <ResumeUpload shidduchimId={record.id} autoRead={canReread} />

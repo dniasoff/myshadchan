@@ -100,7 +100,12 @@ describe("Resume easy-to-read role gate", () => {
     async (role) => {
       const { screen } = await renderForRole(role);
       await expect
-        .element(screen.getByRole("button", { name: "Download", exact: true }))
+        .element(
+          screen.getByRole("button", {
+            name: "Download demo.pdf",
+            exact: true,
+          }),
+        )
         .toBeVisible();
       await expect
         .element(screen.getByRole("button", { name: "Make it easy to read" }))

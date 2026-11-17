@@ -66,7 +66,7 @@ export function ResumeUpload({
     _: "Attach resume",
   });
   const uploadHint = translate("crm.entity360.resume.uploadHint", {
-    _: "If the resume is in WhatsApp, Messages or email, save it to your phone first, then choose it here.",
+    _: "Choose the resume file (PDF or Word; a photo of a resume also works). Profile pictures go on the Photos tab.",
   });
 
   return (

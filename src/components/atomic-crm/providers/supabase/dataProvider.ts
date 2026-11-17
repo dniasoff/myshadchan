@@ -80,6 +80,8 @@ import type { TrustSenderParams, TrustSenderResult } from "./trustedSenders";
 import {
   attachInboxAttachmentToResumeFile as attachInboxAttachmentToResumeFileImpl,
   copyInboxAttachmentToResumeFile as copyInboxAttachmentToResumeFileImpl,
+  type RemoveResumeFileParams,
+  type ResumeFileDeleteResult,
   removeResumeFileObjects as removeResumeFileObjectsImpl,
   removeResumeFileObjectsOrThrow as removeResumeFileObjectsOrThrowImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
@@ -1444,6 +1446,27 @@ export const getDataProviderWithCustomMethods = () => {
     },
     async removeResumeFileObjectsStrict(paths: string[]): Promise<void> {
       return removeResumeFileObjectsOrThrowImpl(paths);
+    },
+    async removeResumeFile(
+      params: RemoveResumeFileParams,
+    ): Promise<ResumeFileDeleteResult> {
+      const { error } = await getSupabaseClient().rpc("remove_resume_file", {
+        p_resume_id: params.resumeId,
+        p_path: params.path,
+      });
+      if (error) {
+        if (
+          /being made easy to read|read.*progress|in flight/i.test(
+            error.message,
+          )
+        ) {
+          throw new Error(
+            "Please wait: this resume is being made easy to read.",
+          );
+        }
+        throw new Error("Could not delete. Nothing was changed.");
+      }
+      return drainShidduchStoragePurge();
     },
     async signResumeFileUrl(params: SignResumeFileUrlParams): Promise<string> {
       return signResumeFileUrlImpl(params);

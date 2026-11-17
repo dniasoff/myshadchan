@@ -66,7 +66,7 @@ describe("ResumeUpload — upload (AC 1 / AC 2)", () => {
   it("exposes the exact attach label and hint without narrowing the picker", async () => {
     // Arrange
     const hint =
-      "If the resume is in WhatsApp, Messages or email, save it to your phone first, then choose it here.";
+      "Choose the resume file (PDF or Word; a photo of a resume also works). Profile pictures go on the Photos tab.";
 
     // Act
     const { screen } = await renderUpload(42);
