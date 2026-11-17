@@ -273,6 +273,58 @@ describe("re-read diagnostics", () => {
     warn.mockRestore();
   });
 
+  it("rejects prototype names in Cloudflare model and status diagnostics", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const counts = {
+      rawFieldsNonNull: 0,
+      keptFields: 0,
+      rawReferences: 0,
+      keptReferences: 0,
+      rawLearning: 0,
+      keptLearning: 0,
+      rawAdditionalSections: 0,
+      keptAdditionalSections: 0,
+      droppedByPrivacyFilter: 0,
+    };
+    const prototypeNames = [
+      "toString",
+      "constructor",
+      "__proto__",
+      "hasOwnProperty",
+      "valueOf",
+    ];
+
+    for (const name of prototypeNames) {
+      logExtractorAttempt(name, 1);
+      logExtractorShape(counts, {
+        model: name,
+        finishReason: name,
+        usageMetadata: {},
+      });
+    }
+
+    for (const [index] of prototypeNames.entries()) {
+      expect(warn).toHaveBeenNthCalledWith(
+        index * 2 + 1,
+        "parse.extract.attempt",
+        { model: "unknown", attempt: 1 },
+      );
+      expect(warn).toHaveBeenNthCalledWith(
+        index * 2 + 2,
+        "parse.extract.shape",
+        {
+          ...counts,
+          finishReason: "UNKNOWN",
+          promptTokens: 0,
+          candidateTokens: 0,
+          thoughtTokens: 0,
+          model: "unknown",
+        },
+      );
+    }
+    warn.mockRestore();
+  });
+
   it("defaults missing shape metadata to static enums and zero counts", () => {
     expect(
       buildExtractorShapeLog({

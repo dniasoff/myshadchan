@@ -92,11 +92,9 @@ const CLOUDFLARE_RESPONSES_STATUS_VALUES = [
 type CloudflareResponsesStatus =
   (typeof CLOUDFLARE_RESPONSES_STATUS_VALUES)[number];
 
-const CLOUDFLARE_RESPONSES_STATUS_MAP: Readonly<
-  Record<string, CloudflareResponsesStatus>
-> = Object.fromEntries(
-  CLOUDFLARE_RESPONSES_STATUS_VALUES.map((status) => [status, status]),
-) as Record<string, CloudflareResponsesStatus>;
+const CLOUDFLARE_RESPONSES_STATUSES = new Set<string>(
+  CLOUDFLARE_RESPONSES_STATUS_VALUES,
+);
 
 type ExtractorFinishReason = GeminiFinishReason | CloudflareResponsesStatus;
 
@@ -403,7 +401,9 @@ function safeFinishReason(value: unknown): ExtractorFinishReason | undefined {
   if (GEMINI_FINISH_REASONS.has(value)) {
     return value as GeminiFinishReason;
   }
-  return CLOUDFLARE_RESPONSES_STATUS_MAP[value] ?? "UNKNOWN";
+  return CLOUDFLARE_RESPONSES_STATUSES.has(value)
+    ? (value as CloudflareResponsesStatus)
+    : "UNKNOWN";
 }
 
 function safeDocxFailure(value: unknown): DocxFailure | undefined {
