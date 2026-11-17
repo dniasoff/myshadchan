@@ -72,6 +72,25 @@ values (:acct_b, 'ef111111-1111-1111-1111-111111111111', 'parent_admin', 'active
 insert into public.account_members (account_id, user_id, role, status)
 values (:acct_c, 'ef111111-1111-1111-1111-111111111111', 'shadchan', 'active');
 
+set local role service_role;
+insert into public.singles (account_id, first_name_en, gender)
+values (:acct_a, 'EF Target Single', 'female')
+returning id as ef_single_id \gset
+insert into public.shidduchim (account_id, single_id, name_en)
+values (:acct_a, :ef_single_id, 'EF Target Shidduch')
+returning id as ef_shidduch_id \gset
+insert into public.singles (account_id, first_name_en, gender)
+values (:acct_b, 'EF Other Single', 'female')
+returning id as ef_b_single_id \gset
+insert into public.shidduchim (account_id, single_id, name_en)
+values (:acct_b, :ef_b_single_id, 'EF Other Shidduch')
+returning id as ef_b_shidduch_id \gset
+insert into ids values
+  ('ef_single_id', :'ef_single_id'),
+  ('ef_shidduch_id', :'ef_shidduch_id'),
+  ('ef_b_single_id', :'ef_b_single_id'),
+  ('ef_b_shidduch_id', :'ef_b_shidduch_id');
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"ef111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
@@ -82,34 +101,48 @@ select 'Arrange: u1''s active context is household A right after all three membe
 -- One entity_files row + one entity-files storage object for A, created
 -- while A is active (both trigger-assigned to A, exactly like the app).
 insert into public.entity_files (target_type, target_id, storage_path, file_name, mime_type, size_bytes)
-select 'shidduch', 1, value || '/shidduch/1/a.pdf', 'a.pdf', 'application/pdf', 100
+select 'shidduch', :ef_shidduch_id,
+       value || '/shidduch/' || :ef_shidduch_id || '/a.pdf',
+       'a.pdf', 'application/pdf', 100
 from ids where name = 'acct_a'
 returning id as file_a \gset
 
 insert into storage.objects (bucket_id, name, owner)
-select 'entity-files', value || '/shidduch/1/a.pdf', 'ef111111-1111-1111-1111-111111111111'
+select 'entity-files', value || '/shidduch/' || :ef_shidduch_id || '/a.pdf',
+       'ef111111-1111-1111-1111-111111111111'
 from ids where name = 'acct_a'
 returning id as obj_a \gset
 
 insert into ids values ('file_a', :'file_a'), ('obj_a', :'obj_a');
-insert into ids values ('path_a', (select value || '/shidduch/1/a.pdf' from ids where name = 'acct_a'));
+insert into ids values (
+  'path_a',
+  (select value || '/shidduch/' || :ef_shidduch_id || '/a.pdf'
+   from ids where name = 'acct_a')
+);
 
 -- Switch to B: one entity_files row + one storage object for B, created
 -- while B is active.
 select public.set_active_context((select value::bigint from ids where name = 'acct_b'));
 
 insert into public.entity_files (target_type, target_id, storage_path, file_name, mime_type, size_bytes)
-select 'shidduch', 2, value || '/shidduch/2/b.pdf', 'b.pdf', 'application/pdf', 200
+select 'shidduch', :ef_b_shidduch_id,
+       value || '/shidduch/' || :ef_b_shidduch_id || '/b.pdf',
+       'b.pdf', 'application/pdf', 200
 from ids where name = 'acct_b'
 returning id as file_b \gset
 
 insert into storage.objects (bucket_id, name, owner)
-select 'entity-files', value || '/shidduch/2/b.pdf', 'ef111111-1111-1111-1111-111111111111'
+select 'entity-files', value || '/shidduch/' || :ef_b_shidduch_id || '/b.pdf',
+       'ef111111-1111-1111-1111-111111111111'
 from ids where name = 'acct_b'
 returning id as obj_b \gset
 
 insert into ids values ('file_b', :'file_b'), ('obj_b', :'obj_b');
-insert into ids values ('path_b', (select value || '/shidduch/2/b.pdf' from ids where name = 'acct_b'));
+insert into ids values (
+  'path_b',
+  (select value || '/shidduch/' || :ef_b_shidduch_id || '/b.pdf'
+   from ids where name = 'acct_b')
+);
 
 -- Back to A for the (a)/(b) checks below.
 select public.set_active_context((select value::bigint from ids where name = 'acct_a'));
@@ -363,17 +396,18 @@ end $$;
 -- account's folder.
 -- ---------------------------------------------------------------------------
 do $$
-declare v_acct_b text;
+declare v_acct_b text; v_target_id bigint;
 begin
   select value into v_acct_b from ids where name = 'acct_b';
+  select value::bigint into v_target_id from ids where name = 'ef_shidduch_id';
   begin
     insert into public.entity_files (target_type, target_id, storage_path, file_name, mime_type, size_bytes)
-      values ('shidduch', 1, v_acct_b || '/shidduch/1/mismatched.pdf', 'mismatched.pdf', 'application/pdf', 10);
+      values ('shidduch', v_target_id, v_acct_b || '/shidduch/' || v_target_id || '/mismatched.pdf', 'mismatched.pdf', 'application/pdf', 10);
     insert into results values ('(f) constraint: a storage_path not prefixed with the trigger-assigned account_id is rejected', false, 'insert unexpectedly succeeded');
   exception when others then
     insert into results values (
       '(f) constraint: a storage_path not prefixed with the trigger-assigned account_id is rejected',
-      sqlerrm like '%entity_files_storage_path_scope_check%', sqlerrm
+      sqlerrm like '%storage path%', sqlerrm
     );
   end;
 end $$;
@@ -417,14 +451,18 @@ select '(h) AC 7(a): deleting a shadchan purges its entity_files rows',
 insert into public.singles (first_name_en) values ('EF Purge Shidduch Single')
 returning id as purge_shidduch_single \gset
 
+set local role service_role;
 insert into public.shidduchim (single_id, name_en) values (:purge_shidduch_single, 'EF Purge Shidduch')
 returning id as purge_shidduch \gset
+set local role authenticated;
 
 insert into public.entity_files (target_type, target_id, storage_path, file_name, mime_type, size_bytes)
 select 'shidduch', :purge_shidduch, value || '/shidduch/' || :purge_shidduch || '/p.pdf', 'p.pdf', 'application/pdf', 10
 from ids where name = 'acct_a';
 
+set local role service_role;
 delete from public.shidduchim where id = :purge_shidduch;
+set local role authenticated;
 
 insert into results (name, passed)
 select '(h) AC 7(a): deleting a shidduch purges its entity_files rows',
@@ -446,6 +484,7 @@ do $$
 declare
   v_a_member_id bigint;
   v_b_member_id bigint;
+  v_target_id bigint;
   v_row_uploaded_by bigint;
 begin
   select id into v_a_member_id from public.account_members
@@ -456,8 +495,11 @@ begin
   where account_id = (select value::bigint from ids where name = 'acct_b')
     and user_id = 'ef111111-1111-1111-1111-111111111111';
 
+  select value::bigint into v_target_id from ids where name = 'ef_shidduch_id';
+
   insert into public.entity_files (target_type, target_id, storage_path, file_name, mime_type, size_bytes, uploaded_by_member_id)
-  select 'shidduch', 1, value || '/shidduch/1/forged.pdf', 'forged.pdf', 'application/pdf', 10, v_b_member_id
+  select 'shidduch', v_target_id, value || '/shidduch/' || v_target_id || '/forged.pdf',
+         'forged.pdf', 'application/pdf', 10, v_b_member_id
   from ids where name = 'acct_a'
   returning uploaded_by_member_id into v_row_uploaded_by;
 

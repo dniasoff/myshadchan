@@ -741,6 +741,7 @@ select 'tenant A reads only its own single from public.singles_summary, never te
 insert into public.shadchanim (name) values ('Tenant A Shadchan (isolation)')
 returning id as shadchan_a_isolation \gset
 
+set local role service_role;
 insert into public.shidduchim (single_id, name_en, shadchan_id, pipeline_state)
 values (:single_a, 'Isolation check shidduch', :shadchan_a_isolation, 'look_into');
 
@@ -750,6 +751,7 @@ values (:single_a, 'Isolation check shidduch', :shadchan_a_isolation, 'look_into
 -- a regression to plain `count(s.single_id)` (no DISTINCT) would read 2.
 insert into public.shidduchim (single_id, name_en, shadchan_id, pipeline_state)
 values (:single_a, 'Second isolation check shidduch, same single', :shadchan_a_isolation, 'new');
+set local role authenticated;
 
 -- ONE login, active membership in BOTH tenants (arranged near the top of
 -- this file, before the role switch to `authenticated` — see the comment

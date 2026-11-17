@@ -235,8 +235,10 @@ where schemaname = 'storage'
 insert into public.singles (first_name_en) values ('DF Resume Single')
 returning id as single_id \gset
 
+set local role service_role;
 insert into public.shidduchim (single_id, name_en) values (:single_id, 'DF Resume Shidduch')
 returning id as shidduch_id \gset
+set local role authenticated;
 
 insert into ids values ('single_id', :'single_id'), ('shidduch_id', :'shidduch_id');
 

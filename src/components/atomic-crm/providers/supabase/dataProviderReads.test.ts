@@ -87,6 +87,22 @@ describe("supabase dataProvider — shidduchim reads never address the base tabl
     });
   });
 
+  it("adds an explicit active filter for reminder label lookups", async () => {
+    const dataProvider = getDataProviderWithCustomMethods();
+
+    await dataProvider.getMany("shidduchim", {
+      ids: [1, 2],
+      meta: { shidduchActiveOnly: true },
+    });
+
+    expect(baseProvider.getList).toHaveBeenCalledWith("shidduchim_summary", {
+      filter: { "id@in": "(1,2)", "archived_at@is": null },
+      pagination: { page: 1, perPage: 2 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(baseProvider.getMany).not.toHaveBeenCalled();
+  });
+
   it("leaves an unrelated resource's getMany on its own table", async () => {
     // Arrange
     const dataProvider = getDataProviderWithCustomMethods();

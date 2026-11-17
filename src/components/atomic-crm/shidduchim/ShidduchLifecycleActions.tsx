@@ -25,8 +25,8 @@ import type { CrmDataProvider } from "../providers/types";
 import type { ShidduchSummary } from "../types";
 import {
   canManageShidduchLifecycle,
-  clearPendingShidduchDelete,
-  rememberPendingShidduchDelete,
+  clearPendingShidduchAction,
+  rememberPendingShidduchAction,
   SHIDDUCH_ACTION_UNDO_MS,
   type ShidduchLifecycleAction,
 } from "./shidduchLifecycle";
@@ -81,15 +81,21 @@ export const ShidduchLifecycleActions = ({
 
   const archive = async () => {
     setBusy(true);
+    const deadline = Date.now() + SHIDDUCH_ACTION_UNDO_MS;
     try {
       await dataProvider.archiveShidduch(record.id);
+      rememberPendingShidduchAction({
+        id: record.id,
+        kind: "archive",
+        deadline,
+      });
       navigate("/shidduchim", {
         state: {
           shidduchLifecycle: {
             kind: "archive",
             id: record.id,
             name,
-            deadline: Date.now() + SHIDDUCH_ACTION_UNDO_MS,
+            deadline,
           } satisfies ShidduchLifecycleAction,
         },
       });
@@ -115,15 +121,29 @@ export const ShidduchLifecycleActions = ({
 
   const confirmDelete = async () => {
     if (busy) return;
-    setDeleteOpen(false);
     setBusy(true);
     const deadline = Date.now() + SHIDDUCH_ACTION_UNDO_MS;
     try {
+      if (typeof getReadState === "function") {
+        const state = await getReadState(record.id);
+        setReadInProgress(state.inProgress);
+        if (state.inProgress) {
+          notify("Please wait: this resume is being made easy to read.", {
+            type: "warning",
+          });
+          return;
+        }
+      }
+      setDeleteOpen(false);
       // Archive is the durable first step. A route change or reload can no
       // longer make a suggestion reappear in active lists while the delete
       // undo window is open.
       await dataProvider.archiveShidduch(record.id);
-      rememberPendingShidduchDelete({ id: record.id, deadline });
+      rememberPendingShidduchAction({
+        id: record.id,
+        kind: "delete",
+        deadline,
+      });
       navigate("/shidduchim", {
         state: {
           shidduchLifecycle: {
@@ -267,7 +287,7 @@ export const ShidduchPendingActionBar = ({
   onDone,
 }: {
   action: ShidduchLifecycleAction;
-  onDone: () => void;
+  onDone: (result: "restored" | "expired" | "failed") => void;
 }) => {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
@@ -278,8 +298,8 @@ export const ShidduchPendingActionBar = ({
   const undoButton = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    undoButton.current?.focus();
-  }, []);
+    if (!action.retryRequired) undoButton.current?.focus();
+  }, [action.retryRequired]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 100);
@@ -287,34 +307,56 @@ export const ShidduchPendingActionBar = ({
   }, []);
 
   useEffect(() => {
+    if (action.retryRequired) {
+      notify(
+        "Could not delete. It is in Archived: you can restore or delete it from there.",
+        { type: "error" },
+      );
+      return;
+    }
     if (now < action.deadline || completed.current || busy) return;
     completed.current = true;
     setBusy(true);
     if (action.kind === "archive") {
+      clearPendingShidduchAction(action.id);
       notify("Archived.");
       setBusy(false);
-      onDone();
+      onDone("expired");
       return;
     }
     void dataProvider
       .deleteShidduch(action.id)
       .then((result) => {
-        clearPendingShidduchDelete();
+        clearPendingShidduchAction(action.id);
         setPurgePending(result.purgePending);
         notify(
           result.purgePending ? "Files are being removed shortly." : "Deleted.",
         );
-        onDone();
+        onDone("expired");
       })
-      .catch((error: unknown) => {
-        completed.current = false;
-        notify(
-          error instanceof Error && error.message.includes("Please wait")
-            ? error.message
-            : "Could not delete. Nothing was changed.",
-          { type: "error" },
-        );
-        onDone();
+      .catch(() => {
+        void (async () => {
+          try {
+            await dataProvider.restoreShidduch(action.id);
+            clearPendingShidduchAction(action.id);
+            notify("Could not delete. Nothing was changed.", {
+              type: "error",
+            });
+            onDone("restored");
+          } catch {
+            rememberPendingShidduchAction({
+              id: action.id,
+              kind: "delete",
+              deadline: action.deadline,
+              retryRequired: true,
+            });
+            notify(
+              "Could not delete. It is in Archived: you can restore or delete it from there.",
+              { type: "error" },
+            );
+            onDone("failed");
+          }
+        })();
       })
       .finally(() => setBusy(false));
   }, [action, busy, dataProvider, notify, now, onDone]);
@@ -326,7 +368,7 @@ export const ShidduchPendingActionBar = ({
       setBusy(true);
       try {
         await dataProvider.restoreShidduch(action.id);
-        clearPendingShidduchDelete();
+        clearPendingShidduchAction(action.id);
       } catch {
         completed.current = false;
         notify("Could not restore. Nothing was changed.", { type: "error" });
@@ -336,7 +378,7 @@ export const ShidduchPendingActionBar = ({
       setBusy(false);
     }
     notify("Restored.");
-    onDone();
+    onDone("restored");
   };
 
   const remaining = Math.max(0, action.deadline - now);
@@ -353,10 +395,16 @@ export const ShidduchPendingActionBar = ({
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold">
-            {action.kind === "archive" ? "Archived." : "Deleted."}
+            {action.retryRequired
+              ? "Could not delete. It is in Archived: you can restore or delete it from there."
+              : action.kind === "archive"
+                ? "Archived."
+                : "Deleted."}
           </p>
           <p className="text-xs text-muted-foreground">
-            Undo is available for 10 seconds.
+            {action.retryRequired
+              ? "Restore it or delete it from the Archived tab."
+              : "Undo is available for 10 seconds."}
           </p>
         </div>
         <Button
@@ -364,7 +412,7 @@ export const ShidduchPendingActionBar = ({
           type="button"
           variant="outline"
           className="min-h-11 shrink-0"
-          disabled={busy || remaining === 0}
+          disabled={busy || remaining === 0 || action.retryRequired}
           onClick={() => void undo()}
         >
           Undo

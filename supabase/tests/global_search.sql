@@ -80,9 +80,11 @@ returning id as single_a \gset
 insert into public.shadchanim (name) values ('Zzyx Shadchan A')
 returning id as shadchan_a \gset
 
+set local role service_role;
 insert into public.shidduchim (single_id, shadchan_id, name_en)
 values (:single_a, :shadchan_a, 'Zzyx Shidduch A')
 returning id as shidduch_a \gset
+set local role authenticated;
 
 insert into ids values
   ('single_a', :'single_a'),
@@ -107,9 +109,11 @@ returning id as single_b \gset
 insert into public.shadchanim (name) values ('Zzyx Shadchan B')
 returning id as shadchan_b \gset
 
+set local role service_role;
 insert into public.shidduchim (single_id, shadchan_id, name_en)
 values (:single_b, :shadchan_b, 'Zzyx Shidduch B')
 returning id as shidduch_b \gset
+set local role authenticated;
 
 insert into ids values
   ('single_b', :'single_b'),

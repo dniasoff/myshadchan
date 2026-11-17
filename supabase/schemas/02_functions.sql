@@ -5366,6 +5366,7 @@ begin
         p_target_type <> 'shidduch'
         or (
           candidate.id is not null
+          and candidate.archived_at is null
           and not coalesce(public.shidduch_has_known_halachic_conflict(
             candidate.single_id,
             candidate.person_gender,
@@ -10419,6 +10420,14 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path TO ''
 AS $$
 begin
+  -- Account deletion and shidduch-owned writers use parent -> advisory
+  -- ordering. Lock parents in id order before the fence so the later FK
+  -- cascade cannot deadlock with a writer holding the advisory lock.
+  perform 1
+  from public.shidduchim
+  where account_id = p_account_id
+  order by id
+  for share;
   perform public.account_storage_lock(p_account_id);
   if not exists (select 1 from public.accounts where id = p_account_id) then
     return true;
@@ -10433,6 +10442,9 @@ begin
   );
 end;
 $$;
+
+revoke all on function public.entity_files_target_guard() from public, anon, authenticated;
+revoke all on function public.shidduch_delete_tombstone() from public, anon, authenticated;
 
 -- The routed lifecycle action exposes only this boolean lease state. Keep the
 -- same parent-first lock order as claim/apply/delete so a status read cannot

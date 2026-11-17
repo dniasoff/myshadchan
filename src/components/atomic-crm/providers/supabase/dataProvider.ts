@@ -622,6 +622,19 @@ export const getDataProviderWithCustomMethods = () => {
     // Any NEW read of shidduchim must go through the view for the same reason.
     async getMany(resource: string, params: any) {
       if (resource === "shidduchim") {
+        if (params.meta?.shidduchActiveOnly) {
+          return baseDataProvider.getList("shidduchim_summary", {
+            filter: {
+              "id@in": `(${(params.ids ?? []).join(",")})`,
+              "archived_at@is": null,
+            },
+            pagination: {
+              page: 1,
+              perPage: Math.max(1, (params.ids ?? []).length),
+            },
+            sort: { field: "id", order: "ASC" },
+          });
+        }
         return baseDataProvider.getMany("shidduchim_summary", params);
       }
       return baseDataProvider.getMany(resource, params);

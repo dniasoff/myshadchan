@@ -230,6 +230,27 @@ select 'catch_shidduch: a name-only prior date is NOT fabricated into a match',
          where (e ->> 'date_record_id')::bigint = :date_nameonly
        );
 
+-- Archived suggestions remain readable from their archived detail route but
+-- must not participate in repeat-hint matching.
+set local role service_role;
+update public.shidduchim
+set archived_at = now()
+where id = :shid_chaim;
+set local role authenticated;
+
+insert into results (name, passed)
+select 'match_identity/catch: archived shidduch candidates are excluded',
+       not exists (
+         select 1
+         from public.match_identity('shidduch', 'Haim Cohen') m
+         where m.target_id = :shid_chaim
+       )
+       and not exists (
+         select 1
+         from jsonb_array_elements(public.catch_shidduch(:shid_haim) -> 'suggestions') e
+         where (e ->> 'prior_shidduchim_id')::bigint = :shid_chaim
+       );
+
 reset role;
 
 -- ---------------------------------------------------------------------------

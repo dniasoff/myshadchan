@@ -723,9 +723,11 @@ end $$;
 -- question, asserted in supabase/tests/single_input.sql (it may not) and in
 -- single_field_scoping.sql. It is deliberately not re-litigated here.
 -- ---------------------------------------------------------------------------
+set local role service_role;
 insert into public.shidduchim (single_id, name_en)
 values ((select value::bigint from ids where name = 'single_a'), 'IT Shidduch A')
 returning id as shidduch_a \gset
+set local role authenticated;
 
 insert into ids values ('shidduch_a', :'shidduch_a');
 

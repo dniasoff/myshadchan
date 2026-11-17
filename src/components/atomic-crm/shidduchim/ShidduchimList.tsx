@@ -1,6 +1,6 @@
 import type { Identifier } from "ra-core";
 import { useGetIdentity, useGetList, useListContext } from "ra-core";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { CreateButton } from "@/components/admin/create-button";
@@ -16,7 +16,8 @@ import { PipelineListSkeleton } from "./ShidduchimPipelineList";
 import { ShidduchimViewSwitch } from "./ShidduchimViewSwitch";
 import {
   getPendingShidduchAction,
-  readPendingShidduchDelete,
+  getPendingShidduchActions,
+  type ShidduchLifecycleAction,
 } from "./shidduchLifecycle";
 import { ShidduchPendingActionBar } from "./ShidduchLifecycleActions";
 
@@ -89,40 +90,21 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
   const { data, filterValues, setFilters, displayedFilters } = useListContext();
   const location = useLocation();
   const navigate = useNavigate();
-  const [pendingLifecycle, setPendingLifecycle] = useState(
-    () =>
-      getPendingShidduchAction(location.state) ??
-      (() => {
-        const marker = readPendingShidduchDelete();
-        return marker
-          ? {
-              kind: "delete" as const,
-              id: marker.id,
-              name: `#${marker.id}`,
-              deadline: marker.deadline,
-            }
-          : null;
-      })(),
-  );
+  const [pendingLifecycle, setPendingLifecycle] = useState<
+    ShidduchLifecycleAction[]
+  >(() => getPendingShidduchActions(location.state));
+  const heading = useRef<HTMLHeadingElement | null>(null);
 
   useEffect(() => {
-    const action =
-      getPendingShidduchAction(location.state) ??
-      (() => {
-        const marker = readPendingShidduchDelete();
-        return marker
-          ? {
-              kind: "delete" as const,
-              id: marker.id,
-              name: `#${marker.id}`,
-              deadline: marker.deadline,
-            }
-          : null;
-      })();
-    if (!action) return;
-    setPendingLifecycle(action);
+    if (!getPendingShidduchAction(location.state)) return;
+    const actions = getPendingShidduchActions(location.state);
+    if (actions.length === 0) return;
+    setPendingLifecycle(actions);
     setFilters(
-      { ...(filterValues as Record<string, unknown>), "id@neq": action.id },
+      {
+        ...(filterValues as Record<string, unknown>),
+        "id@neq": actions[0].id,
+      },
       displayedFilters,
     );
     navigate(`${location.pathname}${location.search}`, {
@@ -165,26 +147,49 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
 
   return (
     <div className="w-full">
-      {pendingLifecycle ? (
-        <div className="mb-5">
-          <ShidduchPendingActionBar
-            action={pendingLifecycle}
-            onDone={() => {
-              setPendingLifecycle(null);
-              const next = {
-                ...(filterValues as Record<string, unknown>),
-              };
-              delete next["id@neq"];
-              setFilters(next, displayedFilters);
-              requestAnimationFrame(() => {
-                const selector =
-                  pendingLifecycle.kind === "delete"
-                    ? `[data-shidduch-id="${String(pendingLifecycle.id)}"] a`
-                    : '[data-slot="pipeline-row"] a';
-                document.querySelector<HTMLElement>(selector)?.focus();
-              });
-            }}
-          />
+      {pendingLifecycle.length > 0 ? (
+        <div className="mb-5 space-y-2">
+          {pendingLifecycle.map((action) => (
+            <ShidduchPendingActionBar
+              key={`${String(action.id)}:${action.kind}`}
+              action={action}
+              onDone={(result) => {
+                setPendingLifecycle((current) =>
+                  current.filter(
+                    (candidate) => String(candidate.id) !== String(action.id),
+                  ),
+                );
+                const remaining = pendingLifecycle.filter(
+                  (candidate) => String(candidate.id) !== String(action.id),
+                );
+                const next = {
+                  ...(filterValues as Record<string, unknown>),
+                };
+                if (remaining[0]) next["id@neq"] = remaining[0].id;
+                else delete next["id@neq"];
+                setFilters(next, displayedFilters);
+                requestAnimationFrame(() => {
+                  if (result === "restored") {
+                    const row = document.querySelector<HTMLElement>(
+                      `[data-shidduch-id="${String(action.id)}"] a`,
+                    );
+                    if (row) {
+                      row.focus();
+                      return;
+                    }
+                  }
+                  const nextRow = Array.from(
+                    document.querySelectorAll<HTMLElement>(
+                      '[data-slot="pipeline-row"]',
+                    ),
+                  )
+                    .find((row) => row.dataset.shidduchId !== String(action.id))
+                    ?.querySelector<HTMLElement>("a");
+                  (nextRow ?? heading.current)?.focus();
+                });
+              }}
+            />
+          ))}
         </div>
       ) : null}
       <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
@@ -262,7 +267,11 @@ const ShidduchimBody = ({ singleList }: { singleList: Single[] }) => {
               ))}
             </div>
           ) : null}
-          <h1 className="text-xl font-bold tracking-tight md:text-2xl">
+          <h1
+            ref={heading}
+            tabIndex={-1}
+            className="text-xl font-bold tracking-tight md:text-2xl"
+          >
             {count} redts
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">

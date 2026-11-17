@@ -1839,7 +1839,9 @@ export const createDataProvider = ({
       }
       if (resource === "shidduchim" || resource === "shidduchim_summary") {
         const { data: rows } = await getVisibleShidduchim({
-          filter: {},
+          filter: params.meta?.shidduchActiveOnly
+            ? { "archived_at@is": null }
+            : {},
           pagination: { page: 1, perPage: 10_000 },
           sort: { field: "id", order: "ASC" },
         });
@@ -2495,6 +2497,22 @@ export const createDataProvider = ({
         String(current.account_id) !== String(caller.membership.account_id)
       ) {
         throw new Error("Could not delete. Nothing was changed.");
+      }
+      const readState = await (async () => {
+        const resumes = await baseDataProvider.getList<Resume>("resumes", {
+          filter: { shidduchim_id: id },
+          pagination: { page: 1, perPage: 100 },
+          sort: { field: "id", order: "ASC" },
+        });
+        return resumes.data.some((resume) =>
+          Boolean(
+            (resume as Resume & { read_in_progress?: boolean })
+              .read_in_progress,
+          ),
+        );
+      })();
+      if (readState) {
+        throw new Error("Please wait: this resume is being made easy to read.");
       }
 
       const addQueue = (

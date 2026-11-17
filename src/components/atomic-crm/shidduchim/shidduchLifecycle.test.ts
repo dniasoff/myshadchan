@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearPendingShidduchDelete,
   getPendingShidduchAction,
+  readPendingShidduchActions,
   readPendingShidduchDelete,
+  rememberPendingShidduchAction,
   rememberPendingShidduchDelete,
   SHIDDUCH_DELETE_MARKER_KEY,
 } from "./shidduchLifecycle";
@@ -17,7 +19,7 @@ describe("shidduch lifecycle persistence", () => {
     rememberPendingShidduchDelete({ id: 42, deadline: 123 });
 
     expect(window.sessionStorage.getItem(SHIDDUCH_DELETE_MARKER_KEY)).toBe(
-      '{"id":42,"deadline":123}',
+      '{"42":{"id":42,"deadline":123,"kind":"delete"}}',
     );
     expect(readPendingShidduchDelete()).toEqual({ id: 42, deadline: 123 });
   });
@@ -32,6 +34,35 @@ describe("shidduch lifecycle persistence", () => {
 
     clearPendingShidduchDelete();
     expect(readPendingShidduchDelete()).toBeNull();
+  });
+
+  it("keeps concurrent archive and delete markers in one keyed collection", () => {
+    rememberPendingShidduchAction({
+      id: 42,
+      kind: "archive",
+      deadline: 123,
+    });
+    rememberPendingShidduchAction({
+      id: 43,
+      kind: "delete",
+      deadline: 456,
+    });
+
+    expect(readPendingShidduchActions()).toEqual([
+      { id: 42, kind: "archive", deadline: 123 },
+      { id: 43, kind: "delete", deadline: 456 },
+    ]);
+
+    rememberPendingShidduchAction({
+      id: 42,
+      kind: "archive",
+      deadline: 999,
+    });
+    expect(readPendingShidduchActions()[0]).toEqual({
+      id: 42,
+      kind: "archive",
+      deadline: 123,
+    });
   });
 
   it("fails closed when the marker is lost or malformed", () => {

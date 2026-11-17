@@ -7,6 +7,7 @@ export type ShidduchLifecycleAction = {
   id: Identifier;
   name: string;
   deadline: number;
+  retryRequired?: boolean;
 };
 
 export type ShidduchStoragePurgeResult = {
@@ -19,40 +20,129 @@ export type ShidduchReadState = {
 
 export const SHIDDUCH_DELETE_MARKER_KEY = "myshadchan:pending-shidduch-delete";
 
-type PendingDeleteMarker = {
+export type PendingShidduchMarker = {
   id: Identifier;
+  kind: "archive" | "delete";
   deadline: number;
+  retryRequired?: boolean;
 };
 
-export const rememberPendingShidduchDelete = (
-  marker: PendingDeleteMarker,
-): void => {
-  try {
-    sessionStorage.setItem(SHIDDUCH_DELETE_MARKER_KEY, JSON.stringify(marker));
-  } catch {
-    // A blocked or unavailable sessionStorage only loses the delete marker;
-    // the suggestion remains archived and recoverable.
-  }
-};
+type MarkerCollection = Record<string, PendingShidduchMarker>;
 
-export const readPendingShidduchDelete = (): PendingDeleteMarker | null => {
+const readMarkerCollection = (): MarkerCollection => {
   try {
     const raw = sessionStorage.getItem(SHIDDUCH_DELETE_MARKER_KEY);
-    if (!raw) return null;
-    const value = JSON.parse(raw) as Partial<PendingDeleteMarker>;
-    if (value.id == null || typeof value.deadline !== "number") return null;
-    return { id: value.id, deadline: value.deadline };
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).flatMap(
+        ([key, value]) => {
+          if (!value || typeof value !== "object") return [];
+          const marker = value as Partial<PendingShidduchMarker>;
+          if (
+            marker.id == null ||
+            (marker.kind !== "archive" && marker.kind !== "delete") ||
+            typeof marker.deadline !== "number" ||
+            (marker.retryRequired !== undefined &&
+              typeof marker.retryRequired !== "boolean")
+          ) {
+            return [];
+          }
+          return [[key, { ...marker, id: marker.id } as PendingShidduchMarker]];
+        },
+      ),
+    );
   } catch {
-    return null;
+    return {};
   }
 };
 
-export const clearPendingShidduchDelete = (): void => {
+const writeMarkerCollection = (markers: MarkerCollection): void => {
   try {
-    sessionStorage.removeItem(SHIDDUCH_DELETE_MARKER_KEY);
+    if (Object.keys(markers).length === 0) {
+      sessionStorage.removeItem(SHIDDUCH_DELETE_MARKER_KEY);
+    } else {
+      sessionStorage.setItem(
+        SHIDDUCH_DELETE_MARKER_KEY,
+        JSON.stringify(markers),
+      );
+    }
   } catch {
-    // Nothing to do: the persisted row remains archived and safe.
+    // A blocked or unavailable sessionStorage only loses the marker; archive
+    // has already committed, so the suggestion remains recoverable.
   }
+};
+
+export const rememberPendingShidduchAction = (
+  marker: PendingShidduchMarker,
+): void => {
+  const markers = readMarkerCollection();
+  const existing = markers[String(marker.id)];
+  if (existing && !existing.retryRequired) return;
+  markers[String(marker.id)] = marker;
+  writeMarkerCollection(markers);
+};
+
+export const readPendingShidduchActions = (): PendingShidduchMarker[] =>
+  Object.values(readMarkerCollection());
+
+export const clearPendingShidduchAction = (id: Identifier): void => {
+  const markers = readMarkerCollection();
+  delete markers[String(id)];
+  writeMarkerCollection(markers);
+};
+
+// Kept as small compatibility helpers for integrations that only know about
+// the original delete-specific API. They use the same collection key.
+export const rememberPendingShidduchDelete = (marker: {
+  id: Identifier;
+  deadline: number;
+}): void => {
+  rememberPendingShidduchAction({ ...marker, kind: "delete" });
+};
+
+export const readPendingShidduchDelete = (): {
+  id: Identifier;
+  deadline: number;
+} | null => {
+  const marker = readPendingShidduchActions().find(
+    (candidate) => candidate.kind === "delete",
+  );
+  return marker ? { id: marker.id, deadline: marker.deadline } : null;
+};
+
+export const clearPendingShidduchDelete = (id?: Identifier): void => {
+  if (id != null) {
+    clearPendingShidduchAction(id);
+    return;
+  }
+  readPendingShidduchActions()
+    .filter((marker) => marker.kind === "delete")
+    .forEach((marker) => clearPendingShidduchAction(marker.id));
+};
+
+export const getPendingShidduchActions = (
+  state: unknown,
+): ShidduchLifecycleAction[] => {
+  const routeAction = getPendingShidduchAction(state);
+  const markers = readPendingShidduchActions();
+  const actions: ShidduchLifecycleAction[] = markers.map((marker) => ({
+    kind: marker.kind,
+    id: marker.id,
+    name: `#${marker.id}`,
+    deadline: marker.deadline,
+    retryRequired: marker.retryRequired,
+  }));
+  if (!routeAction) return actions;
+  const existing = actions.findIndex(
+    (action) => String(action.id) === String(routeAction.id),
+  );
+  if (existing >= 0) actions[existing] = routeAction;
+  else actions.unshift(routeAction);
+  return actions;
 };
 
 export const getPendingShidduchAction = (state: unknown) => {

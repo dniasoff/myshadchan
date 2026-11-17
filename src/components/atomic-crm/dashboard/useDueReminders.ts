@@ -239,7 +239,7 @@ export function useDueReminders(): UseDueRemindersResult {
 
   const shidduchim = useGetMany(
     RESOURCE_FOR_LABEL_TYPE.shidduch,
-    { ids: shidduchIds },
+    { ids: shidduchIds, meta: { shidduchActiveOnly: true } },
     { enabled: shidduchIds.length > 0 },
   );
   const shadchanim = useGetMany(

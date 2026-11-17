@@ -162,7 +162,6 @@ begin
 end;
 $function$
 ;
-
 CREATE OR REPLACE FUNCTION public.add_resume_photo(p_path text, p_shidduchim_id bigint DEFAULT NULL::bigint, p_single_id bigint DEFAULT NULL::bigint, p_visibility text DEFAULT 'shared'::text)
  RETURNS SETOF public.resume_photos
  LANGUAGE plpgsql
@@ -513,5 +512,3 @@ begin
 end;
 $function$
 ;
-
-

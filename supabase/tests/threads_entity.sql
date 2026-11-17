@@ -590,6 +590,7 @@ end $$;
 -- active context" from "filtered by any membership the caller holds".
 -- ---------------------------------------------------------------------------
 reset role;
+set local request.jwt.claims = '{}';
 
 insert into auth.users (id, instance_id, aud, role, email)
 values ('51810000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'threads-dual-tenant@test.local');
@@ -824,6 +825,7 @@ from attempt;
 -- only B.
 -- ---------------------------------------------------------------------------
 reset role;
+set local request.jwt.claims = '{}';
 
 insert into auth.users (id, instance_id, aud, role, email)
 values ('51810000-0000-0000-0000-000000000013', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'threads-second-parent@test.local');
