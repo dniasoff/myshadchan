@@ -7,10 +7,11 @@ compatibility_flags = ["nodejs_compat"]
 port = 8788
 
 # Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_PUBLISHABLE_KEY,
-# AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID, GOOGLE_AI_STUDIO_API_KEY
-# (resumeExtractor.ts's geminiExtractor() — the OCR pipeline, AD-8 — reads all
-# three). The `[secrets]` block below makes wrangler itself refuse to publish
-# this Worker if any of them is missing — see that block's own comment.
+# AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID, GOOGLE_AI_STUDIO_API_KEY, and optional
+# CF_AI_TOKEN. resumeExtractor.ts's geminiExtractor() reads the Google trio on
+# the default path and CF_AI_TOKEN only when EXTRACT_PROVIDER is cf-unified.
+# The `[secrets]` block below makes wrangler refuse to publish this Worker if
+# any default-path secret is missing — see that block's own comment.
 #
 # External review Findings 1/2 (2026-08-06): .github/workflows/deploy.yml no
 # longer uses `wrangler deploy` + a series of `wrangler secret put` calls for
@@ -42,6 +43,10 @@ RATE_LIMITING_ENFORCED = "true"
 GEMINI_MODEL = "gemini-3.6-flash"
 GEMINI_THINKING_LEVEL = "low"
 GEMINI_FALLBACK_MODEL = "gemini-3.5-flash-lite"
+# Keep the existing Google-key path as the default. Set this to cf-unified only
+# after the Cloudflare probe has established the account/model contract; CF_AI_TOKEN
+# is intentionally optional here so the default deployment does not require it.
+EXTRACT_PROVIDER = "google-key"
 
 # External review Finding 2 (2026-08-06): wrangler's own required-secrets
 # enforcement (https://developers.cloudflare.com/workers/wrangler/configuration/#secrets-configuration-property).

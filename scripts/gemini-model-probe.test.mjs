@@ -2,15 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_MODELS,
+  CF_UNIFIED_MODELS,
   SYNTHETIC_RESUME_TEXT,
+  buildCloudflareRequestBody,
   buildProbePlan,
   buildRequestBody,
   createEmitter,
   listSupportedModelNames,
   parseArgs,
+  parseCloudflareEnvFile,
+  readCloudflareCredentials,
   runProbe,
   scrubSecrets,
   summarizeResponse,
+  summarizeCloudflareResponse,
   thinkingModesForModel,
 } from "./gemini-model-probe.mjs";
 import {
@@ -59,11 +64,29 @@ function fullResponseText() {
   });
 }
 
+function cloudflarePayload(text = fullResponseText()) {
+  return {
+    status: "completed",
+    output: [
+      {
+        type: "message",
+        content: [{ type: "output_text", text }],
+      },
+    ],
+    usage: { input_tokens: 300, output_tokens: 700, total_tokens: 1000 },
+  };
+}
+
+function cloudflareResponse(text = fullResponseText()) {
+  return new Response(JSON.stringify(cloudflarePayload(text)));
+}
+
 describe("gemini-model-probe", () => {
   it("parses defaults and only tests thinking controls valid for each family", () => {
     expect(parseArgs([])).toEqual({
       dryRun: false,
       help: false,
+      provider: "google-key",
       models: DEFAULT_MODELS,
     });
     expect(thinkingModesForModel("gemini-3.6-flash")).toEqual([
@@ -76,6 +99,65 @@ describe("gemini-model-probe", () => {
       "minimal",
     ]);
     expect(thinkingModesForModel("gemini-flash-latest")).toEqual(["unset"]);
+  });
+
+  it("plans the bounded unified-billing text and PDF probes from the allow-list", () => {
+    expect(parseArgs(["--provider", "cf-unified"])).toEqual({
+      dryRun: false,
+      help: false,
+      provider: "cf-unified",
+      models: CF_UNIFIED_MODELS,
+    });
+    expect(buildProbePlan(["openai/gpt-6-luna"], "cf-unified")).toEqual([
+      {
+        model: "openai/gpt-6-luna",
+        inputVariant: "text",
+        jsonMode: "json_schema",
+      },
+      {
+        model: "openai/gpt-6-luna",
+        inputVariant: "pdf",
+        jsonMode: "json_schema",
+      },
+    ]);
+    expect(() => buildProbePlan(["openai/not-approved"], "cf-unified")).toThrow(
+      "allow-listed",
+    );
+  });
+
+  it("builds Responses API schema and base64 PDF input without provider secrets", () => {
+    const body = buildCloudflareRequestBody(
+      "openai/gpt-6-luna",
+      "pdf",
+      "json_schema",
+    );
+    expect(body.input[0].content[1]).toMatchObject({
+      type: "input_file",
+      filename: "synthetic-resume.pdf",
+    });
+    expect(body.input[0].content[1].file_data).toMatch(
+      /^data:application\/pdf;base64,/,
+    );
+    expect(body.text.format).toMatchObject({
+      type: "json_schema",
+      name: "resume_extraction",
+      strict: true,
+    });
+    expect(body.text.format.schema.additionalProperties).toBe(false);
+  });
+
+  it("parses only the two Cloudflare credential keys and rejects missing files", () => {
+    expect(
+      parseCloudflareEnvFile(
+        'export CLOUDFLARE_API_TOKEN="token-value"\nCLOUDFLARE_ACCOUNT_ID=account-value\nOTHER=ignored',
+      ),
+    ).toEqual({
+      CLOUDFLARE_API_TOKEN: "token-value",
+      CLOUDFLARE_ACCOUNT_ID: "account-value",
+    });
+    expect(() =>
+      readCloudflareCredentials("/definitely/missing/.env_cloudflare"),
+    ).toThrow("missing or implausibly short");
   });
 
   it("builds a bounded plan and rejects more than forty calls", () => {
@@ -135,6 +217,22 @@ describe("gemini-model-probe", () => {
       references: 8,
       learningHistory: 1,
       additionalSections: 1,
+      pass: true,
+    });
+  });
+
+  it("summarizes a valid Responses API JSON result and bounded usage", () => {
+    const result = summarizeCloudflareResponse({
+      httpStatus: 200,
+      wallMs: 1234,
+      body: cloudflarePayload(),
+    });
+    expect(result).toMatchObject({
+      finishReason: "completed",
+      promptTokens: 300,
+      candidateTokens: 700,
+      jsonValid: true,
+      references: 8,
       pass: true,
     });
   });
@@ -473,5 +571,90 @@ describe("gemini-model-probe", () => {
     expect(result.exitCode).toBe(2);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(errors).toEqual(["API key missing or implausibly short"]);
+  });
+
+  it("runs unified-billing text and PDF probes with bearer auth and no Google header", async () => {
+    const output = [];
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(cloudflareResponse()));
+    const credentials = {
+      apiToken: "cloudflare-token-that-must-not-print",
+      accountId: "account-id",
+    };
+
+    const result = await runProbe({
+      argv: ["--provider", "cf-unified", "openai/gpt-6-luna"],
+      cloudflareCredentials: credentials,
+      fetchImpl: fetchMock,
+      writeLine: (line) => output.push(String(line)),
+      delayMs: 0,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.calls).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [url, init] of fetchMock.mock.calls) {
+      expect(url).toBe(
+        "https://api.cloudflare.com/client/v4/accounts/account-id/ai/v1/responses",
+      );
+      expect(init.headers).toEqual({
+        Authorization: `Bearer ${credentials.apiToken}`,
+        "Content-Type": "application/json",
+      });
+      expect(init.headers).not.toHaveProperty("x-goog-api-key");
+    }
+    expect(output.filter((line) => line.startsWith("model=")).length).toBe(2);
+    expect(output.join("\n")).not.toContain(credentials.apiToken);
+    expect(output.at(-1)).toContain("listStop=not_applicable");
+  });
+
+  it("falls back to JSON-in-prompt when the Responses schema form is rejected", async () => {
+    const output = [];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("schema unsupported", { status: 422 }),
+      )
+      .mockResolvedValueOnce(cloudflareResponse())
+      .mockResolvedValueOnce(cloudflareResponse());
+
+    const result = await runProbe({
+      argv: ["--provider=cf-unified", "openai/gpt-6-luna"],
+      cloudflareCredentials: {
+        apiToken: "cloudflare-token-that-must-not-print",
+        accountId: "account-id",
+      },
+      fetchImpl: fetchMock,
+      writeLine: (line) => output.push(String(line)),
+      delayMs: 0,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const schemaBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const promptFallbackBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(schemaBody.text.format.type).toBe("json_schema");
+    expect(promptFallbackBody).not.toHaveProperty("text");
+    expect(promptFallbackBody.input[0].content[0].text).toContain(
+      "Return JSON matching this schema exactly",
+    );
+    expect(output.filter((line) => line.startsWith("model=")).length).toBe(3);
+  });
+
+  it("does not read a credential file during unified-billing dry-run", async () => {
+    const fetchMock = vi.fn();
+    const errors = [];
+    const result = await runProbe({
+      argv: ["--provider", "cf-unified", "--dry-run"],
+      fetchImpl: fetchMock,
+      readCredentials: () => {
+        throw new Error("missing");
+      },
+      writeError: (line) => errors.push(String(line)),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(errors).toEqual([]);
   });
 });
