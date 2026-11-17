@@ -91,16 +91,6 @@ const FencedOutcomeSchema = z.object({
 export type RereadFencedOutcome =
   { outcome: "applied" } | { outcome: "superseded" } | { outcome: "failed" };
 
-const ApplySectionsOutcomeSchema = z.object({
-  outcome: z.enum(["applied", "cas_failed", "superseded"]),
-});
-
-export type RereadApplySectionsOutcome =
-  | { outcome: "applied" }
-  | { outcome: "cas_failed" }
-  | { outcome: "superseded" }
-  | { outcome: "failed" };
-
 const ApplyResumeReadOutcomeSchema = z.object({
   outcome: z.enum(["applied", "superseded", "stale_file"]),
 });
@@ -203,56 +193,6 @@ async function fencedRereadRpc(
   }
 
   return { outcome: "failed" };
-}
-
-export function applyRereadSections(
-  env: BaseEnv,
-  accountId: number,
-  resumeId: number,
-  attemptId: number,
-  generation: number,
-  originalSections: unknown,
-  nextSections: Record<string, unknown>,
-  schemaVersion: number,
-): Promise<RereadApplySectionsOutcome> {
-  const client = getParseQuotaClient(env);
-  const totalAttempts = RETRY_DELAYS_MS.length + 1;
-
-  return (async () => {
-    for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
-      try {
-        const { data, error } = await client.rpc("apply_ai_reread_sections", {
-          p_account_id: accountId,
-          p_resume_id: resumeId,
-          p_attempt_id: attemptId,
-          p_generation: generation,
-          p_original_sections: originalSections,
-          p_next_sections: nextSections,
-          p_schema_version: schemaVersion,
-        });
-        if (!error) {
-          const parsed = ApplySectionsOutcomeSchema.safeParse(data);
-          if (parsed.success) return parsed.data;
-          console.error(
-            "parse.applyRereadSections.unexpectedShape",
-            summarizeErrorForLog(parsed.error),
-          );
-          return { outcome: "failed" };
-        }
-        console.error(
-          "parse.applyRereadSections.rpcError",
-          summarizeErrorForLog(error),
-        );
-      } catch (error) {
-        console.error(
-          "parse.applyRereadSections.threw",
-          summarizeErrorForLog(error),
-        );
-      }
-      if (attempt < totalAttempts) await delay(RETRY_DELAYS_MS[attempt - 1]);
-    }
-    return { outcome: "failed" };
-  })();
 }
 
 export function releaseRereadAttempt(

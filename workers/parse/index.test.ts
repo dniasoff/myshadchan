@@ -75,7 +75,6 @@ const confirmParseAttempt = vi.fn();
 const releaseParseAttempt = vi.fn();
 const forceReclaimParseAttempt = vi.fn();
 const claimRereadAttempt = vi.fn();
-const applyRereadSections = vi.fn();
 const applyResumeRead = vi.fn();
 const releaseRereadAttempt = vi.fn();
 
@@ -101,7 +100,6 @@ vi.mock("./parseQuotaRecovery", () => ({
 
 vi.mock("./rereadQuota", () => ({
   claimRereadAttempt: (...args: unknown[]) => claimRereadAttempt(...args),
-  applyRereadSections: (...args: unknown[]) => applyRereadSections(...args),
   applyResumeRead: (...args: unknown[]) => applyResumeRead(...args),
   releaseRereadAttempt: (...args: unknown[]) => releaseRereadAttempt(...args),
 }));
@@ -237,7 +235,6 @@ describe("parse worker", () => {
       ok: true,
       outcome: { outcome: "reserved", attempt_id: 41, generation: 1 },
     });
-    applyRereadSections.mockResolvedValue({ outcome: "applied" });
     applyResumeRead.mockResolvedValue({ outcome: "applied" });
     releaseRereadAttempt.mockResolvedValue({ outcome: "applied" });
     confirmParseAttempt.mockResolvedValue(APPLIED_CONFIRM_OUTCOME);

@@ -42,7 +42,7 @@ async function renderForRole(
     } satisfies Resume,
   ];
   const dataProvider = createDataProvider({ db, latency: 0, silent: true });
-  const reReadResume = vi.spyOn(dataProvider, "reReadResume");
+  const readResume = vi.spyOn(dataProvider, "readResume");
   if (role === "pending") {
     dataProvider.getMyContexts = vi.fn(
       () => new Promise<MyContext[]>(() => undefined),
@@ -79,19 +79,19 @@ async function renderForRole(
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
-  return { screen, reReadResume };
+  return { screen, readResume };
 }
 
 describe("Resume easy-to-read role gate", () => {
   it.each(["single", "undefined", "pending"] as const)(
     "%s sees no easy-to-read control and cannot call the mutation",
     async (role) => {
-      const { screen, reReadResume } = await renderForRole(role);
+      const { screen, readResume } = await renderForRole(role);
       await expect.element(screen.getByText("demo.pdf")).toBeVisible();
       await expect
         .element(screen.getByRole("button", { name: "Make it easy to read" }))
         .not.toBeInTheDocument();
-      expect(reReadResume).not.toHaveBeenCalled();
+      expect(readResume).not.toHaveBeenCalled();
     },
   );
 
@@ -121,7 +121,7 @@ describe("Resume easy-to-read role gate", () => {
       filename: "newest.pdf",
       uploaded_at: "2026-02-01T00:00:00.000Z",
     };
-    const { screen, reReadResume } = await renderForRole("parent_admin", [
+    const { screen, readResume } = await renderForRole("parent_admin", [
       older,
       newest,
     ]);
@@ -141,8 +141,12 @@ describe("Resume easy-to-read role gate", () => {
       .getByRole("button", { name: "Make it easy to read" })
       .last()
       .click();
-    expect(reReadResume).toHaveBeenCalledWith(
-      expect.objectContaining({ resumeId: 77 }),
+    expect(readResume).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeId: 77,
+        mode: "fill_empty",
+        fileIdentity: newest.path,
+      }),
     );
   });
 
@@ -153,7 +157,7 @@ describe("Resume easy-to-read role gate", () => {
       path: "1/resumes/1/legacy.doc",
       mime_type: "application/msword",
     };
-    const { screen, reReadResume } = await renderForRole("parent_admin", [
+    const { screen, readResume } = await renderForRole("parent_admin", [
       legacyDoc,
     ]);
 
@@ -163,6 +167,6 @@ describe("Resume easy-to-read role gate", () => {
     await expect
       .element(screen.getByRole("button", { name: /make it easy to read/i }))
       .not.toBeInTheDocument();
-    expect(reReadResume).not.toHaveBeenCalled();
+    expect(readResume).not.toHaveBeenCalled();
   });
 });

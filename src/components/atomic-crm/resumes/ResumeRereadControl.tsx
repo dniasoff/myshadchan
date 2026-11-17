@@ -69,7 +69,7 @@ export type ResumeRereadControlProps = {
   resumeId: Identifier;
   /** Stable identity of the current file version, kept in memory only. */
   fileIdentity: string;
-  /** Unread resumes use the full fill-empty reader; read resumes keep reread. */
+  /** Whether the resume has not produced a parse result yet, for copy only. */
   isUnread?: boolean;
 };
 
@@ -174,27 +174,20 @@ export function ResumeRereadControl({
     const controller = new AbortController();
     activeController.current = controller;
     try {
-      const outcome = isUnread
-        ? await dataProvider.readResume({
-            resumeId,
-            requestId: stableRequestId,
-            fileIdentity,
-            mode: "fill_empty",
-            signal: controller.signal,
-          })
-        : await dataProvider.reReadResume({
-            resumeId,
-            requestId: stableRequestId,
-            fileIdentity,
-            signal: controller.signal,
-          });
+      const outcome = await dataProvider.readResume({
+        resumeId,
+        requestId: stableRequestId,
+        fileIdentity,
+        mode: "fill_empty",
+        signal: controller.signal,
+      });
       if (outcome === "completed") {
         unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("completed");
         setOpen(false);
         setRequestId(null);
         refresh();
-      } else if (isUnread && outcome === "empty") {
+      } else if (outcome === "empty") {
         unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("empty");
         setOpen(false);
@@ -212,7 +205,7 @@ export function ResumeRereadControl({
       } else if (outcome === "provider_busy") {
         unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("provider_busy");
-      } else if (isUnread && outcome === "stale_file") {
+      } else if (outcome === "stale_file") {
         unresolvedResumeReadAttempts.delete(rereadAttemptKey);
         setFeedback("failed");
       } else {
