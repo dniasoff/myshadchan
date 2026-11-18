@@ -5,11 +5,14 @@ import { getAvatarIndex, getMonogram } from "../entity360/avatar";
 import { RecordLink } from "../entity360/RecordLink";
 import type { ShidduchSummary } from "../types";
 import { formatArchivedDate, formatRedtDate } from "./boardUtils";
+import { ShidduchRowLifecycleActions } from "./ShidduchLifecycleActions";
+import { getPipelineStateDef } from "./pipelineStates";
 import { getTransientSuggestionName } from "./transientSuggestionDisplay";
 
 export interface ShidduchRowProps {
   shidduch: ShidduchSummary;
   onMove: () => void;
+  canManageLifecycle?: boolean;
   /** "row" (List position, default) or "card" (Cards position) — identical
    * content either way (Task 4), only the outer container chrome differs. */
   layout?: "row" | "card";
@@ -35,6 +38,7 @@ export interface ShidduchRowProps {
 export const ShidduchRow = ({
   shidduch,
   onMove,
+  canManageLifecycle = false,
   layout = "row",
   tourAnchor = false,
 }: ShidduchRowProps) => {
@@ -50,7 +54,7 @@ export const ShidduchRow = ({
   const avatarIndex = getAvatarIndex(shidduch.name_en ?? String(shidduch.id));
   const redt = formatRedtDate(shidduch.redt_date);
   const archived = shidduch.archived_at
-    ? `Archived ${formatArchivedDate(shidduch.archived_at)}`
+    ? `Archived · previous stage: ${getPipelineStateDef(shidduch.pipeline_state)?.label ?? shidduch.pipeline_state} · ${formatArchivedDate(shidduch.archived_at)}`
     : null;
   const lineTwo = [
     shidduch.location_en,
@@ -68,7 +72,7 @@ export const ShidduchRow = ({
       data-shidduch-id={String(shidduch.id)}
       data-tour={tourAnchor ? "pipeline-card" : undefined}
       className={cn(
-        "flex items-center gap-3",
+        "flex flex-col items-stretch gap-3 sm:flex-row sm:items-center",
         shidduch.archived_at ? "opacity-60" : null,
         layout === "card"
           ? "rounded-2xl border bg-card p-3.5 shadow-sm"
@@ -91,11 +95,17 @@ export const ShidduchRow = ({
           {monogram}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold leading-tight">
+          <span
+            dir="auto"
+            className="block truncate text-sm font-semibold leading-tight"
+          >
             {name}
           </span>
           {lineTwo ? (
-            <span className="block truncate text-xs text-muted-foreground">
+            <span
+              dir="auto"
+              className="block truncate text-xs text-muted-foreground"
+            >
               {lineTwo}
             </span>
           ) : null}
@@ -111,15 +121,34 @@ export const ShidduchRow = ({
         </span>
       </RecordLink>
       {/* AC-12: a sibling of the anchor above, never inside it. */}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="min-h-11 shrink-0"
-        onClick={onMove}
-      >
-        ⇄ Move
-      </Button>
+      {shidduch.archived_at ? (
+        canManageLifecycle ? (
+          <ShidduchRowLifecycleActions
+            record={shidduch}
+            variant="archived-row"
+            displayName={name}
+          />
+        ) : null
+      ) : (
+        <div className="flex w-full gap-2 sm:w-auto sm:shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-11 min-w-0 flex-1 sm:flex-none"
+            onClick={onMove}
+          >
+            ⇄ Move
+          </Button>
+          {canManageLifecycle ? (
+            <ShidduchRowLifecycleActions
+              record={shidduch}
+              variant="active-row"
+              displayName={name}
+            />
+          ) : null}
+        </div>
+      )}
     </div>
   );
 };

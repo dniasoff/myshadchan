@@ -22,7 +22,7 @@ describe("shidduch lifecycle persistence", () => {
     rememberPendingShidduchDelete({ id: 42, deadline: 123 });
 
     expect(window.sessionStorage.getItem(SHIDDUCH_DELETE_MARKER_KEY)).toBe(
-      '{"42":{"id":42,"deadline":123,"kind":"delete"}}',
+      '{"42":{"id":42,"deadline":123,"kind":"delete","origin":"page"}}',
     );
     expect(readPendingShidduchDelete()).toEqual({ id: 42, deadline: 123 });
   });
@@ -39,6 +39,34 @@ describe("shidduch lifecycle persistence", () => {
     expect(readPendingShidduchDelete()).toBeNull();
   });
 
+  it("reconciles a route-change action with the persisted marker for the same row", () => {
+    rememberPendingShidduchAction({
+      id: 42,
+      kind: "delete",
+      deadline: 123,
+    });
+
+    expect(
+      getPendingShidduchActions({
+        shidduchLifecycle: {
+          id: 42,
+          kind: "delete",
+          name: "Chaya Cohen",
+          deadline: 456,
+          origin: "page",
+        },
+      }),
+    ).toEqual([
+      {
+        id: 42,
+        kind: "delete",
+        name: "Chaya Cohen",
+        deadline: 456,
+        origin: "page",
+      },
+    ]);
+  });
+
   it("keeps concurrent archive and delete markers in one keyed collection", () => {
     rememberPendingShidduchAction({
       id: 42,
@@ -52,8 +80,8 @@ describe("shidduch lifecycle persistence", () => {
     });
 
     expect(readPendingShidduchActions()).toEqual([
-      { id: 42, kind: "archive", deadline: 123 },
-      { id: 43, kind: "delete", deadline: 456 },
+      { id: 42, kind: "archive", deadline: 123, origin: "page" },
+      { id: 43, kind: "delete", deadline: 456, origin: "page" },
     ]);
 
     expect(
@@ -61,12 +89,14 @@ describe("shidduch lifecycle persistence", () => {
         id: 42,
         kind: "archive",
         deadline: 999,
+        origin: "page",
       }),
     ).toBe(true);
     expect(readPendingShidduchActions()[0]).toEqual({
       id: 42,
       kind: "archive",
       deadline: 999,
+      origin: "page",
     });
 
     expect(
@@ -74,12 +104,14 @@ describe("shidduch lifecycle persistence", () => {
         id: 42,
         kind: "delete",
         deadline: 1_000,
+        origin: "page",
       }),
     ).toBe(true);
     expect(readPendingShidduchActions()[0]).toEqual({
       id: 42,
       kind: "delete",
       deadline: 1_000,
+      origin: "page",
     });
 
     expect(
@@ -87,6 +119,7 @@ describe("shidduch lifecycle persistence", () => {
         id: 42,
         kind: "delete",
         deadline: 1_000,
+        origin: "page",
         retryRequired: true,
       }),
     ).toBe(true);
@@ -94,6 +127,7 @@ describe("shidduch lifecycle persistence", () => {
       id: 42,
       kind: "delete",
       deadline: 1_000,
+      origin: "page",
       retryRequired: true,
     });
 
@@ -105,6 +139,7 @@ describe("shidduch lifecycle persistence", () => {
         id: 42,
         kind: "delete",
         deadline: 1_000,
+        origin: "page",
         retryRequired: true,
       }),
     ).toBe(true);
@@ -132,6 +167,7 @@ describe("shidduch lifecycle persistence", () => {
         id: 42,
         kind: "delete",
         deadline: 123,
+        origin: "page",
       }),
     ).toBe(false);
     expect(
@@ -145,15 +181,23 @@ describe("shidduch lifecycle persistence", () => {
       id: 42,
       kind: "archive",
       deadline: 123,
+      origin: "page",
     });
     rememberPendingShidduchAction({
       id: 42,
       kind: "delete",
       deadline: 456,
+      origin: "page",
       retryRequired: true,
     });
     expect(readPendingShidduchActions()).toEqual([
-      { id: 42, kind: "delete", deadline: 456, retryRequired: true },
+      {
+        id: 42,
+        kind: "delete",
+        deadline: 456,
+        origin: "page",
+        retryRequired: true,
+      },
     ]);
   });
 

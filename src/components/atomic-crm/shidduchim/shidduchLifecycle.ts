@@ -2,11 +2,14 @@ import type { Identifier } from "ra-core";
 
 export const SHIDDUCH_ACTION_UNDO_MS = 10_000;
 
+export type ShidduchLifecycleOrigin = "page" | "row";
+
 export type ShidduchLifecycleAction = {
   kind: "archive" | "delete";
   id: Identifier;
   name: string;
   deadline: number;
+  origin: ShidduchLifecycleOrigin;
   retryRequired?: boolean;
 };
 
@@ -24,10 +27,15 @@ export type PendingShidduchMarker = {
   id: Identifier;
   kind: "archive" | "delete";
   deadline: number;
+  origin: ShidduchLifecycleOrigin;
   retryRequired?: boolean;
 };
 
 type MarkerCollection = Record<string, PendingShidduchMarker>;
+
+type PendingShidduchMarkerInput = Omit<PendingShidduchMarker, "origin"> & {
+  origin?: ShidduchLifecycleOrigin;
+};
 
 const readMarkerCollection = (): MarkerCollection => {
   try {
@@ -51,7 +59,19 @@ const readMarkerCollection = (): MarkerCollection => {
           ) {
             return [];
           }
-          return [[key, { ...marker, id: marker.id } as PendingShidduchMarker]];
+          return [
+            [
+              key,
+              {
+                ...marker,
+                id: marker.id,
+                // Markers written before origin was introduced came from the
+                // suggestion page, whose Undo focus behavior must remain
+                // unchanged.
+                origin: marker.origin === "row" ? "row" : ("page" as const),
+              } as PendingShidduchMarker,
+            ],
+          ];
         },
       ),
     );
@@ -77,19 +97,24 @@ const writeMarkerCollection = (markers: MarkerCollection): boolean => {
 };
 
 export const rememberPendingShidduchAction = (
-  marker: PendingShidduchMarker,
+  marker: PendingShidduchMarkerInput,
 ): boolean => {
+  const normalizedMarker: PendingShidduchMarker = {
+    ...marker,
+    origin: marker.origin ?? "page",
+  };
   const markers = readMarkerCollection();
-  const existing = markers[String(marker.id)];
+  const existing = markers[String(normalizedMarker.id)];
   if (
     existing &&
-    existing.kind === marker.kind &&
-    existing.deadline === marker.deadline &&
-    Boolean(existing.retryRequired) === Boolean(marker.retryRequired)
+    existing.kind === normalizedMarker.kind &&
+    existing.deadline === normalizedMarker.deadline &&
+    existing.origin === normalizedMarker.origin &&
+    Boolean(existing.retryRequired) === Boolean(normalizedMarker.retryRequired)
   ) {
     return true;
   }
-  markers[String(marker.id)] = marker;
+  markers[String(normalizedMarker.id)] = normalizedMarker;
   return writeMarkerCollection(markers);
 };
 
@@ -107,7 +132,8 @@ export const clearPendingShidduchAction = (id: Identifier): void => {
 export const rememberPendingShidduchDelete = (marker: {
   id: Identifier;
   deadline: number;
-}): boolean => rememberPendingShidduchAction({ ...marker, kind: "delete" });
+}): boolean =>
+  rememberPendingShidduchAction({ ...marker, kind: "delete", origin: "page" });
 
 export const readPendingShidduchDelete = (): {
   id: Identifier;
@@ -139,6 +165,7 @@ export const getPendingShidduchActions = (
     id: marker.id,
     name: `#${marker.id}`,
     deadline: marker.deadline,
+    origin: marker.origin,
     retryRequired: marker.retryRequired,
   }));
   if (!routeAction) return actions;
@@ -176,11 +203,17 @@ export const getPendingShidduchAction = (state: unknown) => {
     (action.kind !== "archive" && action.kind !== "delete") ||
     action.id == null ||
     typeof action.name !== "string" ||
-    typeof action.deadline !== "number"
+    typeof action.deadline !== "number" ||
+    (action.origin !== undefined &&
+      action.origin !== "page" &&
+      action.origin !== "row")
   ) {
     return null;
   }
-  return action as ShidduchLifecycleAction;
+  return {
+    ...action,
+    origin: action.origin ?? "page",
+  } as ShidduchLifecycleAction;
 };
 
 export const canManageShidduchLifecycle = (role: unknown): boolean =>

@@ -1,7 +1,13 @@
 import type { Identifier } from "ra-core";
 import { useGetIdentity, useGetList, useListContext, useStore } from "ra-core";
 import { Search, X } from "lucide-react";
-import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { CreateButton } from "@/components/admin/create-button";
@@ -270,6 +276,63 @@ const ShidduchimBody = ({
     ShidduchLifecycleAction[]
   >(() => getPendingShidduchActions(location.state));
   const heading = useRef<HTMLHeadingElement | null>(null);
+  const visibleRowOrder = useRef<string[]>([]);
+  const visibleRowOrderByAction = useRef<Record<string, string[]>>({});
+  const routeAction = getPendingShidduchAction(location.state);
+  const routeActionId = routeAction?.id;
+  const rowActionFocus = useRef<{
+    id: string;
+    order: string[];
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    if (routeActionId == null && pendingLifecycle.length > 0) return;
+    const rowOrder = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-slot="pipeline-row"]'),
+    ).map((row) => row.dataset.shidduchId ?? "");
+    if (routeActionId != null) {
+      const id = String(routeActionId);
+      const capturedOrder =
+        rowOrder.length > 0 ? rowOrder : visibleRowOrder.current;
+      if (!visibleRowOrderByAction.current[id]) {
+        visibleRowOrderByAction.current[id] = capturedOrder;
+      }
+      if (routeAction?.origin === "row" && !rowActionFocus.current) {
+        rowActionFocus.current = {
+          id,
+          order: capturedOrder,
+        };
+      }
+      return;
+    }
+    visibleRowOrder.current = rowOrder;
+  }, [data, pendingLifecycle.length, routeAction?.origin, routeActionId]);
+
+  useLayoutEffect(() => {
+    const pending = rowActionFocus.current;
+    if (!pending) return;
+    if (
+      document.querySelector<HTMLElement>(`[data-shidduch-id="${pending.id}"]`)
+    ) {
+      return;
+    }
+
+    const currentRows = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-slot="pipeline-row"]'),
+    );
+    const actionRowIndex = pending.order.findIndex((id) => id === pending.id);
+    const followingRowIds =
+      actionRowIndex >= 0 ? pending.order.slice(actionRowIndex + 1) : [];
+    const nextRow = followingRowIds
+      .map((id) =>
+        currentRows
+          .find((row) => row.dataset.shidduchId === id)
+          ?.querySelector<HTMLElement>("a"),
+      )
+      .find((row): row is HTMLElement => row != null);
+    (nextRow ?? heading.current)?.focus();
+    rowActionFocus.current = null;
+  }, [data, location.state, pendingLifecycle.length]);
 
   useEffect(() => {
     const actions = getPendingShidduchActions(location.state);
@@ -357,7 +420,19 @@ const ShidduchimBody = ({
             <ShidduchPendingActionBar
               key={`${String(action.id)}:${action.kind}`}
               action={action}
+              focusOnMount={action.origin === "page"}
               onDone={(result) => {
+                const actionOrder =
+                  visibleRowOrderByAction.current[String(action.id)] ??
+                  visibleRowOrder.current;
+                const actionRowIndex = actionOrder.findIndex(
+                  (id) => id === String(action.id),
+                );
+                const followingRowIds =
+                  actionRowIndex >= 0
+                    ? actionOrder.slice(actionRowIndex + 1)
+                    : [];
+                delete visibleRowOrderByAction.current[String(action.id)];
                 const remaining =
                   result === "failed"
                     ? pendingLifecycle.map((candidate) =>
@@ -392,13 +467,18 @@ const ShidduchimBody = ({
                       return;
                     }
                   }
-                  const nextRow = Array.from(
+                  const currentRows = Array.from(
                     document.querySelectorAll<HTMLElement>(
                       '[data-slot="pipeline-row"]',
                     ),
-                  )
-                    .find((row) => row.dataset.shidduchId !== String(action.id))
-                    ?.querySelector<HTMLElement>("a");
+                  );
+                  const nextRow = followingRowIds
+                    .map((id) =>
+                      currentRows
+                        .find((row) => row.dataset.shidduchId === id)
+                        ?.querySelector<HTMLElement>("a"),
+                    )
+                    .find((row): row is HTMLElement => row != null);
                   (nextRow ?? heading.current)?.focus();
                 });
               }}

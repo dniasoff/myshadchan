@@ -21,6 +21,7 @@ export interface PipelineSectionProps {
   state: PipelineStateDef;
   shidduchim: ShidduchSummary[];
   onMove: (shidduch: ShidduchSummary) => void;
+  canManageLifecycle?: boolean;
   /** "list" (default, stacked rows) or "cards" (a non-draggable grid) — the
    * same `ShidduchRow` content either way (Task 4). */
   variant?: "list" | "cards";
@@ -46,6 +47,7 @@ export const PipelineSection = ({
   state,
   shidduchim,
   onMove,
+  canManageLifecycle = false,
   variant = "list",
   tourAnchor = false,
 }: PipelineSectionProps) => {
@@ -102,6 +104,7 @@ export const PipelineSection = ({
               key={shidduch.id}
               shidduch={shidduch}
               onMove={() => onMove(shidduch)}
+              canManageLifecycle={canManageLifecycle}
               layout="card"
               tourAnchor={tourAnchor && index === 0}
             />
@@ -114,6 +117,7 @@ export const PipelineSection = ({
               key={shidduch.id}
               shidduch={shidduch}
               onMove={() => onMove(shidduch)}
+              canManageLifecycle={canManageLifecycle}
               tourAnchor={tourAnchor && index === 0}
             />
           ))}

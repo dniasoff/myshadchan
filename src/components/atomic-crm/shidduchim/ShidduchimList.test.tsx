@@ -204,6 +204,81 @@ describe("ShidduchimList — archive filter defaults", () => {
         ?.getAttribute("aria-selected"),
     ).toBe("false");
   });
+
+  it("moves row-origin focus to the next visible row as soon as Archive removes row A", async () => {
+    const rows = [
+      {
+        id: 42,
+        account_id: 1,
+        single_id: 1,
+        pipeline_state: "new",
+        first_suggested_at: "2026-01-01T00:00:00Z",
+        redt_date: "2026-01-02",
+        origin: "manual",
+        visibility: "shared",
+        index: 0,
+        created_at: "2026-01-01T00:00:00Z",
+        name_en: "Row A",
+      },
+      {
+        id: 43,
+        account_id: 1,
+        single_id: 1,
+        pipeline_state: "new",
+        first_suggested_at: "2026-01-01T00:00:00Z",
+        redt_date: "2026-01-02",
+        origin: "manual",
+        visibility: "shared",
+        index: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        name_en: "Row B",
+      },
+    ];
+    const archiveShidduch = vi.fn().mockResolvedValue(undefined);
+    const dataProvider = {
+      getList: vi.fn((resource: string, params: ListRequest) => {
+        if (resource === "singles") {
+          return Promise.resolve({
+            data: [{ id: 1, first_name_en: "Chaya", status: "active" }],
+            total: 1,
+          });
+        }
+        const filter = params.filter as Record<string, unknown> | undefined;
+        const excluded = String(filter?.["id@not.in"] ?? "");
+        const data = excluded.includes("42") ? rows.slice(1) : rows;
+        return Promise.resolve({ data, total: data.length });
+      }),
+      getMany: vi.fn().mockResolvedValue({ data: [] }),
+      getMyContexts: vi.fn().mockResolvedValue([
+        {
+          account_id: 1,
+          kind: "household",
+          name: "Test household",
+          role: "parent_admin",
+          is_active: true,
+        },
+      ]),
+      getOne: vi.fn().mockResolvedValue({ data: null }),
+      archiveShidduch,
+      getShidduchReadState: vi.fn().mockResolvedValue({ inProgress: false }),
+      restoreShidduch: vi.fn(),
+    } as unknown as CrmDataProvider;
+
+    const screen = await renderShidduchimResourceAt(["/shidduchim"], {
+      dataProvider,
+    });
+    const rowA = screen.getByRole("button", {
+      name: "More actions for Row A",
+    });
+    await rowA.click();
+    await screen.getByRole("menuitem", { name: "Archive suggestion" }).click();
+
+    await expect.poll(() => archiveShidduch.mock.calls.length).toBe(1);
+    const rowB = screen.getByRole("link", { name: "Row B" });
+    await expect
+      .poll(() => document.activeElement === rowB.element())
+      .toBe(true);
+  });
 });
 
 /**

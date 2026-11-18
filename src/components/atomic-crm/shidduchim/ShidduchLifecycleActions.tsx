@@ -1,4 +1,4 @@
-import { MoreVertical } from "lucide-react";
+import { MoreHorizontal, MoreVertical } from "lucide-react";
 import { useDataProvider, useNotify, useRefresh } from "ra-core";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -30,6 +30,7 @@ import {
   rememberPendingShidduchAction,
   SHIDDUCH_ACTION_UNDO_MS,
   type ShidduchLifecycleAction,
+  type ShidduchLifecycleOrigin,
 } from "./shidduchLifecycle";
 
 const nameFor = (record: ShidduchSummary): string =>
@@ -55,13 +56,13 @@ const reconcileArchivedMarker = async (
   return false;
 };
 
-/** Header actions and the manager-only archived state for one shidduch. */
-export const ShidduchLifecycleActions = ({
-  record,
-}: {
-  record: ShidduchSummary;
-}) => {
-  const { role, isPending: rolePending } = useViewerRole();
+type LifecycleMenuVariant = "page" | "active-row" | "archived-row";
+
+const useShidduchLifecycle = (
+  record: ShidduchSummary,
+  origin: ShidduchLifecycleOrigin,
+  displayName?: string,
+) => {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const refresh = useRefresh();
@@ -70,7 +71,7 @@ export const ShidduchLifecycleActions = ({
   const [busy, setBusy] = useState(false);
   const [readInProgress, setReadInProgress] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
-  const name = nameFor(record);
+  const name = displayName ?? nameFor(record);
   let getReadState: CrmDataProvider["getShidduchReadState"] | undefined;
   try {
     getReadState = dataProvider.getShidduchReadState;
@@ -98,15 +99,20 @@ export const ShidduchLifecycleActions = ({
     };
   }, [getReadState, record.id]);
 
-  if (rolePending || !canManageShidduchLifecycle(role)) return null;
+  const closeDelete = () => {
+    setDeleteOpen(false);
+    requestAnimationFrame(() => trigger.current?.focus());
+  };
 
   const archive = async () => {
+    if (busy) return;
     setBusy(true);
     const deadline = Date.now() + SHIDDUCH_ACTION_UNDO_MS;
     const marker = {
       id: record.id,
       kind: "archive" as const,
       deadline,
+      origin,
     };
     try {
       if (!rememberPendingShidduchAction(marker)) {
@@ -121,6 +127,7 @@ export const ShidduchLifecycleActions = ({
             id: record.id,
             name,
             deadline,
+            origin,
           } satisfies ShidduchLifecycleAction,
         },
       });
@@ -138,6 +145,7 @@ export const ShidduchLifecycleActions = ({
   };
 
   const restore = async () => {
+    if (busy) return;
     setBusy(true);
     try {
       await dataProvider.restoreShidduch(record.id);
@@ -158,6 +166,7 @@ export const ShidduchLifecycleActions = ({
       id: record.id,
       kind: "delete" as const,
       deadline,
+      origin,
     };
     try {
       if (typeof getReadState === "function") {
@@ -186,6 +195,7 @@ export const ShidduchLifecycleActions = ({
             id: record.id,
             name,
             deadline,
+            origin,
           } satisfies ShidduchLifecycleAction,
         },
       });
@@ -196,6 +206,7 @@ export const ShidduchLifecycleActions = ({
           state: { shidduchLifecycle: { ...marker, name } },
         });
       } else {
+        closeDelete();
         notify("Could not delete. Nothing was changed.", { type: "error" });
       }
     } finally {
@@ -203,90 +214,226 @@ export const ShidduchLifecycleActions = ({
     }
   };
 
-  return (
-    <div className="flex flex-col gap-4">
-      {record.archived_at ? (
-        <section
-          role="status"
-          aria-labelledby="shidduch-archived-heading"
-          className="rounded-2xl border border-border bg-secondary p-4"
-        >
-          <h2
-            id="shidduch-archived-heading"
-            tabIndex={-1}
-            className="font-display text-lg font-semibold"
-          >
-            This suggestion is archived
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            It is hidden from the active pipeline, dashboard counts, and cards
-            while its file and history are kept.
-          </p>
+  return {
+    archive,
+    busy,
+    confirmDelete,
+    deleteOpen,
+    name,
+    readInProgress,
+    restore,
+    closeDelete,
+    setDeleteOpen,
+    trigger,
+  };
+};
+
+const ShidduchLifecycleMenu = ({
+  record,
+  variant,
+  displayName,
+}: {
+  record: ShidduchSummary;
+  variant: LifecycleMenuVariant;
+  displayName?: string;
+}) => {
+  const {
+    archive,
+    busy,
+    confirmDelete,
+    deleteOpen,
+    name,
+    readInProgress,
+    restore,
+    closeDelete,
+    setDeleteOpen,
+    trigger,
+  } = useShidduchLifecycle(
+    record,
+    variant === "page" ? "page" : "row",
+    displayName,
+  );
+  const isArchivedRow = variant === "archived-row";
+  const isPage = variant === "page";
+  const isActiveRow = variant === "active-row";
+  const cancelButton = useRef<HTMLButtonElement | null>(null);
+
+  const actions = isArchivedRow ? (
+    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:shrink-0">
+      <Button
+        type="button"
+        variant="outline"
+        className="min-h-11 w-full sm:w-auto sm:flex-none"
+        disabled={busy}
+        onClick={() => void restore()}
+      >
+        Restore
+      </Button>
+      <Button
+        ref={trigger}
+        type="button"
+        variant="outline"
+        className="min-h-11 w-full border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto sm:flex-none"
+        disabled={busy || readInProgress}
+        onClick={() => setDeleteOpen(true)}
+      >
+        Delete
+      </Button>
+    </div>
+  ) : (
+    <div
+      className={
+        isPage
+          ? "flex items-center justify-end"
+          : isActiveRow
+            ? "flex min-w-0 flex-1 items-center justify-end sm:w-auto sm:flex-none sm:shrink-0"
+            : "flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:shrink-0"
+      }
+    >
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
           <Button
+            ref={trigger}
             type="button"
             variant="outline"
-            className="mt-3 min-h-11"
-            disabled={busy}
-            onClick={() => void restore()}
+            className={`min-h-11 gap-2${isActiveRow ? " min-w-0 w-full sm:w-auto" : ""}`}
+            aria-label={isPage ? "More actions" : `More actions for ${name}`}
           >
-            Restore
-          </Button>
-        </section>
-      ) : null}
-
-      <div className="flex items-center justify-end">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              ref={trigger}
-              type="button"
-              variant="outline"
-              className="min-h-11 gap-2"
-              aria-label="More actions"
-            >
+            {isActiveRow ? (
+              <MoreHorizontal className="size-4" aria-hidden="true" />
+            ) : (
               <MoreVertical className="size-4" aria-hidden="true" />
-              <span>More actions</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {!record.archived_at ? (
-              <DropdownMenuItem
-                className="min-h-11 cursor-pointer"
-                onSelect={() => void archive()}
-              >
-                Archive suggestion
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuSeparator />
+            )}
+            <span className={isPage ? undefined : "hidden md:inline"}>
+              {isPage ? "More actions" : "More"}
+            </span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className={
+            isActiveRow
+              ? "motion-reduce:animate-none motion-reduce:transition-none"
+              : undefined
+          }
+        >
+          {!record.archived_at ? (
             <DropdownMenuItem
-              variant="destructive"
-              className="min-h-11 cursor-pointer"
-              disabled={busy || readInProgress}
-              onSelect={() => setDeleteOpen(true)}
+              className={
+                isActiveRow
+                  ? "min-h-11 cursor-pointer motion-reduce:transition-none"
+                  : "min-h-11 cursor-pointer"
+              }
+              aria-label={isActiveRow ? "Archive suggestion" : undefined}
+              onSelect={() => void archive()}
             >
-              Delete suggestion
+              {isActiveRow ? (
+                <span className="flex flex-col text-start">
+                  <span>Archive suggestion</span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    Keeps the file and history
+                  </span>
+                </span>
+              ) : (
+                "Archive suggestion"
+              )}
             </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      {readInProgress ? (
-        <p className="text-right text-xs text-muted-foreground" role="status">
-          Please wait: this resume is being made easy to read.
-        </p>
-      ) : null}
+          ) : null}
+          {isPage ? <DropdownMenuSeparator /> : null}
+          <DropdownMenuItem
+            {...(isActiveRow
+              ? {
+                  className:
+                    "min-h-11 cursor-pointer border border-destructive/40 text-destructive focus:bg-destructive/10 focus:text-destructive motion-reduce:transition-none",
+                  "aria-label": "Delete suggestion",
+                }
+              : {
+                  variant: "destructive" as const,
+                  className: "min-h-11 cursor-pointer",
+                })}
+            disabled={busy || readInProgress}
+            onSelect={() => setDeleteOpen(true)}
+          >
+            {isActiveRow ? (
+              <span className="flex flex-col text-start">
+                <span>Delete suggestion</span>
+                <span className="text-xs font-normal text-destructive/80">
+                  Removes the file and history
+                </span>
+              </span>
+            ) : (
+              "Delete suggestion"
+            )}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+
+  const readStatus = readInProgress ? (
+    <p className="text-right text-xs text-muted-foreground" role="status">
+      Please wait: this resume is being made easy to read.
+    </p>
+  ) : null;
+
+  return (
+    <>
+      {isPage ? (
+        <div className="flex flex-col gap-4">
+          {record.archived_at ? (
+            <section
+              role="status"
+              aria-labelledby="shidduch-archived-heading"
+              className="rounded-2xl border border-border bg-secondary p-4"
+            >
+              <h2
+                id="shidduch-archived-heading"
+                tabIndex={-1}
+                className="font-display text-lg font-semibold"
+              >
+                This suggestion is archived
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                It is hidden from the active pipeline, dashboard counts, and
+                cards while its file and history are kept.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-3 min-h-11"
+                disabled={busy}
+                onClick={() => void restore()}
+              >
+                Restore
+              </Button>
+            </section>
+          ) : null}
+          {actions}
+          {readStatus}
+        </div>
+      ) : (
+        <>
+          {actions}
+          {readStatus}
+        </>
+      )}
 
       {/* UX-DR3 named exemption: this is a delete confirmation action for a
           routed record, not the record surface itself. */}
       <Dialog
         open={deleteOpen}
         onOpenChange={(open) => {
-          setDeleteOpen(open);
-          if (!open) requestAnimationFrame(() => trigger.current?.focus());
+          if (open) setDeleteOpen(true);
+          else closeDelete();
         }}
       >
         <DialogContent
           hideClose
-          className="top-auto bottom-0 max-w-md translate-y-0 rounded-b-none border-border bg-popover shadow-lg sm:top-1/2 sm:bottom-auto sm:-translate-y-1/2 sm:rounded-lg"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            cancelButton.current?.focus();
+          }}
+          className={`top-auto bottom-0 max-w-md translate-y-0 rounded-b-none border-border bg-popover shadow-lg sm:top-1/2 sm:bottom-auto sm:-translate-y-1/2 sm:rounded-lg${isPage ? "" : " motion-reduce:animate-none motion-reduce:transition-none"}`}
         >
           <DialogHeader>
             <DialogTitle className="font-display text-2xl font-semibold tracking-tight">
@@ -299,10 +446,11 @@ export const ShidduchLifecycleActions = ({
           </DialogHeader>
           <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-2">
             <Button
+              ref={cancelButton}
               type="button"
               variant="outline"
               className="min-h-11 w-full sm:w-auto"
-              onClick={() => setDeleteOpen(false)}
+              onClick={closeDelete}
               disabled={busy}
             >
               Cancel
@@ -319,16 +467,48 @@ export const ShidduchLifecycleActions = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
+};
+
+export const ShidduchRowLifecycleActions = ({
+  record,
+  variant,
+  displayName,
+}: {
+  record: ShidduchSummary;
+  variant: "active-row" | "archived-row";
+  displayName: string;
+}) => (
+  <ShidduchLifecycleMenu
+    record={record}
+    variant={variant}
+    displayName={displayName}
+  />
+);
+
+/** Header actions and the manager-only archived state for one shidduch. */
+export const ShidduchLifecycleActions = ({
+  record,
+}: {
+  record: ShidduchSummary;
+}) => {
+  const { role, isPending: rolePending } = useViewerRole();
+  if (rolePending || !canManageShidduchLifecycle(role)) return null;
+
+  return <ShidduchLifecycleMenu record={record} variant="page" />;
 };
 
 /** The short-lived status bar rendered after landing on the list. */
 export const ShidduchPendingActionBar = ({
   action,
+  focusOnMount = true,
   onDone,
 }: {
   action: ShidduchLifecycleAction;
+  /** Page actions retain the original focus-on-mount behavior; row actions
+   * leave focus with the post-success row/heading decision in the list. */
+  focusOnMount?: boolean;
   onDone: (result: "restored" | "expired" | "failed") => void;
 }) => {
   const dataProvider = useDataProvider<CrmDataProvider>();
@@ -341,6 +521,7 @@ export const ShidduchPendingActionBar = ({
   const retryNotificationKey = useRef<string | null>(null);
 
   useEffect(() => {
+    if (focusOnMount === false || action.origin === "row") return;
     if (
       !action.retryRequired &&
       Date.now() < action.deadline &&
@@ -348,7 +529,7 @@ export const ShidduchPendingActionBar = ({
     ) {
       undoButton.current?.focus();
     }
-  }, [action.deadline, action.retryRequired]);
+  }, [action.deadline, action.origin, action.retryRequired, focusOnMount]);
 
   useEffect(() => {
     if (action.retryRequired) return;
@@ -444,8 +625,9 @@ export const ShidduchPendingActionBar = ({
 
   return (
     <div
-      className="rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm"
+      className="rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm motion-reduce:animate-none motion-reduce:transition-none"
       aria-live="polite"
+      role="status"
     >
       <div className="flex items-center justify-between gap-3">
         <div>
@@ -482,7 +664,7 @@ export const ShidduchPendingActionBar = ({
         aria-valuenow={progress}
       >
         <div
-          className="h-full bg-primary transition-[width]"
+          className="h-full bg-primary transition-[width] motion-reduce:transition-none"
           style={{ width: `${progress}%` }}
         />
       </div>
