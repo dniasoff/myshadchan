@@ -7,6 +7,7 @@ import type { CrmDataProvider } from "../providers/types";
 import type { Resume, ResumeFileVersion } from "../types";
 import { resumeSubjectFilter, type ResumeSubject } from "./resumeSubject";
 import { ResumeVersionList } from "./ResumeVersionList";
+import { usePendingResumeFileDeletes } from "./resumeFileDelete";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 
 /**
@@ -63,10 +64,20 @@ export function ResumeDocument(
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
   const versions = sortResumeFilesNewestFirst(data?.[0]?.files ?? []);
+  const pendingDeletes = usePendingResumeFileDeletes(data?.[0]?.id, versions);
+  const pendingPaths = new Set(
+    pendingDeletes.map((pending) => pending.file.path),
+  );
+  const visibleVersions = versions.filter(
+    (version) => !pendingPaths.has(version.path),
+  );
   const resumeWasRemoved =
-    data?.[0] != null && Array.isArray(data[0].files) && versions.length === 0;
+    data?.[0] != null &&
+    Array.isArray(data[0].files) &&
+    visibleVersions.length === 0;
   const shown =
-    versions.find((version) => version.path === selectedPath) ?? versions[0];
+    visibleVersions.find((version) => version.path === selectedPath) ??
+    visibleVersions[0];
 
   return (
     <div className="flex flex-col gap-4">
@@ -81,7 +92,7 @@ export function ResumeDocument(
         canDelete={subject.canDelete}
         canReread={subject.canReread}
         shownPath={shown?.path}
-        onShow={versions.length > 1 ? setSelectedPath : undefined}
+        onShow={visibleVersions.length > 1 ? setSelectedPath : undefined}
       />
     </div>
   );

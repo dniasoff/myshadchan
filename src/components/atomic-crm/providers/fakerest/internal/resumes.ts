@@ -235,6 +235,8 @@ export async function removeResumeFile(
   callerRole: MemberRole | undefined,
   resumeId: Identifier,
   path: string,
+  size: number,
+  uploadedAt: string,
 ): Promise<{ purgePending: boolean }> {
   if (callerRole !== "parent_admin" && callerRole !== "self_manager") {
     throw new Error("Could not delete. Nothing was changed.");
@@ -252,6 +254,13 @@ export async function removeResumeFile(
 
   const files = resume.files ?? [];
   const deletionKey = `${String(accountId)}\u0000${String(resumeId)}\u0000${path}`;
+  const selected = files.find((file) => file.path === path);
+  if (
+    selected &&
+    (selected.size !== size || selected.uploaded_at !== uploadedAt)
+  ) {
+    throw new Error("Could not delete. Nothing was changed.");
+  }
   const remaining = files.filter((file) => file.path !== path);
   if (remaining.length === files.length) {
     if (removedPaths.has(deletionKey)) return { purgePending: false };

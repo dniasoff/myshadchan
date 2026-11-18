@@ -442,6 +442,7 @@ insert into public.shidduchim (
     seminary_en, shul_en, location_en, age, height,
     pipeline_state, origin, visibility, owner_member_id
 )
+overriding system value
 values
     -- 1. The production shape: both halves populated.
     (9000001, 9000001, 9000001, 9000001,
@@ -1424,6 +1425,7 @@ union all
 select 9101000, 'Resume sync scale account 5000', 'household', 'resume-scale-5000';
 
 insert into public.shidduchim (id, account_id, single_id, name_en)
+overriding system value
 select 92000000 + ((g - 1) * 50) + n,
        9100000 + g,
        9000001,

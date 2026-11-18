@@ -5,6 +5,7 @@
 begin;
 
 create temp table results (name text, passed boolean, detail text) on commit drop;
+grant all on results to public;
 
 insert into auth.users (id, instance_id, aud, role, email)
 values
@@ -66,13 +67,15 @@ values (
   :shidduch_b,
   jsonb_build_array(jsonb_build_object('path', :account_b::text || '/resumes/' || :shidduch_b::text || '/other.pdf', 'filename', 'other.pdf', 'uploaded_at', '2026-01-01T00:00:00Z', 'mime_type', 'application/pdf', 'size', 7))
 ) returning id as resume_b \gset
-insert into public.ai_reread_attempts (account_id, resume_id, request_id, period, status, lease_expires_at)
-values (:account_a, :resume_a, '2a844444-4444-4444-4444-444444444444', to_char(now(), 'YYYY-MM'), 'in_progress', now() + interval '5 minutes');
+insert into public.ai_reread_attempts (account_id, resume_id, file_identity, request_id, period, status, lease_expires_at)
+values (:account_a, :resume_a, :account_a::text || '/resumes/' || :shidduch_a::text || '/old.pdf', '2a844444-4444-4444-4444-444444444444', to_char(now(), 'YYYY-MM'), 'in_progress', now() + interval '5 minutes');
 
 create or replace function pg_temp.expect_remove_error(
   p_name text,
   p_resume_id bigint,
   p_path text,
+  p_size bigint,
+  p_uploaded_at timestamptz,
   p_expected text
 ) returns void
 language plpgsql
@@ -81,7 +84,7 @@ declare
   message text;
 begin
   begin
-    perform public.remove_resume_file(p_resume_id, p_path);
+  perform public.remove_resume_file(p_resume_id, p_path, p_size, p_uploaded_at);
     insert into results values (p_name, false, 'no exception');
   exception when others then
     get stacked diagnostics message = message_text;
@@ -97,19 +100,88 @@ select pg_temp.expect_remove_error(
   'cross-account resume is refused',
   :resume_b,
   :account_b::text || '/resumes/' || :shidduch_b::text || '/other.pdf',
+  7,
+  '2026-01-01T00:00:00Z',
   'resume not found'
 );
 select pg_temp.expect_remove_error(
   'unknown path is refused',
   :resume_a,
   :account_a::text || '/resumes/' || :shidduch_a::text || '/missing.pdf',
+  0,
+  '2026-01-01T00:00:00Z',
+  'resume file not found'
+);
+select pg_temp.expect_remove_error(
+  'traversal path is refused',
+  :resume_a,
+  :account_a::text || '/resumes/' || :shidduch_a::text || '/../escape.pdf',
+  0,
+  '2026-01-01T00:00:00Z',
+  'resume file not found'
+);
+select pg_temp.expect_remove_error(
+  'other resume prefix is refused',
+  :resume_a,
+  :account_a::text || '/resumes/999999/other.pdf',
+  0,
+  '2026-01-01T00:00:00Z',
+  'resume file not found'
+);
+select pg_temp.expect_remove_error(
+  'empty path is refused',
+  :resume_a,
+  '',
+  0,
+  '2026-01-01T00:00:00Z',
+  'resume file not found'
+);
+select pg_temp.expect_remove_error(
+  'null path is refused',
+  :resume_a,
+  NULL,
+  0,
+  '2026-01-01T00:00:00Z',
+  'resume file not found'
+);
+select pg_temp.expect_remove_error(
+  'unicode path is refused',
+  :resume_a,
+  :account_a::text || '/resumes/' || :shidduch_a::text || '/résumé.pdf',
+  0,
+  '2026-01-01T00:00:00Z',
+  'resume file not found'
+);
+select pg_temp.expect_remove_error(
+  'huge path is refused',
+  :resume_a,
+  repeat('x', 10000),
+  0,
+  '2026-01-01T00:00:00Z',
   'resume file not found'
 );
 select pg_temp.expect_remove_error(
   'in-flight read is refused',
   :resume_a,
   :account_a::text || '/resumes/' || :shidduch_a::text || '/old.pdf',
+  8,
+  '2026-01-01T00:00:00Z',
   'Please wait: this resume is being made easy to read.'
+);
+set local role postgres;
+update public.ai_reread_attempts
+set lease_expires_at = now() - interval '1 second'
+where resume_id = :resume_a;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"2a811111-1111-1111-1111-111111111111","role":"authenticated"}';
+select public.set_active_context(:account_a);
+select pg_temp.expect_remove_error(
+  'identity mismatch is refused without changing the row',
+  :resume_a,
+  :account_a::text || '/resumes/' || :shidduch_a::text || '/old.pdf',
+  999,
+  '2026-01-01T00:00:00Z',
+  'resume file changed'
 );
 
 set local request.jwt.claims = '{"sub":"2a833333-3333-3333-3333-333333333333","role":"authenticated"}';
@@ -118,6 +190,8 @@ select pg_temp.expect_remove_error(
   'single role is refused',
   :resume_a,
   :account_a::text || '/resumes/' || :shidduch_a::text || '/old.pdf',
+  8,
+  '2026-01-01T00:00:00Z',
   'remove_resume_file requires an owning manager'
 );
 
@@ -125,13 +199,65 @@ set local role postgres;
 update public.ai_reread_attempts
 set lease_expires_at = now() - interval '1 second'
 where resume_id = :resume_a;
+update public.resumes
+set files = files || jsonb_build_array(jsonb_build_object(
+  'path', :account_a::text || '/resumes/' || :shidduch_a::text || '/rollback.pdf',
+  'filename', 'rollback.pdf', 'uploaded_at', '2026-03-01T00:00:00Z',
+  'mime_type', 'application/pdf', 'size', 10
+))
+where id = :resume_a;
+create or replace function pg_temp.fail_resume_delete_queue()
+returns trigger
+language plpgsql
+as $fn$
+begin
+  if new.storage_path like '%/rollback.pdf' then
+    raise exception 'queue failure sentinel';
+  end if;
+  return new;
+end
+$fn$;
+create trigger resume_delete_queue_failure
+before insert on public.storage_purge_queue
+for each row execute function pg_temp.fail_resume_delete_queue();
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"2a811111-1111-1111-1111-111111111111","role":"authenticated"}';
 select public.set_active_context(:account_a);
+select pg_temp.expect_remove_error(
+  'queue failure rolls back the JSONB change',
+  :resume_a,
+  :account_a::text || '/resumes/' || :shidduch_a::text || '/rollback.pdf',
+  10,
+  '2026-03-01T00:00:00Z',
+  'queue failure sentinel'
+);
+set local role postgres;
+insert into results
+select 'queue failure left the file and no queue row',
+  exists (
+    select 1 from public.resumes r, jsonb_array_elements(r.files) f
+    where r.id = :resume_a and f->>'path' = :account_a::text || '/resumes/' || :shidduch_a::text || '/rollback.pdf'
+  )
+  and not exists (
+    select 1 from public.storage_purge_queue
+    where storage_path = :account_a::text || '/resumes/' || :shidduch_a::text || '/rollback.pdf'
+  ),
+  null;
+drop trigger resume_delete_queue_failure on public.storage_purge_queue;
+drop function pg_temp.fail_resume_delete_queue();
+update public.resumes
+set files = (
+  select coalesce(jsonb_agg(f.value order by f.ordinality), '[]'::jsonb)
+  from jsonb_array_elements(files) with ordinality f(value, ordinality)
+  where f.value->>'path' <> :account_a::text || '/resumes/' || :shidduch_a::text || '/rollback.pdf'
+)
+where id = :resume_a;
 
 select * from public.remove_resume_file(
   :resume_a,
   :account_a::text || '/resumes/' || :shidduch_a::text || '/old.pdf'
+  ,8,
+  '2026-01-01T00:00:00Z'
 ) \gset removed_
 set local role postgres;
 insert into results
@@ -153,6 +279,8 @@ set local role authenticated;
 select * from public.remove_resume_file(
   :resume_a,
   :account_a::text || '/resumes/' || :shidduch_a::text || '/old.pdf'
+  ,8,
+  '2026-01-01T00:00:00Z'
 ) \gset retry_
 set local role postgres;
 insert into results
@@ -165,6 +293,8 @@ set local role authenticated;
 select * from public.remove_resume_file(
   :resume_a,
   :account_a::text || '/resumes/' || :shidduch_a::text || '/new.pdf'
+  ,9,
+  '2026-02-01T00:00:00Z'
 );
 set local role postgres;
 insert into results
@@ -179,8 +309,8 @@ select 'queue contains both removed objects and no foreign object',
   null;
 insert into results
 select 'RPC is manager-only and queue remains FORCE RLS',
-  not has_function_privilege('public', 'public.remove_resume_file(bigint,text)', 'execute')
-  and not has_function_privilege('anon', 'public.remove_resume_file(bigint,text)', 'execute')
+  not has_function_privilege('public', 'public.remove_resume_file(bigint,text,bigint,timestamptz)', 'execute')
+  and not has_function_privilege('anon', 'public.remove_resume_file(bigint,text,bigint,timestamptz)', 'execute')
   and (select relforcerowsecurity from pg_class where oid = 'public.storage_purge_queue'::regclass),
   null;
 

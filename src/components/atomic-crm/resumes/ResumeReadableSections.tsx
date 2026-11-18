@@ -29,6 +29,7 @@ import { getCallStatusDescriptor } from "../references/callStatus";
 import { splitPhoneValue } from "../references/phoneLinks";
 import { resumeSubjectFilter } from "./resumeSubject";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
+import { usePendingResumeFileDeletes } from "./resumeFileDelete";
 import {
   isAutomaticallyReadableResume,
   RESUME_AUTO_READ_COPY,
@@ -338,7 +339,15 @@ export function ResumeReadableSections({
   );
   const resume = resumes?.[0];
   const { feedback, isReading, readResume } = useResumeAutoRead();
-  const newestFile = sortResumeFilesNewestFirst(resume?.files ?? [])[0] ?? null;
+  const resumeFiles = sortResumeFilesNewestFirst(resume?.files ?? []);
+  const pendingDeletes = usePendingResumeFileDeletes(resume?.id, resumeFiles);
+  const pendingPaths = new Set(
+    pendingDeletes.map((pending) => pending.file.path),
+  );
+  const visibleResumeFiles = resumeFiles.filter(
+    (file) => !pendingPaths.has(file.path),
+  );
+  const newestFile = visibleResumeFiles[0] ?? null;
   const isUnread = resume != null && isResumeUnread(resume);
   const sections = useMemo(
     () => parseResumeSections(resume?.sections, canViewReferences === true),

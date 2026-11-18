@@ -130,6 +130,7 @@ import {
   isInboxAttachmentPurgePath,
 } from "../../inbox/inboxDelete";
 import type {
+  ResumeReadState,
   ShidduchReadState,
   ShidduchStoragePurgeResult,
 } from "../../shidduchim/shidduchLifecycle";
@@ -778,6 +779,18 @@ export const getDataProviderWithCustomMethods = () => {
       const { data, error } = await getSupabaseClient().rpc(
         "shidduch_read_in_progress",
         { p_id: id },
+      );
+      if (error)
+        throw new Error(error.message || "Could not check resume state");
+      return { inProgress: Boolean(data) };
+    },
+    async getResumeReadState(
+      resumeId: Identifier,
+      path: string,
+    ): Promise<ResumeReadState> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "resume_read_in_progress",
+        { p_resume_id: resumeId, p_path: path },
       );
       if (error)
         throw new Error(error.message || "Could not check resume state");
@@ -1453,6 +1466,8 @@ export const getDataProviderWithCustomMethods = () => {
       const { error } = await getSupabaseClient().rpc("remove_resume_file", {
         p_resume_id: params.resumeId,
         p_path: params.path,
+        p_size: params.size,
+        p_uploaded_at: params.uploadedAt,
       });
       if (error) {
         if (

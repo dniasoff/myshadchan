@@ -69,6 +69,8 @@ export type SignResumeFileUrlParams = {
 export type RemoveResumeFileParams = {
   resumeId: Identifier;
   path: string;
+  size: number;
+  uploadedAt: string;
 };
 
 export type ResumeFileDeleteResult = {

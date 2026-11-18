@@ -1370,6 +1370,7 @@ create table public.ai_reread_attempts (
     lease_expires_at timestamp with time zone not null default (now() + interval '5 minutes'),
     created_at timestamp with time zone not null default now(),
     updated_at timestamp with time zone not null default now(),
+    file_identity text,
     constraint ai_reread_attempts_status_check check (status in ('in_progress', 'completed', 'failed')),
     constraint ai_reread_attempts_period_check check (period ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
     constraint ai_reread_attempts_generation_check check (generation > 0),
@@ -1384,6 +1385,7 @@ create unique index ai_reread_attempts_resume_in_progress_key
 
 comment on table public.ai_reread_attempts is 'Service-role-only idempotency, single-flight and quota ledger for deliberate resume re-reads. No resume content is stored here.';
 comment on column public.ai_reread_attempts.result_schema_version is 'The resume sections schema marker written by a completed re-read.';
+comment on column public.ai_reread_attempts.file_identity is 'The exact resume file path being read; delete guards use this to leave unrelated versions actionable.';
 
 -- Files tab (Story 3.7): a polymorphic catalog row per uploaded object,
 -- backing the private `entity-files` storage bucket (07_storage.sql). Full

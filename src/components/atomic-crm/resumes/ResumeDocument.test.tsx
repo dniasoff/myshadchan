@@ -8,6 +8,10 @@ import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { Resume, ResumeFileVersion } from "../types";
 import { ResumeDocument } from "./ResumeDocument";
+import {
+  pendingResumeFileDeletes,
+  rememberPendingResumeFileDelete,
+} from "./resumeFileDelete";
 
 /**
  * The Resume tab's whole subject is one document, and it used to show
@@ -189,5 +193,35 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
       .toBeVisible();
     expect(anyPageCanvas()).toBeNull();
     expect(document.querySelector("iframe")).toBeNull();
+  });
+
+  it("moves the embedded preview to the next visible file during Undo", async () => {
+    const older = version({
+      path: "p/pending-older.pdf",
+      filename: "pending-older.pdf",
+      uploaded_at: "2026-01-01T00:00:00Z",
+    });
+    const newest = version({
+      path: "p/pending-newest.pdf",
+      filename: "pending-newest.pdf",
+      uploaded_at: "2026-06-01T00:00:00Z",
+    });
+    pendingResumeFileDeletes.clear();
+    window.localStorage.clear();
+    stubFetchWithPdf();
+    await rememberPendingResumeFileDelete({
+      resumeId: 1,
+      file: newest,
+      deadline: Date.now() + 10_000,
+    });
+
+    await renderDocument([older, newest]);
+    await expect
+      .poll(() => paintedPageFor("pending-older.pdf"), { timeout: 15000 })
+      .toBe(true);
+    expect(paintedPageFor("pending-newest.pdf")).toBe(false);
+
+    pendingResumeFileDeletes.clear();
+    window.localStorage.clear();
   });
 });

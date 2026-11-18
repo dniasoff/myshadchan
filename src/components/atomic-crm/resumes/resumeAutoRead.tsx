@@ -13,6 +13,7 @@ import {
   isAutomaticallyReadableResume,
   type ResumeAutoReadFeedback,
 } from "./resumeAutoReadHelpers";
+import { dispatchResumeReadStateChanged } from "./resumeFileDelete";
 
 export function useResumeAutoRead(): {
   feedback: ResumeAutoReadFeedback | null;
@@ -54,6 +55,7 @@ export function useResumeAutoRead(): {
       unresolvedResumeReadAttempts.set(attemptKey, requestId);
       setFeedback("reading");
       setIsReading(true);
+      dispatchResumeReadStateChanged(resumeId, file.path, true);
       const controller = new AbortController();
       activeController.current = controller;
 
@@ -102,6 +104,7 @@ export function useResumeAutoRead(): {
           activeController.current = null;
         }
         setIsReading(false);
+        dispatchResumeReadStateChanged(resumeId, file.path, false);
       }
     },
     [dataProvider, refresh],

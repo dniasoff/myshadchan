@@ -2480,6 +2480,25 @@ export const createDataProvider = ({
         ),
       };
     },
+    getResumeReadState: async (resumeId: Identifier, path: string) => {
+      const { data: resume } = await baseDataProvider.getOne<Resume>(
+        "resumes",
+        {
+          id: resumeId,
+        },
+      );
+      return {
+        inProgress: Boolean(
+          resume &&
+          (resume as Resume & { read_in_progress?: boolean })
+            .read_in_progress &&
+          (!(resume as Resume & { read_file_identity?: string })
+            .read_file_identity ||
+            (resume as Resume & { read_file_identity?: string })
+              .read_file_identity === path),
+        ),
+      };
+    },
     deleteShidduch: async (
       id: Identifier,
     ): Promise<ShidduchStoragePurgeResult> => {
@@ -3511,7 +3530,7 @@ export const createDataProvider = ({
         resumeFileBlobUrls.delete(path);
       }
     },
-    removeResumeFile: async ({ resumeId, path }) => {
+    removeResumeFile: async ({ resumeId, path, size, uploadedAt }) => {
       const [accountId, caller] = await Promise.all([
         resolveCurrentAccountId(),
         resolveCallerMembership(),
@@ -3524,6 +3543,8 @@ export const createDataProvider = ({
         caller?.membership?.role,
         resumeId,
         path,
+        size,
+        uploadedAt,
       );
     },
     signResumeFileUrl: (params: {

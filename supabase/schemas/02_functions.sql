@@ -2032,10 +2032,11 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
-  -- Upload/catalog lock order is shidduch parent -> account -> Inbox source.
-  -- The parent FOR SHARE is taken before any resume row write so delete's
-  -- parent FOR UPDATE cannot race a late catalog insert.
+  -- Global storage-writer lock order is account row -> account advisory
+  -- fence -> shidduch parent -> resume/source rows. Every writer uses the
+  -- helper before a parent lock so account deletion cannot deadlock.
   if p_shidduchim_id is not null then
+    perform public.account_storage_lock(v_account_id);
     select s.id into v_parent_id
     from public.shidduchim s
     where s.id = p_shidduchim_id and s.account_id = v_account_id
@@ -2043,7 +2044,6 @@ begin
     if v_parent_id is null then
       raise exception 'shidduch % not found in current account', p_shidduchim_id;
     end if;
-    perform public.account_storage_lock(v_account_id);
     if exists (
       select 1 from public.deleted_shidduch_tombstones t
       where t.account_id = v_account_id and t.shidduch_id = p_shidduchim_id
@@ -2178,7 +2178,9 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.remove_resume_file(
   p_resume_id bigint,
-  p_path text
+  p_path text,
+  p_size bigint,
+  p_uploaded_at timestamptz
 ) RETURNS SETOF public.resumes
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path TO ''
@@ -2198,13 +2200,16 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
-  if p_resume_id is null or p_path is null or p_path = '' then
+  if p_resume_id is null or p_path is null or p_path = ''
+     or p_size is null or p_uploaded_at is null then
     raise exception 'resume file not found'
       using errcode = 'no_data';
   end if;
 
-  -- Lock the shidduch parent before the resume row. Uploads take the same
-  -- parent-first order, so a late catalog append cannot race this removal.
+  -- Global storage-writer order is account row -> account advisory fence ->
+  -- shidduch parent -> resume -> purge queue. The helper also protects the
+  -- account FK queue insert from account deletion.
+  perform public.account_storage_lock(v_account_id);
   select s.id into v_parent_id
   from public.shidduchim s
   where s.account_id = v_account_id
@@ -2220,8 +2225,6 @@ begin
     raise exception 'resume not found'
       using errcode = 'no_data';
   end if;
-  perform public.account_storage_lock(v_account_id);
-
   select r.* into v_resume
   from public.resumes r
   where r.id = p_resume_id
@@ -2260,23 +2263,30 @@ begin
       using errcode = 'no_data';
   end if;
 
-  if exists (
-    select 1
-    from public.ai_reread_attempts a
-    where a.account_id = v_account_id
-      and a.resume_id = v_resume.id
-      and a.status = 'in_progress'
-      and a.lease_expires_at > now()
-  ) then
-    raise exception 'Please wait: this resume is being made easy to read.'
-      using errcode = '55P03';
-  end if;
-
   if p_path !~ ('^' || v_account_id::text || '/resumes/' || v_parent_id::text || '/[^/]+$')
      or p_path ~ '(^|/)(\.\.?)($|/)'
      or p_path ~ '[*?]' then
     raise exception 'resume file path is not removable'
       using errcode = 'check_violation';
+  end if;
+
+  if (v_file->>'size')::bigint is distinct from p_size
+     or (v_file->>'uploaded_at')::timestamptz is distinct from p_uploaded_at then
+    raise exception 'resume file changed'
+      using errcode = 'serialization_failure';
+  end if;
+
+  if exists (
+    select 1
+    from public.ai_reread_attempts a
+    where a.account_id = v_account_id
+      and a.resume_id = v_resume.id
+      and (a.file_identity is null or a.file_identity = p_path)
+      and a.status = 'in_progress'
+      and a.lease_expires_at > now()
+  ) then
+    raise exception 'Please wait: this resume is being made easy to read.'
+      using errcode = '55P03';
   end if;
 
   select coalesce(jsonb_agg(f.value order by f.ordinality), '[]'::jsonb)
@@ -2327,6 +2337,7 @@ begin
   end if;
 
   if p_shidduchim_id is not null then
+    perform public.account_storage_lock(v_account_id);
     select s.id into v_parent_id
     from public.shidduchim s
     where s.id = p_shidduchim_id and s.account_id = v_account_id
@@ -2334,7 +2345,6 @@ begin
     if v_parent_id is null then
       raise exception 'shidduch % not found in current account', p_shidduchim_id;
     end if;
-    perform public.account_storage_lock(v_account_id);
     if exists (
       select 1 from public.deleted_shidduch_tombstones t
       where t.account_id = v_account_id and t.shidduch_id = p_shidduchim_id
@@ -6339,7 +6349,7 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."claim_ai_reread_attempt"("p_account_id" bigint, "p_resume_id" bigint, "p_request_id" uuid, "p_current_schema_version" smallint) RETURNS "jsonb"
+CREATE OR REPLACE FUNCTION "public"."claim_ai_reread_attempt"("p_account_id" bigint, "p_resume_id" bigint, "p_request_id" uuid, "p_current_schema_version" smallint, "p_file_identity" text DEFAULT NULL::text) RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -6357,8 +6367,10 @@ begin
       using errcode = 'invalid_parameter_value';
   end if;
 
-  -- Lock order is parent shidduch FOR SHARE -> attempts. A delete takes the
-  -- same parent first FOR UPDATE order, so claim/delete cannot deadlock.
+  -- Global storage-writer lock order is account row -> advisory fence ->
+  -- shidduch parent -> child rows/queue. Keep reread claims in that order so
+  -- a claim/delete pair cannot deadlock.
+  perform public.account_storage_lock(p_account_id);
   select s.id into v_shidduch_id
   from public.shidduchim s
   join public.resumes r on r.shidduchim_id = s.id
@@ -6417,6 +6429,7 @@ begin
       end if;
       update public.ai_reread_attempts
       set generation = generation + 1,
+          file_identity = coalesce(p_file_identity, file_identity),
           lease_expires_at = now() + c_lease, updated_at = now()
       where id = v_attempt.id
       returning * into v_attempt;
@@ -6443,6 +6456,7 @@ begin
        and v_attempt.lease_expires_at <= now() then
       update public.ai_reread_attempts
       set request_id = p_request_id, generation = generation + 1,
+          file_identity = coalesce(p_file_identity, file_identity),
           lease_expires_at = now() + c_lease, updated_at = now()
       where id = v_attempt.id and account_id = p_account_id
       returning * into v_attempt;
@@ -6481,16 +6495,17 @@ begin
   if v_reclaim_attempt_id is not null then
     update public.ai_reread_attempts
     set period = v_period, status = 'in_progress', generation = generation + 1,
+        file_identity = coalesce(p_file_identity, file_identity),
         lease_expires_at = now() + c_lease, updated_at = now()
     where id = v_reclaim_attempt_id and account_id = p_account_id
       and status = 'failed'
     returning * into v_attempt;
   else
     insert into public.ai_reread_attempts
-      (account_id, resume_id, request_id, period, status, generation,
+      (account_id, resume_id, file_identity, request_id, period, status, generation,
        lease_expires_at, updated_at)
     values
-      (p_account_id, p_resume_id, p_request_id, v_period, 'in_progress', 1,
+      (p_account_id, p_resume_id, p_file_identity, p_request_id, v_period, 'in_progress', 1,
        now() + c_lease, now())
     returning * into v_attempt;
   end if;
@@ -10241,6 +10256,11 @@ begin
     raise exception 'account storage lock requires an account'
       using errcode = 'invalid_parameter_value';
   end if;
+  -- Global storage-writer order: account row -> advisory fence -> parent
+  -- shidduch -> child rows/queue. The account key-share prevents an account
+  -- deletion (which takes the account row before this fence) from waiting on
+  -- a writer that is already waiting on the account FK.
+  perform 1 from public.accounts where id = p_account_id for key share;
   perform pg_advisory_xact_lock(
     hashtextextended(format('myshadchan-account-storage:%s', p_account_id), 0)
   );
@@ -10341,6 +10361,7 @@ begin
   end if;
 
   if new.target_type = 'shidduch' then
+    perform public.account_storage_lock(v_account_id);
     select s.id into v_parent_id
     from public.shidduchim s
     where s.id = new.target_id and s.account_id = v_account_id
@@ -10349,7 +10370,6 @@ begin
       raise exception 'entity file shidduch target is missing'
         using errcode = 'foreign_key_violation';
     end if;
-    perform public.account_storage_lock(v_account_id);
     if exists (
       select 1 from public.deleted_shidduch_tombstones t
       where t.account_id = v_account_id and t.shidduch_id = new.target_id
@@ -10459,6 +10479,7 @@ begin
     raise exception 'Storage purge is not available to this role'
       using errcode = 'insufficient_privilege';
   end if;
+  perform public.account_storage_lock(v_account_id);
   return query
   update public.storage_purge_queue q
   set claimed_at = now(), attempt = q.attempt + 1, updated_at = now()
@@ -10524,6 +10545,7 @@ begin
     raise exception 'Storage purge is not available to this role'
       using errcode = 'insufficient_privilege';
   end if;
+  perform public.account_storage_lock(v_account_id);
   select * into v_row
   from public.storage_purge_queue
   where account_id = v_account_id
@@ -10551,15 +10573,14 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path TO ''
 AS $$
 begin
-  -- Account deletion and shidduch-owned writers use parent -> advisory
-  -- ordering. Lock parents in id order before the fence so the later FK
-  -- cascade cannot deadlock with a writer holding the advisory lock.
+  -- Account deletion uses account row -> advisory fence -> parent rows.
+  -- Keep this order with uploads and per-file removal.
+  perform public.account_storage_lock(p_account_id);
   perform 1
   from public.shidduchim
   where account_id = p_account_id
   order by id
   for update;
-  perform public.account_storage_lock(p_account_id);
   if not exists (select 1 from public.accounts where id = p_account_id) then
     return true;
   end if;
@@ -10612,6 +10633,38 @@ begin
 end;
 $$;
 
+CREATE OR REPLACE FUNCTION public.resume_read_in_progress(p_resume_id bigint, p_path text)
+RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_resume_id bigint;
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager')
+     or p_resume_id is null or p_path is null then
+    return false;
+  end if;
+  select r.id into v_resume_id
+  from public.resumes r
+  where r.id = p_resume_id and r.account_id = v_account_id
+  for share;
+  if v_resume_id is null then
+    return false;
+  end if;
+  return exists (
+    select 1
+    from public.ai_reread_attempts a
+    where a.resume_id = v_resume_id
+      and (a.file_identity is null or a.file_identity = p_path)
+      and a.status = 'in_progress'
+      and a.lease_expires_at > now()
+  );
+end;
+$$;
+
 CREATE OR REPLACE FUNCTION public.archive_shidduch(p_id bigint)
 RETURNS SETOF public.shidduchim
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
@@ -10626,6 +10679,7 @@ begin
     raise exception 'archive_shidduch requires an owning manager'
       using errcode = 'insufficient_privilege';
   end if;
+  perform public.account_storage_lock(v_account_id);
   select s.* into v_row from public.shidduchim s
   where s.id = p_id and s.account_id = v_account_id
   for update;
@@ -10649,6 +10703,7 @@ begin
     raise exception 'restore_shidduch requires an owning manager'
       using errcode = 'insufficient_privilege';
   end if;
+  perform public.account_storage_lock(v_account_id);
   select s.* into v_row from public.shidduchim s
   where s.id = p_id and s.account_id = v_account_id
   for update;
@@ -10676,6 +10731,7 @@ begin
     raise exception 'delete_shidduch requires an owning manager'
       using errcode = 'insufficient_privilege';
   end if;
+  perform public.account_storage_lock(v_account_id);
   select s.* into v_shidduch from public.shidduchim s
   where s.id = p_id and s.account_id = v_account_id
   for update;

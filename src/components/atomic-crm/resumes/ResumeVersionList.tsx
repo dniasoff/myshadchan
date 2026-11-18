@@ -7,6 +7,7 @@ import {
   useRefresh,
   useTranslate,
 } from "ra-core";
+import type { Identifier } from "ra-core";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -39,6 +40,7 @@ import {
 import { isResumeUnread } from "./resumeReadableSections";
 import {
   clearPendingResumeFileDelete,
+  RESUME_READ_STATE_CHANGED_EVENT,
   pendingResumeFileDeletes,
   readPendingResumeFileDeletes,
   rememberPendingResumeFileDelete,
@@ -47,6 +49,7 @@ import {
   resumeFileTypeLabel,
   RESUME_FILE_DELETE_UNDO_MS,
   schedulePendingResumeFileDelete,
+  usePendingResumeFileDeletes,
   type PendingResumeFileDelete,
 } from "./resumeFileDelete";
 import { resumeSubjectFilter, type ResumeSubject } from "./resumeSubject";
@@ -257,11 +260,10 @@ export function ResumeVersionList({
   const [confirming, setConfirming] = useState<ResumeFileVersion | null>(null);
   const [pending, setPending] = useState<PendingResumeFileDelete[]>([]);
   const [now, setNow] = useState(() => Date.now());
-  const [readInProgress, setReadInProgress] = useState(false);
+  const [readInProgressPaths, setReadInProgressPaths] = useState<Set<string>>(
+    new Set(),
+  );
   const [purgePending, setPurgePending] = useState(false);
-  const shidduchimId =
-    "shidduchimId" in subject ? subject.shidduchimId : undefined;
-
   const { data, error, isPending } = useGetList<Resume>("resumes", {
     filter: resumeSubjectFilter(subject as ResumeSubject),
     pagination: { page: 1, perPage: 1 },
@@ -275,59 +277,107 @@ export function ResumeVersionList({
   );
   const isUnread = data?.[0] != null && isResumeUnread(data[0]);
   const resumeId = data?.[0]?.id;
+  const hydratedPending = usePendingResumeFileDeletes(resumeId, versions);
+  const legacySubjectId = (
+    "shidduchimId" in subject ? subject.shidduchimId : resumeId
+  ) as Identifier;
 
   useEffect(() => {
-    if (!canDelete || resumeId == null) return;
-    const existing = readPendingResumeFileDeletes().flatMap((marker) => {
-      const file = versions.find(
-        (version) =>
-          resumeFileDeleteMarkerToken(resumeId, version.path) === marker.token,
-      );
-      if (!file) return [];
-      const pendingDelete = { resumeId, deadline: marker.deadline, file };
-      pendingResumeFileDeletes.set(
-        resumeFileDeleteKey(resumeId, file.path),
-        pendingDelete,
-      );
-      return [pendingDelete];
-    });
-    setPending(existing);
-    existing.forEach((marker) => {
+    setPending(hydratedPending);
+    hydratedPending.forEach((marker) => {
       schedulePendingResumeFileDelete(marker, () => {
         void finalizePendingRef.current?.(marker);
       });
     });
-  }, [canDelete, resumeId, versions]);
+  }, [hydratedPending]);
 
   useEffect(() => {
-    if (!canDelete || shidduchimId == null) {
-      setReadInProgress(false);
+    if (!canDelete || resumeId == null) {
+      setReadInProgressPaths(new Set());
       return;
     }
-    const getReadState = dataProvider.getShidduchReadState;
-    if (typeof getReadState !== "function") return;
+    const getReadState = dataProvider.getResumeReadState;
+    const getLegacyReadState = dataProvider.getShidduchReadState;
+    if (
+      typeof getReadState !== "function" &&
+      typeof getLegacyReadState !== "function"
+    ) {
+      setReadInProgressPaths(new Set());
+      return;
+    }
     let mounted = true;
-    void getReadState(shidduchimId)
-      .then((state) => {
-        if (mounted) setReadInProgress(state.inProgress);
-      })
-      .catch(() => {
-        if (mounted) setReadInProgress(false);
-      });
+    const currentResumeId = resumeId;
+    const refreshReadStates = () => {
+      const readStates = getReadState
+        ? Promise.all(
+            versions.map(async (version) => ({
+              path: version.path,
+              state: await getReadState(currentResumeId, version.path),
+            })),
+          )
+        : getLegacyReadState!(legacySubjectId).then((state) =>
+            versions.map((version) => ({ path: version.path, state })),
+          );
+      void readStates
+        .then((states) => {
+          if (mounted) {
+            setReadInProgressPaths(
+              new Set(
+                states
+                  .filter(({ state }) => state.inProgress)
+                  .map(({ path }) => path),
+              ),
+            );
+          }
+        })
+        .catch(() => {
+          if (mounted) setReadInProgressPaths(new Set());
+        });
+    };
+    refreshReadStates();
+    const onReadStateChanged = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          resumeId?: string;
+          path?: string;
+        }>
+      ).detail;
+      if (detail?.resumeId === String(currentResumeId) && detail.path != null) {
+        refreshReadStates();
+      }
+    };
+    window.addEventListener(
+      RESUME_READ_STATE_CHANGED_EVENT,
+      onReadStateChanged,
+    );
+    window.addEventListener("focus", refreshReadStates);
+    document.addEventListener("visibilitychange", refreshReadStates);
     return () => {
       mounted = false;
+      window.removeEventListener(
+        RESUME_READ_STATE_CHANGED_EVENT,
+        onReadStateChanged,
+      );
+      window.removeEventListener("focus", refreshReadStates);
+      document.removeEventListener("visibilitychange", refreshReadStates);
     };
-  }, [canDelete, dataProvider, shidduchimId]);
+  }, [canDelete, dataProvider, legacySubjectId, resumeId, versions]);
 
   const focusAfterDelete = useCallback(
     (removedPath: string) => {
-      const next = versions.find((version) => version.path !== removedPath);
+      const next = versions.find(
+        (version) =>
+          version.path !== removedPath &&
+          !pendingResumeFileDeletes.has(
+            resumeFileDeleteKey(resumeId ?? "", version.path),
+          ),
+      );
       window.requestAnimationFrame(() => {
         if (next) deleteButtonRefs.current.get(next.path)?.focus();
         else headingRef.current?.focus();
       });
     },
-    [versions],
+    [resumeId, versions],
   );
 
   const finalizePending = useCallback(
@@ -335,8 +385,7 @@ export function ResumeVersionList({
       const key = resumeFileDeleteKey(marker.resumeId, marker.file.path);
       const current = readPendingResumeFileDeletes().find(
         (candidate) =>
-          candidate.token ===
-            resumeFileDeleteMarkerToken(marker.resumeId, marker.file.path) &&
+          candidate.token === marker.token &&
           candidate.deadline === marker.deadline,
       );
       if (!current) return;
@@ -344,9 +393,11 @@ export function ResumeVersionList({
         const result = await dataProvider.removeResumeFile({
           resumeId: marker.resumeId,
           path: marker.file.path,
+          size: marker.file.size,
+          uploadedAt: marker.file.uploaded_at,
         });
-        clearPendingResumeFileDelete(marker.resumeId, marker.file.path);
         pendingResumeFileDeletes.delete(key);
+        clearPendingResumeFileDelete(marker.token);
         setPending((value) =>
           value.filter(
             (candidate) =>
@@ -358,8 +409,8 @@ export function ResumeVersionList({
         refresh();
         focusAfterDelete(marker.file.path);
       } catch (error) {
-        clearPendingResumeFileDelete(marker.resumeId, marker.file.path);
         pendingResumeFileDeletes.delete(key);
+        clearPendingResumeFileDelete(marker.token);
         setPending((value) =>
           value.filter(
             (candidate) =>
@@ -412,35 +463,50 @@ export function ResumeVersionList({
   };
 
   const requestDelete = (version: ResumeFileVersion) => {
-    if (!canDelete || readInProgress || resumeId == null) return;
+    if (!canDelete || readInProgressPaths.has(version.path) || resumeId == null)
+      return;
     setPurgePending(false);
     setConfirming(version);
   };
 
   const confirmDelete = () => {
-    if (!confirming || !canDelete || readInProgress || resumeId == null) {
+    if (
+      !confirming ||
+      !canDelete ||
+      readInProgressPaths.has(confirming.path) ||
+      resumeId == null
+    ) {
       return;
     }
-    const marker: PendingResumeFileDelete = {
+    const marker = {
       resumeId,
       file: confirming,
       deadline: Date.now() + RESUME_FILE_DELETE_UNDO_MS,
     };
     const key = resumeFileDeleteKey(marker.resumeId, marker.file.path);
-    if (!rememberPendingResumeFileDelete(marker)) {
-      notify("Could not delete. Nothing was changed.", { type: "error" });
-      setConfirming(null);
-      return;
-    }
-    pendingResumeFileDeletes.set(key, marker);
-    setPending((value) => [...value, marker]);
+    void rememberPendingResumeFileDelete(marker).then(async (remembered) => {
+      if (!remembered) {
+        notify("Could not delete. Nothing was changed.", { type: "error" });
+        return;
+      }
+      const token = await resumeFileDeleteMarkerToken(
+        marker.resumeId,
+        marker.file,
+      );
+      const pendingMarker: PendingResumeFileDelete = { ...marker, token };
+      pendingResumeFileDeletes.set(key, pendingMarker);
+      setPending((value) => [...value, pendingMarker]);
+      schedulePendingResumeFileDelete(pendingMarker, () => {
+        void finalizePendingRef.current?.(pendingMarker);
+      });
+    });
     setConfirming(null);
   };
 
   const undo = (marker: PendingResumeFileDelete) => {
     const key = resumeFileDeleteKey(marker.resumeId, marker.file.path);
-    clearPendingResumeFileDelete(marker.resumeId, marker.file.path);
     pendingResumeFileDeletes.delete(key);
+    clearPendingResumeFileDelete(marker.token);
     setPending((value) =>
       value.filter(
         (candidate) =>
@@ -475,11 +541,11 @@ export function ResumeVersionList({
             canReread={
               canReread &&
               resumeId != null &&
-              version.path === versions[0]?.path
+              version.path === visibleVersions[0]?.path
             }
             isUnread={isUnread}
             canDelete={canDelete}
-            isReadInProgress={readInProgress}
+            isReadInProgress={readInProgressPaths.has(version.path)}
             onDelete={requestDelete}
             deleteButtonRef={(element) => {
               if (element) deleteButtonRefs.current.set(version.path, element);
@@ -508,7 +574,7 @@ export function ResumeVersionList({
           Files attached to this suggestion.
         </p>
       </div>
-      {canDelete && readInProgress ? (
+      {canDelete && readInProgressPaths.size > 0 ? (
         <p role="status" className="text-xs text-muted-foreground">
           Please wait: this resume is being made easy to read.
         </p>
@@ -550,7 +616,7 @@ export function ResumeVersionList({
               </Button>
             </div>
             <div
-              className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted"
+              className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted motion-reduce:transition-none"
               role="progressbar"
               aria-label="Undo time remaining"
               aria-valuemin={0}
@@ -558,7 +624,7 @@ export function ResumeVersionList({
               aria-valuenow={undoProgress}
             >
               <div
-                className="h-full bg-primary transition-[width]"
+                className="h-full bg-primary transition-[width] motion-reduce:transition-none"
                 style={{ width: `${undoProgress}%` }}
               />
             </div>
@@ -575,7 +641,7 @@ export function ResumeVersionList({
           <SheetContent
             side="bottom"
             hideClose
-            className="max-h-[85dvh] overflow-y-auto"
+            className="max-h-[85dvh] overflow-y-auto motion-reduce:animate-none"
           >
             <SheetHeader>
               <SheetTitle>Delete this file?</SheetTitle>
@@ -608,7 +674,10 @@ export function ResumeVersionList({
             if (!open) closeConfirmation();
           }}
         >
-          <DialogContent hideClose className="sm:max-w-md">
+          <DialogContent
+            hideClose
+            className="sm:max-w-md motion-reduce:animate-none"
+          >
             <DialogHeader>
               <DialogTitle>Delete this file?</DialogTitle>
               <DialogDescription>{dialogDescription}</DialogDescription>

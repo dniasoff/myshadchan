@@ -48,10 +48,12 @@ const resume: Resume = {
 const renderList = async (
   overrides: Partial<CrmDataProvider> = {},
   canDelete = true,
+  row = resume,
 ) => {
   const dataProvider = {
-    getList: vi.fn().mockResolvedValue({ data: [resume], total: 1 }),
+    getList: vi.fn().mockResolvedValue({ data: [row], total: 1 }),
     getShidduchReadState: vi.fn().mockResolvedValue({ inProgress: false }),
+    getResumeReadState: vi.fn().mockResolvedValue({ inProgress: false }),
     removeResumeFile: vi.fn().mockResolvedValue({ purgePending: false }),
     signResumeFileUrl: vi.fn().mockResolvedValue("https://signed.example/x"),
     ...overrides,
@@ -87,22 +89,27 @@ describe("resume file deletion contract", () => {
     expect(RESUME_FILE_DELETE_UNDO_MS).toBe(10_000);
   });
 
-  it("persists only the resume marker needed to finish after a reload", () => {
+  it("persists only a collision-resistant opaque marker needed after a reload", async () => {
     expect(
-      rememberPendingResumeFileDelete({
+      await rememberPendingResumeFileDelete({
         resumeId: 42,
         deadline: 123,
-        file: { path: "1/resumes/7/photo.jpg" },
+        file: {
+          path: "1/resumes/7/photo.jpg",
+          size: 9,
+          uploaded_at: "2026-02-01T00:00:00Z",
+        },
       }),
     ).toBe(true);
+    const token = await resumeFileDeleteMarkerToken(42, resume.files![1]);
     expect(readPendingResumeFileDeletes()).toEqual([
-      {
-        token: resumeFileDeleteMarkerToken(42, "1/resumes/7/photo.jpg"),
-        deadline: 123,
-      },
+      { token, resumeToken: expect.any(String), deadline: 123 },
+    ]);
+    expect(Object.keys(window.localStorage)).toEqual([
+      expect.stringContaining("myshadchan:pending-resume-file-delete:"),
     ]);
     expect(
-      window.localStorage.getItem("myshadchan:pending-resume-file-delete"),
+      window.localStorage.getItem(Object.keys(window.localStorage)[0]!),
     ).not.toContain("photo.jpg");
   });
 
@@ -142,7 +149,7 @@ describe("resume file deletion contract", () => {
 
   it("disables Delete while a resume read is in progress and hides it for non-managers", async () => {
     const { screen: readingScreen } = await renderList({
-      getShidduchReadState: vi.fn().mockResolvedValue({ inProgress: true }),
+      getResumeReadState: vi.fn().mockResolvedValue({ inProgress: true }),
     });
     const readingDelete = readingScreen.getByRole("button", {
       name: "Delete photo.jpg",
@@ -163,8 +170,28 @@ describe("resume file deletion contract", () => {
     ).toHaveLength(0);
   });
 
+  it("disables only the file whose read is in progress", async () => {
+    const getResumeReadState = vi.fn((resumeId: number, path: string) =>
+      Promise.resolve({
+        inProgress: resumeId === 42 && path.endsWith("photo.jpg"),
+      }),
+    );
+    const { screen } = await renderList({ getResumeReadState });
+
+    await expect
+      .element(screen.getByRole("button", { name: "Delete photo.jpg" }))
+      .toBeDisabled();
+    await expect
+      .element(screen.getByRole("button", { name: "Delete old.pdf" }))
+      .not.toBeDisabled();
+    expect(getResumeReadState).toHaveBeenCalledWith(42, "1/resumes/7/old.pdf");
+    expect(getResumeReadState).toHaveBeenCalledWith(
+      42,
+      "1/resumes/7/photo.jpg",
+    );
+  });
+
   it("runs the provider only after the full Undo window and keeps the exact failure copy", async () => {
-    vi.useFakeTimers();
     try {
       const removeResumeFile = vi
         .fn()
@@ -172,10 +199,12 @@ describe("resume file deletion contract", () => {
       const { dataProvider, screen } = await renderList({
         removeResumeFile,
       });
+      vi.useFakeTimers();
       await screen
         .getByRole("button", { name: "Delete photo.jpg", exact: true })
         .click();
       await screen.getByRole("button", { name: "Delete", exact: true }).click();
+      await expect.element(screen.getByText("Deleted.")).toBeInTheDocument();
       await vi.advanceTimersByTimeAsync(RESUME_FILE_DELETE_UNDO_MS);
       await expect
         .element(screen.getByText("Could not delete. Nothing was changed."))
@@ -184,9 +213,46 @@ describe("resume file deletion contract", () => {
       expect(dataProvider.removeResumeFile).toHaveBeenCalledExactlyOnceWith({
         resumeId: 42,
         path: "1/resumes/7/photo.jpg",
+        size: 9,
+        uploadedAt: "2026-02-01T00:00:00Z",
       });
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("focuses the Resume files heading when the last visible row is finalized", async () => {
+    await rememberPendingResumeFileDelete({
+      resumeId: 42,
+      file: resume.files![0]!,
+      deadline: Date.now() + RESUME_FILE_DELETE_UNDO_MS,
+    });
+    try {
+      const { screen, dataProvider } = await renderList();
+      await expect.element(screen.getByText("old.pdf")).not.toBeInTheDocument();
+      vi.useFakeTimers();
+      await screen
+        .getByRole("button", { name: "Delete photo.jpg", exact: true })
+        .click();
+      await screen.getByRole("button", { name: "Delete", exact: true }).click();
+      await vi.advanceTimersByTimeAsync(RESUME_FILE_DELETE_UNDO_MS);
+      await expect
+        .poll(
+          () =>
+            (
+              dataProvider.removeResumeFile as unknown as {
+                mock: { calls: unknown[][] };
+              }
+            ).mock.calls.length,
+        )
+        .toBeGreaterThanOrEqual(2);
+      await expect
+        .element(screen.getByRole("heading", { name: "Resume files" }))
+        .toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+      pendingResumeFileDeletes.clear();
+      window.localStorage.clear();
     }
   });
 });

@@ -792,11 +792,11 @@ export const englishCrmMessages = {
       // controls. No visibility control (a resume has none) and no replace
       // (a resume is versioned by appending, never replacing — AC 2).
       resume: {
-        empty: "No resume uploaded yet.",
+        empty: "No resume files attached",
         error: "Could not load the resume.",
         upload: "Attach resume",
         uploadHint:
-          "If the resume is in WhatsApp, Messages or email, save it to your phone first, then choose it here.",
+          "Choose the resume file (PDF or Word; a photo of a resume also works). Profile pictures go on the Photos tab.",
         uploadError: "Failed to upload the resume",
         show: "Show",
         shownNow: "· shown",

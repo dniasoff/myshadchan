@@ -21,6 +21,10 @@ export type ShidduchReadState = {
   inProgress: boolean;
 };
 
+export type ResumeReadState = {
+  inProgress: boolean;
+};
+
 export const SHIDDUCH_DELETE_MARKER_KEY = "myshadchan:pending-shidduch-delete";
 
 export type PendingShidduchMarker = {

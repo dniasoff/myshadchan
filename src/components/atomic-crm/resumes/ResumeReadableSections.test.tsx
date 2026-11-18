@@ -17,6 +17,10 @@ import type { ReferenceLinkSummary, Resume, ShidduchSummary } from "../types";
 import { RESUME_UNREAD_PARITY_FIXTURES } from "../../../../workers/parse/resumeUnreadFixtures";
 import { ResumeReadableSections } from "./ResumeReadableSections";
 import {
+  pendingResumeFileDeletes,
+  rememberPendingResumeFileDelete,
+} from "./resumeFileDelete";
+import {
   linkMatchesResumeReference,
   matchResumeReferenceLinks,
   normalizeResumeReferenceName,
@@ -1783,4 +1787,39 @@ describe("ResumeReadableSections", () => {
       expect(readResume).not.toHaveBeenCalled();
     },
   );
+
+  it("does not offer a read for a file pending deletion", async () => {
+    const file = {
+      path: "1/resumes/1/pending-read.pdf",
+      filename: "pending-read.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    pendingResumeFileDeletes.clear();
+    window.localStorage.clear();
+    await rememberPendingResumeFileDelete({
+      resumeId: 9001,
+      file,
+      deadline: Date.now() + 10_000,
+    });
+
+    const readResume = vi.fn();
+    const { screen } = await renderSections({
+      canRead: true,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      files: [file],
+      sections: { learningHistory: [], references: [] },
+      withLinks: false,
+      readResume,
+    });
+
+    await expect
+      .element(screen.getByRole("button", { name: "Make it easy to read" }))
+      .not.toBeInTheDocument();
+    expect(readResume).not.toHaveBeenCalled();
+    pendingResumeFileDeletes.clear();
+    window.localStorage.clear();
+  });
 });
