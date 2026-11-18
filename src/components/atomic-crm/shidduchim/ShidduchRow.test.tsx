@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { page } from "vitest/browser";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+
+import "@/index.css";
 
 // Side-effect import — registers the "shidduchim" entity descriptor, exactly
 // as `shidduchim/index.ts` does at boot.
@@ -164,6 +167,30 @@ describe("ShidduchRow — RecordLink mention, Move as a sibling (AC-12)", () => 
       .toBeInTheDocument();
   });
 
+  it("uses the displayed transient name in row action labels and the delete title", async () => {
+    rememberTransientSuggestionName(44, "private-resume.pdf");
+    const screen = await renderManagedRow({ id: 44, name_en: null });
+
+    const more = screen.getByRole("button", {
+      name: "More actions for New suggestion (from private-resume.pdf)",
+    });
+    await more.click();
+    await screen.getByRole("menuitem", { name: "Delete suggestion" }).click();
+
+    await expect
+      .element(
+        screen.getByText("Delete New suggestion (from private-resume.pdf)?"),
+      )
+      .toBeInTheDocument();
+    expect(
+      screen.container
+        .querySelector<HTMLButtonElement>(
+          '[data-slot="pipeline-row"] button[aria-label]',
+        )
+        ?.getAttribute("aria-label"),
+    ).toBe("More actions for New suggestion (from private-resume.pdf)");
+  });
+
   it("keeps the previous Unnamed empty-state text when no fallback exists", async () => {
     const { screen } = await renderRow({ name_en: null });
 
@@ -280,6 +307,66 @@ describe("ShidduchRow — RecordLink mention, Move as a sibling (AC-12)", () => 
     expect(row).toHaveClass("flex-col", "sm:flex-row");
     await expect.element(move).toHaveClass("flex-1", "sm:flex-none");
     await expect.element(more).toHaveClass("w-full", "sm:w-auto");
+  });
+
+  it("keeps every phone row action button within its rendered box", async () => {
+    await page.viewport(390, 844);
+    try {
+      const screen = await renderManagedRow({
+        name_en:
+          "A very long suggestion name that must remain readable without overflowing the phone row",
+      });
+      const row = screen.container.querySelector<HTMLElement>(
+        '[data-slot="pipeline-row"]',
+      );
+      expect(row).not.toBeNull();
+      const overflowingButton = Array.from(
+        row?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+      ).find((button) => button.scrollWidth > button.clientWidth);
+      expect(overflowingButton).toBeUndefined();
+    } finally {
+      await page.viewport(1280, 720);
+    }
+  });
+
+  it("targets only row A when two rendered rows archive", async () => {
+    const archiveShidduch = vi.fn().mockResolvedValue(undefined);
+    const dataProvider = {
+      archiveShidduch,
+      getOne: vi.fn().mockResolvedValue({ data: null }),
+      getShidduchReadState: vi.fn().mockResolvedValue({ inProgress: false }),
+      restoreShidduch: vi.fn(),
+    } as unknown as CrmDataProvider;
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/shidduchim"]}>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <div>
+            <ShidduchRow
+              shidduch={buildShidduch({ id: 41, name_en: "Row A" })}
+              onMove={vi.fn()}
+              canManageLifecycle
+            />
+            <ShidduchRow
+              shidduch={buildShidduch({ id: 42, name_en: "Row B" })}
+              onMove={vi.fn()}
+              canManageLifecycle
+            />
+          </div>
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await screen
+      .getByRole("button", { name: "More actions for Row A" })
+      .click();
+    await screen.getByRole("menuitem", { name: "Archive suggestion" }).click();
+
+    expect(archiveShidduch).toHaveBeenCalledOnce();
+    expect(archiveShidduch).toHaveBeenCalledWith(41);
+    expect(archiveShidduch).not.toHaveBeenCalledWith(42);
   });
 
   it("ignores a second Archive tap while the first row action is pending", async () => {

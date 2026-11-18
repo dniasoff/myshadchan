@@ -278,7 +278,13 @@ const ShidduchimBody = ({
   const heading = useRef<HTMLHeadingElement | null>(null);
   const visibleRowOrder = useRef<string[]>([]);
   const visibleRowOrderByAction = useRef<Record<string, string[]>>({});
-  const routeActionId = getPendingShidduchAction(location.state)?.id;
+  const routeAction = getPendingShidduchAction(location.state);
+  const routeActionId = routeAction?.id;
+  const rowActionFocus = useRef<{
+    id: string;
+    order: string[];
+    focused: boolean;
+  } | null>(null);
 
   useLayoutEffect(() => {
     if (routeActionId == null && pendingLifecycle.length > 0) return;
@@ -286,11 +292,49 @@ const ShidduchimBody = ({
       document.querySelectorAll<HTMLElement>('[data-slot="pipeline-row"]'),
     ).map((row) => row.dataset.shidduchId ?? "");
     if (routeActionId != null) {
-      visibleRowOrderByAction.current[String(routeActionId)] = rowOrder;
+      const id = String(routeActionId);
+      const capturedOrder =
+        rowOrder.length > 0 ? rowOrder : visibleRowOrder.current;
+      if (!visibleRowOrderByAction.current[id]) {
+        visibleRowOrderByAction.current[id] = capturedOrder;
+      }
+      if (routeAction?.origin === "row" && !rowActionFocus.current) {
+        rowActionFocus.current = {
+          id,
+          order: capturedOrder,
+          focused: false,
+        };
+      }
       return;
     }
     visibleRowOrder.current = rowOrder;
-  }, [data, pendingLifecycle.length, routeActionId]);
+  }, [data, pendingLifecycle.length, routeAction?.origin, routeActionId]);
+
+  useLayoutEffect(() => {
+    const pending = rowActionFocus.current;
+    if (!pending || pending.focused) return;
+    if (
+      document.querySelector<HTMLElement>(`[data-shidduch-id="${pending.id}"]`)
+    ) {
+      return;
+    }
+
+    const currentRows = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-slot="pipeline-row"]'),
+    );
+    const actionRowIndex = pending.order.findIndex((id) => id === pending.id);
+    const followingRowIds =
+      actionRowIndex >= 0 ? pending.order.slice(actionRowIndex + 1) : [];
+    const nextRow = followingRowIds
+      .map((id) =>
+        currentRows
+          .find((row) => row.dataset.shidduchId === id)
+          ?.querySelector<HTMLElement>("a"),
+      )
+      .find((row): row is HTMLElement => row != null);
+    (nextRow ?? heading.current)?.focus();
+    pending.focused = true;
+  }, [data, location.state, pendingLifecycle.length]);
 
   useEffect(() => {
     const actions = getPendingShidduchActions(location.state);
@@ -378,7 +422,7 @@ const ShidduchimBody = ({
             <ShidduchPendingActionBar
               key={`${String(action.id)}:${action.kind}`}
               action={action}
-              focusOnMount={false}
+              focusOnMount={action.origin === "page"}
               onDone={(result) => {
                 const actionOrder =
                   visibleRowOrderByAction.current[String(action.id)] ??

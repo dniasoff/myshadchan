@@ -126,6 +126,7 @@ export const ShidduchRow = ({
           <ShidduchRowLifecycleActions
             record={shidduch}
             variant="archived-row"
+            displayName={name}
           />
         ) : null
       ) : (
@@ -143,6 +144,7 @@ export const ShidduchRow = ({
             <ShidduchRowLifecycleActions
               record={shidduch}
               variant="active-row"
+              displayName={name}
             />
           ) : null}
         </div>

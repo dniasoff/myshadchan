@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import { useState } from "react";
+import { Route, Routes, useLocation } from "react-router";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type { ShidduchSummary } from "../types";
 import {
   readPendingShidduchActions,
+  getPendingShidduchAction,
   SHIDDUCH_DELETE_MARKER_KEY,
   SHIDDUCH_ACTION_UNDO_MS,
   type ShidduchLifecycleAction,
@@ -73,6 +75,14 @@ const chooseDelete = async (screen: Awaited<ReturnType<typeof render>>) => {
   await screen.getByRole("button", { name: "Delete", exact: true }).click();
 };
 
+const PageActionDestination = () => {
+  const location = useLocation();
+  const action = getPendingShidduchAction(location.state);
+  return action ? (
+    <ShidduchPendingActionBar action={action} onDone={vi.fn()} />
+  ) : null;
+};
+
 const renderPendingBars = async (
   actions: ShidduchLifecycleAction[],
   dataProvider: CrmDataProvider,
@@ -105,6 +115,7 @@ const pendingAction = (
   id: 42,
   name: "Chaya Cohen",
   deadline: Date.now() + SHIDDUCH_ACTION_UNDO_MS,
+  origin: "row",
   ...overrides,
 });
 
@@ -328,5 +339,38 @@ describe("ShidduchLifecycleActions mutation reconciliation", () => {
     expect(readPendingShidduchActions()).toEqual([
       expect.objectContaining({ id: record.id, kind: "archive" }),
     ]);
+  });
+
+  it("keeps page-origin Archive focus on Undo after navigating to the list", async () => {
+    const archiveShidduch = vi.fn().mockResolvedValue(undefined);
+    const dataProvider = {
+      archiveShidduch,
+      getOne: vi.fn(),
+      getShidduchReadState: vi.fn().mockResolvedValue({ inProgress: false }),
+      restoreShidduch: vi.fn(),
+    } as unknown as CrmDataProvider;
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/shidduchim/42"]}>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <Routes>
+            <Route
+              path="/shidduchim/42"
+              element={<ShidduchLifecycleActions record={record} />}
+            />
+            <Route path="/shidduchim" element={<PageActionDestination />} />
+          </Routes>
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await chooseArchive(screen);
+    await expect.poll(() => archiveShidduch.mock.calls.length).toBe(1);
+    const undo = screen.getByRole("button", { name: "Undo" });
+    await expect
+      .poll(() => document.activeElement === undo.element())
+      .toBe(true);
   });
 });

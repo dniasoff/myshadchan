@@ -30,6 +30,7 @@ import {
   rememberPendingShidduchAction,
   SHIDDUCH_ACTION_UNDO_MS,
   type ShidduchLifecycleAction,
+  type ShidduchLifecycleOrigin,
 } from "./shidduchLifecycle";
 
 const nameFor = (record: ShidduchSummary): string =>
@@ -57,7 +58,11 @@ const reconcileArchivedMarker = async (
 
 type LifecycleMenuVariant = "page" | "active-row" | "archived-row";
 
-const useShidduchLifecycle = (record: ShidduchSummary) => {
+const useShidduchLifecycle = (
+  record: ShidduchSummary,
+  origin: ShidduchLifecycleOrigin,
+  displayName?: string,
+) => {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const refresh = useRefresh();
@@ -66,7 +71,7 @@ const useShidduchLifecycle = (record: ShidduchSummary) => {
   const [busy, setBusy] = useState(false);
   const [readInProgress, setReadInProgress] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
-  const name = nameFor(record);
+  const name = displayName ?? nameFor(record);
   let getReadState: CrmDataProvider["getShidduchReadState"] | undefined;
   try {
     getReadState = dataProvider.getShidduchReadState;
@@ -107,6 +112,7 @@ const useShidduchLifecycle = (record: ShidduchSummary) => {
       id: record.id,
       kind: "archive" as const,
       deadline,
+      origin,
     };
     try {
       if (!rememberPendingShidduchAction(marker)) {
@@ -121,6 +127,7 @@ const useShidduchLifecycle = (record: ShidduchSummary) => {
             id: record.id,
             name,
             deadline,
+            origin,
           } satisfies ShidduchLifecycleAction,
         },
       });
@@ -159,6 +166,7 @@ const useShidduchLifecycle = (record: ShidduchSummary) => {
       id: record.id,
       kind: "delete" as const,
       deadline,
+      origin,
     };
     try {
       if (typeof getReadState === "function") {
@@ -187,6 +195,7 @@ const useShidduchLifecycle = (record: ShidduchSummary) => {
             id: record.id,
             name,
             deadline,
+            origin,
           } satisfies ShidduchLifecycleAction,
         },
       });
@@ -222,9 +231,11 @@ const useShidduchLifecycle = (record: ShidduchSummary) => {
 const ShidduchLifecycleMenu = ({
   record,
   variant,
+  displayName,
 }: {
   record: ShidduchSummary;
   variant: LifecycleMenuVariant;
+  displayName?: string;
 }) => {
   const {
     archive,
@@ -237,18 +248,22 @@ const ShidduchLifecycleMenu = ({
     closeDelete,
     setDeleteOpen,
     trigger,
-  } = useShidduchLifecycle(record);
+  } = useShidduchLifecycle(
+    record,
+    variant === "page" ? "page" : "row",
+    displayName,
+  );
   const isArchivedRow = variant === "archived-row";
   const isPage = variant === "page";
   const isActiveRow = variant === "active-row";
   const cancelButton = useRef<HTMLButtonElement | null>(null);
 
   const actions = isArchivedRow ? (
-    <div className="flex w-full gap-2 sm:w-auto sm:shrink-0">
+    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:shrink-0">
       <Button
         type="button"
         variant="outline"
-        className="min-h-11 flex-1 sm:flex-none"
+        className="min-h-11 w-full sm:w-auto sm:flex-none"
         disabled={busy}
         onClick={() => void restore()}
       >
@@ -258,7 +273,7 @@ const ShidduchLifecycleMenu = ({
         ref={trigger}
         type="button"
         variant="outline"
-        className="min-h-11 flex-1 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive sm:flex-none"
+        className="min-h-11 w-full border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto sm:flex-none"
         disabled={busy || readInProgress}
         onClick={() => setDeleteOpen(true)}
       >
@@ -270,7 +285,9 @@ const ShidduchLifecycleMenu = ({
       className={
         isPage
           ? "flex items-center justify-end"
-          : "flex w-full items-center justify-end sm:w-auto sm:shrink-0"
+          : isActiveRow
+            ? "flex min-w-0 flex-1 items-center justify-end sm:w-auto sm:flex-none sm:shrink-0"
+            : "flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:shrink-0"
       }
     >
       <DropdownMenu>
@@ -279,7 +296,7 @@ const ShidduchLifecycleMenu = ({
             ref={trigger}
             type="button"
             variant="outline"
-            className={`min-h-11 gap-2${isActiveRow ? " w-full sm:w-auto" : ""}`}
+            className={`min-h-11 gap-2${isActiveRow ? " min-w-0 w-full sm:w-auto" : ""}`}
             aria-label={isPage ? "More actions" : `More actions for ${name}`}
           >
             {isActiveRow ? (
@@ -457,10 +474,18 @@ const ShidduchLifecycleMenu = ({
 export const ShidduchRowLifecycleActions = ({
   record,
   variant,
+  displayName,
 }: {
   record: ShidduchSummary;
   variant: "active-row" | "archived-row";
-}) => <ShidduchLifecycleMenu record={record} variant={variant} />;
+  displayName: string;
+}) => (
+  <ShidduchLifecycleMenu
+    record={record}
+    variant={variant}
+    displayName={displayName}
+  />
+);
 
 /** Header actions and the manager-only archived state for one shidduch. */
 export const ShidduchLifecycleActions = ({
@@ -496,7 +521,7 @@ export const ShidduchPendingActionBar = ({
   const retryNotificationKey = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!focusOnMount) return;
+    if (focusOnMount === false || action.origin === "row") return;
     if (
       !action.retryRequired &&
       Date.now() < action.deadline &&
@@ -504,7 +529,7 @@ export const ShidduchPendingActionBar = ({
     ) {
       undoButton.current?.focus();
     }
-  }, [action.deadline, action.retryRequired, focusOnMount]);
+  }, [action.deadline, action.origin, action.retryRequired, focusOnMount]);
 
   useEffect(() => {
     if (action.retryRequired) return;
