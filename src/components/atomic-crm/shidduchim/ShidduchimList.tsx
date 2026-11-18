@@ -283,7 +283,6 @@ const ShidduchimBody = ({
   const rowActionFocus = useRef<{
     id: string;
     order: string[];
-    focused: boolean;
   } | null>(null);
 
   useLayoutEffect(() => {
@@ -302,7 +301,6 @@ const ShidduchimBody = ({
         rowActionFocus.current = {
           id,
           order: capturedOrder,
-          focused: false,
         };
       }
       return;
@@ -312,7 +310,7 @@ const ShidduchimBody = ({
 
   useLayoutEffect(() => {
     const pending = rowActionFocus.current;
-    if (!pending || pending.focused) return;
+    if (!pending) return;
     if (
       document.querySelector<HTMLElement>(`[data-shidduch-id="${pending.id}"]`)
     ) {
@@ -333,7 +331,7 @@ const ShidduchimBody = ({
       )
       .find((row): row is HTMLElement => row != null);
     (nextRow ?? heading.current)?.focus();
-    pending.focused = true;
+    rowActionFocus.current = null;
   }, [data, location.state, pendingLifecycle.length]);
 
   useEffect(() => {
