@@ -76,7 +76,9 @@ describe("AttachmentViewerDialog — reading without downloading", () => {
 
     // ...via the viewing form of the URL, not the download form...
     expect(signUrl).toHaveBeenCalledWith({ inline: true });
-    expect(fetchSpy).toHaveBeenCalledWith(SIGNED_URL);
+    const [fetchedUrl, fetchInit] = fetchSpy.mock.calls[0];
+    expect(fetchedUrl).toBe(SIGNED_URL);
+    expect(fetchInit?.signal).toBeInstanceOf(AbortSignal);
     // ...and with no iframe anywhere, which is the whole point of the change:
     // an iframe depends on a PDF plugin that Chrome for Android lacks.
     expect(anyFrame()).toBeNull();

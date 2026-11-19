@@ -281,6 +281,33 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     await expect.element(fullScreenButton).toHaveFocus();
   });
 
+  it("traps focus and hides the resume page behind full screen", async () => {
+    const { screen } = await renderDocument([
+      version({
+        path: "p/focus-trap.jpg",
+        filename: "focus-trap.jpg",
+        mime_type: "image/jpeg",
+      }),
+    ]);
+    await screen.getByRole("button", { name: "Full screen" }).click();
+
+    const dialog = screen.getByRole("dialog");
+    const close = dialog.getByRole("button", { name: "Close" });
+    const fitToWidth = dialog.getByRole("button", { name: "Fit to width" });
+    await expect.element(close).toHaveFocus();
+
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+    await expect.element(fitToWidth).toHaveFocus();
+    expect(dialog.element().contains(document.activeElement)).toBe(true);
+
+    await userEvent.keyboard("{Tab}");
+    await expect.element(close).toHaveFocus();
+    expect(dialog.element().contains(document.activeElement)).toBe(true);
+
+    const background = screen.getByTestId("resume-viewer-background").element();
+    expect(background.closest('[aria-hidden="true"]')).not.toBeNull();
+  });
+
   it("keeps one preview instance and fetch while opening and closing full screen", async () => {
     const { screen, signResumeFileUrl } = await renderDocument([
       version({

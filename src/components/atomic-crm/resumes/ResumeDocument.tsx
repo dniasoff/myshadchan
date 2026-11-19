@@ -4,6 +4,12 @@ import type { ReactElement, RefObject } from "react";
 import { useDataProvider, useGetList, useNotify, useTranslate } from "ra-core";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import { AttachmentPreview } from "../attachments/AttachmentPreview";
 import type { CrmDataProvider } from "../providers/types";
@@ -269,7 +275,11 @@ function ResumePreviewStage({
   return (
     <div
       data-testid="resume-document-stage"
-      className={`${fullScreen ? "h-full min-h-0" : EMBED_HEIGHT} min-w-0 max-w-full overflow-auto bg-muted/40 motion-reduce:transition-none`}
+      className={
+        fullScreen
+          ? "fixed inset-2 z-[51] h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] min-h-0 min-w-0 overflow-auto rounded-md bg-muted/40 motion-reduce:transition-none sm:inset-3 sm:h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-1.5rem)] sm:w-[calc(100vw-1.5rem)] sm:max-w-[calc(100vw-1.5rem)]"
+          : `${EMBED_HEIGHT} min-w-0 max-w-full overflow-auto bg-muted/40 motion-reduce:transition-none`
+      }
       style={{ touchAction: "pan-x pan-y pinch-zoom" }}
     >
       <div
@@ -301,7 +311,6 @@ function ResumeViewer({
   const [fullScreen, setFullScreen] = useState(false);
   const fullScreenButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const wasFullScreen = useRef(false);
   const changeZoom = (delta: number) => {
     setZoom((current) =>
       Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, current + delta)),
@@ -310,25 +319,12 @@ function ResumeViewer({
 
   useEffect(() => {
     if (!fullScreen) {
-      if (wasFullScreen.current) {
-        wasFullScreen.current = false;
-        fullScreenButtonRef.current?.focus();
-      }
       return;
     }
 
-    wasFullScreen.current = true;
-    closeButtonRef.current?.focus();
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setFullScreen(false);
-    };
-    document.addEventListener("keydown", handleKeyDown);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = previousOverflow;
     };
   }, [fullScreen]);
@@ -344,62 +340,12 @@ function ResumeViewer({
   );
 
   return (
-    <div className="relative min-w-0 max-w-full">
-      {fullScreen ? (
-        <div
-          aria-hidden="true"
-          className="fixed inset-0 z-40 bg-black/70 motion-reduce:transition-none"
-        />
-      ) : null}
+    <Dialog open={fullScreen} onOpenChange={setFullScreen}>
       <div
-        {...(fullScreen
-          ? {
-              role: "dialog",
-              "aria-modal": true,
-              "aria-labelledby": "resume-full-screen-title",
-              "aria-describedby": "resume-full-screen-description",
-            }
-          : {})}
-        className={
-          fullScreen
-            ? "fixed inset-2 z-50 flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-md border border-border bg-background p-2 shadow-2xl motion-reduce:animate-none motion-reduce:transition-none sm:inset-3 sm:h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-1.5rem)] sm:w-[calc(100vw-1.5rem)] sm:max-w-[calc(100vw-1.5rem)] sm:p-3"
-            : "min-w-0 max-w-full overflow-hidden rounded-md border border-border bg-muted/40"
-        }
+        data-testid="resume-viewer-background"
+        className="relative min-w-0 max-w-full overflow-hidden rounded-md border border-border bg-muted/40"
       >
-        {fullScreen ? (
-          <>
-            <div className="flex shrink-0 items-center justify-between border-b border-border pb-2 text-left">
-              <div className="min-w-0 pe-2">
-                <h2
-                  id="resume-full-screen-title"
-                  dir="auto"
-                  className="truncate text-lg font-semibold"
-                >
-                  {fileName}
-                </h2>
-                <p id="resume-full-screen-description" className="sr-only">
-                  Full-screen resume viewer
-                </p>
-              </div>
-              <Button
-                ref={closeButtonRef}
-                type="button"
-                variant="outline"
-                className="min-h-11 shrink-0 motion-reduce:transition-none"
-                onClick={() => setFullScreen(false)}
-              >
-                Close
-              </Button>
-            </div>
-            <ResumeViewerToolbar
-              zoom={zoom}
-              onZoomOut={() => changeZoom(-ZOOM_STEP)}
-              onZoomIn={() => changeZoom(ZOOM_STEP)}
-              onFitToWidth={() => setZoom(ZOOM_DEFAULT)}
-              isFullScreen
-            />
-          </>
-        ) : (
+        {!fullScreen ? (
           <ResumeViewerToolbar
             zoom={zoom}
             onZoomOut={() => changeZoom(-ZOOM_STEP)}
@@ -408,13 +354,53 @@ function ResumeViewer({
             onFullScreen={() => setFullScreen(true)}
             fullScreenButtonRef={fullScreenButtonRef}
           />
-        )}
-        <div className={fullScreen ? "min-h-0 flex-1" : undefined}>
-          <ResumePreviewStage zoom={zoom} fullScreen={fullScreen}>
-            {preview}
-          </ResumePreviewStage>
-        </div>
+        ) : null}
+        <ResumePreviewStage zoom={zoom} fullScreen={fullScreen}>
+          {preview}
+        </ResumePreviewStage>
       </div>
-    </div>
+      <DialogContent
+        hideClose
+        aria-modal="true"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          closeButtonRef.current?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          fullScreenButtonRef.current?.focus();
+        }}
+        className="!pointer-events-none !fixed !inset-2 !z-50 !flex !h-[calc(100dvh-1rem)] !max-h-[calc(100dvh-1rem)] !w-[calc(100vw-1rem)] !max-w-[calc(100vw-1rem)] !translate-x-0 !translate-y-0 !flex-col !gap-0 !overflow-hidden !rounded-md !border-0 !bg-transparent !p-2 !shadow-none motion-reduce:!animate-none motion-reduce:!transition-none sm:!inset-3 sm:!h-[calc(100dvh-1.5rem)] sm:!max-h-[calc(100dvh-1.5rem)] sm:!w-[calc(100vw-1.5rem)] sm:!max-w-[calc(100vw-1.5rem)] sm:!p-3"
+      >
+        <div className="relative z-[52] flex shrink-0 items-center justify-between border-b border-border bg-background/95 pb-2 text-left pointer-events-auto">
+          <div className="min-w-0 pe-2">
+            <DialogTitle dir="auto" className="truncate text-lg">
+              {fileName}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Full-screen resume viewer
+            </DialogDescription>
+          </div>
+          <Button
+            ref={closeButtonRef}
+            type="button"
+            variant="outline"
+            className="min-h-11 shrink-0 motion-reduce:transition-none"
+            onClick={() => setFullScreen(false)}
+          >
+            Close
+          </Button>
+        </div>
+        <div className="relative z-[52] pointer-events-auto">
+          <ResumeViewerToolbar
+            zoom={zoom}
+            onZoomOut={() => changeZoom(-ZOOM_STEP)}
+            onZoomIn={() => changeZoom(ZOOM_STEP)}
+            onFitToWidth={() => setZoom(ZOOM_DEFAULT)}
+            isFullScreen
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
