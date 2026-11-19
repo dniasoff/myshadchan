@@ -514,6 +514,7 @@ describe("InboxResolveDialog — confirm details", () => {
     );
     expect(dataProvider.copyInboxAttachmentToResumeFile).toHaveBeenCalledWith({
       shidduchimId: 99,
+      inboxItemId: 1,
       attachment: buildAttachment(),
     });
     expect(dataProvider.create).toHaveBeenCalledWith("resumes", {

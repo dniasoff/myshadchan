@@ -58,7 +58,10 @@ import type {
   ThreadVisibility,
 } from "../../types";
 import { ENTITY_TARGET_TYPES } from "../../types";
-import { toResumeInboxPickerItem } from "../../resumes/resumeInbox";
+import {
+  buildResumeInboxStoragePath,
+  toResumeInboxPickerItem,
+} from "../../resumes/resumeInbox";
 import {
   canDeleteInboxItem,
   getSafeInboxAttachmentExtension,
@@ -113,6 +116,7 @@ import type { CrmDataProvider } from "../types";
 import type {
   InboxResolutionUpdateParams,
   OwnedResumeDeleteParams,
+  OwnedResumeFileDeleteParams,
   OwnedShidduchDeleteParams,
 } from "../supabase/inboxResolution";
 import type {
@@ -1650,6 +1654,43 @@ export const createDataProvider = ({
         id: params.id,
         previousData: resume,
       });
+      return true;
+    },
+    async deleteOwnedInboxResumeFile(
+      params: OwnedResumeFileDeleteParams,
+    ): Promise<boolean> {
+      const { data: resume } = await baseDataProvider.getOne<Resume>(
+        "resumes",
+        { id: params.id },
+      );
+      if (
+        !resume ||
+        String(resume.shidduchim_id) !== String(params.shidduchimId) ||
+        JSON.stringify(resume.files ?? []) !==
+          JSON.stringify(params.expectedFiles)
+      ) {
+        return false;
+      }
+      const fileIndex = (resume.files ?? []).findIndex(
+        (file) =>
+          file.path === params.storagePath &&
+          String(file.source_inbox_item_id) ===
+            String(params.sourceInboxItemId) &&
+          file.source_inbox_attachment_path ===
+            params.sourceInboxAttachmentPath,
+      );
+      if (fileIndex === -1) return true;
+      const nextFiles = (resume.files ?? []).filter(
+        (_, index) => index !== fileIndex,
+      );
+      await baseDataProvider.update<Resume>("resumes", {
+        id: resume.id,
+        data: { files: nextFiles },
+        previousData: resume,
+      });
+      const blobUrl = resumeFileBlobUrls.get(params.storagePath);
+      if (blobUrl?.startsWith("blob:")) URL.revokeObjectURL(blobUrl);
+      resumeFileBlobUrls.delete(params.storagePath);
       return true;
     },
     async deleteOwnedInboxShidduch(
@@ -3482,20 +3523,27 @@ export const createDataProvider = ({
     copyInboxAttachmentToResumeFile: async (params: {
       shidduchimId?: Identifier;
       singleId?: Identifier;
+      inboxItemId: number | string;
       attachment: InboxAttachment;
     }) => {
       const accountId = await resolveCurrentAccountId();
-      const ownerSegment =
-        params.singleId != null
-          ? `single-${params.singleId}`
-          : `${params.shidduchimId}`;
       const attachment = params.attachment;
-      const storagePath = `${accountId}/resumes/${ownerSegment}/${crypto.randomUUID()}-${attachment.title}`;
+      const storagePath = await buildResumeInboxStoragePath(
+        accountId,
+        params,
+        params.inboxItemId,
+        attachment.path,
+        attachment.title,
+      );
       const response = await fetch(attachment.src);
       if (!response.ok) {
         throw new Error("Failed to read the captured resume attachment");
       }
       const blob = await response.blob();
+      const previousBlobUrl = resumeFileBlobUrls.get(storagePath);
+      if (previousBlobUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(previousBlobUrl);
+      }
       const blobUrl = URL.createObjectURL(blob);
       resumeFileBlobUrls.set(storagePath, blobUrl);
       return { storagePath, size: blob.size };

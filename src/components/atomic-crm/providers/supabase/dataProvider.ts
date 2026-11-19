@@ -106,10 +106,12 @@ import type {
 import { buildResumeStorageCleanupCallbacks } from "./resumeStorageCleanup";
 import { getSupabaseClient } from "./supabase";
 import {
+  deleteOwnedInboxResumeFile,
   deleteOwnedInboxResume,
   deleteOwnedInboxShidduch,
   updateInboxItemResolution,
   type OwnedResumeDeleteParams,
+  type OwnedResumeFileDeleteParams,
   type OwnedShidduchDeleteParams,
   type InboxResolutionUpdateParams,
 } from "./inboxResolution";
@@ -1393,6 +1395,11 @@ export const getDataProviderWithCustomMethods = () => {
       params: OwnedResumeDeleteParams,
     ): Promise<boolean> {
       return deleteOwnedInboxResume(params);
+    },
+    async deleteOwnedInboxResumeFile(
+      params: OwnedResumeFileDeleteParams,
+    ): Promise<boolean> {
+      return deleteOwnedInboxResumeFile(params);
     },
     async deleteOwnedInboxShidduch(
       params: OwnedShidduchDeleteParams,

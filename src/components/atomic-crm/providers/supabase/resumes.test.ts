@@ -19,7 +19,8 @@ vi.mock("./supabase", () => ({
     storage: {
       from: (bucket: string) => ({
         download: (path: string) => download(bucket, path),
-        upload: (path: string, data: unknown) => upload(bucket, path, data),
+        upload: (path: string, data: unknown, options?: unknown) =>
+          upload(bucket, path, data, options),
         remove: (paths: string[]) => remove(bucket, paths),
       }),
     },
@@ -51,6 +52,7 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     // Act
     const result = await copyInboxAttachmentToResumeFile({
       shidduchimId: 42,
+      inboxItemId: 700,
       attachment: {
         path: "7/inbox-abc.pdf",
         title: "resume.pdf",
@@ -64,9 +66,10 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
 
     // Assert: written to the documents bucket under {account}/resumes/{shidduch}/.
     expect(upload).toHaveBeenCalledTimes(1);
-    const [bucket, path, data] = upload.mock.calls[0];
+    const [bucket, path, data, options] = upload.mock.calls[0];
     expect(bucket).toBe("documents");
-    expect(path).toMatch(/^7\/resumes\/42\/[0-9a-f-]+-resume\.pdf$/);
+    expect(path).toMatch(/^7\/resumes\/42\/inbox-[0-9a-f]{64}-resume\.pdf$/);
+    expect(options).toEqual({ upsert: true });
     expect(data).toBe(FAKE_BLOB);
 
     // Assert: the returned path is the one that was actually written — the
@@ -87,6 +90,7 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     // Act
     const result = await copyInboxAttachmentToResumeFile({
       shidduchimId: 42,
+      inboxItemId: 700,
       attachment: {
         path: "7/inbox-abc.pdf",
         title: "resume.pdf",
@@ -107,6 +111,7 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     // Act
     await copyInboxAttachmentToResumeFile({
       singleId: 15,
+      inboxItemId: 700,
       attachment: {
         path: "7/inbox-abc.pdf",
         title: "resume.pdf",
@@ -117,7 +122,9 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
 
     // Assert
     const [, path] = upload.mock.calls[0];
-    expect(path).toMatch(/^7\/resumes\/single-15\/[0-9a-f-]+-resume\.pdf$/);
+    expect(path).toMatch(
+      /^7\/resumes\/single-15\/inbox-[0-9a-f]{64}-resume\.pdf$/,
+    );
   });
 
   it("throws a friendly error and never uploads when the captured attachment cannot be downloaded", async () => {
@@ -131,6 +138,7 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     await expect(
       copyInboxAttachmentToResumeFile({
         shidduchimId: 42,
+        inboxItemId: 700,
         attachment: {
           path: "7/missing.pdf",
           title: "resume.pdf",
@@ -151,6 +159,7 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     await expect(
       copyInboxAttachmentToResumeFile({
         shidduchimId: 42,
+        inboxItemId: 700,
         attachment: {
           path: "7/inbox-abc.pdf",
           title: "resume.pdf",
@@ -159,6 +168,34 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
         },
       }),
     ).rejects.toThrow("Failed to save the captured resume");
+  });
+
+  it("reuses the deterministic destination after an ambiguous upload failure", async () => {
+    download.mockResolvedValue({ data: FAKE_BLOB, error: null });
+    upload
+      .mockResolvedValueOnce({ error: { message: "request timed out" } })
+      .mockResolvedValueOnce({ error: null });
+
+    const params = {
+      shidduchimId: 42,
+      inboxItemId: 700,
+      attachment: {
+        path: "7/inbox-abc.pdf",
+        title: "resume.pdf",
+        type: "application/pdf",
+        src: "https://example.test/resume.pdf",
+      },
+    } as const;
+
+    await expect(copyInboxAttachmentToResumeFile(params)).rejects.toThrow(
+      "Failed to save the captured resume",
+    );
+    const retried = await copyInboxAttachmentToResumeFile(params);
+
+    expect(upload).toHaveBeenCalledTimes(2);
+    expect(upload.mock.calls[0][1]).toBe(upload.mock.calls[1][1]);
+    expect(upload.mock.calls[0][3]).toEqual({ upsert: true });
+    expect(retried.storagePath).toBe(upload.mock.calls[1][1]);
   });
 
   it("strictly reports a storage tuple error so owned compensation keeps its catalog row", async () => {

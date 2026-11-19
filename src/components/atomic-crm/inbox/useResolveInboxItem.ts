@@ -5,6 +5,7 @@ import { insertNoteInteraction } from "../entity360/tabs/insertNoteInteraction";
 import type { CrmDataProvider } from "../providers/types";
 import type {
   OwnedResumeDeleteParams,
+  OwnedResumeFileDeleteParams,
   OwnedShidduchDeleteParams,
 } from "../providers/supabase/inboxResolution";
 import type { CopiedResumeFile } from "../providers/supabase/resumes";
@@ -143,6 +144,7 @@ export type InboxResumePreparation = {
   shidduch: Shidduch;
   resume: Resume;
   file: ResumeFileVersion;
+  suggestionCreatedId?: Identifier;
   resumeCreatedByAttempt: boolean;
   entityFiles: EntityFile[];
   entityFilesCreatedByAttempt: EntityFile[];
@@ -161,6 +163,9 @@ type OwnershipDataProvider = CrmDataProvider & {
   removeResumeFileObjectsStrict?: (paths: string[]) => Promise<void>;
   deleteOwnedInboxResume?: (
     params: OwnedResumeDeleteParams,
+  ) => Promise<boolean>;
+  deleteOwnedInboxResumeFile?: (
+    params: OwnedResumeFileDeleteParams,
   ) => Promise<boolean>;
   deleteOwnedInboxShidduch?: (
     params: OwnedShidduchDeleteParams,
@@ -301,11 +306,22 @@ export function useResolveInboxItem() {
           // A provider can report a transport failure after the CAS has
           // committed. Re-read the row before compensating so a committed
           // suggestion id remains durable and the retry reuses it.
-          const currentAfterFailure = await getCurrentResolutionItem(
-            item,
-          ).catch(() => undefined);
+          let currentAfterFailure: InboxItem | undefined;
+          try {
+            currentAfterFailure = await getCurrentResolutionItem(item);
+          } catch {
+            // The commit state is ambiguous. Preserve the created suggestion;
+            // deleting it without a verification read could lose a committed
+            // row that the Inbox already references.
+            preserveInputAfterFailure = true;
+            throw error;
+          }
+          if (!currentAfterFailure) {
+            preserveInputAfterFailure = true;
+            throw error;
+          }
           const stashCommitted =
-            currentAfterFailure?.resolution_input != null &&
+            currentAfterFailure.resolution_input != null &&
             String(
               (
                 currentAfterFailure.resolution_input as {
@@ -316,9 +332,11 @@ export function useResolveInboxItem() {
           if (!stashCommitted) {
             const compensated = await compensateNewSuggestion(
               item,
+              attemptId,
               created.id,
               undefined,
               "",
+              created.id,
               true,
             ).catch(() => false);
             preserveInputAfterFailure = !compensated;
@@ -427,6 +445,7 @@ export function useResolveInboxItem() {
                 }
               : await dataProvider.copyInboxAttachmentToResumeFile({
                   shidduchimId: created.id,
+                  inboxItemId: item.id,
                   attachment: savedDraft.attachment,
                 });
 
@@ -1033,12 +1052,41 @@ export function useResolveInboxItem() {
 
   const compensateNewSuggestion = async (
     item: InboxItem,
+    ownerAttemptId: string,
     shidduchimId: Identifier,
     resumeId: Identifier | undefined,
     attachmentPath: string,
+    suggestionCreatedId: Identifier | undefined,
     resumeCreatedByAttempt: boolean,
     attemptEntityFiles: EntityFile[] = [],
   ): Promise<boolean> => {
+    let currentItem: InboxItem | undefined;
+    try {
+      currentItem = await getCurrentResolutionItem(item);
+    } catch {
+      // An unavailable verification read is ambiguity, never proof that the
+      // suggestion was not stashed. Preserve it for a retry.
+      return false;
+    }
+    if (
+      !currentItem ||
+      currentItem.status !== "resolving" ||
+      currentItem.resolution_attempt_id !== ownerAttemptId
+    ) {
+      return false;
+    }
+    const currentResolvedId = (
+      currentItem.resolution_input as {
+        resolved_shidduchim_id?: Identifier;
+      } | null
+    )?.resolved_shidduchim_id;
+    if (String(currentResolvedId) === String(shidduchimId)) return false;
+    if (
+      suggestionCreatedId == null ||
+      String(suggestionCreatedId) !== String(shidduchimId)
+    )
+      return false;
+
     const { data: suggestion } = await dataProvider.getOne<Shidduch>(
       "shidduchim",
       { id: shidduchimId },
@@ -1199,13 +1247,104 @@ export function useResolveInboxItem() {
       ...(singleId == null ? {} : { single_id: singleId }),
     };
     let precreatedShidduch: Shidduch | undefined;
+    let suggestionCreatedId: Identifier | undefined;
     let preAttachedResume: Resume | undefined;
     let preAttachedResumeCreatedByAttempt = false;
+    let preAttachedFile: ResumeFileVersion | undefined;
+    let preAttachedFileAddedByAttempt = false;
+    let preAttachedTargetShidduchId: Identifier | undefined;
     const currentBeforeLock = await getCurrentResolutionItem(item);
     const currentProgress = (currentBeforeLock.resolution_input ?? {}) as {
       resolved_shidduchim_id?: Identifier;
       resume_id?: Identifier;
       resume_file_path?: string;
+    };
+    const assertTargetMatchesSelection = (target: Shidduch): void => {
+      if (
+        action === "new" &&
+        singleId != null &&
+        String(target.single_id) !== String(singleId)
+      ) {
+        throw new Error(
+          "This resume is already attached to a different child. Choose that child to retry.",
+        );
+      }
+    };
+
+    const rollbackPreLockResumeAttachment = async (): Promise<void> => {
+      if (
+        !preAttachedFileAddedByAttempt ||
+        !preAttachedFile ||
+        !preAttachedResume ||
+        preAttachedTargetShidduchId == null
+      ) {
+        return;
+      }
+      const provider = dataProvider as OwnershipDataProvider;
+      const removeOwnedInboxResumeFile = Object.prototype.hasOwnProperty.call(
+        provider,
+        "deleteOwnedInboxResumeFile",
+      )
+        ? provider.deleteOwnedInboxResumeFile
+        : undefined;
+      if (!removeOwnedInboxResumeFile) {
+        throw new Error("Could not safely roll back the captured resume file.");
+      }
+
+      let currentResume = preAttachedResume;
+      for (let retry = 0; retry < 3; retry += 1) {
+        const matchingFile = findResumeFile(
+          currentResume,
+          item.id,
+          attachment.path,
+        );
+        if (!matchingFile || matchingFile.path !== preAttachedFile.path) {
+          const removed = await removeCopiedResumeObject(
+            dataProvider,
+            preAttachedFile.path,
+          );
+          if (!removed) {
+            throw new Error("Could not verify resume rollback cleanup.");
+          }
+          preAttachedFileAddedByAttempt = false;
+          return;
+        }
+        const removed = await removeOwnedInboxResumeFile({
+          id: currentResume.id,
+          shidduchimId: preAttachedTargetShidduchId,
+          expectedFiles: currentResume.files ?? [],
+          storagePath: preAttachedFile.path,
+          sourceInboxItemId: item.id,
+          sourceInboxAttachmentPath: attachment.path,
+        });
+        if (removed) {
+          if (preAttachedResumeCreatedByAttempt) {
+            const { data: afterRemoval } = await dataProvider.getOne<Resume>(
+              "resumes",
+              { id: currentResume.id },
+            );
+            if (afterRemoval && (afterRemoval.files ?? []).length === 0) {
+              const deleted = await provider.deleteOwnedInboxResume?.({
+                id: afterRemoval.id,
+                shidduchimId: preAttachedTargetShidduchId,
+                expectedFiles: [],
+              });
+              if (deleted === false) {
+                throw new Error("Could not safely remove the empty resume.");
+              }
+            }
+          }
+          preAttachedFileAddedByAttempt = false;
+          return;
+        }
+        const { data: refreshed } = await dataProvider.getOne<Resume>(
+          "resumes",
+          { id: currentResume.id },
+        );
+        if (!refreshed) throw new Error("Could not verify resume rollback.");
+        currentResume = refreshed;
+      }
+      throw new Error("Could not safely roll back the captured resume file.");
     };
 
     // add_resume_file intentionally rejects a source that is already
@@ -1224,6 +1363,7 @@ export function useResolveInboxItem() {
               id: currentProgress.resolved_shidduchim_id,
             });
             targetShidduch = data;
+            assertTargetMatchesSelection(targetShidduch);
           } else {
             resumeFromProvenance = await findResumeByInboxProvenance(
               item.id,
@@ -1235,6 +1375,7 @@ export function useResolveInboxItem() {
                 { id: resumeFromProvenance.shidduchim_id },
               );
               targetShidduch = data;
+              assertTargetMatchesSelection(targetShidduch);
             }
           }
           if (!targetShidduch) {
@@ -1249,6 +1390,7 @@ export function useResolveInboxItem() {
               kohen_status: "unknown",
               redt_date: item.created_at.split("T")[0],
             });
+            suggestionCreatedId = precreatedShidduch.id;
             targetShidduch = precreatedShidduch;
           }
         } else {
@@ -1277,13 +1419,14 @@ export function useResolveInboxItem() {
           );
           preAttachedResume = resumes[0];
         }
-        let preAttachedFile =
+        preAttachedFile =
           preAttachedResume &&
           findResumeFile(preAttachedResume, item.id, attachment.path);
         if (!preAttachedFile) {
           const resumeExistedBeforeAttach = preAttachedResume != null;
           preAttachedResumeCreatedByAttempt =
             action === "new" && !resumeExistedBeforeAttach;
+          preAttachedTargetShidduchId = targetShidduch.id;
           preAttachedResume =
             await dataProvider.attachInboxAttachmentToResumeFile({
               shidduchimId: targetShidduch.id,
@@ -1297,17 +1440,10 @@ export function useResolveInboxItem() {
           );
           if (!preAttachedFile)
             throw new Error("Could not attach this resume.");
+          preAttachedFileAddedByAttempt = true;
         }
       } catch (error) {
-        if (precreatedShidduch) {
-          await compensateNewSuggestion(
-            item,
-            precreatedShidduch.id,
-            preAttachedResume?.id,
-            attachment.path,
-            preAttachedResumeCreatedByAttempt,
-          ).catch(() => undefined);
-        }
+        await rollbackPreLockResumeAttachment();
         throw error;
       }
     }
@@ -1322,42 +1458,19 @@ export function useResolveInboxItem() {
         { claimFromStatuses: ["unresolved"] },
       );
     } catch (error) {
-      if (precreatedShidduch) {
-        await compensateNewSuggestion(
-          item,
-          precreatedShidduch.id,
-          preAttachedResume?.id,
-          attachment.path,
-          preAttachedResumeCreatedByAttempt,
-        ).catch(() => undefined);
-      }
+      await rollbackPreLockResumeAttachment();
       throw error;
     }
     if (lockedItem.status === "dismissed") {
-      if (precreatedShidduch) {
-        await compensateNewSuggestion(
-          item,
-          precreatedShidduch.id,
-          preAttachedResume?.id,
-          attachment.path,
-          preAttachedResumeCreatedByAttempt,
-        ).catch(() => undefined);
-      }
+      await rollbackPreLockResumeAttachment();
       throw new ResolutionTerminalError();
     }
     if (lockedItem.status === "resolved") {
       if (!lockedItem.resolved_shidduchim_id) {
-        if (precreatedShidduch) {
-          await compensateNewSuggestion(
-            item,
-            precreatedShidduch.id,
-            preAttachedResume?.id,
-            attachment.path,
-            preAttachedResumeCreatedByAttempt,
-          ).catch(() => undefined);
-        }
+        await rollbackPreLockResumeAttachment();
         throw new Error("This Inbox item is already resolved.");
       }
+      await rollbackPreLockResumeAttachment();
       const { data: existing } = await dataProvider.getOne<Shidduch>(
         "shidduchim",
         { id: lockedItem.resolved_shidduchim_id },
@@ -1375,6 +1488,7 @@ export function useResolveInboxItem() {
         shidduch: existing,
         resume: resumes[0],
         file,
+        suggestionCreatedId: undefined,
         resumeCreatedByAttempt: false,
         entityFiles: [],
         entityFilesCreatedByAttempt: [],
@@ -1435,7 +1549,9 @@ export function useResolveInboxItem() {
             kohen_status: "unknown",
             redt_date: item.created_at.split("T")[0],
           });
+          suggestionCreatedId = shidduch.id;
         }
+        assertTargetMatchesSelection(shidduch);
         try {
           await updateOwnedInboxResolution(
             item,
@@ -1461,9 +1577,11 @@ export function useResolveInboxItem() {
             // remains intact.
             await compensateNewSuggestion(
               item,
+              attemptId,
               shidduch.id,
               undefined,
               attachment.path,
+              shidduch.id,
               true,
             ).catch(() => undefined);
           }
@@ -1633,6 +1751,7 @@ export function useResolveInboxItem() {
       shidduch,
       resume,
       file,
+      suggestionCreatedId,
       resumeCreatedByAttempt,
       entityFiles,
       entityFilesCreatedByAttempt,
@@ -1773,9 +1892,11 @@ export function useResolveInboxItem() {
         try {
           suggestionKept = !(await compensateNewSuggestion(
             item,
+            attemptId,
             preparation.shidduch.id,
             preparation.resume.id,
             item.attachments?.find(isResumeDocument)?.path ?? "",
+            preparation.suggestionCreatedId,
             preparation.resumeCreatedByAttempt,
             preparation.entityFilesCreatedByAttempt,
           ));
@@ -1808,7 +1929,10 @@ export function useResolveInboxItem() {
         } | null;
         const shidduchimId =
           preparation?.shidduch.id ?? stashed?.resolved_shidduchim_id;
-        if (shidduchimId != null) {
+        // If this verification read is unavailable, the stash state is
+        // ambiguous. Keep the suggestion and leave the input retryable; a
+        // missing read must never authorize destructive compensation.
+        if (shidduchimId != null && current != null) {
           if (!readSucceeded && readStarted && !ambiguousRead) {
             let attemptEntityFiles =
               preparation?.entityFilesCreatedByAttempt ?? [];
@@ -1828,12 +1952,14 @@ export function useResolveInboxItem() {
             }
             const compensated = await compensateNewSuggestion(
               item,
+              attemptId,
               shidduchimId,
               preparation?.resume.id ?? stashed?.resume_id,
               preparation?.file.path ??
                 stashed?.resume_file_path ??
                 item.attachments?.find(isResumeDocument)?.path ??
                 "",
+              preparation?.suggestionCreatedId,
               preparation?.resumeCreatedByAttempt ??
                 stashed?.resume_created === true,
               attemptEntityFiles,

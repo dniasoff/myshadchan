@@ -52,6 +52,8 @@ const buildItem = (overrides: Partial<InboxItem> = {}): InboxItem => ({
  * landing and that stash reaching the database. */
 type DataProviderHooks = {
   beforeUpdate?: (resource: string, params: unknown) => void;
+  afterUpdate?: (resource: string, params: unknown) => void;
+  failInboxReadAfterStash?: boolean;
 };
 
 /**
@@ -140,6 +142,14 @@ const buildDataProvider = (
 
   const getOne = vi.fn(async (resource: string, params: { id: Identifier }) => {
     if (resource === "inbox_items" && params.id === currentItem.id) {
+      if (
+        hooks.failInboxReadAfterStash &&
+        currentItem.resolution_input &&
+        "resolved_shidduchim_id" in currentItem.resolution_input
+      ) {
+        hooks.failInboxReadAfterStash = false;
+        throw new Error("verification read lost");
+      }
       return { data: currentItem };
     }
     if (resource === "shidduchim") {
@@ -161,6 +171,7 @@ const buildDataProvider = (
         previousData: InboxItem;
       };
       currentItem = { ...currentItem, ...data };
+      hooks.afterUpdate?.(resource, params);
       return { data: currentItem };
     }
     return { data: {} };
@@ -513,6 +524,44 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
     );
   });
 
+  it("preserves a suggestion when the stash committed but response and verification reads were lost", async () => {
+    let stashResponseLost = true;
+    const hooks: DataProviderHooks = {
+      failInboxReadAfterStash: true,
+      afterUpdate: (resource, params) => {
+        const { data } = params as {
+          data?: { resolution_input?: { resolved_shidduchim_id?: Identifier } };
+        };
+        if (
+          resource === "inbox_items" &&
+          data?.resolution_input?.resolved_shidduchim_id != null &&
+          stashResponseLost
+        ) {
+          stashResponseLost = false;
+          throw new Error("stash response lost");
+        }
+      },
+    };
+    const item = buildItem();
+    const { screen, dataProvider } = await renderProbe(
+      item,
+      {},
+      undefined,
+      hooks,
+    );
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect
+      .element(screen.getByText("error:stash response lost"))
+      .toBeInTheDocument();
+
+    expect(dataProvider.delete).not.toHaveBeenCalled();
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+    expect(dataProvider.createShidduch).toHaveBeenCalledTimes(1);
+  });
+
   it("does not duplicate a note when the note stash is lost before retrying", async () => {
     let stashShouldFail = true;
     const hooks: DataProviderHooks = {
@@ -575,6 +624,7 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     // path saved as if it were a `documents`-bucket one).
     expect(copyInboxAttachmentToResumeFile).toHaveBeenCalledWith({
       shidduchimId: 99,
+      inboxItemId: item.id,
       attachment: draft.attachment,
     });
 

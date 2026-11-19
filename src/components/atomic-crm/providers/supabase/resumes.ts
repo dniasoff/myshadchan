@@ -136,6 +136,7 @@ export async function uploadResumeFile(
 }
 
 export type CopyInboxAttachmentToResumeFileParams = ResumeSubject & {
+  inboxItemId: number | string;
   attachment: InboxAttachment;
 };
 
@@ -243,8 +244,14 @@ async function validateInboxResumeAttach(
  * object, so deleting it here could remove bytes referenced by a committed
  * resume. Common rejections are prevalidated above; an ambiguous failure can
  * therefore leave at most one bounded, private, deterministic object for this
- * account/target/source tuple, which a retry reuses. Orphan GC is a separate
- * follow-up.
+ * account/target/source tuple, which a retry reuses. We intentionally leave
+ * the object on every ambiguous or otherwise unclassified RPC error: a
+ * response can be lost after the catalog append, and deleting it here could
+ * silently remove a committed resume. The bounded leftover is private and
+ * retry-safe; bead 89p tracks its Inbox-attachment object GC. The explicit
+ * source/provenance rejection below is authoritative and cleanup is attempted
+ * immediately; if that cleanup is unavailable, the same bounded GC policy
+ * applies.
  */
 export async function attachInboxAttachmentToResumeFile(
   params: AttachInboxAttachmentToResumeFileParams,
@@ -357,14 +364,21 @@ export type CopiedResumeFile = {
 export async function copyInboxAttachmentToResumeFile(
   params: CopyInboxAttachmentToResumeFileParams,
 ): Promise<CopiedResumeFile> {
-  const { attachment, ...subject } = params;
+  const { attachment, inboxItemId, ...subject } = params;
   const attachmentPath = attachment.path;
   const fileName = attachment.title;
   const accountId = await getCurrentAccountId();
-  const ownerSegment = isSingleSubject(subject)
-    ? `single-${subject.singleId}`
-    : `${subject.shidduchimId}`;
-  const storagePath = `${accountId}/resumes/${ownerSegment}/${crypto.randomUUID()}-${fileName}`;
+  // This path is owned by the Inbox item and source attachment. A retry after
+  // an ambiguous upload response upserts the same private object, so it can
+  // never create a second copy. Any bounded leftover is covered by bead 89p's
+  // Inbox-attachment object GC.
+  const storagePath = await buildResumeInboxStoragePath(
+    accountId,
+    subject,
+    inboxItemId,
+    attachmentPath,
+    fileName,
+  );
 
   const { data: blob, error: downloadError } = await getSupabaseClient()
     .storage.from(ATTACHMENTS_BUCKET)
@@ -379,7 +393,7 @@ export async function copyInboxAttachmentToResumeFile(
 
   const { error: uploadError } = await getSupabaseClient()
     .storage.from(DOCUMENTS_BUCKET)
-    .upload(storagePath, blob);
+    .upload(storagePath, blob, { upsert: true });
   if (uploadError) {
     console.error("copyInboxAttachmentToResumeFile.upload.error", uploadError);
     throw new Error("Failed to save the captured resume");

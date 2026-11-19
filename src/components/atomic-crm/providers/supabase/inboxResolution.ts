@@ -66,6 +66,15 @@ export type OwnedResumeDeleteParams = {
   expectedFiles: ResumeFileVersion[];
 };
 
+export type OwnedResumeFileDeleteParams = {
+  id: Identifier;
+  shidduchimId: Identifier;
+  expectedFiles: ResumeFileVersion[];
+  storagePath: string;
+  sourceInboxItemId: Identifier;
+  sourceInboxAttachmentPath: string;
+};
+
 export type OwnedShidduchDeleteParams = {
   id: Identifier;
   singleId?: Identifier | null;
@@ -85,6 +94,47 @@ export async function deleteOwnedInboxResume(
   const { data, error } = await query.select("id");
   if (error) throw new Error("Could not remove the failed resume attempt.");
   return Array.isArray(data) ? data.length > 0 : data != null;
+}
+
+/**
+ * Remove exactly one Inbox-provenance file from an unchanged resume row.
+ * The catalog CAS happens before Storage cleanup; if Storage reports a
+ * failure after the CAS, a retry sees the missing catalog entry and can make
+ * the deterministic object cleanup idempotently. It never deletes a
+ * different file or an entire user-owned resume row.
+ */
+export async function deleteOwnedInboxResumeFile(
+  params: OwnedResumeFileDeleteParams,
+): Promise<boolean> {
+  const fileIndex = params.expectedFiles.findIndex(
+    (file) =>
+      file.path === params.storagePath &&
+      String(file.source_inbox_item_id) === String(params.sourceInboxItemId) &&
+      file.source_inbox_attachment_path === params.sourceInboxAttachmentPath,
+  );
+  if (fileIndex === -1) return true;
+
+  const nextFiles = params.expectedFiles.filter(
+    (_, index) => index !== fileIndex,
+  );
+  const { data, error } = await getSupabaseClient()
+    .from("resumes")
+    .update({ files: nextFiles })
+    .eq("id", params.id)
+    .eq("shidduchim_id", params.shidduchimId)
+    .eq("files", JSON.stringify(params.expectedFiles))
+    .select("id");
+  if (error) throw new Error("Could not roll back the captured resume file.");
+  const updated = Array.isArray(data) ? data.length > 0 : data != null;
+  if (!updated) return false;
+
+  const { error: storageError } = await getSupabaseClient()
+    .storage.from("documents")
+    .remove([params.storagePath]);
+  if (storageError) {
+    throw new Error("Could not roll back the captured resume file.");
+  }
+  return true;
 }
 
 /** Delete only the still-nameless, unchanged suggestion created by the attempt. */

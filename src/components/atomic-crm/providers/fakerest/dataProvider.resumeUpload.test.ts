@@ -21,6 +21,7 @@ describe("FakeRest resume capture methods", () => {
 
     const copied = await dataProvider.copyInboxAttachmentToResumeFile({
       shidduchimId: 99,
+      inboxItemId: 700,
       attachment,
     });
     expect(copied.size).toBe(file.size);
