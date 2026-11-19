@@ -556,6 +556,43 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     ]);
   });
 
+  it("reuses a durably stashed copied path when row cleanup fails", async () => {
+    let resumeCreateCalls = 0;
+    const create = vi.fn(async (resource: string) => {
+      if (resource === "resumes") {
+        resumeCreateCalls += 1;
+        if (resumeCreateCalls === 1) throw new Error("insert failed");
+      }
+      return { data: { id: 100 } };
+    }) as unknown as CrmDataProvider["create"];
+    const removeResumeFileObjects = vi
+      .fn()
+      .mockRejectedValue(new Error("cleanup failed"));
+    const item = buildItem();
+    const draft = buildResumeDraft();
+    const { screen, dataProvider } = await renderProbe(
+      item,
+      { create, removeResumeFileObjects },
+      draft,
+    );
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect
+      .element(screen.getByText("error:insert failed"))
+      .toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+
+    expect(dataProvider.copyInboxAttachmentToResumeFile).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(removeResumeFileObjects).toHaveBeenCalledWith([
+      "7/resumes/99/generated-uuid-resume.pdf",
+    ]);
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps the item retryable when resume copy fails, then completes without an orphan", async () => {
     const copyInboxAttachmentToResumeFile = vi
       .fn()
@@ -1035,6 +1072,103 @@ describe("useResolveInboxItem — Story 10.5 idempotency edge cases", () => {
       .toBeInTheDocument();
 
     expect(dataProvider.update).not.toHaveBeenCalled();
+  });
+
+  it("does not mutate a dismissed item when new or link resolution is requested", async () => {
+    const item = buildItem({ status: "dismissed" });
+    const { screen, dataProvider } = await renderProbe(item);
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect
+      .element(
+        screen.getByText("error:This Inbox item has already been dismissed."),
+      )
+      .toBeInTheDocument();
+    await screen
+      .getByRole("button", { name: "resolveAsLinkToExisting" })
+      .click();
+    await expect
+      .element(
+        screen.getByText("error:This Inbox item has already been dismissed."),
+      )
+      .toBeInTheDocument();
+
+    expect(dataProvider.createShidduch).not.toHaveBeenCalled();
+    expect(dataProvider.create).not.toHaveBeenCalled();
+    expect(dataProvider.update).not.toHaveBeenCalled();
+  });
+
+  it("restores a held item to held when a claimed action fails", async () => {
+    const createShidduch = vi
+      .fn()
+      .mockRejectedValue(new Error("temporary create failure"));
+    const item = buildItem({ status: "held" });
+    const { screen, dataProvider } = await renderProbe(item, {
+      createShidduch,
+    });
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect
+      .element(screen.getByText("error:temporary create failure"))
+      .toBeInTheDocument();
+    expect(dataProvider.update).toHaveBeenLastCalledWith(
+      "inbox_items",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "held",
+          resolution_input: expect.objectContaining({
+            claimed_from_status: "held",
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("fails closed when another resume row lacks this Inbox attachment provenance", async () => {
+    const item = buildItem();
+    const draft = buildResumeDraft();
+    const getList = vi.fn(async (resource: string) => {
+      if (resource === "resumes") {
+        return {
+          data: [
+            {
+              id: 4,
+              shidduchim_id: 99,
+              files: [
+                {
+                  path: "7/resumes/99/other.pdf",
+                  filename: "other.pdf",
+                  mime_type: "application/pdf",
+                  uploaded_at: "2026-01-01T00:00:00Z",
+                  uploaded_by: null,
+                  size: 12,
+                  source_inbox_item_id: 777,
+                  source_inbox_attachment_path: "other/path.pdf",
+                },
+              ],
+            },
+          ],
+          total: 1,
+        };
+      }
+      return { data: [], total: 0 };
+    }) as unknown as CrmDataProvider["getList"];
+    const { screen, dataProvider } = await renderProbe(
+      item,
+      { getList },
+      draft,
+    );
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect
+      .element(
+        screen.getByText(
+          "error:A different resume is already attached to this suggestion.",
+        ),
+      )
+      .toBeInTheDocument();
+    expect(dataProvider.copyInboxAttachmentToResumeFile).not.toHaveBeenCalled();
+    expect(dataProvider.create).not.toHaveBeenCalled();
   });
 
   it("throws when another incompatible resolution is already in progress", async () => {

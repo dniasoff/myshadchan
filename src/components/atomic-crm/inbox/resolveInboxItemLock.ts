@@ -39,16 +39,22 @@ export type ResolutionInput =
       resolved_shidduchim_id?: Identifier;
       resume_draft?: ResumeDraft;
       resume_created?: boolean;
+      resume_transfer_path?: string;
+      resume_transfer_size?: number;
+      resume_transfer_state?: "pending" | "cleaned";
+      claimed_from_status?: "unresolved" | "held";
       lock_acquired_at?: string;
     }
   | {
       action: "link";
       shidduchim_id: Identifier;
       note_inserted?: boolean;
+      claimed_from_status?: "unresolved" | "held";
       lock_acquired_at?: string;
     }
   | {
       action: "dismiss";
+      claimed_from_status?: "unresolved" | "held";
       lock_acquired_at?: string;
     }
   | {
@@ -65,6 +71,7 @@ export type ResolutionInput =
       entity_file_ids?: Identifier[];
       resume_read_request_id?: string;
       resume_read_pending?: boolean;
+      claimed_from_status?: "unresolved" | "held";
     };
 
 const MAX_LOCK_RETRIES = 3;
@@ -74,6 +81,13 @@ export class ResolutionClaimLostError extends Error {
   constructor() {
     super("This Inbox item is already being handled.");
     this.name = "ResolutionClaimLostError";
+  }
+}
+
+export class ResolutionTerminalError extends Error {
+  constructor() {
+    super("This Inbox item has already been dismissed.");
+    this.name = "ResolutionTerminalError";
   }
 }
 
@@ -304,11 +318,15 @@ export async function acquireResolutionLock(
       data: {
         status: "resolving",
         resolution_attempt_id: attemptId,
-        // A failed attempt is released back to unresolved while preserving
-        // its progress. Reuse that compatible stash so a retry keeps the
-        // already-created suggestion/resume instead of starting over.
+        // A failed attempt is released back to the status it was claimed
+        // from while preserving its progress. Reuse that compatible stash so
+        // a retry keeps the already-created suggestion/resume instead of
+        // starting over.
         resolution_input: withLockTimestamp(
-          nextInput,
+          {
+            ...nextInput,
+            claimed_from_status: current.status,
+          } as ResolutionInput,
           new Date().toISOString(),
         ),
       },

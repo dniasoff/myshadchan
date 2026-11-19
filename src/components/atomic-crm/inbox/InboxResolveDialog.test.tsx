@@ -453,6 +453,9 @@ describe("InboxResolveDialog — confirm details", () => {
       .element(screen.getByLabelText("Name of the person"))
       .toBeInTheDocument();
     await expect
+      .element(screen.getByText("Dovid Berkowitz, BMG", { exact: true }))
+      .toBeInTheDocument();
+    await expect
       .element(screen.getByRole("button", { name: "Auto-fill from resume" }))
       .not.toBeInTheDocument();
     await expect
@@ -464,6 +467,7 @@ describe("InboxResolveDialog — confirm details", () => {
     const item = buildItem();
     const { screen, dataProvider } = await renderDialog(item);
 
+    const nameInput = screen.getByLabelText("Name of the person");
     await screen.getByRole("button", { name: "File as a suggestion" }).click();
 
     await expect
@@ -471,7 +475,20 @@ describe("InboxResolveDialog — confirm details", () => {
         screen.getByText("Name of the person is required", { exact: true }),
       )
       .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("Name of the person is required");
+    await expect.poll(() => document.activeElement).toBe(nameInput.element());
     expect(dataProvider.createShidduch).not.toHaveBeenCalled();
+  });
+
+  it("uses automatic direction for RTL person names", async () => {
+    const { screen } = await renderDialog(buildItem());
+    const nameInput = screen.getByLabelText("Name of the person");
+
+    await nameInput.fill("חיה לוי");
+
+    await expect.element(nameInput).toHaveAttribute("dir", "auto");
   });
 
   it("puts the attached resume on the suggestion without writing extraction fields", async () => {
@@ -506,6 +523,8 @@ describe("InboxResolveDialog — confirm details", () => {
           expect.objectContaining({
             filename: "resume.pdf",
             mime_type: "application/pdf",
+            source_inbox_item_id: item.id,
+            source_inbox_attachment_path: buildAttachment().path,
           }),
         ],
       }),

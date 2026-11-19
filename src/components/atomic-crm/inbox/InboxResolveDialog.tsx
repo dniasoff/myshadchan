@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   Form,
@@ -10,6 +10,7 @@ import {
   useRefresh,
   useTranslate,
 } from "ra-core";
+import { useFormState } from "react-hook-form";
 import { CancelButton } from "@/components/admin/cancel-button";
 import { AutocompleteInput } from "@/components/admin/autocomplete-input";
 import { SaveButton } from "@/components/admin/form";
@@ -61,6 +62,46 @@ function readTextField(value: unknown): string | null {
     return String(value);
   }
   return null;
+}
+
+function NameInput() {
+  const { errors, submitCount } = useFormState({ name: "name_en" });
+  const message =
+    typeof errors.name_en?.message === "string"
+      ? errors.name_en.message
+      : undefined;
+
+  useEffect(() => {
+    if (!message || submitCount === 0) return;
+    document.querySelector<HTMLInputElement>('input[name="name_en"]')?.focus();
+  }, [message, submitCount]);
+
+  return (
+    <>
+      <TextInput
+        source="name_en"
+        label="Name of the person"
+        dir="auto"
+        aria-describedby={message ? "name-of-person-error" : undefined}
+        validate={(value) =>
+          typeof value === "string" && value.trim() !== ""
+            ? undefined
+            : "Name of the person is required"
+        }
+        helperText={false}
+      />
+      {message ? (
+        <p
+          id="name-of-person-error"
+          role="alert"
+          aria-live="assertive"
+          className="sr-only"
+        >
+          {message}
+        </p>
+      ) : null}
+    </>
+  );
 }
 
 /**
@@ -282,16 +323,7 @@ const LegacyInboxResolveDialog = ({
                   helperText={false}
                 />
               </ReferenceInput>
-              <TextInput
-                source="name_en"
-                label="Name of the person"
-                validate={(value) =>
-                  typeof value === "string" && value.trim() !== ""
-                    ? undefined
-                    : "Name of the person is required"
-                }
-                helperText={false}
-              />
+              <NameInput />
             </div>
 
             {/* AC 5 (Story 10.1, Task 3): link to an existing suggestion

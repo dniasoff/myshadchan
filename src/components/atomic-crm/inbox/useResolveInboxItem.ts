@@ -32,6 +32,7 @@ import {
   generateAttemptId,
   isResolutionLockStale,
   ResolutionClaimLostError,
+  ResolutionTerminalError,
   type ResolutionInput,
   type ResumeDraft,
 } from "./resolveInboxItemLock";
@@ -165,6 +166,24 @@ type OwnershipDataProvider = CrmDataProvider & {
   ) => Promise<boolean>;
 };
 
+async function removeCopiedResumeObject(
+  dataProvider: CrmDataProvider,
+  storagePath: string,
+): Promise<void> {
+  const provider = dataProvider as OwnershipDataProvider;
+  if (
+    Object.prototype.hasOwnProperty.call(
+      provider,
+      "removeResumeFileObjectsStrict",
+    ) &&
+    typeof provider.removeResumeFileObjectsStrict === "function"
+  ) {
+    await provider.removeResumeFileObjectsStrict([storagePath]);
+    return;
+  }
+  await dataProvider.removeResumeFileObjects([storagePath]);
+}
+
 /**
  * The three ways a captured `inbox_items` row stops being unresolved (Story
  * 10.1 Task 2). Extracted out of `InboxResolveDialog.tsx` — the only place
@@ -215,6 +234,9 @@ export function useResolveInboxItem() {
     );
 
     try {
+      if (lockedItem.status === "dismissed") {
+        throw new ResolutionTerminalError();
+      }
       // Already resolved — return the linked shidduch (idempotent no-op).
       if (
         lockedItem.status === "resolved" &&
@@ -276,7 +298,7 @@ export function useResolveInboxItem() {
       // `resolveAsLinkToExisting` below — a retry that observes
       // `resume_created` already stashed skips re-creating the row, so a crash
       // between this write and the finalize step below cannot duplicate it.
-      const draftProgress = (resolutionSnapshot.resolution_input ??
+      let draftProgress = (resolutionSnapshot.resolution_input ??
         stashed) as ResolutionInput & {
         resume_draft?: ResumeDraft;
         resume_created?: boolean;
@@ -308,18 +330,56 @@ export function useResolveInboxItem() {
           "resumes",
           {
             filter: { shidduchim_id: created.id },
-            pagination: { page: 1, perPage: 1 },
+            pagination: { page: 1, perPage: 100 },
             sort: { field: "id", order: "ASC" },
           },
         );
 
-        if (existingResumes.length === 0) {
+        const existingResumeForAttempt = existingResumes.find((resume) =>
+          findResumeFile(resume, item.id, savedDraft.attachment.path),
+        );
+        if (existingResumes.length > 0 && !existingResumeForAttempt) {
+          throw new Error(
+            "A different resume is already attached to this suggestion.",
+          );
+        }
+
+        if (!existingResumeForAttempt) {
           let copiedFile: CopiedResumeFile | undefined;
+          const stashedTransferPath =
+            draftProgress.resume_transfer_state !== "cleaned" &&
+            draftProgress.resume_transfer_path;
           try {
-            copiedFile = await dataProvider.copyInboxAttachmentToResumeFile({
-              shidduchimId: created.id,
-              attachment: savedDraft.attachment,
-            });
+            copiedFile = stashedTransferPath
+              ? {
+                  storagePath: stashedTransferPath,
+                  size: draftProgress.resume_transfer_size ?? 0,
+                }
+              : await dataProvider.copyInboxAttachmentToResumeFile({
+                  shidduchimId: created.id,
+                  attachment: savedDraft.attachment,
+                });
+
+            if (!stashedTransferPath) {
+              resolutionSnapshot = await updateOwnedInboxResolution(
+                item,
+                {
+                  resolution_input: {
+                    ...draftProgress,
+                    resume_transfer_path: copiedFile.storagePath,
+                    resume_transfer_size: copiedFile.size,
+                    resume_transfer_state: "pending",
+                  },
+                },
+                attemptId,
+              );
+              draftProgress = {
+                ...draftProgress,
+                resume_transfer_path: copiedFile.storagePath,
+                resume_transfer_size: copiedFile.size,
+                resume_transfer_state: "pending",
+              };
+            }
             const resumeData: Record<string, unknown> = {
               shidduchim_id: created.id,
               files: [
@@ -330,6 +390,8 @@ export function useResolveInboxItem() {
                   uploaded_at: new Date().toISOString(),
                   uploaded_by: null,
                   size: copiedFile.size,
+                  source_inbox_item_id: item.id,
+                  source_inbox_attachment_path: savedDraft.attachment.path,
                 },
               ],
             };
@@ -346,14 +408,33 @@ export function useResolveInboxItem() {
               data: resumeData,
             });
           } catch (creationError) {
-            // Mirrors `uploadResumeFile`'s "no object without a row" ordering:
-            // the copy already landed in `documents` when the row write failed,
-            // so remove it rather than leaving an orphaned, never-referenced
-            // object behind.
+            // The copied path was durably recorded before the row write. A
+            // strict cleanup closes the normal failure path; when cleanup is
+            // unavailable or loses the network, the pending path remains in
+            // resolution_input and the retry reuses this exact object rather
+            // than creating a second private object.
             if (copiedFile) {
-              await dataProvider.removeResumeFileObjects([
-                copiedFile.storagePath,
-              ]);
+              try {
+                await removeCopiedResumeObject(
+                  dataProvider,
+                  copiedFile.storagePath,
+                );
+                const current = await getCurrentResolutionItem(item);
+                if (current?.status === "resolving") {
+                  await updateOwnedInboxResolution(
+                    item,
+                    {
+                      resolution_input: {
+                        ...(current.resolution_input ?? draftProgress),
+                        resume_transfer_state: "cleaned",
+                      },
+                    },
+                    attemptId,
+                  );
+                }
+              } catch {
+                // Keep the pending path durable for the retry.
+              }
             }
             throw creationError;
           }
@@ -363,7 +444,8 @@ export function useResolveInboxItem() {
           item,
           {
             resolution_input: {
-              ...draftProgress,
+              ...((resolutionSnapshot.resolution_input ??
+                draftProgress) as ResolutionInput),
               resolved_shidduchim_id: created.id,
               resume_created: true,
             },
@@ -428,6 +510,9 @@ export function useResolveInboxItem() {
       { claimFromStatuses: ["unresolved", "held"] },
     );
 
+    if (lockedItem.status === "dismissed") {
+      throw new ResolutionTerminalError();
+    }
     if (lockedItem.status === "resolved") {
       return;
     }
@@ -628,6 +713,7 @@ export function useResolveInboxItem() {
         }
         const currentInput = current.resolution_input as {
           lock_acquired_at?: unknown;
+          claimed_from_status?: "unresolved" | "held";
         } | null;
         const updated = await conditionalInboxUpdate(
           dataProvider,
@@ -640,7 +726,10 @@ export function useResolveInboxItem() {
                 ? currentInput.lock_acquired_at
                 : undefined,
             data: {
-              status: "unresolved",
+              status:
+                currentInput?.claimed_from_status === "held"
+                  ? "held"
+                  : "unresolved",
               resolution_attempt_id: null,
               resolution_input: options.preserveInput
                 ? current.resolution_input
@@ -1013,6 +1102,9 @@ export function useResolveInboxItem() {
       resolutionInput,
       { claimFromStatuses: ["unresolved"] },
     );
+    if (lockedItem.status === "dismissed") {
+      throw new ResolutionTerminalError();
+    }
     if (lockedItem.status === "resolved" && lockedItem.resolved_shidduchim_id) {
       const { data: existing } = await dataProvider.getOne<Shidduch>(
         "shidduchim",

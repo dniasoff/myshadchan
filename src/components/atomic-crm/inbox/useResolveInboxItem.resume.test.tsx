@@ -358,6 +358,25 @@ const renderProbe = async (
 };
 
 describe("resume-first Inbox resolution", () => {
+  it("does not create, attach, read, or update after the Inbox item was dismissed", async () => {
+    const item = buildItem({ status: "dismissed" });
+    const { screen, dataProvider, createShidduch } = await renderProbe(item);
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(
+        screen.getByText("error:This Inbox item has already been dismissed."),
+      )
+      .toBeInTheDocument();
+
+    expect(createShidduch).not.toHaveBeenCalled();
+    expect(
+      dataProvider.attachInboxAttachmentToResumeFile,
+    ).not.toHaveBeenCalled();
+    expect(dataProvider.readResume).not.toHaveBeenCalled();
+    expect(dataProvider.update).not.toHaveBeenCalled();
+  });
+
   it("creates a nameless suggestion, runs fill_empty, and finalizes only after the read succeeds", async () => {
     const item = buildItem();
     const { screen, dataProvider, createShidduch } = await renderProbe(item);
