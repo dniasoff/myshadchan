@@ -170,13 +170,20 @@ const useShidduchLifecycle = (
     };
     try {
       if (typeof getReadState === "function") {
-        const state = await getReadState(record.id);
-        setReadInProgress(state.inProgress);
-        if (state.inProgress) {
-          notify("Please wait: this resume is being made easy to read.", {
-            type: "warning",
-          });
-          return;
+        try {
+          const state = await getReadState(record.id);
+          setReadInProgress(state.inProgress);
+          if (state.inProgress) {
+            notify("Please wait: this resume is being made easy to read.", {
+              type: "warning",
+            });
+            return;
+          }
+        } catch {
+          // A read-state probe is only an advisory client guard. If it is
+          // unavailable, let delete_shidduch enforce the authoritative
+          // server-side read lease check instead of aborting the archive step.
+          setReadInProgress(false);
         }
       }
       if (!rememberPendingShidduchAction(marker)) {

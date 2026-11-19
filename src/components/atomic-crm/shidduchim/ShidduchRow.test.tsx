@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+import { Route, Routes, useLocation } from "react-router";
 
 import "@/index.css";
 
@@ -13,6 +14,11 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type { ShidduchSummary } from "../types";
 import { ShidduchRow } from "./ShidduchRow";
+import {
+  getPendingShidduchAction,
+  SHIDDUCH_ACTION_UNDO_MS,
+} from "./shidduchLifecycle";
+import { ShidduchPendingActionBar } from "./ShidduchLifecycleActions";
 import { rememberTransientSuggestionName } from "./transientSuggestionDisplay";
 
 const buildShidduch = (
@@ -266,6 +272,69 @@ describe("ShidduchRow — RecordLink mention, Move as a sibling (AC-12)", () => 
         more.element().ownerDocument.activeElement?.getAttribute("aria-label"),
       )
       .toBe("More actions for Chaim Cohen");
+  });
+
+  it("archives a list-row delete first and permanently deletes it after Undo expires", async () => {
+    vi.useFakeTimers();
+    const archiveShidduch = vi.fn().mockResolvedValue(undefined);
+    const deleteShidduch = vi.fn().mockResolvedValue({ purgePending: false });
+    const dataProvider = {
+      archiveShidduch,
+      deleteShidduch,
+      getOne: vi.fn().mockResolvedValue({ data: buildShidduch() }),
+      getShidduchReadState: vi.fn().mockResolvedValue({ inProgress: false }),
+      restoreShidduch: vi.fn(),
+    } as unknown as CrmDataProvider;
+    const PendingDestination = () => {
+      const location = useLocation();
+      const action = getPendingShidduchAction(location.state);
+      return action ? (
+        <ShidduchPendingActionBar action={action} onDone={vi.fn()} />
+      ) : null;
+    };
+
+    try {
+      const screen = await render(
+        <TestMemoryRouter initialEntries={["/shidduchim"]}>
+          <CoreAdminContext
+            dataProvider={dataProvider}
+            i18nProvider={testI18nProvider}
+          >
+            <Routes>
+              <Route
+                path="/shidduchim"
+                element={
+                  <>
+                    <ShidduchRow
+                      shidduch={buildShidduch()}
+                      onMove={vi.fn()}
+                      canManageLifecycle
+                    />
+                    <PendingDestination />
+                  </>
+                }
+              />
+            </Routes>
+          </CoreAdminContext>
+        </TestMemoryRouter>,
+      );
+
+      await screen
+        .getByRole("button", { name: /More actions for Chaim Cohen/ })
+        .click();
+      await screen.getByRole("menuitem", { name: "Delete suggestion" }).click();
+      await screen.getByRole("button", { name: "Delete", exact: true }).click();
+
+      await expect.poll(() => archiveShidduch.mock.calls.length).toBe(1);
+      expect(deleteShidduch).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(SHIDDUCH_ACTION_UNDO_MS);
+      await expect.poll(() => deleteShidduch.mock.calls.length).toBe(1);
+      expect(deleteShidduch).toHaveBeenCalledWith(42);
+    } finally {
+      vi.useRealTimers();
+      window.sessionStorage.clear();
+    }
   });
 
   it("shows Restore and Delete, without Move or More, for archived rows", async () => {

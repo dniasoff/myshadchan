@@ -326,6 +326,44 @@ describe("ShidduchLifecycleActions mutation reconciliation", () => {
       .toBeInTheDocument();
   });
 
+  it("continues the delete archive step when the read-state probe rejects", async () => {
+    const archiveShidduch = vi.fn().mockResolvedValue(undefined);
+    const getShidduchReadState = vi
+      .fn()
+      .mockRejectedValue(new Error("read-state RPC unavailable"));
+    const dataProvider = {
+      archiveShidduch,
+      getOne: vi.fn(),
+      getShidduchReadState,
+      restoreShidduch: vi.fn(),
+    } as unknown as CrmDataProvider;
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/shidduchim/42"]}>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <Routes>
+            <Route
+              path="/shidduchim/42"
+              element={<ShidduchLifecycleActions record={record} />}
+            />
+            <Route path="/shidduchim" element={<PageActionDestination />} />
+          </Routes>
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await chooseDelete(screen);
+    await expect.poll(() => archiveShidduch.mock.calls.length).toBe(1);
+    await expect
+      .poll(() => getShidduchReadState.mock.calls.length)
+      .toBeGreaterThanOrEqual(2);
+    await expect
+      .element(screen.getByRole("button", { name: "Undo" }))
+      .toBeInTheDocument();
+  });
+
   it("keeps the marker when reconciliation proves the server archived the suggestion", async () => {
     const { archiveShidduch, dataProvider, getOne } = buildDataProvider(
       "2026-11-17T15:00:00.000Z",
