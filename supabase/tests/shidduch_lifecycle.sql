@@ -45,6 +45,39 @@ insert into results
 select 'normal create_shidduch succeeds while base INSERT is revoked',
   exists (select 1 from public.shidduchim where id = (select value::bigint from ids where name = 'shidduch_id'));
 
+-- The read-state RPC is called by the delete confirmation before the
+-- lifecycle RPC.  Exercise both its manager and single-role branches before
+-- the later end-to-end delete assertion.  An unaffiliated/anon caller is
+-- covered by the explicit ACL assertion below because the RPC is not public.
+select public.shidduch_read_in_progress(
+  (select value::bigint from ids where name = 'shidduch_id')
+) as parent_no_read
+\gset
+insert into results values (
+  'parent_admin sees no active AI read',
+  :'parent_no_read'::boolean = false,
+  'expected false'
+);
+
+set local role postgres;
+insert into auth.users (id, instance_id, aud, role, email)
+values ('5a333333-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '5xr-single@test.local')
+on conflict (id) do nothing;
+insert into public.account_members (account_id, user_id, role, status)
+values (:acct_a, '5a333333-3333-3333-3333-333333333333', 'single', 'active');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"5a333333-3333-3333-3333-333333333333","role":"authenticated"}';
+select public.shidduch_read_in_progress(
+  (select value::bigint from ids where name = 'shidduch_id')
+) as single_no_read
+\gset
+insert into results values (
+  'single caller sees no active AI read',
+  :'single_no_read'::boolean = false,
+  'expected false'
+);
+set local request.jwt.claims = '{"sub":"5a111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
 do $$
 begin
   insert into public.shidduchim (id, account_id, single_id, name_en)
@@ -89,9 +122,42 @@ insert into public.resumes (account_id, shidduchim_id, files)
 values (:acct_a, (select value::bigint from ids where name = 'shidduch_id'),
   jsonb_build_array(jsonb_build_object('path', :'acct_a' || '/resumes/' || (select value from ids where name = 'shidduch_id') || '/resume.pdf')))
 returning id as resume_id \gset
+set local role authenticated;
+select public.resume_read_in_progress(
+  :resume_id,
+  (select value from ids where name = 'acct_a') || '/resumes/'
+    || (select value from ids where name = 'shidduch_id') || '/resume.pdf'
+) as resume_no_read
+\gset
+insert into results values (
+  'resume file read guard sees no active AI read',
+  :'resume_no_read'::boolean = false,
+  'expected false'
+);
+set local role postgres;
 insert into public.ai_reread_attempts (account_id, resume_id, request_id, period, status, lease_expires_at)
 values (:acct_a, :resume_id, '5a222222-2222-2222-2222-222222222222', to_char(now(), 'YYYY-MM'), 'in_progress', now() + interval '5 minutes');
 set local role authenticated;
+select public.resume_read_in_progress(
+  :resume_id,
+  (select value from ids where name = 'acct_a') || '/resumes/'
+    || (select value from ids where name = 'shidduch_id') || '/resume.pdf'
+) as resume_read_in_progress
+\gset
+insert into results values (
+  'resume file read guard sees an unexpired AI read',
+  :'resume_read_in_progress'::boolean = true,
+  'expected true'
+);
+select public.shidduch_read_in_progress(
+  (select value::bigint from ids where name = 'shidduch_id')
+) as parent_read_in_progress
+\gset
+insert into results values (
+  'parent_admin sees an unexpired AI read',
+  :'parent_read_in_progress'::boolean = true,
+  'expected true'
+);
 do $$
 begin
   perform public.delete_shidduch((select value::bigint from ids where name = 'shidduch_id'));
@@ -244,7 +310,9 @@ select 'lifecycle RPCs are not public or anonymous',
   and not has_function_privilege('public', 'public.authorize_shidduch_storage_removal(text,text,text,text,bigint,bigint,timestamptz)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.authorize_shidduch_storage_removal(text,text,text,text,bigint,bigint,timestamptz)', 'EXECUTE')
   and not has_function_privilege('public', 'public.ack_shidduch_storage_purge(text,text,text,bigint,bigint,timestamptz)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.ack_shidduch_storage_purge(text,text,text,bigint,bigint,timestamptz)', 'EXECUTE');
+  and not has_function_privilege('anon', 'public.ack_shidduch_storage_purge(text,text,text,bigint,bigint,timestamptz)', 'EXECUTE')
+  and not has_function_privilege('public', 'public.shidduch_read_in_progress(bigint)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.shidduch_read_in_progress(bigint)', 'EXECUTE');
 insert into results
 select 'storage purge RPCs are available only to authenticated managers and service role',
   has_function_privilege('authenticated', 'public.authorize_shidduch_storage_removal(text,text,text,text,bigint,bigint,timestamptz)', 'EXECUTE')

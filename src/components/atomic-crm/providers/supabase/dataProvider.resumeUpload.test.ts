@@ -13,13 +13,21 @@ const {
   const storageSignedUrl = vi.fn();
   const storageRemove = vi.fn();
   const rpc = vi.fn();
-  const from = vi.fn(() => ({
-    upload: storageUpload,
-    createSignedUrl: storageSignedUrl,
-    remove: storageRemove,
-  }));
+  const from = vi.fn((resource: string) => {
+    if (resource === "storage_purge_queue") {
+      return {
+        select: vi.fn().mockResolvedValue({ count: 0, error: null }),
+      };
+    }
+    return {
+      upload: storageUpload,
+      createSignedUrl: storageSignedUrl,
+      remove: storageRemove,
+    };
+  });
   const supabaseClient = {
     storage: { from },
+    from,
     rpc,
   };
   const baseDataProvider = {
@@ -253,5 +261,37 @@ describe("Supabase resume capture provider methods", () => {
     ).rejects.toThrow("Failed to sign attachment URL");
     const [storagePath] = storageUpload.mock.calls[0];
     expect(storageRemove).toHaveBeenCalledWith([storagePath]);
+  });
+
+  it("passes the exact resume-file identity and opaque token to the delete RPC", async () => {
+    vi.unstubAllGlobals();
+    const dataProvider = getDataProviderWithCustomMethods();
+    const deleteToken = "a".repeat(64);
+    rpc.mockImplementation(async (name: string) => {
+      if (name === "remove_resume_file") return { data: null, error: null };
+      if (name === "claim_shidduch_storage_purge") {
+        return { data: [], error: null };
+      }
+      if (name === "current_context_id") return { data: 7, error: null };
+      throw new Error(`unexpected RPC ${name}`);
+    });
+
+    await expect(
+      dataProvider.removeResumeFile({
+        resumeId: 42,
+        path: "7/resumes/42/resume.pdf",
+        size: 1234,
+        uploadedAt: "2026-11-17T12:34:56.000Z",
+        deleteToken,
+      }),
+    ).resolves.toEqual({ purgePending: false });
+
+    expect(rpc).toHaveBeenCalledWith("remove_resume_file", {
+      p_resume_id: 42,
+      p_path: "7/resumes/42/resume.pdf",
+      p_size: 1234,
+      p_uploaded_at: "2026-11-17T12:34:56.000Z",
+      p_delete_token: deleteToken,
+    });
   });
 });

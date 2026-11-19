@@ -10757,7 +10757,7 @@ revoke all on function public.shidduch_delete_tombstone() from public, anon, aut
 -- deadlock with a delete or a worker lease transition.
 CREATE OR REPLACE FUNCTION public.shidduch_read_in_progress(p_id bigint)
 RETURNS boolean
-LANGUAGE plpgsql STABLE SECURITY DEFINER
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path TO ''
 AS $$
 declare
@@ -10789,7 +10789,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.resume_read_in_progress(p_resume_id bigint, p_path text)
 RETURNS boolean
-LANGUAGE plpgsql STABLE SECURITY DEFINER
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path TO ''
 AS $$
 declare

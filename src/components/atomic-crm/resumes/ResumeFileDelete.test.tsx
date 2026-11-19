@@ -194,6 +194,45 @@ describe("resume file deletion contract", () => {
     );
   });
 
+  it("still finalizes a file delete when the read-state provider check rejects", async () => {
+    try {
+      const getResumeReadState = vi
+        .fn()
+        .mockRejectedValue(new Error("read-state RPC unavailable"));
+      const removeResumeFile = vi
+        .fn()
+        .mockResolvedValue({ purgePending: false });
+      const { dataProvider, screen } = await renderList({
+        getResumeReadState,
+        removeResumeFile,
+      });
+      vi.useFakeTimers();
+
+      await screen
+        .getByRole("button", { name: "Delete photo.jpg", exact: true })
+        .click();
+      await screen.getByRole("button", { name: "Delete", exact: true }).click();
+      await expect.element(screen.getByText("Deleted.")).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(RESUME_FILE_DELETE_UNDO_MS);
+
+      await expect.poll(() => removeResumeFile.mock.calls.length).toBe(1);
+      expect(getResumeReadState).toHaveBeenCalledWith(
+        42,
+        "1/resumes/7/photo.jpg",
+      );
+      expect(removeResumeFile).toHaveBeenCalledExactlyOnceWith({
+        resumeId: 42,
+        path: "1/resumes/7/photo.jpg",
+        size: 9,
+        uploadedAt: "2026-02-01T00:00:00Z",
+        deleteToken: expect.stringMatching(/^[0-9a-f]{64}$/),
+      });
+      expect(dataProvider.removeResumeFile).toBe(removeResumeFile);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("runs the provider only after the full Undo window and keeps the exact failure copy", async () => {
     try {
       const removeResumeFile = vi

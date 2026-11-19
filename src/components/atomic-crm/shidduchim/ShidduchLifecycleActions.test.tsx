@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+import type * as RaCore from "ra-core";
 import { useState } from "react";
 import { Route, Routes, useLocation } from "react-router";
 
@@ -19,8 +20,14 @@ import {
   ShidduchPendingActionBar,
 } from "./ShidduchLifecycleActions";
 
-const { useViewerRoleMock } = vi.hoisted(() => ({
+const { notifyMock, useViewerRoleMock } = vi.hoisted(() => ({
+  notifyMock: vi.fn(),
   useViewerRoleMock: vi.fn(),
+}));
+
+vi.mock("ra-core", async () => ({
+  ...(await vi.importActual<typeof RaCore>("ra-core")),
+  useNotify: () => notifyMock,
 }));
 
 vi.mock("../entity360/useViewerRole", () => ({
@@ -228,6 +235,7 @@ describe("ShidduchPendingActionBar — independent undo windows", () => {
 describe("ShidduchLifecycleActions mutation reconciliation", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
+    notifyMock.mockReset();
     useViewerRoleMock.mockReturnValue({
       role: "parent_admin",
       isPending: false,
@@ -324,6 +332,98 @@ describe("ShidduchLifecycleActions mutation reconciliation", () => {
         ),
       )
       .toBeInTheDocument();
+  });
+
+  it("continues the delete archive step when the read-state probe rejects", async () => {
+    const archiveShidduch = vi.fn().mockResolvedValue(undefined);
+    const getShidduchReadState = vi
+      .fn()
+      .mockRejectedValue(new Error("read-state RPC unavailable"));
+    const dataProvider = {
+      archiveShidduch,
+      getOne: vi.fn(),
+      getShidduchReadState,
+      restoreShidduch: vi.fn(),
+    } as unknown as CrmDataProvider;
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/shidduchim/42"]}>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <Routes>
+            <Route
+              path="/shidduchim/42"
+              element={<ShidduchLifecycleActions record={record} />}
+            />
+            <Route path="/shidduchim" element={<PageActionDestination />} />
+          </Routes>
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await chooseDelete(screen);
+    await expect.poll(() => archiveShidduch.mock.calls.length).toBe(1);
+    await expect
+      .poll(() => getShidduchReadState.mock.calls.length)
+      .toBeGreaterThanOrEqual(2);
+    await expect
+      .element(screen.getByRole("button", { name: "Undo" }))
+      .toBeInTheDocument();
+  });
+
+  it("surfaces an authoritative in-progress rejection after the probe fails", async () => {
+    vi.useFakeTimers();
+    const readInProgressMessage =
+      "Please wait: this resume is being made easy to read.";
+    const archiveShidduch = vi.fn().mockResolvedValue(undefined);
+    const deleteShidduch = vi
+      .fn()
+      .mockRejectedValue(new Error(readInProgressMessage));
+    const restoreShidduch = vi.fn().mockResolvedValue(undefined);
+    const getShidduchReadState = vi
+      .fn()
+      .mockRejectedValue(new Error("read-state RPC unavailable"));
+    const dataProvider = {
+      archiveShidduch,
+      deleteShidduch,
+      getOne: vi.fn(),
+      getShidduchReadState,
+      restoreShidduch,
+    } as unknown as CrmDataProvider;
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/shidduchim/42"]}>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <Routes>
+            <Route
+              path="/shidduchim/42"
+              element={<ShidduchLifecycleActions record={record} />}
+            />
+            <Route path="/shidduchim" element={<PageActionDestination />} />
+          </Routes>
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await chooseDelete(screen);
+    await expect.poll(() => archiveShidduch.mock.calls.length).toBe(1);
+    await expect
+      .element(screen.getByRole("button", { name: "Undo" }))
+      .toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(SHIDDUCH_ACTION_UNDO_MS);
+    await expect.poll(() => deleteShidduch.mock.calls.length).toBe(1);
+    await expect.poll(() => restoreShidduch.mock.calls.length).toBe(1);
+    expect(notifyMock).toHaveBeenCalledWith(readInProgressMessage, {
+      type: "error",
+    });
+    expect(notifyMock).not.toHaveBeenCalledWith(
+      "Could not delete. Nothing was changed.",
+      { type: "error" },
+    );
   });
 
   it("keeps the marker when reconciliation proves the server archived the suggestion", async () => {
