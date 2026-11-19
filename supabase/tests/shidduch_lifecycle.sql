@@ -101,6 +101,154 @@ exception when others then
   insert into results values ('authenticated id UPDATE is denied', true, sqlerrm);
 end $$;
 
+-- Stage changes remain RPC-only after 5xr. Exercise the current create path
+-- (the v64-shaped row) through new -> look_into -> yes, and an old-style row
+-- through new -> not_sure -> look_into -> yes. The graph is deliberately not
+-- expanded: look_into -> not_sure remains illegal.
+select count(*) = 1 as v64_to_look_into
+from public.transition_shidduch(
+  (select value::bigint from ids where name = 'shidduch_id'),
+  'new', 'look_into'
+)
+\gset
+insert into results values ('v64-shaped row moves new to look_into', :'v64_to_look_into'::boolean, null);
+
+select pipeline_state::text as v64_look_into_state
+from public.shidduchim
+where id = (select value::bigint from ids where name = 'shidduch_id')
+\gset
+insert into results values ('v64-shaped row is in look_into', :'v64_look_into_state' = 'look_into', null);
+
+select count(*) = 1 as v64_to_yes
+from public.transition_shidduch(
+  (select value::bigint from ids where name = 'shidduch_id'),
+  'look_into', 'yes'
+)
+\gset
+insert into results values ('v64-shaped row moves look_into to yes', :'v64_to_yes'::boolean, null);
+
+set local role postgres;
+insert into public.shidduchim (account_id, single_id, name_en, pipeline_state)
+values (
+  (select value::bigint from ids where name = 'acct_a'),
+  (select value::bigint from ids where name = 'single_id'),
+  'Old-style suggestion',
+  'new'
+)
+returning id as old_style_id \gset
+insert into ids values ('old_style_id', :'old_style_id');
+
+insert into public.singles (account_id, first_name_en, last_name_en)
+values ((select value::bigint from ids where name = 'acct_b'), '5xr B', 'Single')
+returning id as cross_single_id \gset
+insert into ids values ('cross_single_id', :'cross_single_id');
+insert into public.shidduchim (account_id, single_id, name_en, pipeline_state)
+values (
+  (select value::bigint from ids where name = 'acct_b'),
+  :'cross_single_id',
+  'Cross-account suggestion',
+  'new'
+)
+returning id as cross_account_id \gset
+insert into ids values ('cross_account_id', :'cross_account_id');
+
+insert into auth.users (id, instance_id, aud, role, email)
+values ('5a444444-4444-4444-4444-444444444444', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '5xr-pending@test.local')
+on conflict (id) do nothing;
+set local role authenticated;
+
+select count(*) = 1 as old_to_not_sure
+from public.transition_shidduch(:old_style_id, 'new', 'not_sure')
+\gset
+insert into results values ('old-style row moves new to not_sure', :'old_to_not_sure'::boolean, null);
+
+select count(*) = 1 as old_to_look_into
+from public.transition_shidduch(:old_style_id, 'not_sure', 'look_into')
+\gset
+insert into results values ('old-style row moves not_sure to look_into', :'old_to_look_into'::boolean, null);
+
+do $$
+begin
+  perform public.transition_shidduch(
+    (select value::bigint from ids where name = 'old_style_id'),
+    'look_into', 'not_sure'
+  );
+  insert into results values ('illegal look_into graph edge is refused', false, 'transition unexpectedly succeeded');
+exception when check_violation then
+  insert into results values ('illegal look_into graph edge is refused', true, sqlerrm);
+when others then
+  insert into results values ('illegal look_into graph edge is refused', false, sqlerrm);
+end $$;
+
+select count(*) = 1 as old_to_yes
+from public.transition_shidduch(:old_style_id, 'look_into', 'yes')
+\gset
+insert into results values ('old-style row moves look_into to yes', :'old_to_yes'::boolean, null);
+
+do $$
+begin
+  perform public.transition_shidduch(
+    (select value::bigint from ids where name = 'shidduch_id'),
+    'look_into', 'yes'
+  );
+  insert into results values ('stale stage from-state is refused', false, 'transition unexpectedly succeeded');
+exception when serialization_failure then
+  insert into results values ('stale stage from-state is refused', true, sqlerrm);
+when others then
+  insert into results values ('stale stage from-state is refused', false, sqlerrm);
+end $$;
+
+do $$
+begin
+  update public.shidduchim
+  set pipeline_state = 'look_into'
+  where id = (select value::bigint from ids where name = 'shidduch_id');
+  insert into results values ('authenticated pipeline_state UPDATE is denied', false, 'update unexpectedly succeeded');
+exception when insufficient_privilege then
+  insert into results values ('authenticated pipeline_state UPDATE is denied', true, sqlerrm);
+when others then
+  insert into results values ('authenticated pipeline_state UPDATE is denied', false, sqlerrm);
+end $$;
+
+do $$
+begin
+  perform public.transition_shidduch(
+    (select value::bigint from ids where name = 'cross_account_id'),
+    'new', 'look_into'
+  );
+  insert into results values ('cross-account stage change is refused', false, 'transition unexpectedly succeeded');
+exception when others then
+  insert into results values ('cross-account stage change is refused', sqlerrm like 'shidduch % not found', sqlerrm);
+end $$;
+
+set local request.jwt.claims = '{"sub":"5a444444-4444-4444-4444-444444444444","role":"authenticated"}';
+do $$
+begin
+  perform public.transition_shidduch(
+    (select value::bigint from ids where name = 'shidduch_id'),
+    'new', 'look_into'
+  );
+  insert into results values ('pending member stage change is refused', false, 'transition unexpectedly succeeded');
+exception when others then
+  insert into results values ('pending member stage change is refused', sqlerrm like 'shidduch % not found', sqlerrm);
+end $$;
+
+set local request.jwt.claims = '{"sub":"5a333333-3333-3333-3333-333333333333","role":"authenticated"}';
+select public.set_active_context((select value::bigint from ids where name = 'acct_a'));
+do $$
+begin
+  perform public.transition_shidduch(
+    (select value::bigint from ids where name = 'shidduch_id'),
+    'yes', 'yes'
+  );
+  insert into results values ('single stage change is refused', false, 'transition unexpectedly succeeded');
+exception when others then
+  insert into results values ('single stage change is refused', sqlerrm like 'shidduch % not found', sqlerrm);
+end $$;
+
+set local request.jwt.claims = '{"sub":"5a111111-1111-1111-1111-111111111111","role":"authenticated"}';
+select public.set_active_context((select value::bigint from ids where name = 'acct_a'));
+
 select pipeline_state as before_state
 from public.shidduchim
 where id = (select value::bigint from ids where name = 'shidduch_id')
