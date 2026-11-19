@@ -135,8 +135,9 @@ revoke all on table public."references" from anon;
 grant all on table public."references" to authenticated;
 grant all on table public."references" to service_role;
 
-revoke all on table public.shidduchim from anon;
-grant all on table public.shidduchim to authenticated;
+-- Base-table writes are RPC-only. The explicit authenticated SELECT and
+-- persist-order UPDATE(index) grants below are the complete client surface.
+revoke all on table public.shidduchim from public, anon, authenticated;
 grant all on table public.shidduchim to service_role;
 
 revoke all on table public.resumes from anon;
@@ -808,10 +809,11 @@ grant select, update, delete on table public."references" to authenticated;
 --     the one base-table write names its returned columns explicitly.
 --   * ADDING A COLUMN to public.shidduchim means adding it HERE too, or it is
 --     unreadable. That default is deliberate: fail closed, loudly.
---   * INSERT/UPDATE/DELETE stay table-level. Writing close_reason needs
---     UPDATE, not SELECT; RLS (05_policies.sql) is what gates the writes.
+--   * The only authenticated base-table write left by the lifecycle hardening
+--     block below is UPDATE(index), for persist-order. INSERT/DELETE and all
+--     other UPDATE columns are RPC-only; writing close_reason therefore stays
+--     behind the guarded SECURITY DEFINER entry points.
 revoke all on table public.shidduchim from anon, authenticated;
-grant insert, update, delete on table public.shidduchim to authenticated;
 grant select (
     id,
     account_id,
