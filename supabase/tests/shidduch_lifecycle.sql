@@ -139,7 +139,9 @@ where kind = 'prefix'
 order by id
 limit 1
 \gset
-select public.ack_shidduch_storage_purge(:'prefix_kind', :'prefix_bucket', :'prefix_path') as prefix_first_ack
+select public.ack_shidduch_storage_purge(
+  :'prefix_kind', :'prefix_bucket', :'prefix_path', null, null, null
+) as prefix_first_ack
 \gset
 set local role postgres;
 insert into results
@@ -158,7 +160,9 @@ select kind as prefix_kind2, bucket as prefix_bucket2, storage_path as prefix_pa
 from public.claim_shidduch_storage_purge()
 where kind = 'prefix' and bucket = :'prefix_bucket' and storage_path = :'prefix_path'
 \gset
-select public.ack_shidduch_storage_purge(:'prefix_kind2', :'prefix_bucket2', :'prefix_path2') as prefix_second_ack
+select public.ack_shidduch_storage_purge(
+  :'prefix_kind2', :'prefix_bucket2', :'prefix_path2', null, null, null
+) as prefix_second_ack
 \gset
 set local role postgres;
 insert into results
@@ -237,8 +241,16 @@ select 'lifecycle RPCs are not public or anonymous',
   and not has_function_privilege('anon', 'public.archive_shidduch(bigint)', 'EXECUTE')
   and not has_function_privilege('public', 'public.delete_shidduch(bigint)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.delete_shidduch(bigint)', 'EXECUTE')
+  and not has_function_privilege('public', 'public.authorize_shidduch_storage_removal(text,text,text,text,bigint,bigint,timestamptz)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.authorize_shidduch_storage_removal(text,text,text,text,bigint,bigint,timestamptz)', 'EXECUTE')
   and not has_function_privilege('public', 'public.ack_shidduch_storage_purge(text,text,text,bigint,bigint,timestamptz)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.ack_shidduch_storage_purge(text,text,text,bigint,bigint,timestamptz)', 'EXECUTE');
+insert into results
+select 'storage purge RPCs are available only to authenticated managers and service role',
+  has_function_privilege('authenticated', 'public.authorize_shidduch_storage_removal(text,text,text,text,bigint,bigint,timestamptz)', 'EXECUTE')
+  and has_function_privilege('service_role', 'public.authorize_shidduch_storage_removal(text,text,text,text,bigint,bigint,timestamptz)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.ack_shidduch_storage_purge(text,text,text,bigint,bigint,timestamptz)', 'EXECUTE')
+  and has_function_privilege('service_role', 'public.ack_shidduch_storage_purge(text,text,text,bigint,bigint,timestamptz)', 'EXECUTE');
 insert into results
 select 'queue is a live account cleanup obligation',
   public.account_has_domain_data((select value::bigint from ids where name = 'acct_a'));

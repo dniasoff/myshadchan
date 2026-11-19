@@ -11,16 +11,6 @@ test.describe("Resume file delete ownership", () => {
   }) => {
     test.setTimeout(35_000);
 
-    // Force the same fallback used by older Safari/WebViews. Both pages share
-    // cookies and localStorage, but each has an independent JS runtime and
-    // therefore exercises a real cross-page ownership race.
-    await page.context().addInitScript(() => {
-      Object.defineProperty(navigator, "locks", {
-        configurable: true,
-        value: undefined,
-      });
-    });
-
     const member = await createMember({
       first_name: "Ronit",
       last_name: "Delete",
@@ -39,6 +29,20 @@ test.describe("Resume file delete ownership", () => {
 
     await signIn(page, member.email!);
     const pageB = await page.context().newPage();
+
+    // Force the same fallback used by older Safari/WebViews only after the
+    // auth shell has booted. Supabase Auth may use Web Locks during startup;
+    // hiding it before sign-in strands both pages on the Suspense loader and
+    // never exercises the resume-file fallback.
+    for (const tab of [page, pageB]) {
+      await tab.evaluate(() => {
+        Object.defineProperty(navigator, "locks", {
+          configurable: true,
+          value: undefined,
+        });
+      });
+    }
+
     const deleteRequests = { count: 0 };
     for (const tab of [page, pageB]) {
       tab.on("request", (request) => {

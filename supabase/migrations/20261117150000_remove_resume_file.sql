@@ -1343,3 +1343,8 @@ grant execute on function public.remove_resume_file(bigint, text, bigint, timest
 revoke all on function public.resume_read_in_progress(bigint, text) from public, anon;
 grant execute on function public.resume_read_in_progress(bigint, text) to authenticated;
 grant execute on function public.resume_read_in_progress(bigint, text) to service_role;
+
+revoke all on function public.authorize_shidduch_storage_removal(text, text, text, text, bigint, bigint, timestamptz) from public, anon;
+grant execute on function public.authorize_shidduch_storage_removal(text, text, text, text, bigint, bigint, timestamptz) to authenticated, service_role;
+revoke all on function public.ack_shidduch_storage_purge(text, text, text, bigint, bigint, timestamptz) from public, anon;
+grant execute on function public.ack_shidduch_storage_purge(text, text, text, bigint, bigint, timestamptz) to authenticated, service_role;

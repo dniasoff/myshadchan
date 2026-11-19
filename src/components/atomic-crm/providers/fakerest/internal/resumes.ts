@@ -253,28 +253,35 @@ export async function removeResumeFile(
   }
 
   const files = resume.files ?? [];
-  const deletionKey = `${String(accountId)}\u0000${String(resumeId)}\u0000${path}`;
-  const selected = files.find((file) => file.path === path);
-  if (
-    selected &&
-    (selected.size !== size || selected.uploaded_at !== uploadedAt)
-  ) {
-    throw new Error("Could not delete. Nothing was changed.");
-  }
-  const remaining = files.filter((file) => file.path !== path);
-  if (remaining.length === files.length) {
+  const deletionKey = JSON.stringify([
+    String(accountId),
+    String(resumeId),
+    path,
+    size,
+    uploadedAt,
+  ]);
+  const selectedIndex = files.findIndex(
+    (file) =>
+      file.path === path &&
+      file.size === size &&
+      file.uploaded_at === uploadedAt,
+  );
+  if (selectedIndex === -1) {
     if (removedPaths.has(deletionKey)) return { purgePending: false };
     throw new Error("Could not delete. Nothing was changed.");
   }
+  const remaining = files.filter((_, index) => index !== selectedIndex);
 
   await baseDataProvider.update<Resume>("resumes", {
     id: resume.id,
     data: { files: remaining },
     previousData: resume,
   });
-  const blobUrl = blobUrls.get(path);
-  if (blobUrl?.startsWith("blob:")) URL.revokeObjectURL(blobUrl);
-  blobUrls.delete(path);
+  if (!remaining.some((file) => file.path === path)) {
+    const blobUrl = blobUrls.get(path);
+    if (blobUrl?.startsWith("blob:")) URL.revokeObjectURL(blobUrl);
+    blobUrls.delete(path);
+  }
   removedPaths.add(deletionKey);
   return { purgePending: false };
 }
