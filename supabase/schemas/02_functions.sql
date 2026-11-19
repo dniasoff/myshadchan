@@ -8500,6 +8500,47 @@ begin
     raise exception 'shidduch % not found', p_id;
   end if;
 
+  -- Re-evaluate the policy-equivalent authorization while holding the row
+  -- lock. A grant, membership role, or account association may have changed
+  -- while the first check waited for this lock.
+  if not v_service_role then
+    v_account_id := public.current_context_id();
+    v_role := public.current_member_role();
+    if auth.uid() is null or v_account_id is null or v_role is null
+       or v_role = 'single' then
+      raise exception 'shidduch % not found', p_id;
+    end if;
+
+    if v_row.account_id is distinct from v_account_id then
+      if not exists (
+        select 1 from public.child_grants g
+        where g.status = 'accepted'
+          and g.access_level = 'edit'
+          and g.grantee_account_id = v_account_id
+          and g.target_single_id = v_row.single_id
+      ) or v_row.account_id is distinct from (
+        select g.proposer_account_id
+        from public.child_grants g
+        where g.status = 'accepted'
+          and g.access_level = 'edit'
+          and g.grantee_account_id = v_account_id
+          and g.target_single_id = v_row.single_id
+        limit 1
+      ) then
+        raise exception 'shidduch % not found', p_id;
+      end if;
+    end if;
+
+    if coalesce(public.shidduch_has_known_halachic_conflict(
+      v_row.single_id,
+      v_row.person_gender,
+      v_row.kohen_status,
+      v_row.marital_status
+    ), false) then
+      raise exception 'shidduch % not found', p_id;
+    end if;
+  end if;
+
   v_current := v_row.pipeline_state;
 
   if v_current is distinct from p_from then
