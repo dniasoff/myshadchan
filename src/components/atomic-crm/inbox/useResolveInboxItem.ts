@@ -226,7 +226,9 @@ export function useResolveInboxItem() {
         return data;
       }
 
-      const stashed = (lockedItem.resolution_input ?? {}) as ResolutionInput & {
+      let resolutionSnapshot = lockedItem;
+      const stashed = (resolutionSnapshot.resolution_input ??
+        {}) as ResolutionInput & {
         resolved_shidduchim_id?: Identifier;
       };
 
@@ -241,7 +243,10 @@ export function useResolveInboxItem() {
         // Stash the created id so a retry can skip createShidduch if the
         // finalize step fails.
         const current = await getCurrentResolutionItem(item);
-        await updateOwnedInboxResolution(
+        // Carry the row returned by the successful CAS forward. The next
+        // phase must build its progress from this committed snapshot, not the
+        // pre-stash `lockedItem` captured before the suggestion existed.
+        resolutionSnapshot = await updateOwnedInboxResolution(
           item,
           {
             resolution_input: {
@@ -271,7 +276,8 @@ export function useResolveInboxItem() {
       // `resolveAsLinkToExisting` below — a retry that observes
       // `resume_created` already stashed skips re-creating the row, so a crash
       // between this write and the finalize step below cannot duplicate it.
-      const draftProgress = stashed as ResolutionInput & {
+      const draftProgress = (resolutionSnapshot.resolution_input ??
+        stashed) as ResolutionInput & {
         resume_draft?: ResumeDraft;
         resume_created?: boolean;
       };
@@ -353,7 +359,7 @@ export function useResolveInboxItem() {
           }
         }
 
-        await updateOwnedInboxResolution(
+        resolutionSnapshot = await updateOwnedInboxResolution(
           item,
           {
             resolution_input: {
@@ -371,7 +377,7 @@ export function useResolveInboxItem() {
         }
       }
 
-      await updateOwnedInboxResolution(
+      resolutionSnapshot = await updateOwnedInboxResolution(
         item,
         finalizePayload("resolved", {
           resolved_shidduchim_id: created.id,
@@ -427,7 +433,9 @@ export function useResolveInboxItem() {
     }
 
     try {
-      const stashed = (lockedItem.resolution_input ?? {}) as ResolutionInput & {
+      let resolutionSnapshot = lockedItem;
+      const stashed = (resolutionSnapshot.resolution_input ??
+        {}) as ResolutionInput & {
         note_inserted?: boolean;
       };
 
@@ -440,7 +448,7 @@ export function useResolveInboxItem() {
           { source: "inbox_item", inbox_item_id: item.id },
         );
         const current = await getCurrentResolutionItem(item);
-        await updateOwnedInboxResolution(
+        resolutionSnapshot = await updateOwnedInboxResolution(
           item,
           {
             resolution_input: {
@@ -485,7 +493,7 @@ export function useResolveInboxItem() {
         });
       }
 
-      await updateOwnedInboxResolution(
+      resolutionSnapshot = await updateOwnedInboxResolution(
         item,
         finalizePayload("resolved", {
           resolved_shidduchim_id: shidduchimId,

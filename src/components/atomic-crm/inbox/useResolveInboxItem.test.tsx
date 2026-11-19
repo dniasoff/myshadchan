@@ -338,6 +338,55 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
 
     expect(dataProvider.createShidduch).toHaveBeenCalledTimes(1);
   });
+
+  it("retries a finalize failure with the same suggestion and one resume", async () => {
+    let finalizeShouldFail = true;
+    const hooks: DataProviderHooks = {
+      beforeUpdate: (resource, params) => {
+        const { data } = params as {
+          data?: { status?: InboxItem["status"] };
+        };
+        if (
+          resource === "inbox_items" &&
+          data?.status === "resolved" &&
+          finalizeShouldFail
+        ) {
+          finalizeShouldFail = false;
+          throw new Error("finalize failed");
+        }
+      },
+    };
+    const item = buildItem({ source: "upload" });
+    const draft = buildResumeDraft();
+    const { screen, dataProvider } = await renderProbe(item, {}, draft, hooks);
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect
+      .element(screen.getByText("error:finalize failed"))
+      .toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+
+    expect(dataProvider.createShidduch).toHaveBeenCalledTimes(1);
+    expect(dataProvider.copyInboxAttachmentToResumeFile).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(
+      (dataProvider.create as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([resource]) => resource === "resumes",
+      ),
+    ).toHaveLength(1);
+    expect(dataProvider.update).toHaveBeenLastCalledWith(
+      "inbox_items",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "resolved",
+          resolved_shidduchim_id: 99,
+        }),
+      }),
+    );
+  });
 });
 
 describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 review fix, Finding 2 + also-fixes)", () => {
@@ -506,6 +555,63 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
       "7/resumes/99/generated-uuid-resume.pdf",
     ]);
   });
+
+  it("keeps the item retryable when resume copy fails, then completes without an orphan", async () => {
+    const copyInboxAttachmentToResumeFile = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("resume copy failed"))
+      .mockResolvedValue({
+        storagePath: "7/resumes/99/generated-uuid-resume.pdf",
+        size: 245678,
+      });
+    const item = buildItem({ source: "upload" });
+    const draft = buildResumeDraft();
+    const { screen, dataProvider } = await renderProbe(
+      item,
+      { copyInboxAttachmentToResumeFile },
+      draft,
+    );
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect
+      .element(screen.getByText("error:resume copy failed"))
+      .toBeInTheDocument();
+    expect(dataProvider.update).toHaveBeenLastCalledWith(
+      "inbox_items",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "unresolved",
+          resolution_input: expect.objectContaining({
+            resolved_shidduchim_id: 99,
+          }),
+        }),
+      }),
+    );
+    expect(dataProvider.create).not.toHaveBeenCalledWith(
+      "resumes",
+      expect.anything(),
+    );
+    expect(dataProvider.removeResumeFileObjects).not.toHaveBeenCalled();
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+    expect(dataProvider.createShidduch).toHaveBeenCalledTimes(1);
+    expect(copyInboxAttachmentToResumeFile).toHaveBeenCalledTimes(2);
+    expect(
+      (dataProvider.create as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([resource]) => resource === "resumes",
+      ),
+    ).toHaveLength(1);
+    expect(dataProvider.update).toHaveBeenLastCalledWith(
+      "inbox_items",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "resolved",
+          resolved_shidduchim_id: 99,
+        }),
+      }),
+    );
+  });
 });
 
 describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second suggestion)", () => {
@@ -583,6 +689,59 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
     await expect.element(screen.getByText("result:linked")).toBeInTheDocument();
 
     expect(dataProvider.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a link finalize failure without inserting a second note", async () => {
+    let finalizeShouldFail = true;
+    const hooks: DataProviderHooks = {
+      beforeUpdate: (resource, params) => {
+        const { data } = params as {
+          data?: { status?: InboxItem["status"] };
+        };
+        if (
+          resource === "inbox_items" &&
+          data?.status === "resolved" &&
+          finalizeShouldFail
+        ) {
+          finalizeShouldFail = false;
+          throw new Error("finalize failed");
+        }
+      },
+    };
+    const item = buildItem({ raw_text: "Chaim Berkowitz" });
+    const { screen, dataProvider } = await renderProbe(
+      item,
+      {},
+      undefined,
+      hooks,
+    );
+
+    await screen
+      .getByRole("button", { name: "resolveAsLinkToExisting" })
+      .click();
+    await expect
+      .element(screen.getByText("error:finalize failed"))
+      .toBeInTheDocument();
+
+    await screen
+      .getByRole("button", { name: "resolveAsLinkToExisting" })
+      .click();
+    await expect.element(screen.getByText("result:linked")).toBeInTheDocument();
+
+    expect(
+      (dataProvider.create as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([resource]) => resource === "interactions",
+      ),
+    ).toHaveLength(1);
+    expect(dataProvider.update).toHaveBeenLastCalledWith(
+      "inbox_items",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "resolved",
+          resolved_shidduchim_id: 42,
+        }),
+      }),
+    );
   });
 
   it("Story 10.4: carries inbox attachments into the linked shidduch", async () => {

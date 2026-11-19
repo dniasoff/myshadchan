@@ -474,7 +474,7 @@ describe("InboxResolveDialog — confirm details", () => {
     expect(dataProvider.createShidduch).not.toHaveBeenCalled();
   });
 
-  it("files the name and copies an attached resume without writing extraction fields", async () => {
+  it("puts the attached resume on the suggestion without writing extraction fields", async () => {
     const item = buildItem({ attachments: [buildAttachment()] });
     const { screen, dataProvider } = await renderDialog(item);
 
@@ -500,10 +500,26 @@ describe("InboxResolveDialog — confirm details", () => {
       attachment: buildAttachment(),
     });
     expect(dataProvider.create).toHaveBeenCalledWith("resumes", {
-      data: expect.not.objectContaining({
-        extracted: expect.anything(),
-        sections: expect.anything(),
+      data: expect.objectContaining({
+        shidduchim_id: 99,
+        files: [
+          expect.objectContaining({
+            filename: "resume.pdf",
+            mime_type: "application/pdf",
+          }),
+        ],
       }),
     });
+    const resumeCreate = (
+      dataProvider.create as ReturnType<typeof vi.fn>
+    ).mock.calls.find(([resource]) => resource === "resumes");
+    expect(resumeCreate?.[1]).not.toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          extracted: expect.anything(),
+          sections: expect.anything(),
+        }),
+      }),
+    );
   });
 });

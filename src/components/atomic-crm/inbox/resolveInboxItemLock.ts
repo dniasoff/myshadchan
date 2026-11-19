@@ -287,6 +287,13 @@ export async function acquireResolutionLock(
     throw new ResolutionClaimLostError();
   }
 
+  const preservedInput = (current.resolution_input ?? {}) as ResolutionInput;
+  const nextInput =
+    Object.keys(preservedInput).length > 0 &&
+    inputsAreCompatible(input, preservedInput)
+      ? ({ ...preservedInput, ...input } as ResolutionInput)
+      : input;
+
   // Claim from the exact status observed above. Needs Review actions claim
   // `held`; they must never be rewritten as an `unresolved` claim.
   const claimed = await conditionalInboxUpdate(
@@ -297,7 +304,13 @@ export async function acquireResolutionLock(
       data: {
         status: "resolving",
         resolution_attempt_id: attemptId,
-        resolution_input: withLockTimestamp(input, new Date().toISOString()),
+        // A failed attempt is released back to unresolved while preserving
+        // its progress. Reuse that compatible stash so a retry keeps the
+        // already-created suggestion/resume instead of starting over.
+        resolution_input: withLockTimestamp(
+          nextInput,
+          new Date().toISOString(),
+        ),
       },
     },
     current,
