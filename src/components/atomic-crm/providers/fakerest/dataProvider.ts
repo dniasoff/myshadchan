@@ -113,12 +113,7 @@ import {
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import type { CrmDataProvider } from "../types";
-import type {
-  InboxResolutionUpdateParams,
-  OwnedResumeDeleteParams,
-  OwnedResumeFileDeleteParams,
-  OwnedShidduchDeleteParams,
-} from "../supabase/inboxResolution";
+import type { InboxResolutionUpdateParams } from "../supabase/inboxResolution";
 import type {
   ShidduchReadState,
   ShidduchStoragePurgeResult,
@@ -1635,86 +1630,6 @@ export const createDataProvider = ({
         () => undefined,
       );
       return operation;
-    },
-    async deleteOwnedInboxResume(
-      params: OwnedResumeDeleteParams,
-    ): Promise<boolean> {
-      const { data: resume } = await baseDataProvider.getOne<any>("resumes", {
-        id: params.id,
-      });
-      if (
-        !resume ||
-        String(resume.shidduchim_id) !== String(params.shidduchimId) ||
-        JSON.stringify(resume.files ?? []) !==
-          JSON.stringify(params.expectedFiles)
-      ) {
-        return false;
-      }
-      await baseDataProvider.delete("resumes", {
-        id: params.id,
-        previousData: resume,
-      });
-      return true;
-    },
-    async deleteOwnedInboxResumeFile(
-      params: OwnedResumeFileDeleteParams,
-    ): Promise<boolean> {
-      const { data: resume } = await baseDataProvider.getOne<Resume>(
-        "resumes",
-        { id: params.id },
-      );
-      if (
-        !resume ||
-        String(resume.shidduchim_id) !== String(params.shidduchimId) ||
-        JSON.stringify(resume.files ?? []) !==
-          JSON.stringify(params.expectedFiles)
-      ) {
-        return false;
-      }
-      const fileIndex = (resume.files ?? []).findIndex(
-        (file) =>
-          file.path === params.storagePath &&
-          String(file.source_inbox_item_id) ===
-            String(params.sourceInboxItemId) &&
-          file.source_inbox_attachment_path ===
-            params.sourceInboxAttachmentPath,
-      );
-      if (fileIndex === -1) return true;
-      const nextFiles = (resume.files ?? []).filter(
-        (_, index) => index !== fileIndex,
-      );
-      await baseDataProvider.update<Resume>("resumes", {
-        id: resume.id,
-        data: { files: nextFiles },
-        previousData: resume,
-      });
-      const blobUrl = resumeFileBlobUrls.get(params.storagePath);
-      if (blobUrl?.startsWith("blob:")) URL.revokeObjectURL(blobUrl);
-      resumeFileBlobUrls.delete(params.storagePath);
-      return true;
-    },
-    async deleteOwnedInboxShidduch(
-      params: OwnedShidduchDeleteParams,
-    ): Promise<boolean> {
-      const { data: shidduch } = await baseDataProvider.getOne<any>(
-        "shidduchim",
-        { id: params.id },
-      );
-      if (
-        !shidduch ||
-        shidduch.name_en != null ||
-        (params.singleId != null &&
-          String(shidduch.single_id) !== String(params.singleId)) ||
-        (params.expectedCreatedAt != null &&
-          shidduch.created_at !== params.expectedCreatedAt)
-      ) {
-        return false;
-      }
-      await baseDataProvider.delete("shidduchim", {
-        id: params.id,
-        previousData: shidduch,
-      });
-      return true;
     },
     async getList(resource: string, params: any) {
       if (resource === "inbox_items" && params.meta?.resumeInboxPicker) {
@@ -3533,7 +3448,6 @@ export const createDataProvider = ({
         params,
         params.inboxItemId,
         attachment.path,
-        attachment.title,
       );
       const response = await fetch(attachment.src);
       if (!response.ok) {

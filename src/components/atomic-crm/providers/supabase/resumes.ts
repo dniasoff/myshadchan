@@ -145,16 +145,6 @@ export type AttachInboxAttachmentToResumeFileParams = ResumeSubject & {
   attachment: ResumeInboxAttachment;
 };
 
-/**
- * The marker is an in-memory receipt only. It is returned by the provider
- * after `add_resume_file` inserted this call's catalog entry, and is never
- * persisted in `resumes.files`. Callers may use it to decide whether an
- * exact rollback is safe after a lost ownership claim.
- */
-export type InboxResumeAttachmentResult = Resume & {
-  __inboxAttachmentInserted?: boolean;
-};
-
 const INBOX_RESUME_ATTACH_ERROR =
   "Could not attach this file. It may be too large or no longer available. The Inbox item was not changed.";
 
@@ -289,7 +279,7 @@ async function validateInboxResumeAttach(
  */
 export async function attachInboxAttachmentToResumeFile(
   params: AttachInboxAttachmentToResumeFileParams,
-): Promise<InboxResumeAttachmentResult> {
+): Promise<Resume> {
   const { attachment, inboxItemId, ...subject } = params;
   const sourcePath = attachment.path;
   const accountId = await getCurrentAccountId();
@@ -298,7 +288,6 @@ export async function attachInboxAttachmentToResumeFile(
     subject,
     inboxItemId,
     sourcePath,
-    "resume",
   );
 
   const existingResume = await validateInboxResumeAttach(
@@ -307,12 +296,7 @@ export async function attachInboxAttachmentToResumeFile(
     inboxItemId,
     attachment,
   );
-  if (existingResume) {
-    return {
-      ...existingResume,
-      __inboxAttachmentInserted: false,
-    };
-  }
+  if (existingResume) return existingResume;
 
   try {
     const { data: blob, error: downloadError } = await getSupabaseClient()
@@ -358,10 +342,7 @@ export async function attachInboxAttachmentToResumeFile(
     }
 
     const row = Array.isArray(data) ? data[0] : data;
-    return {
-      ...(row as Resume),
-      __inboxAttachmentInserted: true,
-    };
+    return row as Resume;
   } catch (error) {
     if (error instanceof Error && error.message === INBOX_RESUME_ATTACH_ERROR) {
       throw error;
@@ -414,7 +395,6 @@ export async function copyInboxAttachmentToResumeFile(
     subject,
     inboxItemId,
     attachmentPath,
-    "resume",
   );
 
   const { data: blob, error: downloadError } = await getSupabaseClient()

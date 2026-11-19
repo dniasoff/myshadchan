@@ -160,18 +160,12 @@ function ownerSegment(subject: {
     : `${subject.shidduchimId}`;
 }
 
-function safeStorageFilename(filename: string): string {
-  const safe = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
-  return safe || "resume";
-}
-
 /** A retry-safe destination key shared by the real and FakeRest providers. */
 export async function buildResumeInboxStoragePath(
   accountId: Identifier,
   subject: { shidduchimId?: Identifier; singleId?: Identifier },
   inboxItemId: Identifier,
   attachmentPath: string,
-  filename: string,
 ): Promise<string> {
   const input = `${accountId}|${ownerSegment(subject)}|${inboxItemId}|${attachmentPath}`;
   const digest = await crypto.subtle.digest(
@@ -181,5 +175,5 @@ export async function buildResumeInboxStoragePath(
   const hash = Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
-  return `${accountId}/resumes/${ownerSegment(subject)}/inbox-${hash}-${safeStorageFilename(filename)}`;
+  return `${accountId}/resumes/${ownerSegment(subject)}/inbox-${hash}`;
 }

@@ -79,7 +79,7 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     expect(upload).toHaveBeenCalledTimes(1);
     const [bucket, path, data, options] = upload.mock.calls[0];
     expect(bucket).toBe("documents");
-    expect(path).toMatch(/^7\/resumes\/42\/inbox-[0-9a-f]{64}-resume$/);
+    expect(path).toMatch(/^7\/resumes\/42\/inbox-[0-9a-f]{64}$/);
     expect(options).toEqual({ upsert: true });
     expect(data).toBe(FAKE_BLOB);
 
@@ -133,7 +133,7 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
 
     // Assert
     const [, path] = upload.mock.calls[0];
-    expect(path).toMatch(/^7\/resumes\/single-15\/inbox-[0-9a-f]{64}-resume$/);
+    expect(path).toMatch(/^7\/resumes\/single-15\/inbox-[0-9a-f]{64}$/);
   });
 
   it("keeps the opaque destination stable when the display title changes", async () => {
@@ -273,7 +273,7 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
 
     expect(remove).toHaveBeenCalledWith(
       "documents",
-      expect.arrayContaining([expect.stringMatching(/-resume$/)]),
+      expect.arrayContaining([expect.stringMatching(/inbox-[0-9a-f]{64}$/)]),
     );
   });
 

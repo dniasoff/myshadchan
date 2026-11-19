@@ -98,7 +98,6 @@ type ResumeProviderOptions = {
   dependentDataAppearsDuringCompensation?: boolean;
   failResumeLock?: boolean;
   failResumeLockOnce?: boolean;
-  attachReceiptInserted?: boolean;
 };
 
 const buildDataProvider = (options: ResumeProviderOptions = {}) => {
@@ -118,7 +117,6 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
     (async (paths: string[]) => removeResumeFileObjects(paths));
   let interactionReads = 0;
   let resumeLockFailures = 0;
-  const attachReceiptInserted = options.attachReceiptInserted ?? true;
 
   const getOne = vi.fn(async (resource: string, params: { id: Identifier }) => {
     if (resource === "inbox_items" && params.id === currentItem.id) {
@@ -194,64 +192,13 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
             source_inbox_attachment_path: params.attachment.path,
           },
         ];
-        return {
-          ...existing,
-          __inboxAttachmentInserted: attachReceiptInserted,
-        };
+        return existing;
       }
       const resume = buildResume();
       resumes.push(resume);
-      return {
-        ...resume,
-        __inboxAttachmentInserted: attachReceiptInserted,
-      };
+      return resume;
     },
   );
-
-  const deleteOwnedInboxResumeFile = vi.fn(async (params: any) => {
-    const resume = resumes.find(
-      (candidate) =>
-        String(candidate.id) === String(params.id) &&
-        String(candidate.shidduchim_id) === String(params.shidduchimId),
-    );
-    if (!resume) return false;
-    if (
-      JSON.stringify(resume.files ?? []) !==
-      JSON.stringify(params.expectedFiles)
-    ) {
-      return false;
-    }
-    const index = (resume.files ?? []).findIndex(
-      (file) =>
-        file.path === params.storagePath &&
-        String(file.source_inbox_item_id) ===
-          String(params.sourceInboxItemId) &&
-        file.source_inbox_attachment_path === params.sourceInboxAttachmentPath,
-    );
-    if (index === -1) return true;
-    resume.files = (resume.files ?? []).filter(
-      (_, fileIndex) => fileIndex !== index,
-    );
-    return true;
-  });
-
-  const deleteOwnedInboxResume = vi.fn(async (params: any) => {
-    const index = resumes.findIndex(
-      (candidate) =>
-        String(candidate.id) === String(params.id) &&
-        String(candidate.shidduchim_id) === String(params.shidduchimId),
-    );
-    if (index === -1) return false;
-    const resume = resumes[index];
-    if (
-      JSON.stringify(resume.files ?? []) !==
-      JSON.stringify(params.expectedFiles ?? [])
-    ) {
-      return false;
-    }
-    resumes.splice(index, 1);
-    return true;
-  });
 
   const update = vi.fn(
     async (
@@ -299,8 +246,6 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
     getList,
     createShidduch,
     attachInboxAttachmentToResumeFile,
-    deleteOwnedInboxResumeFile,
-    ...(options.failResumeLock ? { deleteOwnedInboxResume } : {}),
     readResume: vi.fn(async (params: { requestId: string }) => {
       const outcome = options.readOutcomeSequence?.[readCalls] ?? readOutcome;
       readCalls += 1;
@@ -420,7 +365,7 @@ const renderProbe = async (
 };
 
 describe("resume-first Inbox resolution", () => {
-  it("rolls back a pre-lock attachment when ownership acquisition loses the race", async () => {
+  it("leaves a pre-lock attachment when ownership acquisition loses the race", async () => {
     const item = buildItem();
     const { screen, dataProvider, resumes, createShidduch } = await renderProbe(
       item,
@@ -438,16 +383,14 @@ describe("resume-first Inbox resolution", () => {
     expect(
       dataProvider.attachInboxAttachmentToResumeFile,
     ).toHaveBeenCalledTimes(1);
-    expect(dataProvider.deleteOwnedInboxResumeFile).toHaveBeenCalledTimes(1);
-    expect(resumes).toHaveLength(0);
+    expect(resumes).toHaveLength(1);
   });
 
   it("does not remove a winner's pre-lock file when this claim is lost, then retries the same suggestion", async () => {
     const item = buildItem();
-    const { screen, dataProvider, resumes, createShidduch, getCurrentItem } =
+    const { screen, resumes, createShidduch, getCurrentItem } =
       await renderProbe(item, {
         failResumeLockOnce: true,
-        attachReceiptInserted: false,
       });
 
     await screen.getByRole("button", { name: "resolve resume" }).click();
@@ -457,7 +400,6 @@ describe("resume-first Inbox resolution", () => {
       )
       .toBeInTheDocument();
 
-    expect(dataProvider.deleteOwnedInboxResumeFile).not.toHaveBeenCalled();
     expect(resumes).toHaveLength(1);
     expect(getCurrentItem().status).toBe("unresolved");
 

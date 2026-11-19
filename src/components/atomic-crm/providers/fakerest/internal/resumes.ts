@@ -357,7 +357,6 @@ export async function attachInboxAttachmentToResumeFile(
     params,
     params.inboxItemId,
     sourceAttachment.path,
-    sourceAttachment.title,
   );
 
   try {

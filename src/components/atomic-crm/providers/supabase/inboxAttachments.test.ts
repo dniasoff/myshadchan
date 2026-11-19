@@ -206,6 +206,8 @@ describe("signInboxAttachmentUrl (Story 10.3 review fix F-B)", () => {
     expect(first[0].visibility).toBe("private_parent");
     expect(second[0].visibility).toBe("private_parent");
     expect(first[0].storage_path).toBe(second[0].storage_path);
+    expect(first[0].storage_path).not.toContain("family-photo");
+    expect(first[0].storage_path).not.toContain(".jpg");
     expect(first[0].visibility).not.toBe("shared");
     expect(create).toHaveBeenCalledTimes(1);
     expect(upload).toHaveBeenCalledTimes(1);

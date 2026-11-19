@@ -126,7 +126,7 @@ describe("attachInboxAttachmentToResumeFile", () => {
     expect(upload).toHaveBeenCalledTimes(1);
     const [bucket, path] = upload.mock.calls[0];
     expect(bucket).toBe("documents");
-    expect(path).toMatch(/^7\/resumes\/42\/inbox-[0-9a-f]{64}-resume$/);
+    expect(path).toMatch(/^7\/resumes\/42\/inbox-[0-9a-f]{64}$/);
     expect(path).not.toContain("signed.example");
     expect(rpc).toHaveBeenLastCalledWith("add_resume_file", {
       p_path: path,
@@ -161,7 +161,7 @@ describe("attachInboxAttachmentToResumeFile", () => {
     expect(remove).toHaveBeenCalledTimes(1);
     expect(remove.mock.calls[0][0]).toBe("documents");
     expect(remove.mock.calls[0][1]).toEqual([
-      expect.stringMatching(/^7\/resumes\/42\/inbox-[0-9a-f]{64}-resume$/),
+      expect.stringMatching(/^7\/resumes\/42\/inbox-[0-9a-f]{64}$/),
     ]);
   });
 

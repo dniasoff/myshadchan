@@ -1,10 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { InboxItem } from "../../types";
-import {
-  deleteOwnedInboxShidduch,
-  updateInboxItemResolution,
-} from "./inboxResolution";
+import { updateInboxItemResolution } from "./inboxResolution";
 
 const { from, rpc } = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn() }));
 
@@ -179,23 +176,5 @@ describe("Supabase Inbox resolution conditional update", () => {
 
     expect(result).toBeNull();
     expect(row.resolution_attempt_id).toBe("legacy");
-  });
-
-  it("uses the guarded delete RPC instead of a direct PostgREST DELETE", async () => {
-    rpc.mockResolvedValue({ data: true, error: null });
-
-    await expect(
-      deleteOwnedInboxShidduch({
-        id: 44,
-        singleId: 9,
-        expectedCreatedAt: "2026-11-16T00:00:00.000Z",
-      }),
-    ).resolves.toBe(true);
-    expect(rpc).toHaveBeenCalledWith("delete_owned_inbox_shidduch", {
-      p_id: 44,
-      p_single_id: 9,
-      p_created_at: "2026-11-16T00:00:00.000Z",
-    });
-    expect(from).not.toHaveBeenCalledWith("shidduchim");
   });
 });
