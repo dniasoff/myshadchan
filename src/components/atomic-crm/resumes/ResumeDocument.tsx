@@ -1,6 +1,22 @@
-import { useCallback, useState } from "react";
-import type { ReactElement } from "react";
+import { Maximize2, Minus, Plus } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import type { ReactElement, ReactNode, RefObject } from "react";
 import { useDataProvider, useGetList, useNotify, useTranslate } from "ra-core";
+
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import { AttachmentPreview } from "../attachments/AttachmentPreview";
 import type { CrmDataProvider } from "../providers/types";
@@ -29,7 +45,12 @@ import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
  * and leaves the version list visibly poking out, which is what makes the
  * page obviously scrollable past the frame.
  */
-const EMBED_HEIGHT = "h-[60svh] min-h-[18rem] md:h-[70vh] md:min-h-[24rem]";
+const EMBED_HEIGHT =
+  "h-[60svh] min-h-[410px] md:h-[70vh] md:min-h-[520px] md:max-h-[720px]";
+const ZOOM_MIN = 75;
+const ZOOM_MAX = 150;
+const ZOOM_STEP = 10;
+const ZOOM_DEFAULT = 100;
 
 /**
  * The Resume tab, whole: the document itself, then the versions beneath it.
@@ -88,7 +109,7 @@ export function ResumeDocument(
     ) ?? visibleVersions[0];
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 max-w-full flex-col gap-4">
       {shown ? <ResumeEmbed resumeId={resumeId ?? ""} version={shown} /> : null}
       {resumeWasRemoved ? (
         <p role="status" className="text-sm text-muted-foreground">
@@ -160,16 +181,305 @@ function ResumeEmbed({
   };
 
   return (
+    <ResumeViewer
+      key={resumeFileDeleteKey(resumeId, version)}
+      fileName={version.filename}
+      mimeType={version.mime_type}
+      signUrl={signUrl}
+      onDownload={handleDownload}
+    />
+  );
+}
+
+interface ResumeViewerToolbarProps {
+  zoom: number;
+  onZoomOut: () => void;
+  onZoomIn: () => void;
+  onFitToWidth: () => void;
+  onFullScreen?: () => void;
+  fullScreenButtonRef?: RefObject<HTMLButtonElement | null>;
+  isFullScreen?: boolean;
+}
+
+function ResumeViewerToolbar({
+  zoom,
+  onZoomOut,
+  onZoomIn,
+  onFitToWidth,
+  onFullScreen,
+  fullScreenButtonRef,
+  isFullScreen = false,
+}: ResumeViewerToolbarProps): ReactElement {
+  return (
     <div
-      className={`${EMBED_HEIGHT} overflow-hidden rounded-md border border-border bg-muted/40`}
+      role="toolbar"
+      aria-label="Resume viewing controls"
+      className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border bg-background/95 p-2 backdrop-blur motion-reduce:transition-none"
     >
-      <AttachmentPreview
-        key={resumeFileDeleteKey(resumeId, version)}
-        fileName={version.filename}
-        mimeType={version.mime_type}
-        signUrl={signUrl}
-        onDownload={handleDownload}
-      />
+      <span className="text-sm font-medium">Zoom</span>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        aria-label="Zoom out"
+        onClick={onZoomOut}
+        disabled={zoom <= ZOOM_MIN}
+        className="min-h-11 min-w-11 motion-reduce:transition-none"
+      >
+        <Minus aria-hidden="true" />
+      </Button>
+      <span
+        className="min-w-12 text-center text-sm tabular-nums"
+        aria-live="polite"
+      >
+        {zoom}%
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        aria-label="Zoom in"
+        onClick={onZoomIn}
+        disabled={zoom >= ZOOM_MAX}
+        className="min-h-11 min-w-11 motion-reduce:transition-none"
+      >
+        <Plus aria-hidden="true" />
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        className="min-h-11 motion-reduce:transition-none"
+        onClick={onFitToWidth}
+      >
+        Fit to width
+      </Button>
+      <Button
+        ref={fullScreenButtonRef}
+        type="button"
+        variant="outline"
+        className="min-h-11 motion-reduce:transition-none"
+        onClick={onFullScreen}
+        disabled={isFullScreen}
+      >
+        <Maximize2 aria-hidden="true" />
+        Full screen
+      </Button>
     </div>
+  );
+}
+
+function ResumePreviewStage({
+  children,
+  zoom,
+  fullScreen = false,
+  stageRef,
+  includeHost = false,
+  onHostReady,
+  onStageReady,
+  hidden = false,
+  testId,
+}: {
+  children?: ReactNode;
+  zoom: number;
+  fullScreen?: boolean;
+  stageRef: RefObject<HTMLDivElement | null>;
+  includeHost?: boolean;
+  onHostReady?: (node: HTMLDivElement | null) => void;
+  onStageReady?: (node: HTMLDivElement | null) => void;
+  hidden?: boolean;
+  testId?: string;
+}): ReactElement {
+  const scale = zoom / ZOOM_DEFAULT;
+  const setStage = useCallback(
+    (node: HTMLDivElement | null) => {
+      stageRef.current = node;
+      onStageReady?.(node);
+    },
+    [onStageReady, stageRef],
+  );
+
+  return (
+    <div
+      data-testid={testId}
+      ref={setStage}
+      hidden={hidden}
+      className={
+        fullScreen
+          ? "relative z-[51] min-h-0 min-w-0 max-w-full flex-1 overflow-auto bg-muted/40 motion-reduce:transition-none"
+          : `${EMBED_HEIGHT} min-w-0 max-w-full overflow-auto bg-muted/40 motion-reduce:transition-none`
+      }
+      style={{ touchAction: "pan-x pan-y pinch-zoom" }}
+    >
+      {includeHost ? (
+        <div
+          ref={onHostReady}
+          className="min-h-full w-full origin-top-left motion-reduce:transition-none"
+          style={{
+            minHeight: `${scale * 100}%`,
+            transform: `scale(${scale})`,
+            transformOrigin: "top left",
+          }}
+        />
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
+function ResumeViewer({
+  fileName,
+  mimeType,
+  signUrl,
+  onDownload,
+}: {
+  fileName: string;
+  mimeType: string | null | undefined;
+  signUrl: (options: { inline: boolean }) => Promise<string>;
+  onDownload: () => void;
+}): ReactElement {
+  const [zoom, setZoom] = useState(ZOOM_DEFAULT);
+  const [fullScreen, setFullScreen] = useState(false);
+  const fullScreenButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const inlineStageRef = useRef<HTMLDivElement>(null);
+  const dialogStageRef = useRef<HTMLDivElement>(null);
+  const previewHostRef = useRef<HTMLDivElement>(null);
+  const [previewHostNode, setPreviewHostNode] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const setPreviewHost = useCallback((node: HTMLDivElement | null) => {
+    previewHostRef.current = node;
+    setPreviewHostNode(node);
+  }, []);
+  const movePreviewHost = useCallback((destination: HTMLDivElement | null) => {
+    const host = previewHostRef.current;
+    if (host && destination && host.parentElement !== destination) {
+      destination.appendChild(host);
+    }
+  }, []);
+  const setDialogStage = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node && fullScreen) {
+        movePreviewHost(node);
+      }
+    },
+    [fullScreen, movePreviewHost],
+  );
+  const changeZoom = (delta: number) => {
+    setZoom((current) =>
+      Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, current + delta)),
+    );
+  };
+
+  useEffect(() => {
+    if (!fullScreen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [fullScreen]);
+
+  useLayoutEffect(() => {
+    const inlineStage = inlineStageRef.current;
+    movePreviewHost(fullScreen ? dialogStageRef.current : inlineStage);
+    return () => {
+      movePreviewHost(inlineStage);
+    };
+  }, [fullScreen, movePreviewHost, previewHostNode]);
+
+  const preview = (
+    <AttachmentPreview
+      fileName={fileName}
+      mimeType={mimeType}
+      signUrl={signUrl}
+      active
+      onDownload={onDownload}
+    />
+  );
+  const previewPortal = previewHostNode
+    ? createPortal(preview, previewHostNode)
+    : null;
+
+  return (
+    <Dialog open={fullScreen} onOpenChange={setFullScreen}>
+      <div
+        data-testid="resume-viewer-background"
+        className="relative min-w-0 max-w-full overflow-hidden rounded-md border border-border bg-muted/40"
+      >
+        {!fullScreen ? (
+          <ResumeViewerToolbar
+            zoom={zoom}
+            onZoomOut={() => changeZoom(-ZOOM_STEP)}
+            onZoomIn={() => changeZoom(ZOOM_STEP)}
+            onFitToWidth={() => setZoom(ZOOM_DEFAULT)}
+            onFullScreen={() => setFullScreen(true)}
+            fullScreenButtonRef={fullScreenButtonRef}
+          />
+        ) : null}
+        <ResumePreviewStage
+          zoom={zoom}
+          stageRef={inlineStageRef}
+          includeHost
+          onHostReady={setPreviewHost}
+          hidden={fullScreen}
+          testId="resume-document-stage"
+        >
+          {previewPortal}
+        </ResumePreviewStage>
+      </div>
+      <DialogContent
+        hideClose
+        aria-modal="true"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          closeButtonRef.current?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          movePreviewHost(inlineStageRef.current);
+          event.preventDefault();
+          fullScreenButtonRef.current?.focus();
+        }}
+        className="!fixed !inset-2 !z-50 !flex !h-[calc(100dvh-1rem)] !max-h-[calc(100dvh-1rem)] !w-[calc(100vw-1rem)] !max-w-[calc(100vw-1rem)] !translate-x-0 !translate-y-0 !flex-col !gap-0 !overflow-hidden !rounded-md !border !border-border !bg-background !p-2 !shadow-2xl motion-reduce:!animate-none motion-reduce:!transition-none sm:!inset-3 sm:!h-[calc(100dvh-1.5rem)] sm:!max-h-[calc(100dvh-1.5rem)] sm:!w-[calc(100vw-1.5rem)] sm:!max-w-[calc(100vw-1.5rem)] sm:!p-3"
+      >
+        <div className="relative z-[52] flex shrink-0 items-center justify-between border-b border-border bg-background/95 pb-2 text-left">
+          <div className="min-w-0 pe-2">
+            <DialogTitle dir="auto" className="truncate text-lg">
+              {fileName}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Full-screen resume viewer
+            </DialogDescription>
+          </div>
+          <Button
+            ref={closeButtonRef}
+            type="button"
+            variant="outline"
+            className="min-h-11 shrink-0 motion-reduce:transition-none"
+            onClick={() => setFullScreen(false)}
+          >
+            Close
+          </Button>
+        </div>
+        <div className="relative z-[52]">
+          <ResumeViewerToolbar
+            zoom={zoom}
+            onZoomOut={() => changeZoom(-ZOOM_STEP)}
+            onZoomIn={() => changeZoom(ZOOM_STEP)}
+            onFitToWidth={() => setZoom(ZOOM_DEFAULT)}
+            isFullScreen
+          />
+        </div>
+        <ResumePreviewStage
+          zoom={zoom}
+          fullScreen
+          stageRef={dialogStageRef}
+          onStageReady={setDialogStage}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }

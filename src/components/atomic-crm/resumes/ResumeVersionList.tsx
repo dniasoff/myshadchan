@@ -71,7 +71,7 @@ function ResumeEmpty(): ReactElement {
     <div>
       <p className="text-sm text-muted-foreground">
         {translate("crm.entity360.resume.empty", {
-          _: "No resume files attached",
+          _: "No resume attached",
         })}
       </p>
       <p className="mt-2 max-w-sm text-sm leading-5 text-muted-foreground">
@@ -575,7 +575,7 @@ export function ResumeVersionList({
   return (
     <section
       aria-labelledby="resume-files-heading"
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:p-6"
     >
       <div>
         <h2

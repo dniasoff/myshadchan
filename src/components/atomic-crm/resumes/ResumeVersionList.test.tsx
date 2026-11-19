@@ -80,7 +80,7 @@ describe("ResumeVersionList — loading, empty and error states (AC 1 / AC 3)", 
     // Assert
     expect(screen.container.querySelector('[aria-busy="true"]')).not.toBeNull();
     await expect
-      .element(screen.getByText("No resume files attached"))
+      .element(screen.getByText("No resume attached"))
       .not.toBeInTheDocument();
   });
 
@@ -93,7 +93,7 @@ describe("ResumeVersionList — loading, empty and error states (AC 1 / AC 3)", 
 
     // Assert
     await expect
-      .element(screen.getByText("No resume files attached"))
+      .element(screen.getByText("No resume attached"))
       .toBeInTheDocument();
   });
 
@@ -108,7 +108,7 @@ describe("ResumeVersionList — loading, empty and error states (AC 1 / AC 3)", 
 
     // Assert
     await expect
-      .element(screen.getByText("No resume files attached"))
+      .element(screen.getByText("No resume attached"))
       .toBeInTheDocument();
   });
 
