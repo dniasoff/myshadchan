@@ -252,7 +252,7 @@ describe("resume file deletion contract", () => {
       await rememberPendingResumeFileDelete(marker);
       schedulePendingResumeFileDelete(marker, finalize);
       await vi.advanceTimersByTimeAsync(100);
-      expect(finalize).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(finalize).toHaveBeenCalledTimes(1));
 
       // The 60-second fallback lease would have expired here. A second timer
       // must still observe the renewed opaque claim and stay out of the RPC.
@@ -306,12 +306,44 @@ describe("resume file deletion contract", () => {
         finalize,
       );
       await vi.runOnlyPendingTimersAsync();
-      expect(finalize).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(finalize).toHaveBeenCalledTimes(1));
     } finally {
       clearPendingResumeFileDelete(token);
       pendingResumeFileDeletes.clear();
       vi.useRealTimers();
     }
+  });
+
+  it("drops a live pending row when another tab clears its durable marker", async () => {
+    const file = resume.files![1]!;
+    const deadline = Date.now() + RESUME_FILE_DELETE_UNDO_MS;
+    const token = await resumeFileDeleteMarkerToken(42, file);
+    const marker = { resumeId: 42, file, deadline, token };
+    await rememberPendingResumeFileDelete(marker);
+    pendingResumeFileDeletes.set(
+      `${marker.resumeId}\u0000${file.path}\u0000${file.size}\u0000${file.uploaded_at}`,
+      marker,
+    );
+    const { screen } = await renderList();
+    await expect
+      .element(screen.getByText("photo.jpg", { exact: true }))
+      .not.toBeInTheDocument();
+
+    const storageKey = `myshadchan:pending-resume-file-delete:${token}`;
+    const oldValue = window.localStorage.getItem(storageKey);
+    window.localStorage.removeItem(storageKey);
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: storageKey,
+        oldValue,
+        newValue: null,
+      }),
+    );
+
+    await expect
+      .element(screen.getByText("photo.jpg", { exact: true }))
+      .toBeInTheDocument();
+    expect(pendingResumeFileDeletes.size).toBe(0);
   });
 
   it("treats duplicate paths as independent files using their exact identity", async () => {

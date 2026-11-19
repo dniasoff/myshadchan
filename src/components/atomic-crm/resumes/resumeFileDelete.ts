@@ -40,6 +40,8 @@ export function dispatchResumeReadStateChanged(
 const markerKeyPrefix = `${RESUME_FILE_DELETE_MARKER_KEY}:`;
 const FALLBACK_CLAIM_LEASE_MS = 60_000;
 const FALLBACK_CLAIM_RENEW_MS = 5_000;
+const FALLBACK_CLAIM_DB_NAME = "myshadchan:resume-file-delete-claims";
+const FALLBACK_CLAIM_STORE_NAME = "claims";
 
 /** Runtime details for the currently visible Resume tab. */
 export const pendingResumeFileDeletes = new Map<
@@ -182,12 +184,7 @@ export const rememberPendingResumeFileDelete = async (
 };
 
 export const clearPendingResumeFileDelete = (token: string): void => {
-  const timer = pendingResumeFileDeleteTimers.get(token);
-  if (timer !== undefined) window.clearTimeout(timer);
-  pendingResumeFileDeleteTimers.delete(token);
-  const retry = finalizationRetries.get(token);
-  if (retry !== undefined) window.clearTimeout(retry.timer);
-  finalizationRetries.delete(token);
+  removePendingResumeFileDeleteRuntimeState(token);
   try {
     window.localStorage.removeItem(markerStorageKey(token));
     window.localStorage.removeItem(`${markerStorageKey(token)}:claim`);
@@ -197,8 +194,217 @@ export const clearPendingResumeFileDelete = (token: string): void => {
   notify();
 };
 
+const removePendingResumeFileDeleteRuntimeState = (token: string): boolean => {
+  let changed = false;
+  for (const [key, pending] of pendingResumeFileDeletes) {
+    if (pending.token === token) {
+      pendingResumeFileDeletes.delete(key);
+      changed = true;
+    }
+  }
+  const timer = pendingResumeFileDeleteTimers.get(token);
+  if (timer !== undefined) {
+    window.clearTimeout(timer);
+    pendingResumeFileDeleteTimers.delete(token);
+    changed = true;
+  }
+  const retry = finalizationRetries.get(token);
+  if (retry !== undefined) {
+    window.clearTimeout(retry.timer);
+    finalizationRetries.delete(token);
+    changed = true;
+  }
+  if (finalizationStates.delete(token)) changed = true;
+  return changed;
+};
+
 const hasMarker = (token: string): boolean =>
   readMarker(markerStorageKey(token))?.token === token;
+
+type FallbackClaim = {
+  mode: "indexeddb" | "localstorage";
+  claimKey: string;
+  release: () => Promise<void>;
+  renew: () => Promise<void>;
+};
+
+type IndexedDbClaimRecord = {
+  token: string;
+  owner: string;
+  expires: number;
+};
+
+let fallbackClaimDb: Promise<IDBDatabase | null> | null = null;
+
+const openFallbackClaimDb = (): Promise<IDBDatabase | null> => {
+  if (fallbackClaimDb) return fallbackClaimDb;
+  if (typeof indexedDB === "undefined") return Promise.resolve(null);
+  fallbackClaimDb = new Promise((resolve) => {
+    try {
+      const request = indexedDB.open(FALLBACK_CLAIM_DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore(FALLBACK_CLAIM_STORE_NAME, {
+          keyPath: "token",
+        });
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+      request.onblocked = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+  return fallbackClaimDb;
+};
+
+const runIndexedDbClaim = async (
+  token: string,
+): Promise<FallbackClaim | "claimed_elsewhere" | "missing" | null> => {
+  const db = await openFallbackClaimDb();
+  if (!db) return null;
+  const won = await new Promise<boolean>((resolve, reject) => {
+    let transaction: IDBTransaction;
+    try {
+      transaction = db.transaction(FALLBACK_CLAIM_STORE_NAME, "readwrite");
+      const store = transaction.objectStore(FALLBACK_CLAIM_STORE_NAME);
+      const get = store.get(token);
+      let shouldClaim = false;
+      get.onsuccess = () => {
+        const existing = get.result as IndexedDbClaimRecord | undefined;
+        shouldClaim =
+          existing == null ||
+          existing.expires <= Date.now() ||
+          existing.owner === tabOwner;
+        if (shouldClaim) {
+          store.put({
+            token,
+            owner: tabOwner,
+            expires: Date.now() + FALLBACK_CLAIM_LEASE_MS,
+          } satisfies IndexedDbClaimRecord);
+        }
+      };
+      transaction.oncomplete = () => resolve(shouldClaim);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    } catch (error) {
+      reject(error);
+    }
+  }).catch(() => null);
+  if (won === null) return null;
+  if (!won) return "claimed_elsewhere";
+  if (!hasMarker(token)) {
+    await releaseIndexedDbClaim(db, token);
+    return "missing";
+  }
+  return {
+    mode: "indexeddb",
+    claimKey: token,
+    release: () => releaseIndexedDbClaim(db, token),
+    renew: () => renewIndexedDbClaim(db, token),
+  };
+};
+
+const releaseIndexedDbClaim = async (
+  db: IDBDatabase,
+  token: string,
+): Promise<void> => {
+  await new Promise<void>((resolve) => {
+    try {
+      const transaction = db.transaction(
+        FALLBACK_CLAIM_STORE_NAME,
+        "readwrite",
+      );
+      const store = transaction.objectStore(FALLBACK_CLAIM_STORE_NAME);
+      const get = store.get(token);
+      get.onsuccess = () => {
+        const existing = get.result as IndexedDbClaimRecord | undefined;
+        if (existing?.owner === tabOwner) store.delete(token);
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+      transaction.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+};
+
+const renewIndexedDbClaim = async (
+  db: IDBDatabase,
+  token: string,
+): Promise<void> => {
+  await new Promise<void>((resolve) => {
+    try {
+      const transaction = db.transaction(
+        FALLBACK_CLAIM_STORE_NAME,
+        "readwrite",
+      );
+      const store = transaction.objectStore(FALLBACK_CLAIM_STORE_NAME);
+      const get = store.get(token);
+      get.onsuccess = () => {
+        const existing = get.result as IndexedDbClaimRecord | undefined;
+        if (existing?.owner === tabOwner) {
+          store.put({
+            ...existing,
+            expires: Date.now() + FALLBACK_CLAIM_LEASE_MS,
+          });
+        }
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+      transaction.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+};
+
+const runLocalStorageClaim = async (
+  token: string,
+): Promise<FallbackClaim | "claimed_elsewhere" | "missing"> => {
+  const claimKey = `${markerStorageKey(token)}:claim`;
+  let claim = JSON.stringify({
+    owner: tabOwner,
+    expires: Date.now() + FALLBACK_CLAIM_LEASE_MS,
+  });
+  const existing = (() => {
+    try {
+      return JSON.parse(window.localStorage.getItem(claimKey) ?? "null") as {
+        owner?: string;
+        expires?: number;
+      } | null;
+    } catch {
+      return null;
+    }
+  })();
+  if (existing?.expires && existing.expires > Date.now()) {
+    return "claimed_elsewhere";
+  }
+  window.localStorage.setItem(claimKey, claim);
+  const won = window.localStorage.getItem(claimKey) === claim;
+  if (!won) return hasMarker(token) ? "claimed_elsewhere" : "missing";
+  if (!hasMarker(token)) {
+    window.localStorage.removeItem(claimKey);
+    return "missing";
+  }
+  return {
+    mode: "localstorage",
+    claimKey,
+    release: async () => {
+      if (window.localStorage.getItem(claimKey) === claim) {
+        window.localStorage.removeItem(claimKey);
+      }
+    },
+    renew: async () => {
+      if (window.localStorage.getItem(claimKey) !== claim) return;
+      claim = JSON.stringify({
+        owner: tabOwner,
+        expires: Date.now() + FALLBACK_CLAIM_LEASE_MS,
+      });
+      window.localStorage.setItem(claimKey, claim);
+    },
+  };
+};
 
 const runWithCrossTabClaim = async (
   token: string,
@@ -215,53 +421,20 @@ const runWithCrossTabClaim = async (
     return result;
   }
 
-  // Safari/older WebViews have no Web Locks. This marker claim is a fallback;
-  // the read-back makes the winner explicit and the expiry lets a crashed tab
-  // recover without losing the durable delete.
-  const claimKey = `${markerStorageKey(token)}:claim`;
-  let claim = JSON.stringify({
-    owner: tabOwner,
-    expires: Date.now() + FALLBACK_CLAIM_LEASE_MS,
-  });
+  // Safari/older WebViews have no Web Locks. IndexedDB read/write
+  // transactions supply the compare-and-swap that localStorage lacks, while
+  // the lease still lets a crashed tab's durable delete recover.
+  const claim =
+    (await runIndexedDbClaim(token)) ?? (await runLocalStorageClaim(token));
+  if (claim === "claimed_elsewhere" || claim === "missing") return claim;
+  const renew = window.setInterval(() => {
+    void claim.renew();
+  }, FALLBACK_CLAIM_RENEW_MS);
   try {
-    const existing = (() => {
-      try {
-        return JSON.parse(window.localStorage.getItem(claimKey) ?? "null") as {
-          owner?: string;
-          expires?: number;
-        } | null;
-      } catch {
-        return null;
-      }
-    })();
-    if (existing?.expires && existing.expires > Date.now()) {
-      return "claimed_elsewhere";
-    }
-    window.localStorage.setItem(claimKey, claim);
-    const won = window.localStorage.getItem(claimKey) === claim;
-    if (!won) return hasMarker(token) ? "claimed_elsewhere" : "missing";
-    if (!hasMarker(token)) return "missing";
-
-    // The RPC can outlive a short lease on a busy connection. Renew only
-    // while this tab still owns the exact opaque claim, so another tab can
-    // take over after a crash but never while the owner is still finalising.
-    const renew = window.setInterval(() => {
-      if (window.localStorage.getItem(claimKey) !== claim) return;
-      claim = JSON.stringify({
-        owner: tabOwner,
-        expires: Date.now() + FALLBACK_CLAIM_LEASE_MS,
-      });
-      window.localStorage.setItem(claimKey, claim);
-    }, FALLBACK_CLAIM_RENEW_MS);
-    try {
-      await callback();
-    } finally {
-      window.clearInterval(renew);
-    }
+    await callback();
   } finally {
-    if (window.localStorage.getItem(claimKey) === claim) {
-      window.localStorage.removeItem(claimKey);
-    }
+    window.clearInterval(renew);
+    await claim.release();
   }
   return "executed";
 };
@@ -346,6 +519,17 @@ export const hydratePendingResumeFileDeletes = async (
   );
   const matchedTokens = new Set<string>();
   let changed = false;
+  const durableTokens = new Set(resumeMarkers.map((marker) => marker.token));
+  for (const [key, pending] of pendingResumeFileDeletes) {
+    if (
+      String(pending.resumeId) === String(resumeId) &&
+      !durableTokens.has(pending.token)
+    ) {
+      pendingResumeFileDeletes.delete(key);
+      removePendingResumeFileDeleteRuntimeState(pending.token);
+      changed = true;
+    }
+  }
   for (const file of files) {
     const token = await resumeFileDeleteMarkerToken(resumeId, file);
     const marker = resumeMarkers.find((candidate) => candidate.token === token);
@@ -373,13 +557,17 @@ export const hydratePendingResumeFileDeletes = async (
   }
   for (const marker of resumeMarkers) {
     if (!matchedTokens.has(marker.token)) {
-      for (const [key, pending] of pendingResumeFileDeletes) {
-        if (pending.token === marker.token) {
-          pendingResumeFileDeletes.delete(key);
-          changed = true;
-        }
+      if (removePendingResumeFileDeleteRuntimeState(marker.token)) {
+        changed = true;
       }
-      clearPendingResumeFileDelete(marker.token);
+      try {
+        window.localStorage.removeItem(markerStorageKey(marker.token));
+        window.localStorage.removeItem(
+          `${markerStorageKey(marker.token)}:claim`,
+        );
+      } catch {
+        // Continue clearing stale runtime state when storage is unavailable.
+      }
     }
   }
   if (changed) notify();
@@ -454,6 +642,13 @@ export function resumeFileTypeLabel(
 
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
-    if (event.key?.startsWith(markerKeyPrefix) === true) notify();
+    if (!event.key?.startsWith(markerKeyPrefix) || event.key.endsWith(":claim"))
+      return;
+    if (event.newValue === null) {
+      removePendingResumeFileDeleteRuntimeState(
+        event.key.slice(markerKeyPrefix.length),
+      );
+    }
+    notify();
   });
 }

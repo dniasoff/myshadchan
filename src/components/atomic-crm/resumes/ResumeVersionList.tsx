@@ -280,9 +280,10 @@ export function ResumeVersionList({
   useEffect(() => {
     setPending(hydratedPending);
     hydratedPending.forEach((marker) => {
-      schedulePendingResumeFileDelete(marker, () => {
-        void finalizePendingRef.current?.(marker);
-      });
+      schedulePendingResumeFileDelete(
+        marker,
+        () => finalizePendingRef.current?.(marker) ?? Promise.resolve(),
+      );
     });
   }, [hydratedPending]);
 
@@ -436,9 +437,10 @@ export function ResumeVersionList({
   useEffect(() => {
     if (pending.length === 0) return;
     pending.forEach((marker) => {
-      schedulePendingResumeFileDelete(marker, () => {
-        void finalizePendingRef.current?.(marker);
-      });
+      schedulePendingResumeFileDelete(
+        marker,
+        () => finalizePendingRef.current?.(marker) ?? Promise.resolve(),
+      );
     });
   }, [pending]);
 
@@ -498,9 +500,10 @@ export function ResumeVersionList({
       const pendingMarker: PendingResumeFileDelete = { ...marker, token };
       pendingResumeFileDeletes.set(key, pendingMarker);
       setPending((value) => [...value, pendingMarker]);
-      schedulePendingResumeFileDelete(pendingMarker, () => {
-        void finalizePendingRef.current?.(pendingMarker);
-      });
+      schedulePendingResumeFileDelete(
+        pendingMarker,
+        () => finalizePendingRef.current?.(pendingMarker) ?? Promise.resolve(),
+      );
     });
     setConfirming(null);
   };

@@ -51,6 +51,11 @@ test.describe("Resume file delete ownership", () => {
           value: undefined,
         });
       });
+      expect(
+        await tab.evaluate(
+          () => (navigator as Navigator & { locks?: unknown }).locks,
+        ),
+      ).toBeUndefined();
     }
 
     const deleteRequests = { pageA: 0, pageB: 0 };
@@ -84,22 +89,22 @@ test.describe("Resume file delete ownership", () => {
       ).toHaveCount(0);
       await expect(page.getByText("Deleted.")).toBeVisible();
 
-      // The server-side token makes a second page's delayed call harmless,
-      // while the database state proves that exactly one file removal and one
-      // resume-specific purge row took effect.
-      await expect(page.getByText("Original resume · Removed")).toBeVisible({
-        timeout: 20_000,
-      });
+      // The resume row proves that the one fixture file was removed. The
+      // storage object is intentionally absent, so successful purge draining
+      // acknowledges and removes the queue row before this assertion.
       await expect
-        .poll(async () => {
-          const { data, error } = await adminSupabase
-            .from("resumes")
-            .select("files")
-            .eq("id", resume.id)
-            .single();
-          if (error) throw error;
-          return data?.files ?? null;
-        })
+        .poll(
+          async () => {
+            const { data, error } = await adminSupabase
+              .from("resumes")
+              .select("files")
+              .eq("id", resume.id)
+              .single();
+            if (error) throw error;
+            return data?.files ?? null;
+          },
+          { timeout: 20_000 },
+        )
         .toEqual([]);
 
       const { data: purgeRows, error: purgeError } = await adminSupabase
@@ -110,15 +115,15 @@ test.describe("Resume file delete ownership", () => {
         .eq("bucket", "documents")
         .eq("storage_path", resume.files[0].path);
       expect(purgeError).toBeNull();
-      expect(purgeRows).toHaveLength(1);
+      expect(purgeRows).toHaveLength(0);
 
+      await page.reload();
+      await expect(page.getByText("Original resume · Removed")).toBeVisible();
       await pageB.reload();
       await expect(pageB.getByText("Original resume · Removed")).toBeVisible();
-      expect(deleteRequests.pageA).toBeLessThanOrEqual(1);
-      expect(deleteRequests.pageB).toBeLessThanOrEqual(1);
-      expect(
-        deleteRequests.pageA + deleteRequests.pageB,
-      ).toBeGreaterThanOrEqual(1);
+      // The exact request count proves that only one page owned finalization;
+      // the durable resume assertion above proves that it had the effect.
+      expect(deleteRequests.pageA + deleteRequests.pageB).toBe(1);
     } finally {
       await pageB.close();
     }
