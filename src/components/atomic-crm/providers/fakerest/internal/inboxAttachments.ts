@@ -10,12 +10,6 @@ import type {
 export type EntityFileBlobUrls = Map<string, string>;
 type AttemptEntityFile = EntityFile & { createdByAttempt?: boolean };
 
-/** Mirrors `providers/supabase/entityFiles.ts#deriveExtension`. */
-function deriveExtension(fileName: string): string {
-  const parts = fileName.split(".");
-  return parts.length > 1 ? `.${parts.pop()}` : "";
-}
-
 export type CopyInboxAttachmentsParams = {
   baseDataProvider: DataProvider;
   attachments: InboxAttachment[];
@@ -70,15 +64,11 @@ export async function copyInboxAttachmentsToEntityFiles(
   const results: AttemptEntityFile[] = [];
 
   for (const attachment of attachments) {
-    const ext = deriveExtension(attachment.title);
-    const storagePath = `${accountId}/${targetType}/${targetId}/${
+    const storageName =
       sourceInboxItemId == null
         ? crypto.randomUUID()
-        : `inbox-${sourceInboxItemId}-${stableAttachmentToken(
-            sourceInboxItemId,
-            attachment.path,
-          )}`
-    }${ext}`;
+        : `inbox-${stableAttachmentToken(sourceInboxItemId, attachment.path)}`;
+    const storagePath = `${accountId}/${targetType}/${targetId}/${storageName}`;
 
     if (sourceInboxItemId != null) {
       const { data: existingFiles } =

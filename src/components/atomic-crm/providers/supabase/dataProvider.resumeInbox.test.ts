@@ -32,6 +32,7 @@ const attachment = {
 };
 
 let sourceStatus: string;
+let sourceStatusReads: string[];
 let sourceExists: boolean;
 let targetExists: boolean;
 let existingFiles: unknown[];
@@ -44,6 +45,7 @@ describe("attachInboxAttachmentToResumeFile", () => {
     rpc.mockReset();
     from.mockReset();
     sourceStatus = "unresolved";
+    sourceStatusReads = [];
     sourceExists = true;
     targetExists = true;
     existingFiles = [];
@@ -58,7 +60,13 @@ describe("attachInboxAttachmentToResumeFile", () => {
       builder.maybeSingle.mockResolvedValue(
         table === "inbox_items"
           ? {
-              data: sourceExists ? { id: 44, status: sourceStatus } : null,
+              data: sourceExists
+                ? (sourceStatusReads.push(sourceStatus),
+                  {
+                    id: 44,
+                    status: sourceStatus,
+                  })
+                : null,
               error: null,
             }
           : table === "shidduchim"
@@ -118,9 +126,7 @@ describe("attachInboxAttachmentToResumeFile", () => {
     expect(upload).toHaveBeenCalledTimes(1);
     const [bucket, path] = upload.mock.calls[0];
     expect(bucket).toBe("documents");
-    expect(path).toMatch(
-      /^7\/resumes\/42\/inbox-[0-9a-f]{64}-David-Levi\.docx$/,
-    );
+    expect(path).toMatch(/^7\/resumes\/42\/inbox-[0-9a-f]{64}$/);
     expect(path).not.toContain("signed.example");
     expect(rpc).toHaveBeenLastCalledWith("add_resume_file", {
       p_path: path,
@@ -133,9 +139,10 @@ describe("attachInboxAttachmentToResumeFile", () => {
       p_source_inbox_attachment_path: attachment.path,
     });
     expect(result.id).toBe(900);
+    expect(sourceStatusReads).toEqual(["unresolved"]);
   });
 
-  it("cleans up its destination when the delete wins before the atomic append", async () => {
+  it("preserves its destination when the delete wins before the atomic append", async () => {
     rpc.mockImplementation((name: string) => {
       if (name === "current_context_id") return { data: 7, error: null };
       if (name === "current_member_role")
@@ -151,13 +158,7 @@ describe("attachInboxAttachmentToResumeFile", () => {
       }),
     ).rejects.toThrow("Could not attach this file");
 
-    expect(remove).toHaveBeenCalledTimes(1);
-    expect(remove.mock.calls[0][0]).toBe("documents");
-    expect(remove.mock.calls[0][1]).toEqual([
-      expect.stringMatching(
-        /^7\/resumes\/42\/inbox-[0-9a-f]{64}-David-Levi\.docx$/,
-      ),
-    ]);
+    expect(remove).not.toHaveBeenCalled();
   });
 
   it("returns an existing account-scoped row on a duplicate retry without copying", async () => {

@@ -58,7 +58,10 @@ import type {
   ThreadVisibility,
 } from "../../types";
 import { ENTITY_TARGET_TYPES } from "../../types";
-import { toResumeInboxPickerItem } from "../../resumes/resumeInbox";
+import {
+  buildResumeInboxStoragePath,
+  toResumeInboxPickerItem,
+} from "../../resumes/resumeInbox";
 import {
   canDeleteInboxItem,
   getSafeInboxAttachmentExtension,
@@ -110,11 +113,7 @@ import {
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import type { CrmDataProvider } from "../types";
-import type {
-  InboxResolutionUpdateParams,
-  OwnedResumeDeleteParams,
-  OwnedShidduchDeleteParams,
-} from "../supabase/inboxResolution";
+import type { InboxResolutionUpdateParams } from "../supabase/inboxResolution";
 import type {
   ShidduchReadState,
   ShidduchStoragePurgeResult,
@@ -1631,49 +1630,6 @@ export const createDataProvider = ({
         () => undefined,
       );
       return operation;
-    },
-    async deleteOwnedInboxResume(
-      params: OwnedResumeDeleteParams,
-    ): Promise<boolean> {
-      const { data: resume } = await baseDataProvider.getOne<any>("resumes", {
-        id: params.id,
-      });
-      if (
-        !resume ||
-        String(resume.shidduchim_id) !== String(params.shidduchimId) ||
-        JSON.stringify(resume.files ?? []) !==
-          JSON.stringify(params.expectedFiles)
-      ) {
-        return false;
-      }
-      await baseDataProvider.delete("resumes", {
-        id: params.id,
-        previousData: resume,
-      });
-      return true;
-    },
-    async deleteOwnedInboxShidduch(
-      params: OwnedShidduchDeleteParams,
-    ): Promise<boolean> {
-      const { data: shidduch } = await baseDataProvider.getOne<any>(
-        "shidduchim",
-        { id: params.id },
-      );
-      if (
-        !shidduch ||
-        shidduch.name_en != null ||
-        (params.singleId != null &&
-          String(shidduch.single_id) !== String(params.singleId)) ||
-        (params.expectedCreatedAt != null &&
-          shidduch.created_at !== params.expectedCreatedAt)
-      ) {
-        return false;
-      }
-      await baseDataProvider.delete("shidduchim", {
-        id: params.id,
-        previousData: shidduch,
-      });
-      return true;
     },
     async getList(resource: string, params: any) {
       if (resource === "inbox_items" && params.meta?.resumeInboxPicker) {
@@ -3482,20 +3438,26 @@ export const createDataProvider = ({
     copyInboxAttachmentToResumeFile: async (params: {
       shidduchimId?: Identifier;
       singleId?: Identifier;
+      inboxItemId: number | string;
       attachment: InboxAttachment;
     }) => {
       const accountId = await resolveCurrentAccountId();
-      const ownerSegment =
-        params.singleId != null
-          ? `single-${params.singleId}`
-          : `${params.shidduchimId}`;
       const attachment = params.attachment;
-      const storagePath = `${accountId}/resumes/${ownerSegment}/${crypto.randomUUID()}-${attachment.title}`;
+      const storagePath = await buildResumeInboxStoragePath(
+        accountId,
+        params,
+        params.inboxItemId,
+        attachment.path,
+      );
       const response = await fetch(attachment.src);
       if (!response.ok) {
         throw new Error("Failed to read the captured resume attachment");
       }
       const blob = await response.blob();
+      const previousBlobUrl = resumeFileBlobUrls.get(storagePath);
+      if (previousBlobUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(previousBlobUrl);
+      }
       const blobUrl = URL.createObjectURL(blob);
       resumeFileBlobUrls.set(storagePath, blobUrl);
       return { storagePath, size: blob.size };

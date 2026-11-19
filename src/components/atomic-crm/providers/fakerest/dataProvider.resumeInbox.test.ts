@@ -142,7 +142,6 @@ describe("FakeRest Inbox resume attach", () => {
       params,
       sourceItem.id,
       SOURCE_PATH,
-      attachment.title,
     );
     expect(blobUrls.has(storagePath)).toBe(true);
     expect((committedResume as unknown as Resume).files).toHaveLength(1);
@@ -159,5 +158,36 @@ describe("FakeRest Inbox resume attach", () => {
     expect(retry.files).toHaveLength(1);
     expect(baseDataProvider.create).toHaveBeenCalledTimes(1);
     expect(blobUrls.has(storagePath)).toBe(true);
+  });
+
+  it("keeps entity-file keys opaque when the display title changes", async () => {
+    const { target, db, dataProvider } = setup();
+    const source = db.inbox_items[0].attachments![0];
+
+    const first = await dataProvider.copyInboxAttachmentsToEntityFiles({
+      baseDataProvider: dataProvider,
+      attachments: [{ ...source, title: "Family secret.pdf" }],
+      targetType: "shidduch",
+      targetId: target.id,
+      sourceInboxItemId: 44,
+    });
+    const second = await dataProvider.copyInboxAttachmentsToEntityFiles({
+      baseDataProvider: dataProvider,
+      attachments: [
+        {
+          ...source,
+          title: "Renamed.docx",
+          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        },
+      ],
+      targetType: "shidduch",
+      targetId: target.id,
+      sourceInboxItemId: 44,
+    });
+
+    expect(first[0].storage_path).toBe(second[0].storage_path);
+    expect(first[0].storage_path).not.toContain("Family");
+    expect(first[0].storage_path).not.toContain(".pdf");
+    expect(first[0].storage_path).not.toContain(".docx");
   });
 });

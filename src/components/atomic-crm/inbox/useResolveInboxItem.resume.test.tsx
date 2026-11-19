@@ -96,6 +96,8 @@ type ResumeProviderOptions = {
   removeResumeFileObjects?: CrmDataProvider["removeResumeFileObjects"];
   removeResumeFileObjectsStrict?: (paths: string[]) => Promise<void>;
   dependentDataAppearsDuringCompensation?: boolean;
+  failResumeLock?: boolean;
+  failResumeLockOnce?: boolean;
 };
 
 const buildDataProvider = (options: ResumeProviderOptions = {}) => {
@@ -114,6 +116,7 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
     options.removeResumeFileObjectsStrict ??
     (async (paths: string[]) => removeResumeFileObjects(paths));
   let interactionReads = 0;
+  let resumeLockFailures = 0;
 
   const getOne = vi.fn(async (resource: string, params: { id: Identifier }) => {
     if (resource === "inbox_items" && params.id === currentItem.id) {
@@ -214,6 +217,10 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
       currentItem.resolution_input as { lock_acquired_at?: unknown } | null
     )?.lock_acquired_at;
     if (
+      (options.failResumeLock && params.data?.status === "resolving") ||
+      (options.failResumeLockOnce &&
+        params.data?.status === "resolving" &&
+        resumeLockFailures++ < 4) ||
       currentItem.status !== params.status ||
       (params.expectedResolutionAttemptId !== undefined &&
         currentItem.resolution_attempt_id !==
@@ -358,6 +365,114 @@ const renderProbe = async (
 };
 
 describe("resume-first Inbox resolution", () => {
+  it("leaves a pre-lock attachment when ownership acquisition loses the race", async () => {
+    const item = buildItem();
+    const { screen, dataProvider, resumes, createShidduch } = await renderProbe(
+      item,
+      { failResumeLock: true },
+    );
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(
+        screen.getByText("error:This Inbox item is already being handled."),
+      )
+      .toBeInTheDocument();
+
+    expect(createShidduch).toHaveBeenCalledTimes(1);
+    expect(
+      dataProvider.attachInboxAttachmentToResumeFile,
+    ).toHaveBeenCalledTimes(1);
+    expect(resumes).toHaveLength(1);
+  });
+
+  it("does not remove a winner's pre-lock file when this claim is lost, then retries the same suggestion", async () => {
+    const item = buildItem();
+    const { screen, resumes, createShidduch, getCurrentItem } =
+      await renderProbe(item, {
+        failResumeLockOnce: true,
+      });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(
+        screen.getByText("error:This Inbox item is already being handled."),
+      )
+      .toBeInTheDocument();
+
+    expect(resumes).toHaveLength(1);
+    expect(getCurrentItem().status).toBe("unresolved");
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:completed:99:true"))
+      .toBeInTheDocument();
+    expect(createShidduch).toHaveBeenCalledTimes(1);
+    expect(resumes).toHaveLength(1);
+  });
+
+  it("does not reuse a provenance resume for a different selected child", async () => {
+    const item = buildItem();
+    const initialResume = buildResume();
+    const { screen, dataProvider, createShidduch } = await renderProbe(item, {
+      initialResume,
+      suggestion: buildSuggestion({ single_id: 6 }),
+    });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(
+        screen.getByText(
+          "error:This resume is already attached to a different child. Choose that child to retry.",
+        ),
+      )
+      .toBeInTheDocument();
+
+    expect(createShidduch).not.toHaveBeenCalled();
+    expect(
+      dataProvider.attachInboxAttachmentToResumeFile,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("does not create, attach, read, or update after the Inbox item was dismissed", async () => {
+    const item = buildItem({ status: "dismissed" });
+    const { screen, dataProvider, createShidduch } = await renderProbe(item);
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(
+        screen.getByText("error:This Inbox item has already been dismissed."),
+      )
+      .toBeInTheDocument();
+
+    expect(createShidduch).not.toHaveBeenCalled();
+    expect(
+      dataProvider.attachInboxAttachmentToResumeFile,
+    ).not.toHaveBeenCalled();
+    expect(dataProvider.readResume).not.toHaveBeenCalled();
+    expect(dataProvider.update).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a resolved Inbox item has no suggestion id", async () => {
+    const item = buildItem({
+      status: "resolved",
+      resolved_shidduchim_id: null,
+    });
+    const { screen, dataProvider, createShidduch } = await renderProbe(item);
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("error:This Inbox item is already resolved."))
+      .toBeInTheDocument();
+
+    expect(createShidduch).not.toHaveBeenCalled();
+    expect(
+      dataProvider.attachInboxAttachmentToResumeFile,
+    ).not.toHaveBeenCalled();
+    expect(dataProvider.readResume).not.toHaveBeenCalled();
+    expect(dataProvider.update).not.toHaveBeenCalled();
+  });
+
   it("creates a nameless suggestion, runs fill_empty, and finalizes only after the read succeeds", async () => {
     const item = buildItem();
     const { screen, dataProvider, createShidduch } = await renderProbe(item);
@@ -705,7 +820,7 @@ describe("resume-first Inbox resolution", () => {
     });
   });
 
-  it("compensates only its nameless suggestion on an allowance failure and releases the Inbox lock", async () => {
+  it("keeps the referenced suggestion on an allowance failure and releases the Inbox lock", async () => {
     const item = buildItem();
     const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
       readOutcome: "no_allowance",
@@ -713,20 +828,11 @@ describe("resume-first Inbox resolution", () => {
 
     await screen.getByRole("button", { name: "resolve resume" }).click();
     await expect
-      .element(screen.getByText("result:no_allowance:none:false"))
+      .element(screen.getByText("result:no_allowance:none:true"))
       .toBeInTheDocument();
 
-    expect(dataProvider.removeResumeFileObjects).toHaveBeenCalledWith([
-      "1/resumes/99/deterministic-resume.pdf",
-    ]);
-    expect(dataProvider.delete).toHaveBeenCalledWith(
-      "resumes",
-      expect.objectContaining({ id: 7 }),
-    );
-    expect(dataProvider.delete).toHaveBeenCalledWith(
-      "shidduchim",
-      expect.objectContaining({ id: 99 }),
-    );
+    expect(dataProvider.removeResumeFileObjects).not.toHaveBeenCalled();
+    expect(dataProvider.delete).not.toHaveBeenCalled();
     expect(getCurrentItem()).toMatchObject({
       status: "unresolved",
       resolved_shidduchim_id: null,
@@ -734,7 +840,7 @@ describe("resume-first Inbox resolution", () => {
     expect(item.attachments?.[0].path).toBe(ATTACHMENT.path);
   });
 
-  it("treats a definite empty-read response as failure and compensates the attempt", async () => {
+  it("treats a definite empty-read response as failure without deleting the referenced suggestion", async () => {
     const item = buildItem();
     const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
       readOutcome: "empty",
@@ -742,18 +848,15 @@ describe("resume-first Inbox resolution", () => {
 
     await screen.getByRole("button", { name: "resolve resume" }).click();
     await expect
-      .element(screen.getByText("result:empty:none:false"))
+      .element(screen.getByText("result:empty:none:true"))
       .toBeInTheDocument();
 
-    expect(dataProvider.removeResumeFileObjects).toHaveBeenCalled();
-    expect(dataProvider.delete).toHaveBeenCalledWith(
-      "shidduchim",
-      expect.objectContaining({ id: 99 }),
-    );
+    expect(dataProvider.removeResumeFileObjects).not.toHaveBeenCalled();
+    expect(dataProvider.delete).not.toHaveBeenCalled();
     expect(getCurrentItem()).toMatchObject({ status: "unresolved" });
   });
 
-  it("compensates a production-shaped empty marker, not just a NULL resume", async () => {
+  it("treats a production-shaped empty marker as a failure, not permission to delete the referenced suggestion", async () => {
     const item = buildItem();
     const { screen, dataProvider, getCurrentItem } = await renderProbe(item, {
       readOutcome: "empty",
@@ -762,17 +865,10 @@ describe("resume-first Inbox resolution", () => {
 
     await screen.getByRole("button", { name: "resolve resume" }).click();
     await expect
-      .element(screen.getByText("result:empty:none:false"))
+      .element(screen.getByText("result:empty:none:true"))
       .toBeInTheDocument();
 
-    expect(dataProvider.delete).toHaveBeenCalledWith(
-      "resumes",
-      expect.objectContaining({ id: 7 }),
-    );
-    expect(dataProvider.delete).toHaveBeenCalledWith(
-      "shidduchim",
-      expect.objectContaining({ id: 99 }),
-    );
+    expect(dataProvider.delete).not.toHaveBeenCalled();
     expect(getCurrentItem()).toMatchObject({ status: "unresolved" });
   });
 
@@ -849,7 +945,7 @@ describe("resume-first Inbox resolution", () => {
     expect(dataProvider.readResume).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves source bytes and a retry-safe unresolved item when cleanup loses the network", async () => {
+  it("leaves source bytes and a retry-safe unresolved item when read fails", async () => {
     const item = buildItem();
     const removeResumeFileObjects = vi
       .fn()
@@ -861,16 +957,16 @@ describe("resume-first Inbox resolution", () => {
 
     await screen.getByRole("button", { name: "resolve resume" }).click();
     await expect
-      .element(screen.getByText("result:failed:none:true"))
+      .element(screen.getByText("result:no_allowance:none:true"))
       .toBeInTheDocument();
 
-    expect(removeResumeFileObjects).toHaveBeenCalled();
+    expect(removeResumeFileObjects).not.toHaveBeenCalled();
     expect(dataProvider.delete).not.toHaveBeenCalled();
     expect(getCurrentItem()).toMatchObject({ status: "unresolved" });
     expect(item.attachments?.[0].path).toBe(ATTACHMENT.path);
   });
 
-  it("keeps the catalog row when strict storage cleanup reports a failure", async () => {
+  it("keeps the catalog row when a referenced resume cannot be safely compensated", async () => {
     const item = buildItem();
     const softCleanup = vi.fn().mockResolvedValue(undefined);
     const strictCleanup = vi.fn().mockRejectedValue(new Error("storage down"));
@@ -882,12 +978,10 @@ describe("resume-first Inbox resolution", () => {
 
     await screen.getByRole("button", { name: "resolve resume" }).click();
     await expect
-      .element(screen.getByText("result:failed:none:true"))
+      .element(screen.getByText("result:no_allowance:none:true"))
       .toBeInTheDocument();
 
-    expect(strictCleanup).toHaveBeenCalledWith([
-      "1/resumes/99/deterministic-resume.pdf",
-    ]);
+    expect(strictCleanup).not.toHaveBeenCalled();
     expect(softCleanup).not.toHaveBeenCalled();
     expect(dataProvider.delete).not.toHaveBeenCalledWith(
       "resumes",

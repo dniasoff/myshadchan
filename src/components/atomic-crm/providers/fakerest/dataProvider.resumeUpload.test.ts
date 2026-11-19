@@ -21,6 +21,7 @@ describe("FakeRest resume capture methods", () => {
 
     const copied = await dataProvider.copyInboxAttachmentToResumeFile({
       shidduchimId: 99,
+      inboxItemId: 700,
       attachment,
     });
     expect(copied.size).toBe(file.size);
@@ -195,5 +196,36 @@ describe("FakeRest resume capture methods", () => {
 
     expect(current.files).toEqual([{ ...file }]);
     expect(update).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the copied resume object key when its display title changes", async () => {
+    const dataProvider = createDataProvider({ latency: 0, silent: true });
+    const file = new File(["resume bytes"], "source.pdf", {
+      type: "application/pdf",
+    });
+    const source = await dataProvider.uploadInboxAttachment({
+      file,
+      inboxItemId: 701,
+    });
+
+    const first = await dataProvider.copyInboxAttachmentToResumeFile({
+      shidduchimId: 99,
+      inboxItemId: 701,
+      attachment: { ...source, title: "Alice Cohen.pdf" },
+    });
+    const second = await dataProvider.copyInboxAttachmentToResumeFile({
+      shidduchimId: 99,
+      inboxItemId: 701,
+      attachment: {
+        ...source,
+        title: "Renamed.docx",
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      },
+    });
+
+    expect(second.storagePath).toBe(first.storagePath);
+    expect(second.storagePath).not.toContain("Alice");
+    expect(second.storagePath).not.toContain(".pdf");
+    expect(second.storagePath).not.toContain(".docx");
   });
 });

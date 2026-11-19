@@ -81,12 +81,6 @@ type AttemptEntityFile = EntityFile & { createdByAttempt?: boolean };
 
 const ENTITY_FILES_BUCKET = "entity-files";
 
-/** Mirrors `entityFiles.ts#deriveExtension`. */
-function deriveExtension(fileName: string): string {
-  const parts = fileName.split(".");
-  return parts.length > 1 ? `.${parts.pop()}` : "";
-}
-
 function stableAttachmentToken(itemId: Identifier, path: string): string {
   // The token is only a retry key, never an authorization value. Two FNV
   // rounds keep the path opaque while avoiding a second async digest for each
@@ -132,15 +126,11 @@ async function copyOneAttachment(
   visibility: EntityFileVisibility,
   sourceInboxItemId?: Identifier,
 ): Promise<EntityFile> {
-  const ext = deriveExtension(attachment.title);
-  const storagePath = `${accountId}/${targetType}/${targetId}/${
+  const storageName =
     sourceInboxItemId == null
       ? crypto.randomUUID()
-      : `inbox-${sourceInboxItemId}-${stableAttachmentToken(
-          sourceInboxItemId,
-          attachment.path,
-        )}`
-  }${ext}`;
+      : `inbox-${stableAttachmentToken(sourceInboxItemId, attachment.path)}`;
+  const storagePath = `${accountId}/${targetType}/${targetId}/${storageName}`;
 
   const { data: blob, error: downloadError } = await getSupabaseClient()
     .storage.from(ATTACHMENTS_BUCKET)
@@ -171,8 +161,8 @@ async function copyOneAttachment(
     return data;
   } catch {
     // Best-effort cleanup: the catalog row is the source of truth, so if it
-    // failed we remove the orphaned object for the old random-key path. A
-    // deterministic retry path may already have committed its row while the
+    // failed we remove the orphaned object only for a non-deterministic copy.
+    // A deterministic retry path may already have committed its row while the
     // response was lost, so leave that object for the next lookup.
     if (sourceInboxItemId == null) {
       await getSupabaseClient()
@@ -206,10 +196,9 @@ export async function copyInboxAttachmentsToEntityFiles(
       const expectedPath =
         sourceInboxItemId == null
           ? null
-          : `${accountId}/${targetType}/${targetId}/inbox-${
-              sourceInboxItemId
-            }-${stableAttachmentToken(sourceInboxItemId, attachment.path)}${deriveExtension(
-              attachment.title,
+          : `${accountId}/${targetType}/${targetId}/inbox-${stableAttachmentToken(
+              sourceInboxItemId,
+              attachment.path,
             )}`;
       if (expectedPath != null) {
         const { data: existingFiles } =

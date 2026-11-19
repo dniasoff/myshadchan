@@ -1,39 +1,32 @@
 import { useEffect, useState } from "react";
-import { Loader2, Sparkles } from "lucide-react";
-import type { Identifier } from "ra-core";
+import { Loader2 } from "lucide-react";
 import {
   Form,
+  required,
+  type Identifier,
   useDataProvider,
   useGetList,
   useNotify,
-  useRedirect,
   useRefresh,
   useTranslate,
 } from "ra-core";
-import { useFormContext } from "react-hook-form";
+import { useFormState } from "react-hook-form";
 import { CancelButton } from "@/components/admin/cancel-button";
+import { AutocompleteInput } from "@/components/admin/autocomplete-input";
 import { SaveButton } from "@/components/admin/form";
+import { ReferenceInput } from "@/components/admin/reference-input";
 import { FormToolbar } from "@/components/admin/simple-form";
-import { Button } from "@/components/ui/button";
+import { TextInput } from "@/components/admin/text-input";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 
 import type { CrmDataProvider } from "../providers/types";
-import { buildNewPath } from "../entity360/entityPaths";
-import { useAiEntitlement } from "../references/useAiEntitlement";
-import type {
-  CreateShidduchInput,
-  InboxItem,
-  PipelineState,
-  Shadchan,
-} from "../types";
+import type { CreateShidduchInput, InboxItem, Shadchan } from "../types";
 import { createShadchanInline } from "../shidduchim/createShadchanInline";
-import { ShidduchInputs } from "../shidduchim/ShidduchInputs";
 import { InboxCapturePreview } from "./InboxCapturePreview";
 import { INBOX_PRIMARY_CTA_CLASS } from "./inboxMeta";
 import { InboxResumeActionsDialog } from "./InboxResumeActions";
@@ -42,16 +35,7 @@ import {
   hasResumeDocumentAttachment,
   useResolveInboxItem,
 } from "./useResolveInboxItem";
-import {
-  friendlyResumeReadError,
-  resumeReadSuccessMessage,
-} from "./resumeUpload";
-import {
-  hasResumeShapedAttachment,
-  hasLegacyWordAttachment,
-  useParseResume,
-  type ParsedResumeResponse,
-} from "./useParseResume";
+import { hasResumeShapedAttachment } from "./useParseResume";
 
 const PAGE_ONE = { page: 1, perPage: 1 } as const;
 const SORT_BY_ID = { field: "id", order: "ASC" } as const;
@@ -80,102 +64,58 @@ function readTextField(value: unknown): string | null {
   return null;
 }
 
-function readNumberField(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
+function NameInput() {
+  const { errors, submitCount } = useFormState({ name: "name_en" });
+  const message =
+    typeof errors.name_en?.message === "string"
+      ? errors.name_en.message
+      : undefined;
+
+  useEffect(() => {
+    if (!message || submitCount === 0) return;
+    document.querySelector<HTMLInputElement>('input[name="name_en"]')?.focus();
+  }, [message, submitCount]);
+
+  return (
+    <>
+      <TextInput
+        source="name_en"
+        label="Name of the person"
+        dir="auto"
+        aria-describedby={message ? "name-of-person-error" : undefined}
+        validate={(value) =>
+          typeof value === "string" && value.trim() !== ""
+            ? undefined
+            : "Name of the person is required"
+        }
+        helperText={false}
+      />
+      {message ? (
+        <p
+          id="name-of-person-error"
+          role="alert"
+          aria-live="assertive"
+          className="sr-only"
+        >
+          {message}
+        </p>
+      ) : null}
+    </>
+  );
 }
 
 /**
- * Inner component that resets the form when a parsed draft arrives. Lives
- * inside the Form context so `useFormContext()` is valid.
- */
-const DraftResetter = ({
-  draft,
-  onSnapshot,
-}: {
-  draft: ParsedResumeResponse | null;
-  onSnapshot: (snapshot: Record<string, unknown> | null) => void;
-}) => {
-  const { getValues, setValue } = useFormContext<Record<string, unknown>>();
-
-  useEffect(() => {
-    if (!draft) return;
-    const snapshot = getValues();
-    const fieldsToFill = Object.entries(draft.fields).filter(
-      ([field, value]) => {
-        const currentValue = snapshot[field];
-        const isEmpty =
-          currentValue === null ||
-          currentValue === undefined ||
-          currentValue === "";
-        return isEmpty && value !== null && value !== "";
-      },
-    );
-    onSnapshot(fieldsToFill.length > 0 ? snapshot : null);
-    for (const [field, value] of Object.entries(draft.fields)) {
-      const currentValue = getValues(field);
-      const isEmpty =
-        currentValue === null ||
-        currentValue === undefined ||
-        currentValue === "";
-      if (!isEmpty || value === null || value === "") continue;
-      setValue(field, value, {
-        shouldDirty: false,
-        shouldTouch: false,
-        shouldValidate: false,
-      });
-    }
-  }, [draft, getValues, onSnapshot, setValue]);
-
-  return null;
-};
-
-const AutoFillUndo = ({
-  snapshot,
-  onUndo,
-}: {
-  snapshot: Record<string, unknown> | null;
-  onUndo: () => void;
-}) => {
-  const { setValue } = useFormContext<Record<string, unknown>>();
-  if (!snapshot) return null;
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      className="h-11 self-start"
-      onClick={() => {
-        for (const [field, value] of Object.entries(snapshot)) {
-          setValue(field, value, {
-            shouldDirty: false,
-            shouldTouch: false,
-            shouldValidate: false,
-          });
-        }
-        onUndo();
-      }}
-    >
-      Undo auto-fill
-    </Button>
-  );
-};
-
-/**
  * Resolve a captured inbox item into a shidduch (Epic 2). The raw capture is
- * shown verbatim for context; the same `ShidduchInputs` used by the manual
- * "Add a suggestion" flow collects which single / which shadchan / the name, and
- * submit goes through `createShidduch` (AD-4 sole INSERT) with `origin:'channel'`
- * so the E3 catch fires exactly as it would for a manual add. On success the
- * item is marked resolved and linked to the new suggestion. Nothing is ever
- * lost: dismiss only sets `dismissed`, and closing keeps the item unresolved.
+ * shown verbatim for context; this short confirmation form collects which
+ * single / which shadchan / the name, and submit goes through
+ * `createShidduch` (AD-4 sole INSERT) with `origin:'channel'` so the E3 catch
+ * fires exactly as it would for a manual add. On success the item is marked
+ * resolved and linked to the new suggestion. Nothing is ever lost: dismiss
+ * only sets `dismissed`, and closing keeps the item unresolved.
  *
- * Story 11.2 adds an optional "Auto-fill from resume" step: the attachment is
- * read by the parse Worker and the draft populates the form. The raw capture
- * remains unchanged; the user confirms rather than retypes.
+ * Resume attachments are copied automatically by the resolve hook. Resume
+ * reading happens later on the Resume tab, so this confirmation form never
+ * writes hidden extraction fields.
  */
 const LegacyInboxResolveDialog = ({
   item,
@@ -190,35 +130,20 @@ const LegacyInboxResolveDialog = ({
     useResolveInboxItem();
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
-  const redirect = useRedirect();
   const refresh = useRefresh();
   const translate = useTranslate();
-  const { isEntitled, isLoading: isEntitlementLoading } = useAiEntitlement();
-  const { parse, isParsing } = useParseResume();
-
-  const [parsedDraft, setParsedDraft] = useState<ParsedResumeResponse | null>(
-    null,
-  );
-  const [draftSnapshot, setDraftSnapshot] = useState<Record<
-    string,
-    unknown
-  > | null>(null);
-  const [resumeMessage, setResumeMessage] = useState<string | null>(null);
-  const [resumeMessageIsError, setResumeMessageIsError] = useState(false);
 
   // Review fix (F6, MEDIUM, Story 10.1 — same family as ShareTarget.tsx's
-  // fix): "File as a suggestion", every "Link" press, "Dismiss", and now
-  // "Auto-fill" each act on this SAME already-captured `item`. Nothing here
-  // duplicates the item itself the way ShareTarget.tsx's fresh capture could,
-  // but without a shared busy flag two of these could still race — e.g. a
-  // "Link" press resolving while "File as a suggestion" is mid-submit — and
-  // send two competing resolutions for the one item. One flag, gating all four.
+  // fix): "File as a suggestion", every "Link" press, and "Dismiss" each act
+  // on this SAME already-captured `item`. Nothing here duplicates the item
+  // itself the way ShareTarget.tsx's fresh capture could, but without a shared
+  // busy flag two of these could still race — e.g. a "Link" press resolving
+  // while "File as a suggestion" is mid-submit — and send two competing
+  // resolutions for the one item. One flag gates all three.
   const [isBusy, setIsBusy] = useState(false);
 
   // AC 3's inline "+ Add a shadchan" (FR78): the shared helper (review fix
-  // F4) — was wired nowhere in this dialog before, leaving the affordance
-  // unreachable from the one screen `ShidduchInputs.tsx`'s own comment
-  // claims it's reused "wherever" it appears.
+  // F4) keeps the affordance available in this short confirmation form.
   const handleCreateShadchan = createShadchanInline(dataProvider);
 
   // Story 8.3 (AC-3): a shadchan-sourced item's shadchan_id is resolved from
@@ -242,89 +167,44 @@ const LegacyInboxResolveDialog = ({
     ? (linkedShadchanim?.[0]?.id ?? null)
     : null;
 
-  const canAutoFill = isEntitled && hasResumeShapedAttachment(item);
-  const hasResume = hasResumeShapedAttachment(item);
   const resumeAttachment = item.attachments?.find((attachment) =>
     hasResumeShapedAttachment({ ...item, attachments: [attachment] }),
   );
-
-  const handleAutoFill = async () => {
-    setIsBusy(true);
-    setResumeMessage(null);
-    setResumeMessageIsError(false);
-    try {
-      const draft = await parse(item);
-      setParsedDraft(draft);
-      setResumeMessage(resumeReadSuccessMessage(draft.fields));
-      setResumeMessageIsError(false);
-    } catch (error) {
-      setResumeMessage(friendlyResumeReadError(error, resumeAttachment?.type));
-      setResumeMessageIsError(true);
-    } finally {
-      setIsBusy(false);
-    }
-  };
 
   const onSubmit = async (values: Record<string, unknown>) => {
     setIsBusy(true);
     try {
       const input: CreateShidduchInput = {
-        // `single_id` / `shadchan_id`: written only by `ReferenceInput` +
-        // `AutocompleteInput` (`ShidduchInputs.tsx`), which produce an
-        // `Identifier` (string | number) or leave the field unset — never a
-        // value a resume extraction could have supplied. A resume draft
-        // never touches either field (`ParsedResumeFields` has no
-        // `single_id` / `shadchan_id`), so this assertion is sound;
-        // Finding 13 concerns only the resume-fillable fields
-        // below, all read through `readTextField` / `readNumberField`.
         single_id: values.single_id as Identifier,
         shadchan_id: (values.shadchan_id as Identifier) ?? null,
-        name_en: readTextField(values.name_en),
-        name_he: readTextField(values.name_he),
-        father_en: readTextField(values.father_en),
-        father_he: readTextField(values.father_he),
-        mother_en: readTextField(values.mother_en),
-        mother_he: readTextField(values.mother_he),
-        seminary_en: readTextField(values.seminary_en),
-        seminary_he: readTextField(values.seminary_he),
-        shul_en: readTextField(values.shul_en),
-        shul_he: readTextField(values.shul_he),
-        location_en: readTextField(values.location_en),
-        location_he: readTextField(values.location_he),
-        age: readNumberField(values.age),
-        height: readTextField(values.height),
-        dob: readTextField(values.dob),
-        background: readTextField(values.background),
-        marital_status: readTextField(values.marital_status),
-        person_gender: readTextField(values.person_gender),
-        kohen_status: readTextField(values.kohen_status) ?? "unknown",
-        existing_children_note: readTextField(values.existing_children_note),
+        name_en: readTextField(values.name_en)?.trim() || null,
         // Story 8.3 (AC-4): a shadchan-sourced item enters via
         // create_shidduch() with origin: 'shadchan', never 'channel' or
         // 'manual' — the pipeline still starts at 'new' (initial_state
         // below), same as every other origin; there is no fast path.
         origin: isShadchanSourced ? "shadchan" : "channel",
-        // `initial_state`: constrained to `SelectInput`'s fixed
-        // `initialStateChoices` (`ShidduchInputs.tsx`), every choice a real
-        // `PipelineState` literal — sound for the same reason as
-        // `single_id` above.
-        initial_state: (values.initial_state as PipelineState) ?? "new",
+        initial_state: "new",
         visibility: "shared",
-        redt_date: readTextField(values.redt_date),
+        redt_date: item.created_at?.split("T")[0] ?? null,
       };
 
-      const resumeAttachment = item.attachments?.find((a) =>
-        hasResumeShapedAttachment({ ...item, attachments: [a] }),
-      );
+      if (!input.name_en) {
+        notify("Name of the person is required", { type: "warning" });
+        return;
+      }
+      if (input.single_id == null) {
+        notify("Choose which child this is for", { type: "warning" });
+        return;
+      }
 
       await resolveAsNewShidduch(
         item,
         input,
-        parsedDraft && resumeAttachment
+        resumeAttachment
           ? {
               attachment: resumeAttachment,
-              rawDraft: parsedDraft.rawDraft,
-              sections: parsedDraft.sections,
+              rawDraft: null,
+              sections: null,
             }
           : undefined,
       );
@@ -383,7 +263,7 @@ const LegacyInboxResolveDialog = ({
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent
-        aria-busy={isParsing}
+        aria-busy={isBusy}
         className={
           "top-1/20 max-h-9/10 translate-y-0 overflow-y-auto lg:max-w-4xl " +
           "bg-popover border-border shadow-lg " +
@@ -394,104 +274,11 @@ const LegacyInboxResolveDialog = ({
           <DialogTitle className="font-display text-2xl font-semibold tracking-tight">
             Confirm the details
           </DialogTitle>
-          <DialogDescription>
-            The capture stays exactly as received — just tell us who it's for.
-          </DialogDescription>
         </DialogHeader>
 
         {/* The raw capture, verbatim, for reference while filing. */}
         <InboxCapturePreview item={item} />
 
-        {canAutoFill && (
-          <div className="flex items-center justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleAutoFill}
-              disabled={isBusy || isParsing}
-              className="gap-2"
-            >
-              {isParsing ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Sparkles className="size-4" aria-hidden="true" />
-              )}
-              {translate("crm.inbox.parse.autoFill", {
-                _: "Auto-fill from resume",
-              })}
-            </Button>
-          </div>
-        )}
-
-        {hasResume && isParsing && (
-          <p
-            className="text-sm text-muted-foreground"
-            role="status"
-            aria-live="polite"
-          >
-            Reading your resume… We’re looking for details to save you typing.
-            You can still fill in the form yourself.
-          </p>
-        )}
-        {hasLegacyWordAttachment(item) && (
-          <div
-            className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
-            role="status"
-          >
-            <span>
-              This older Word file (.doc) cannot be read for auto-fill yet. Save
-              it as .docx or PDF, then upload it again. You can still enter the
-              details yourself.
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                onClose();
-                redirect(buildNewPath("shidduchim"));
-              }}
-            >
-              Upload a .docx or PDF
-            </Button>
-          </div>
-        )}
-        {hasResume && !isEntitlementLoading && !isEntitled && (
-          <p className="text-sm text-muted-foreground" role="status">
-            Auto-fill isn’t available on this account right now. Your file is
-            still attached; you can enter the details yourself.
-          </p>
-        )}
-        {resumeMessage && (
-          <div
-            className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
-            role={resumeMessageIsError ? "alert" : "status"}
-            aria-live={resumeMessageIsError ? undefined : "polite"}
-          >
-            <span>{resumeMessage}</span>
-            {resumeMessageIsError && (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleAutoFill}
-                  disabled={isBusy || isParsing}
-                >
-                  Try again
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
-                    setResumeMessage(null);
-                    setResumeMessageIsError(false);
-                  }}
-                >
-                  Enter details myself
-                </Button>
-              </>
-            )}
-          </div>
-        )}
         {isShadchanSourced && isLoadingLinkedShadchan ? (
           // Story 8.3 (AC-3): never mount the form with the wrong default —
           // wait for the connection's shadchan to resolve rather than
@@ -512,31 +299,32 @@ const LegacyInboxResolveDialog = ({
               redt_date: item.created_at?.split("T")[0],
             }}
           >
-            <DraftResetter draft={parsedDraft} onSnapshot={setDraftSnapshot} />
-            {parsedDraft && (
-              <div className="rounded-xl border border-border/70 bg-secondary/30 p-3">
-                <p className="text-sm text-muted-foreground" role="status">
-                  The original file is still attached and unchanged.
-                </p>
-                <AutoFillUndo
-                  snapshot={draftSnapshot}
-                  onUndo={() => {
-                    setParsedDraft(null);
-                    setDraftSnapshot(null);
-                    setResumeMessage(
-                      "Auto-fill undone. The original file is still attached and unchanged.",
-                    );
-                    setResumeMessageIsError(false);
-                  }}
+            <div className="flex flex-col gap-4">
+              <ReferenceInput source="shadchan_id" reference="shadchanim">
+                <fieldset
+                  disabled={isShadchanSourced}
+                  className="m-0 min-w-0 border-0 p-0"
+                >
+                  <AutocompleteInput
+                    label="Who is the shadchan?"
+                    onCreate={handleCreateShadchan}
+                    helperText={false}
+                  />
+                </fieldset>
+              </ReferenceInput>
+              <ReferenceInput
+                source="single_id"
+                reference="singles"
+                filter={{ "status@neq": "archived" }}
+              >
+                <AutocompleteInput
+                  label="Which child is this for?"
+                  validate={required()}
+                  helperText={false}
                 />
-              </div>
-            )}
-            <ShidduchInputs
-              lockedShadchanId={lockedShadchanId}
-              isShadchanLocked={isShadchanSourced}
-              onCreateShadchan={handleCreateShadchan}
-              lowConfidenceFields={parsedDraft?.lowConfidenceFields ?? []}
-            />
+              </ReferenceInput>
+              <NameInput />
+            </div>
 
             {/* AC 5 (Story 10.1, Task 3): link to an existing suggestion
                 instead of submitting the form above — the same shared
