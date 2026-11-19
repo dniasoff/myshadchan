@@ -51,7 +51,7 @@ describe("ResumeTab — real FakeRest round trip (AC 1 / AC 2 / AC 3)", () => {
     );
 
     await expect
-      .element(screen.getByText("No resume uploaded yet."))
+      .element(screen.getByText("No resume files attached"))
       .toBeInTheDocument();
 
     const originalHeading = screen

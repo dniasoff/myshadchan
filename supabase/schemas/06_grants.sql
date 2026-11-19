@@ -560,6 +560,20 @@ revoke all on function public.add_resume_file(text, text, text, bigint, bigint, 
 grant execute on function public.add_resume_file(text, text, text, bigint, bigint, bigint, bigint, text) to authenticated;
 grant execute on function public.add_resume_file(text, text, text, bigint, bigint, bigint, bigint, text) to service_role;
 
+revoke all on function public.remove_resume_file(bigint, text, bigint, timestamptz, text) from public, anon;
+grant execute on function public.remove_resume_file(bigint, text, bigint, timestamptz, text) to authenticated;
+grant execute on function public.remove_resume_file(bigint, text, bigint, timestamptz, text) to service_role;
+do $$
+begin
+  if to_regprocedure('public.remove_resume_file(bigint,text)') is not null then
+    execute 'revoke all on function public.remove_resume_file(bigint,text) from public, anon, authenticated, service_role';
+  end if;
+end;
+$$;
+revoke all on function public.resume_read_in_progress(bigint, text) from public, anon;
+grant execute on function public.resume_read_in_progress(bigint, text) to authenticated;
+grant execute on function public.resume_read_in_progress(bigint, text) to service_role;
+
 -- Story 5.4: the two write paths into resume_photos (AC 2). Story 5.8
 -- widened add_resume_photo the same way as add_resume_file above.
 revoke all on function public.add_resume_photo(text, bigint, bigint, text) from public, anon;
@@ -1054,8 +1068,8 @@ grant execute on function public.confirm_ai_parse_attempt(bigint, bigint, bigint
 revoke all on function public.release_ai_parse_attempt(bigint, bigint, bigint) from public, anon, authenticated;
 grant execute on function public.release_ai_parse_attempt(bigint, bigint, bigint) to service_role;
 
-revoke all on function public.claim_ai_reread_attempt(bigint, bigint, uuid, smallint) from public, anon, authenticated;
-grant execute on function public.claim_ai_reread_attempt(bigint, bigint, uuid, smallint) to service_role;
+revoke all on function public.claim_ai_reread_attempt(bigint, bigint, uuid, smallint, text) from public, anon, authenticated;
+grant execute on function public.claim_ai_reread_attempt(bigint, bigint, uuid, smallint, text) to service_role;
 
 revoke all on function public.apply_ai_reread_sections(bigint, bigint, bigint, bigint, jsonb, jsonb, smallint) from public, anon, authenticated;
 grant execute on function public.apply_ai_reread_sections(bigint, bigint, bigint, bigint, jsonb, jsonb, smallint) to service_role;
@@ -1951,10 +1965,10 @@ revoke all on function public.delete_owned_inbox_shidduch(bigint, bigint, timest
 grant execute on function public.delete_owned_inbox_shidduch(bigint, bigint, timestamptz) to authenticated, service_role;
 revoke all on function public.claim_shidduch_storage_purge() from public, anon;
 grant execute on function public.claim_shidduch_storage_purge() to authenticated, service_role;
-revoke all on function public.authorize_shidduch_storage_removal(text, text, text, text) from public, anon;
-grant execute on function public.authorize_shidduch_storage_removal(text, text, text, text) to authenticated, service_role;
-revoke all on function public.ack_shidduch_storage_purge(text, text, text) from public, anon;
-grant execute on function public.ack_shidduch_storage_purge(text, text, text) to authenticated, service_role;
+revoke all on function public.authorize_shidduch_storage_removal(text, text, text, text, bigint, bigint, timestamptz) from public, anon;
+grant execute on function public.authorize_shidduch_storage_removal(text, text, text, text, bigint, bigint, timestamptz) to authenticated, service_role;
+revoke all on function public.ack_shidduch_storage_purge(text, text, text, bigint, bigint, timestamptz) from public, anon;
+grant execute on function public.ack_shidduch_storage_purge(text, text, text, bigint, bigint, timestamptz) to authenticated, service_role;
 revoke all on function public.storage_account_write_allowed(bigint) from public, anon;
 grant execute on function public.storage_account_write_allowed(bigint) to authenticated, service_role;
 revoke all on function public.shidduch_storage_path_allowed(text, text) from public, anon;

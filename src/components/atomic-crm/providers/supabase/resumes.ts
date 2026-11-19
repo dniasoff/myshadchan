@@ -1,3 +1,5 @@
+import type { Identifier } from "ra-core";
+
 import {
   isSingleSubject,
   type ResumeSubject,
@@ -62,6 +64,18 @@ export type SignResumeFileUrlParams = {
   /** Serve for viewing in the page rather than saving to disk — mirrors
    * `entityFiles.ts`'s `SignEntityFileUrlParams.inline`. */
   inline?: boolean;
+};
+
+export type RemoveResumeFileParams = {
+  resumeId: Identifier;
+  path: string;
+  size: number;
+  uploadedAt: string;
+  deleteToken: string;
+};
+
+export type ResumeFileDeleteResult = {
+  purgePending: boolean;
 };
 
 /**

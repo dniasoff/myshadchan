@@ -1170,8 +1170,7 @@ begin
   end if;
 
   select true into v_exists
-  from public.accounts where id = p_account_id
-  for update;
+  from public.accounts where id = p_account_id;
   if not found then
     -- Already gone (a concurrent lifecycle finished first). The invariant
     -- holds, so this is success, not failure.
@@ -1194,6 +1193,15 @@ begin
   -- erase a pending prefix sweep or race a Storage upload.
   if not public.account_storage_cleanup_fence(p_account_id) then
     return false;
+  end if;
+
+  -- Take the account row only after the parent-first storage fence. Recheck
+  -- existence because another lifecycle may have completed while unfenced.
+  select true into v_exists
+  from public.accounts where id = p_account_id
+  for update;
+  if not found then
+    return true;
   end if;
 
   -- Release the two references that must survive the account rather than
@@ -1263,11 +1271,10 @@ begin
 
   select a.demo into v_demo
   from public.accounts a
-  where a.id = p_account_id
-  for update;
+  where a.id = p_account_id;
   if not found then
     raise exception 'account not found for deletion: %', p_account_id
-      using errcode = 'no_data';
+      using errcode = 'P0002';
   end if;
   if v_demo then
     raise exception 'demo accounts must be cleared through the demo lifecycle'
@@ -1276,6 +1283,21 @@ begin
 
   if not public.account_storage_cleanup_fence(p_account_id) then
     raise exception 'account has pending Storage cleanup; drain it before deletion'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Take the account row only after the parent-first storage fence, then
+  -- recheck its existence/demo state before deleting account-owned rows.
+  select a.demo into v_demo
+  from public.accounts a
+  where a.id = p_account_id
+  for update;
+  if not found then
+    raise exception 'account disappeared during deletion: %', p_account_id
+      using errcode = 'serialization_failure';
+  end if;
+  if v_demo then
+    raise exception 'demo accounts must be cleared through the demo lifecycle'
       using errcode = 'check_violation';
   end if;
 
@@ -2032,18 +2054,17 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
-  -- Upload/catalog lock order is shidduch parent -> account -> Inbox source.
-  -- The parent FOR SHARE is taken before any resume row write so delete's
-  -- parent FOR UPDATE cannot race a late catalog insert.
+  -- Global storage-writer order is parent shidduch -> advisory fence ->
+  -- resume/source rows. Parent rows are locked before the shared fence.
   if p_shidduchim_id is not null then
     select s.id into v_parent_id
     from public.shidduchim s
     where s.id = p_shidduchim_id and s.account_id = v_account_id
-    for share;
+    for update;
+    perform public.account_storage_lock(v_account_id);
     if v_parent_id is null then
       raise exception 'shidduch % not found in current account', p_shidduchim_id;
     end if;
-    perform public.account_storage_lock(v_account_id);
     if exists (
       select 1 from public.deleted_shidduch_tombstones t
       where t.account_id = v_account_id and t.shidduch_id = p_shidduchim_id
@@ -2176,6 +2197,246 @@ begin
 end;
 $$;
 
+drop function if exists public.remove_resume_file(bigint, text);
+
+CREATE OR REPLACE FUNCTION public.remove_resume_file(
+  p_resume_id bigint,
+  p_path text,
+  p_size bigint,
+  p_uploaded_at timestamptz,
+  p_delete_token text
+) RETURNS SETOF public.resumes
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_parent_id bigint;
+  v_resume public.resumes;
+  v_file jsonb;
+  v_files jsonb;
+  v_remaining jsonb;
+  v_queue public.storage_purge_queue;
+  v_target_ordinality bigint;
+  v_has_different_identity boolean;
+begin
+  if v_account_id is null
+     or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    raise exception 'remove_resume_file requires an owning manager'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if p_resume_id is null or p_path is null or p_path = ''
+     or p_size is null or p_uploaded_at is null
+     or p_delete_token is null
+     or p_delete_token !~ '^[0-9a-f]{64}$' then
+    raise exception 'resume file not found'
+      using errcode = 'P0002';
+  end if;
+
+  -- Global storage-writer order is parent shidduch -> advisory fence ->
+  -- resume -> purge queue. The queue's opaque token is the server-side claim;
+  -- a retry with the same token and exact identity is harmless. A duplicate
+  -- path with a different identity removes one entry and leaves a partial
+  -- queue claim until the last reference is removed.
+  select s.id into v_parent_id
+  from public.shidduchim s
+  where s.account_id = v_account_id
+    and exists (
+      select 1
+      from public.resumes r
+      where r.id = p_resume_id
+        and r.account_id = v_account_id
+        and r.shidduchim_id = s.id
+    )
+  for update;
+  perform public.account_storage_lock(v_account_id);
+  if v_parent_id is null then
+    raise exception 'resume not found'
+      using errcode = 'P0002';
+  end if;
+  select r.* into v_resume
+  from public.resumes r
+  where r.id = p_resume_id
+    and r.account_id = v_account_id
+    and r.shidduchim_id = v_parent_id
+  for update;
+  if not found then
+    raise exception 'resume not found'
+      using errcode = 'P0002';
+  end if;
+
+  v_files := case
+    when jsonb_typeof(v_resume.files) = 'array' then v_resume.files
+    else '[]'::jsonb
+  end;
+  select q.* into v_queue
+  from public.storage_purge_queue q
+  where q.account_id = v_account_id
+    and q.kind = 'object'
+    and q.bucket = 'documents'
+    and q.storage_path = p_path
+    and q.resume_id = v_resume.id
+  for update;
+
+  -- A token retry is idempotent only for the exact resume/file identity. This
+  -- is the final arbiter for tabs whose local claim lease expires in flight.
+  if found and v_queue.delete_token = p_delete_token then
+    if v_queue.file_size is distinct from p_size
+       or v_queue.file_uploaded_at is distinct from p_uploaded_at then
+      raise exception 'resume delete token identity mismatch'
+        using errcode = 'serialization_failure';
+    end if;
+    return next v_resume;
+    return;
+  end if;
+
+  select f.value, f.ordinality into v_file, v_target_ordinality
+  from jsonb_array_elements(v_files) with ordinality f(value, ordinality)
+  where f.value->>'path' = p_path
+    and (f.value->>'size')::bigint is not distinct from p_size
+    and (f.value->>'uploaded_at')::timestamptz is not distinct from p_uploaded_at
+  order by f.ordinality
+  limit 1;
+
+  if v_queue.id is not null and not v_queue.resume_file_partial
+     and v_file is not null then
+    raise exception 'resume file changed'
+      using errcode = 'serialization_failure';
+  end if;
+
+  if v_file is null then
+    if exists (
+      select 1
+      from jsonb_array_elements(v_files) f(value)
+      where f.value->>'path' = p_path
+    ) then
+      raise exception 'resume file changed'
+        using errcode = 'serialization_failure';
+    end if;
+    if v_queue.id is not null and v_queue.file_size = p_size
+       and v_queue.file_uploaded_at = p_uploaded_at
+       and not v_queue.resume_file_partial then
+      return next v_resume;
+      return;
+    end if;
+    raise exception 'resume file not found'
+      using errcode = 'P0002';
+  end if;
+
+  if v_queue.id is not null and (
+       v_queue.file_size is distinct from p_size
+       or v_queue.file_uploaded_at is distinct from p_uploaded_at
+     ) and not v_queue.resume_file_partial then
+    raise exception 'resume file changed'
+      using errcode = 'serialization_failure';
+  end if;
+
+  if p_path !~ ('^' || v_account_id::text || '/resumes/' || v_parent_id::text || '/[^/]+$')
+     or p_path ~ '(^|/)(\.\.?)($|/)'
+     or p_path ~ '[*?]' then
+    raise exception 'resume file path is not removable'
+      using errcode = 'check_violation';
+  end if;
+
+  if exists (
+    select 1
+    from public.ai_reread_attempts a
+    where a.account_id = v_account_id
+      and a.resume_id = v_resume.id
+      and (a.file_identity is null or a.file_identity = p_path)
+      and a.status = 'in_progress'
+      and a.lease_expires_at > now()
+  ) then
+    raise exception 'Please wait: this resume is being made easy to read.'
+      using errcode = '55P03';
+  end if;
+
+  select exists (
+    select 1
+    from jsonb_array_elements(v_files) with ordinality f(value, ordinality)
+    where f.value->>'path' = p_path
+      and (
+        (f.value->>'size')::bigint is distinct from p_size
+        or (f.value->>'uploaded_at')::timestamptz is distinct from p_uploaded_at
+      )
+  ) into v_has_different_identity;
+
+  select coalesce(jsonb_agg(f.value order by f.ordinality), '[]'::jsonb)
+    into v_remaining
+  from jsonb_array_elements(v_files) with ordinality f(value, ordinality)
+  where case
+    when v_has_different_identity then f.ordinality <> v_target_ordinality
+    else f.value->>'path' is distinct from p_path
+  end;
+
+  update public.resumes
+  set files = v_remaining
+  where id = v_resume.id
+  returning * into v_resume;
+
+  if v_has_different_identity then
+    if v_queue.id is not null then
+      update public.storage_purge_queue
+      set file_size = p_size,
+          file_uploaded_at = p_uploaded_at,
+          delete_token = p_delete_token,
+          resume_file_partial = true,
+          updated_at = now()
+      where id = v_queue.id;
+    else
+      insert into public.storage_purge_queue (
+        account_id, kind, bucket, storage_path, resume_id, file_size,
+        file_uploaded_at, delete_token, resume_file_partial
+      ) values (
+        v_account_id, 'object', 'documents', p_path, v_resume.id, p_size,
+        p_uploaded_at, p_delete_token, true
+      );
+    end if;
+    return next v_resume;
+    return;
+  end if;
+
+  if v_queue.id is not null then
+    update public.storage_purge_queue
+    set file_size = p_size,
+        file_uploaded_at = p_uploaded_at,
+        delete_token = p_delete_token,
+        resume_file_partial = false,
+        updated_at = now()
+    where id = v_queue.id;
+  else
+    insert into public.storage_purge_queue (
+      account_id, kind, bucket, storage_path, resume_id, file_size,
+      file_uploaded_at, delete_token, resume_file_partial
+    ) values (
+      v_account_id, 'object', 'documents', p_path, v_resume.id, p_size,
+      p_uploaded_at, p_delete_token, false
+    );
+  end if;
+  if not exists (
+    select 1
+    from public.storage_purge_queue q
+    where q.account_id = v_account_id
+      and q.kind = 'object'
+      and q.bucket = 'documents'
+      and q.storage_path = p_path
+      and q.resume_id = v_resume.id
+      and q.file_size = p_size
+      and q.file_uploaded_at = p_uploaded_at
+      and q.delete_token = p_delete_token
+      and not q.resume_file_partial
+  ) then
+    raise exception 'resume file cleanup could not be queued'
+      using errcode = 'check_violation';
+  end if;
+
+  return next v_resume;
+  return;
+end;
+$function$;
+
 CREATE OR REPLACE FUNCTION "public"."add_resume_photo"("p_path" "text", "p_shidduchim_id" bigint DEFAULT NULL::bigint, "p_single_id" bigint DEFAULT NULL::bigint, "p_visibility" "text" DEFAULT 'shared'::"text") RETURNS SETOF "public"."resume_photos"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -2199,11 +2460,11 @@ begin
     select s.id into v_parent_id
     from public.shidduchim s
     where s.id = p_shidduchim_id and s.account_id = v_account_id
-    for share;
+    for update;
+    perform public.account_storage_lock(v_account_id);
     if v_parent_id is null then
       raise exception 'shidduch % not found in current account', p_shidduchim_id;
     end if;
-    perform public.account_storage_lock(v_account_id);
     if exists (
       select 1 from public.deleted_shidduch_tombstones t
       where t.account_id = v_account_id and t.shidduch_id = p_shidduchim_id
@@ -6208,7 +6469,7 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."claim_ai_reread_attempt"("p_account_id" bigint, "p_resume_id" bigint, "p_request_id" uuid, "p_current_schema_version" smallint) RETURNS "jsonb"
+CREATE OR REPLACE FUNCTION "public"."claim_ai_reread_attempt"("p_account_id" bigint, "p_resume_id" bigint, "p_request_id" uuid, "p_current_schema_version" smallint, "p_file_identity" text DEFAULT NULL::text) RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -6226,13 +6487,15 @@ begin
       using errcode = 'invalid_parameter_value';
   end if;
 
-  -- Lock order is parent shidduch FOR SHARE -> attempts. A delete takes the
-  -- same parent first FOR UPDATE order, so claim/delete cannot deadlock.
+  -- Global storage-writer lock order is parent shidduch -> advisory fence ->
+  -- child rows/queue. Keep reread claims in that order so a claim/delete pair
+  -- cannot deadlock.
   select s.id into v_shidduch_id
   from public.shidduchim s
   join public.resumes r on r.shidduchim_id = s.id
   where r.id = p_resume_id and r.account_id = p_account_id
-  for share of s;
+  for update of s;
+  perform public.account_storage_lock(p_account_id);
 
   -- The service-role RPC is an independent trust boundary from the Worker.
   -- Reject a forged account/resume pair before retention, quota reservation,
@@ -6286,6 +6549,7 @@ begin
       end if;
       update public.ai_reread_attempts
       set generation = generation + 1,
+          file_identity = coalesce(p_file_identity, file_identity),
           lease_expires_at = now() + c_lease, updated_at = now()
       where id = v_attempt.id
       returning * into v_attempt;
@@ -6312,6 +6576,7 @@ begin
        and v_attempt.lease_expires_at <= now() then
       update public.ai_reread_attempts
       set request_id = p_request_id, generation = generation + 1,
+          file_identity = coalesce(p_file_identity, file_identity),
           lease_expires_at = now() + c_lease, updated_at = now()
       where id = v_attempt.id and account_id = p_account_id
       returning * into v_attempt;
@@ -6350,16 +6615,17 @@ begin
   if v_reclaim_attempt_id is not null then
     update public.ai_reread_attempts
     set period = v_period, status = 'in_progress', generation = generation + 1,
+        file_identity = coalesce(p_file_identity, file_identity),
         lease_expires_at = now() + c_lease, updated_at = now()
     where id = v_reclaim_attempt_id and account_id = p_account_id
       and status = 'failed'
     returning * into v_attempt;
   else
     insert into public.ai_reread_attempts
-      (account_id, resume_id, request_id, period, status, generation,
+      (account_id, resume_id, file_identity, request_id, period, status, generation,
        lease_expires_at, updated_at)
     values
-      (p_account_id, p_resume_id, p_request_id, v_period, 'in_progress', 1,
+      (p_account_id, p_resume_id, p_file_identity, p_request_id, v_period, 'in_progress', 1,
        now() + c_lease, now())
     returning * into v_attempt;
   end if;
@@ -10110,6 +10376,10 @@ begin
     raise exception 'account storage lock requires an account'
       using errcode = 'invalid_parameter_value';
   end if;
+  -- Global storage-writer order: parent shidduch rows (ascending id) ->
+  -- advisory fence -> child rows/queue. Writers without a parent take only
+  -- this advisory fence. Account deletion enters the fence after locking all
+  -- parents, then locks the account row for its final delete.
   perform pg_advisory_xact_lock(
     hashtextextended(format('myshadchan-account-storage:%s', p_account_id), 0)
   );
@@ -10213,12 +10483,12 @@ begin
     select s.id into v_parent_id
     from public.shidduchim s
     where s.id = new.target_id and s.account_id = v_account_id
-    for share;
+    for update;
+    perform public.account_storage_lock(v_account_id);
     if v_parent_id is null then
       raise exception 'entity file shidduch target is missing'
         using errcode = 'foreign_key_violation';
     end if;
-    perform public.account_storage_lock(v_account_id);
     if exists (
       select 1 from public.deleted_shidduch_tombstones t
       where t.account_id = v_account_id and t.shidduch_id = new.target_id
@@ -10293,7 +10563,7 @@ begin
   end if;
   insert into public.storage_purge_queue (account_id, kind, bucket, storage_path)
   values (p_account_id, 'object', p_bucket, p_path)
-  on conflict (account_id, kind, bucket, storage_path) do nothing;
+  on conflict do nothing;
 end;
 $$;
 
@@ -10312,7 +10582,7 @@ begin
   end if;
   insert into public.storage_purge_queue (account_id, kind, bucket, storage_path, reason)
   values (p_account_id, 'quarantine', p_bucket, p_path, p_reason)
-  on conflict (account_id, kind, bucket, storage_path) do nothing;
+  on conflict do nothing;
 end;
 $$;
 
@@ -10328,6 +10598,7 @@ begin
     raise exception 'Storage purge is not available to this role'
       using errcode = 'insufficient_privilege';
   end if;
+  perform public.account_storage_lock(v_account_id);
   return query
   update public.storage_purge_queue q
   set claimed_at = now(), attempt = q.attempt + 1, updated_at = now()
@@ -10336,6 +10607,7 @@ begin
     from public.storage_purge_queue
     where account_id = v_account_id
       and not_before <= now()
+      and not resume_file_partial
       and (claimed_at is null or claimed_at < now() - interval '5 minutes')
     order by id
     limit 100
@@ -10350,7 +10622,10 @@ CREATE OR REPLACE FUNCTION public.authorize_shidduch_storage_removal(
   p_kind text,
   p_bucket text,
   p_queue_path text,
-  p_object_path text
+  p_object_path text,
+  p_resume_id bigint DEFAULT NULL::bigint,
+  p_file_size bigint DEFAULT NULL::bigint,
+  p_file_uploaded_at timestamptz DEFAULT NULL::timestamptz
 ) RETURNS boolean
 LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path TO ''
@@ -10361,6 +10636,10 @@ begin
   if v_account_id is null or public.current_member_role() not in ('parent_admin', 'self_manager') then
     return false;
   end if;
+  if (p_resume_id is null) <> (p_file_size is null)
+     or (p_resume_id is null) <> (p_file_uploaded_at is null) then
+    return false;
+  end if;
   return exists (
     select 1
     from public.storage_purge_queue q
@@ -10369,6 +10648,16 @@ begin
       and q.bucket = p_bucket
       and q.storage_path = p_queue_path
       and q.claimed_at is not null
+      and not q.resume_file_partial
+      and (
+        (p_resume_id is null and q.resume_id is null)
+        or (
+          p_resume_id is not null
+          and q.resume_id = p_resume_id
+          and q.file_size = p_file_size
+          and q.file_uploaded_at = p_file_uploaded_at
+        )
+      )
       and (
         (p_kind = 'object' and p_object_path = p_queue_path)
         or (p_kind = 'prefix' and p_object_path like p_queue_path || '%')
@@ -10380,7 +10669,10 @@ $$;
 CREATE OR REPLACE FUNCTION public.ack_shidduch_storage_purge(
   p_kind text,
   p_bucket text,
-  p_path text
+  p_path text,
+  p_resume_id bigint DEFAULT NULL::bigint,
+  p_file_size bigint DEFAULT NULL::bigint,
+  p_file_uploaded_at timestamptz DEFAULT NULL::timestamptz
 ) RETURNS boolean
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path TO ''
@@ -10393,11 +10685,26 @@ begin
     raise exception 'Storage purge is not available to this role'
       using errcode = 'insufficient_privilege';
   end if;
+  if (p_resume_id is null) <> (p_file_size is null)
+     or (p_resume_id is null) <> (p_file_uploaded_at is null) then
+    raise exception 'Storage purge identity is incomplete'
+      using errcode = 'invalid_parameter_value';
+  end if;
+  perform public.account_storage_lock(v_account_id);
   select * into v_row
   from public.storage_purge_queue
   where account_id = v_account_id
     and kind = p_kind and bucket = p_bucket and storage_path = p_path
     and claimed_at is not null
+    and (
+      (p_resume_id is null and resume_id is null)
+      or (
+        p_resume_id is not null
+        and resume_id = p_resume_id
+        and file_size = p_file_size
+        and file_uploaded_at = p_file_uploaded_at
+      )
+    )
   for update;
   if not found then
     return false;
@@ -10420,9 +10727,8 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path TO ''
 AS $$
 begin
-  -- Account deletion and shidduch-owned writers use parent -> advisory
-  -- ordering. Lock parents in id order before the fence so the later FK
-  -- cascade cannot deadlock with a writer holding the advisory lock.
+  -- Account deletion uses parent rows (ascending id) -> advisory fence ->
+  -- account row. This is the single global order for storage writers.
   perform 1
   from public.shidduchim
   where account_id = p_account_id
@@ -10481,6 +10787,38 @@ begin
 end;
 $$;
 
+CREATE OR REPLACE FUNCTION public.resume_read_in_progress(p_resume_id bigint, p_path text)
+RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_resume_id bigint;
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager')
+     or p_resume_id is null or p_path is null then
+    return false;
+  end if;
+  select r.id into v_resume_id
+  from public.resumes r
+  where r.id = p_resume_id and r.account_id = v_account_id
+  for share;
+  if v_resume_id is null then
+    return false;
+  end if;
+  return exists (
+    select 1
+    from public.ai_reread_attempts a
+    where a.resume_id = v_resume_id
+      and (a.file_identity is null or a.file_identity = p_path)
+      and a.status = 'in_progress'
+      and a.lease_expires_at > now()
+  );
+end;
+$$;
+
 CREATE OR REPLACE FUNCTION public.archive_shidduch(p_id bigint)
 RETURNS SETOF public.shidduchim
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
@@ -10498,6 +10836,7 @@ begin
   select s.* into v_row from public.shidduchim s
   where s.id = p_id and s.account_id = v_account_id
   for update;
+  perform public.account_storage_lock(v_account_id);
   if not found then return; end if;
   update public.shidduchim set archived_at = coalesce(archived_at, now()) where id = p_id;
   return query select * from public.shidduch_row(p_id);
@@ -10521,6 +10860,7 @@ begin
   select s.* into v_row from public.shidduchim s
   where s.id = p_id and s.account_id = v_account_id
   for update;
+  perform public.account_storage_lock(v_account_id);
   if not found then return; end if;
   update public.shidduchim set archived_at = null where id = p_id;
   return query select * from public.shidduch_row(p_id);
@@ -10548,6 +10888,7 @@ begin
   select s.* into v_shidduch from public.shidduchim s
   where s.id = p_id and s.account_id = v_account_id
   for update;
+  perform public.account_storage_lock(v_account_id);
   if not found then return; end if;
 
   if exists (
@@ -10619,7 +10960,7 @@ begin
       v_account_id, 'prefix',
       case when v_prefix like '%/shidduch/%' then 'entity-files' else 'documents' end,
       v_prefix
-    ) on conflict (account_id, kind, bucket, storage_path) do nothing;
+    ) on conflict do nothing;
   end loop;
 
   delete from public.shidduchim where id = p_id and account_id = v_account_id;

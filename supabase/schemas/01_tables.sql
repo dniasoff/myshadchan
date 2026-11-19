@@ -910,6 +910,14 @@ create table public.storage_purge_queue (
     claimed_at timestamp with time zone,
     created_at timestamp with time zone not null default now(),
     updated_at timestamp with time zone not null default now(),
+    -- Resume-file deletion records the owning resume and exact file identity;
+    -- generic lifecycle rows leave these three columns NULL. These columns
+    -- are deliberately the physical tail added by the migration.
+    resume_id bigint,
+    file_size bigint,
+    file_uploaded_at timestamp with time zone,
+    delete_token text,
+    resume_file_partial boolean not null default false,
     constraint storage_purge_queue_kind_check check (kind in ('object', 'prefix', 'quarantine')),
     constraint storage_purge_queue_reason_check check (
         (kind = 'quarantine' and reason in ('unsupported_path', 'legacy_path', 'unknown_bucket'))
@@ -933,9 +941,22 @@ create table public.storage_purge_queue (
             )
         )
     ),
-    constraint storage_purge_queue_account_kind_bucket_path_key
-        unique (account_id, kind, bucket, storage_path)
+    constraint storage_purge_queue_resume_identity_check check (
+        (resume_id is null and file_size is null and file_uploaded_at is null)
+        or (resume_id is not null and file_size is not null and file_uploaded_at is not null)
+    )
 );
+
+create unique index storage_purge_queue_generic_key
+    on public.storage_purge_queue (account_id, kind, bucket, storage_path)
+    where resume_id is null;
+create unique index storage_purge_queue_resume_identity_key
+    on public.storage_purge_queue
+    (account_id, resume_id, storage_path)
+    where resume_id is not null;
+create unique index storage_purge_queue_delete_token_key
+    on public.storage_purge_queue (account_id, delete_token)
+    where delete_token is not null;
 
 create index storage_purge_queue_claim_idx
     on public.storage_purge_queue (account_id, not_before, claimed_at, id);
@@ -1370,6 +1391,7 @@ create table public.ai_reread_attempts (
     lease_expires_at timestamp with time zone not null default (now() + interval '5 minutes'),
     created_at timestamp with time zone not null default now(),
     updated_at timestamp with time zone not null default now(),
+    file_identity text,
     constraint ai_reread_attempts_status_check check (status in ('in_progress', 'completed', 'failed')),
     constraint ai_reread_attempts_period_check check (period ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
     constraint ai_reread_attempts_generation_check check (generation > 0),
@@ -1384,6 +1406,7 @@ create unique index ai_reread_attempts_resume_in_progress_key
 
 comment on table public.ai_reread_attempts is 'Service-role-only idempotency, single-flight and quota ledger for deliberate resume re-reads. No resume content is stored here.';
 comment on column public.ai_reread_attempts.result_schema_version is 'The resume sections schema marker written by a completed re-read.';
+comment on column public.ai_reread_attempts.file_identity is 'The exact resume file path being read; delete guards use this to leave unrelated versions actionable.';
 
 -- Files tab (Story 3.7): a polymorphic catalog row per uploaded object,
 -- backing the private `entity-files` storage bucket (07_storage.sql). Full

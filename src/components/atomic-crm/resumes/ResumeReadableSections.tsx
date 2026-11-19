@@ -30,6 +30,10 @@ import { splitPhoneValue } from "../references/phoneLinks";
 import { resumeSubjectFilter } from "./resumeSubject";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 import {
+  resumeFileDeleteKey,
+  usePendingResumeFileDeletes,
+} from "./resumeFileDelete";
+import {
   isAutomaticallyReadableResume,
   RESUME_AUTO_READ_COPY,
   resumeAutoReadFeedbackText,
@@ -338,7 +342,17 @@ export function ResumeReadableSections({
   );
   const resume = resumes?.[0];
   const { feedback, isReading, readResume } = useResumeAutoRead();
-  const newestFile = sortResumeFilesNewestFirst(resume?.files ?? [])[0] ?? null;
+  const resumeFiles = sortResumeFilesNewestFirst(resume?.files ?? []);
+  const pendingDeletes = usePendingResumeFileDeletes(resume?.id, resumeFiles);
+  const pendingKeys = new Set(
+    pendingDeletes.map((pending) =>
+      resumeFileDeleteKey(pending.resumeId, pending.file),
+    ),
+  );
+  const visibleResumeFiles = resumeFiles.filter(
+    (file) => !pendingKeys.has(resumeFileDeleteKey(resume?.id ?? "", file)),
+  );
+  const newestFile = visibleResumeFiles[0] ?? null;
   const isUnread = resume != null && isResumeUnread(resume);
   const sections = useMemo(
     () => parseResumeSections(resume?.sections, canViewReferences === true),
@@ -452,11 +466,13 @@ export function ResumeReadableSections({
                   _: "No sections were found in this resume.",
                 })}
               </p>
-              <p className="mt-1 text-muted-foreground">
-                {translate("crm.entity360.resume.readable.emptyDescription", {
-                  _: "You can still read or download the original file above.",
-                })}
-              </p>
+              {newestFile ? (
+                <p className="mt-1 text-muted-foreground">
+                  {translate("crm.entity360.resume.readable.emptyDescription", {
+                    _: "You can still read or download the original file above.",
+                  })}
+                </p>
+              ) : null}
             </div>
           </div>
         ) : (

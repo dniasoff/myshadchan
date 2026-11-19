@@ -33,6 +33,7 @@ import {
   resumeReadAttemptKey,
   unresolvedResumeReadAttempts,
 } from "./resumeReadRequest";
+import { dispatchResumeReadStateChanged } from "./resumeFileDelete";
 
 type RereadFeedback =
   | "reading"
@@ -171,6 +172,7 @@ export function ResumeRereadControl({
     setRequestId(stableRequestId);
     setFeedback("reading");
     setIsReading(true);
+    dispatchResumeReadStateChanged(resumeId, fileIdentity, true);
     const controller = new AbortController();
     activeController.current = controller;
     try {
@@ -220,6 +222,7 @@ export function ResumeRereadControl({
         activeController.current = null;
       }
       setIsReading(false);
+      dispatchResumeReadStateChanged(resumeId, fileIdentity, false);
     }
   };
 

@@ -80,6 +80,8 @@ import type { TrustSenderParams, TrustSenderResult } from "./trustedSenders";
 import {
   attachInboxAttachmentToResumeFile as attachInboxAttachmentToResumeFileImpl,
   copyInboxAttachmentToResumeFile as copyInboxAttachmentToResumeFileImpl,
+  type RemoveResumeFileParams,
+  type ResumeFileDeleteResult,
   removeResumeFileObjects as removeResumeFileObjectsImpl,
   removeResumeFileObjectsOrThrow as removeResumeFileObjectsOrThrowImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
@@ -128,6 +130,7 @@ import {
   isInboxAttachmentPurgePath,
 } from "../../inbox/inboxDelete";
 import type {
+  ResumeReadState,
   ShidduchReadState,
   ShidduchStoragePurgeResult,
 } from "../../shidduchim/shidduchLifecycle";
@@ -776,6 +779,18 @@ export const getDataProviderWithCustomMethods = () => {
       const { data, error } = await getSupabaseClient().rpc(
         "shidduch_read_in_progress",
         { p_id: id },
+      );
+      if (error)
+        throw new Error(error.message || "Could not check resume state");
+      return { inProgress: Boolean(data) };
+    },
+    async getResumeReadState(
+      resumeId: Identifier,
+      path: string,
+    ): Promise<ResumeReadState> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "resume_read_in_progress",
+        { p_resume_id: resumeId, p_path: path },
       );
       if (error)
         throw new Error(error.message || "Could not check resume state");
@@ -1445,6 +1460,30 @@ export const getDataProviderWithCustomMethods = () => {
     async removeResumeFileObjectsStrict(paths: string[]): Promise<void> {
       return removeResumeFileObjectsOrThrowImpl(paths);
     },
+    async removeResumeFile(
+      params: RemoveResumeFileParams,
+    ): Promise<ResumeFileDeleteResult> {
+      const { error } = await getSupabaseClient().rpc("remove_resume_file", {
+        p_resume_id: params.resumeId,
+        p_path: params.path,
+        p_size: params.size,
+        p_uploaded_at: params.uploadedAt,
+        p_delete_token: params.deleteToken,
+      });
+      if (error) {
+        if (
+          /being made easy to read|read.*progress|in flight/i.test(
+            error.message,
+          )
+        ) {
+          throw new Error(
+            "Please wait: this resume is being made easy to read.",
+          );
+        }
+        throw new Error("Could not delete. Nothing was changed.");
+      }
+      return drainShidduchStoragePurge();
+    },
     async signResumeFileUrl(params: SignResumeFileUrlParams): Promise<string> {
       return signResumeFileUrlImpl(params);
     },
@@ -1798,6 +1837,9 @@ type StoragePurgeRow = {
   bucket: string;
   storage_path: string;
   phase: number;
+  resume_id?: Identifier | null;
+  file_size?: number | null;
+  file_uploaded_at?: string | null;
 };
 
 type ListedStorageEntry = {
@@ -1886,6 +1928,13 @@ export const drainShidduchStoragePurge =
             p_bucket: row.bucket,
             p_queue_path: row.storage_path,
             p_object_path: objectPath,
+            ...(row.resume_id != null
+              ? {
+                  p_resume_id: row.resume_id,
+                  p_file_size: row.file_size,
+                  p_file_uploaded_at: row.file_uploaded_at,
+                }
+              : {}),
           });
         if (authorizationError) {
           rowComplete = false;
@@ -1911,6 +1960,13 @@ export const drainShidduchStoragePurge =
           p_kind: row.kind,
           p_bucket: row.bucket,
           p_path: row.storage_path,
+          ...(row.resume_id != null
+            ? {
+                p_resume_id: row.resume_id,
+                p_file_size: row.file_size,
+                p_file_uploaded_at: row.file_uploaded_at,
+              }
+            : {}),
         });
       if (acknowledgeError || !acknowledged) pending = true;
     }

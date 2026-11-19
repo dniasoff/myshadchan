@@ -82,6 +82,7 @@ import type {
 import {
   attachInboxAttachmentToResumeFile as attachInboxAttachmentToResumeFileImpl,
   readResume as readResumeImpl,
+  removeResumeFile as removeResumeFileImpl,
   signResumeFileUrl as signResumeFileUrlImpl,
   rereadResume as rereadResumeImpl,
   uploadResumeFile as uploadResumeFileImpl,
@@ -393,6 +394,7 @@ export const createDataProvider = ({
   // map (a different bucket, `documents`, in the real backend) — see
   // ./internal/resumes.ts.
   const resumeFileBlobUrls: ResumeFileBlobUrls = new Map();
+  const removedResumeFilePaths = new Set<string>();
 
   // Photo tab (Story 5.4): the same in-memory "bytes" idea again, its own
   // map (a different `photos/` prefix of the same `documents` bucket in the
@@ -2478,6 +2480,25 @@ export const createDataProvider = ({
         ),
       };
     },
+    getResumeReadState: async (resumeId: Identifier, path: string) => {
+      const { data: resume } = await baseDataProvider.getOne<Resume>(
+        "resumes",
+        {
+          id: resumeId,
+        },
+      );
+      return {
+        inProgress: Boolean(
+          resume &&
+          (resume as Resume & { read_in_progress?: boolean })
+            .read_in_progress &&
+          (!(resume as Resume & { read_file_identity?: string })
+            .read_file_identity ||
+            (resume as Resume & { read_file_identity?: string })
+              .read_file_identity === path),
+        ),
+      };
+    },
     deleteShidduch: async (
       id: Identifier,
     ): Promise<ShidduchStoragePurgeResult> => {
@@ -3508,6 +3529,23 @@ export const createDataProvider = ({
         if (blobUrl?.startsWith("blob:")) URL.revokeObjectURL(blobUrl);
         resumeFileBlobUrls.delete(path);
       }
+    },
+    removeResumeFile: async ({ resumeId, path, size, uploadedAt }) => {
+      const [accountId, caller] = await Promise.all([
+        resolveCurrentAccountId(),
+        resolveCallerMembership(),
+      ]);
+      return removeResumeFileImpl(
+        baseDataProvider,
+        resumeFileBlobUrls,
+        removedResumeFilePaths,
+        accountId,
+        caller?.membership?.role,
+        resumeId,
+        path,
+        size,
+        uploadedAt,
+      );
     },
     signResumeFileUrl: (params: {
       storagePath: string;
