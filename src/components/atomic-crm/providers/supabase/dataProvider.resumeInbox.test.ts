@@ -32,6 +32,7 @@ const attachment = {
 };
 
 let sourceStatus: string;
+let sourceStatusReads: string[];
 let sourceExists: boolean;
 let targetExists: boolean;
 let existingFiles: unknown[];
@@ -44,6 +45,7 @@ describe("attachInboxAttachmentToResumeFile", () => {
     rpc.mockReset();
     from.mockReset();
     sourceStatus = "unresolved";
+    sourceStatusReads = [];
     sourceExists = true;
     targetExists = true;
     existingFiles = [];
@@ -58,7 +60,13 @@ describe("attachInboxAttachmentToResumeFile", () => {
       builder.maybeSingle.mockResolvedValue(
         table === "inbox_items"
           ? {
-              data: sourceExists ? { id: 44, status: sourceStatus } : null,
+              data: sourceExists
+                ? (sourceStatusReads.push(sourceStatus),
+                  {
+                    id: 44,
+                    status: sourceStatus,
+                  })
+                : null,
               error: null,
             }
           : table === "shidduchim"
@@ -133,6 +141,7 @@ describe("attachInboxAttachmentToResumeFile", () => {
       p_source_inbox_attachment_path: attachment.path,
     });
     expect(result.id).toBe(900);
+    expect(sourceStatusReads).toEqual(["unresolved"]);
   });
 
   it("cleans up its destination when the delete wins before the atomic append", async () => {

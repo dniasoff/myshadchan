@@ -377,6 +377,26 @@ describe("resume-first Inbox resolution", () => {
     expect(dataProvider.update).not.toHaveBeenCalled();
   });
 
+  it("fails closed when a resolved Inbox item has no suggestion id", async () => {
+    const item = buildItem({
+      status: "resolved",
+      resolved_shidduchim_id: null,
+    });
+    const { screen, dataProvider, createShidduch } = await renderProbe(item);
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("error:This Inbox item is already resolved."))
+      .toBeInTheDocument();
+
+    expect(createShidduch).not.toHaveBeenCalled();
+    expect(
+      dataProvider.attachInboxAttachmentToResumeFile,
+    ).not.toHaveBeenCalled();
+    expect(dataProvider.readResume).not.toHaveBeenCalled();
+    expect(dataProvider.update).not.toHaveBeenCalled();
+  });
+
   it("creates a nameless suggestion, runs fill_empty, and finalizes only after the read succeeds", async () => {
     const item = buildItem();
     const { screen, dataProvider, createShidduch } = await renderProbe(item);

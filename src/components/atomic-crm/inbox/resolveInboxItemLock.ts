@@ -41,7 +41,7 @@ export type ResolutionInput =
       resume_created?: boolean;
       resume_transfer_path?: string;
       resume_transfer_size?: number;
-      resume_transfer_state?: "pending" | "cleaned";
+      resume_transfer_state?: "pending" | "cleanup_pending" | "cleaned";
       claimed_from_status?: "unresolved" | "held";
       lock_acquired_at?: string;
     }

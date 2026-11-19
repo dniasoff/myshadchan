@@ -9,6 +9,7 @@ import type {
   CreateShidduchInput,
   EntityFile,
   InboxItem,
+  Interaction,
   Resume,
   Shidduch,
 } from "../types";
@@ -68,10 +69,20 @@ const buildDataProvider = (
 ): CrmDataProvider => {
   let currentItem: InboxItem = { ...initialItem };
   const resumesTable: Resume[] = [];
+  const suggestionsTable: Shidduch[] = [];
+  const interactionsTable: Interaction[] = [];
 
-  const createShidduch = vi.fn(async (_input: CreateShidduchInput) => {
-    return { id: 99 } as Shidduch;
+  const createShidduch = vi.fn(async (input: CreateShidduchInput) => {
+    const suggestion = {
+      id: 99 + suggestionsTable.length,
+      ...input,
+    } as Shidduch;
+    suggestionsTable.push(suggestion);
+    return suggestion;
   });
+  const defaultRemoveResumeFileObjects = vi.fn().mockResolvedValue(undefined);
+  const removeResumeFileObjectsStrict =
+    overrides.removeResumeFileObjects ?? defaultRemoveResumeFileObjects;
 
   const create = vi.fn(async (resource: string, params: unknown) => {
     if (resource === "resumes") {
@@ -85,10 +96,32 @@ const buildDataProvider = (
       resumesTable.push(row);
       return { data: row };
     }
+    if (resource === "interactions") {
+      const { data } = params as { data: Partial<Interaction> };
+      const row = {
+        id: interactionsTable.length + 1,
+        account_id: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        ...data,
+      } as Interaction;
+      interactionsTable.push(row);
+      return { data: row };
+    }
     return { data: { id: 100 } };
   });
 
   const getList = vi.fn(async (resource: string, params: unknown) => {
+    if (resource === "interactions") {
+      const { filter } = params as {
+        filter?: { target_type?: string; target_id?: Identifier };
+      };
+      const matches = interactionsTable.filter(
+        (row) =>
+          row.target_type === filter?.target_type &&
+          String(row.target_id) === String(filter?.target_id),
+      );
+      return { data: matches, total: matches.length };
+    }
     if (resource === "resumes") {
       const { filter } = params as {
         filter?: { shidduchim_id?: Identifier };
@@ -109,8 +142,12 @@ const buildDataProvider = (
     if (resource === "inbox_items" && params.id === currentItem.id) {
       return { data: currentItem };
     }
-    if (resource === "shidduchim" && params.id === 99) {
-      return { data: { id: 99 } as Shidduch };
+    if (resource === "shidduchim") {
+      const suggestion = suggestionsTable.find(
+        (row) => String(row.id) === String(params.id),
+      );
+      if (suggestion) return { data: suggestion };
+      return { data: { id: params.id } as Shidduch };
     }
     throw new Error(`Unexpected getOne: ${resource} ${params.id}`);
   });
@@ -158,6 +195,18 @@ const buildDataProvider = (
     return result.data as InboxItem;
   });
 
+  const removeSuggestion = vi.fn(async (resource: string, params: unknown) => {
+    if (resource === "shidduchim") {
+      const { id } = params as { id: Identifier };
+      const index = suggestionsTable.findIndex(
+        (row) => String(row.id) === String(id),
+      );
+      if (index !== -1) suggestionsTable.splice(index, 1);
+      return { data: { id } };
+    }
+    return { data: {} };
+  });
+
   return {
     createShidduch,
     create,
@@ -167,11 +216,13 @@ const buildDataProvider = (
       storagePath: "7/resumes/99/generated-uuid-resume.pdf",
       size: 245678,
     }),
-    removeResumeFileObjects: vi.fn().mockResolvedValue(undefined),
+    removeResumeFileObjects: defaultRemoveResumeFileObjects,
+    removeResumeFileObjectsStrict,
     removeInboxAttachment: vi.fn().mockResolvedValue(undefined),
     getOne,
     update,
     updateInboxItemResolution,
+    delete: removeSuggestion,
     ...overrides,
   } as unknown as CrmDataProvider;
 };
@@ -270,6 +321,29 @@ const buildResumeDraft = (
 });
 
 describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShidduch path)", () => {
+  it.each([
+    ["resolveAsNewShidduch", "new"],
+    ["resolveAsLinkToExisting", "linked"],
+  ] as const)(
+    "fails closed when a resolved Inbox row has no suggestion id — %s",
+    async (buttonName, _result) => {
+      const item = buildItem({
+        status: "resolved",
+        resolved_shidduchim_id: null,
+      });
+      const { screen, dataProvider } = await renderProbe(item);
+
+      await screen.getByRole("button", { name: buttonName }).click();
+      await expect
+        .element(screen.getByText("error:This Inbox item is already resolved."))
+        .toBeInTheDocument();
+
+      expect(dataProvider.createShidduch).not.toHaveBeenCalled();
+      expect(dataProvider.update).not.toHaveBeenCalled();
+      expect(dataProvider.create).not.toHaveBeenCalled();
+    },
+  );
+
   it("creates via dataProvider.createShidduch, then marks the item resolved and linked", async () => {
     // Arrange
     const item = buildItem();
@@ -386,6 +460,100 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
         }),
       }),
     );
+  });
+
+  it("compensates a suggestion when its id stash is lost before retrying", async () => {
+    let stashShouldFail = true;
+    const hooks: DataProviderHooks = {
+      beforeUpdate: (resource, params) => {
+        const { data } = params as {
+          data?: { resolution_input?: { resolved_shidduchim_id?: Identifier } };
+        };
+        if (
+          resource === "inbox_items" &&
+          data?.resolution_input?.resolved_shidduchim_id != null &&
+          stashShouldFail
+        ) {
+          stashShouldFail = false;
+          throw new Error("stash failed");
+        }
+      },
+    };
+    const item = buildItem();
+    const { screen, dataProvider } = await renderProbe(
+      item,
+      {},
+      undefined,
+      hooks,
+    );
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect
+      .element(screen.getByText("error:stash failed"))
+      .toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+
+    // The first suggestion was deleted during compensation; the retry leaves
+    // exactly one suggestion and the Inbox row points at it.
+    expect(dataProvider.createShidduch).toHaveBeenCalledTimes(2);
+    expect(dataProvider.delete).toHaveBeenCalledWith(
+      "shidduchim",
+      expect.objectContaining({ id: 99 }),
+    );
+    expect(dataProvider.update).toHaveBeenLastCalledWith(
+      "inbox_items",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "resolved",
+          resolved_shidduchim_id: 99,
+        }),
+      }),
+    );
+  });
+
+  it("does not duplicate a note when the note stash is lost before retrying", async () => {
+    let stashShouldFail = true;
+    const hooks: DataProviderHooks = {
+      beforeUpdate: (resource, params) => {
+        const { data } = params as {
+          data?: { resolution_input?: { note_inserted?: boolean } };
+        };
+        if (
+          resource === "inbox_items" &&
+          data?.resolution_input?.note_inserted === true &&
+          stashShouldFail
+        ) {
+          stashShouldFail = false;
+          throw new Error("note stash failed");
+        }
+      },
+    };
+    const { screen, dataProvider } = await renderProbe(
+      buildItem(),
+      {},
+      undefined,
+      hooks,
+    );
+
+    await screen
+      .getByRole("button", { name: "resolveAsLinkToExisting" })
+      .click();
+    await expect
+      .element(screen.getByText("error:note stash failed"))
+      .toBeInTheDocument();
+
+    await screen
+      .getByRole("button", { name: "resolveAsLinkToExisting" })
+      .click();
+    await expect.element(screen.getByText("result:linked")).toBeInTheDocument();
+
+    expect(
+      (dataProvider.create as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([resource]) => resource === "interactions",
+      ),
+    ).toHaveLength(1);
   });
 });
 
@@ -567,12 +735,16 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     }) as unknown as CrmDataProvider["create"];
     const removeResumeFileObjects = vi
       .fn()
-      .mockRejectedValue(new Error("cleanup failed"));
+      .mockRejectedValueOnce(new Error("cleanup failed"))
+      .mockResolvedValue(undefined);
     const item = buildItem();
     const draft = buildResumeDraft();
     const { screen, dataProvider } = await renderProbe(
       item,
-      { create, removeResumeFileObjects },
+      {
+        create,
+        removeResumeFileObjects,
+      },
       draft,
     );
 
@@ -585,12 +757,85 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
 
     expect(dataProvider.copyInboxAttachmentToResumeFile).toHaveBeenCalledTimes(
-      1,
+      2,
     );
     expect(removeResumeFileObjects).toHaveBeenCalledWith([
       "7/resumes/99/generated-uuid-resume.pdf",
     ]);
     expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not reuse a deleted path after the cleanup CAS is lost", async () => {
+    let resumeCreateCalls = 0;
+    const create = vi.fn(async (resource: string) => {
+      if (resource === "resumes") {
+        resumeCreateCalls += 1;
+        if (resumeCreateCalls === 1) throw new Error("insert failed");
+      }
+      return { data: { id: 100 } };
+    }) as unknown as CrmDataProvider["create"];
+    const removeResumeFileObjects = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("object already deleted"));
+    let cleanupCasShouldFail = true;
+    const hooks: DataProviderHooks = {
+      beforeUpdate: (resource, params) => {
+        const { data } = params as {
+          data?: {
+            resolution_input?: { resume_transfer_state?: string } | null;
+          };
+        };
+        if (
+          resource === "inbox_items" &&
+          data?.resolution_input?.resume_transfer_state === "cleaned" &&
+          cleanupCasShouldFail
+        ) {
+          cleanupCasShouldFail = false;
+          throw new Error("cleanup CAS lost");
+        }
+      },
+    };
+    const item = buildItem();
+    const draft = buildResumeDraft();
+    const { screen, dataProvider } = await renderProbe(
+      item,
+      { create, removeResumeFileObjects },
+      draft,
+      hooks,
+    );
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect
+      .element(screen.getByText("error:insert failed"))
+      .toBeInTheDocument();
+    const firstCurrent = await dataProvider.getOne<InboxItem>("inbox_items", {
+      id: item.id,
+    });
+    expect(firstCurrent.data.resolution_input).toMatchObject({
+      resume_transfer_state: "cleanup_pending",
+      resume_transfer_path: "7/resumes/99/generated-uuid-resume.pdf",
+    });
+
+    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+    await expect
+      .element(screen.getByText("error:object already deleted"))
+      .toBeInTheDocument();
+
+    // The retry refuses to create a row or point one at an object whose
+    // deletion was already acknowledged before the cleanup CAS was lost.
+    expect(
+      (dataProvider.create as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([resource]) => resource === "resumes",
+      ),
+    ).toHaveLength(1);
+    expect(dataProvider.copyInboxAttachmentToResumeFile).toHaveBeenCalledTimes(
+      1,
+    );
+    const finalCurrent = await dataProvider.getOne<InboxItem>("inbox_items", {
+      id: item.id,
+    });
+    expect(finalCurrent.data.status).toBe("unresolved");
   });
 
   it("keeps the item retryable when resume copy fails, then completes without an orphan", async () => {
