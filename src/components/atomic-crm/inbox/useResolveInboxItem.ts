@@ -314,22 +314,30 @@ export function useResolveInboxItem() {
               shidduchimId: created.id,
               attachment: savedDraft.attachment,
             });
+            const resumeData: Record<string, unknown> = {
+              shidduchim_id: created.id,
+              files: [
+                {
+                  path: copiedFile.storagePath,
+                  filename: savedDraft.attachment.title,
+                  mime_type: savedDraft.attachment.type,
+                  uploaded_at: new Date().toISOString(),
+                  uploaded_by: null,
+                  size: copiedFile.size,
+                },
+              ],
+            };
+            // A plain confirmation does not have extracted fields. Leave them
+            // absent so the Resume-tab reader remains the only writer of read
+            // results; parsed callers still preserve their existing metadata.
+            if (savedDraft.rawDraft != null) {
+              resumeData.extracted = savedDraft.rawDraft;
+            }
+            if (savedDraft.sections != null) {
+              resumeData.sections = savedDraft.sections;
+            }
             await dataProvider.create<Resume>("resumes", {
-              data: {
-                shidduchim_id: created.id,
-                files: [
-                  {
-                    path: copiedFile.storagePath,
-                    filename: savedDraft.attachment.title,
-                    mime_type: savedDraft.attachment.type,
-                    uploaded_at: new Date().toISOString(),
-                    uploaded_by: null,
-                    size: copiedFile.size,
-                  },
-                ],
-                extracted: savedDraft.rawDraft,
-                sections: savedDraft.sections,
-              },
+              data: resumeData,
             });
           } catch (creationError) {
             // Mirrors `uploadResumeFile`'s "no object without a row" ordering:

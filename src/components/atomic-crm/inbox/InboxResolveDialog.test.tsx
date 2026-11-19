@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter, type Identifier } from "ra-core";
 import { QueryClient } from "@tanstack/react-query";
@@ -24,16 +24,8 @@ const { signInboxAttachmentUrl } = vi.hoisted(() => ({
   signInboxAttachmentUrl: vi.fn(),
 }));
 
-const { callAiWorker } = vi.hoisted(() => ({
-  callAiWorker: vi.fn(),
-}));
-
 vi.mock("../providers/supabase/inboxAttachments", () => ({
   signInboxAttachmentUrl,
-}));
-
-vi.mock("../providers/commons/aiWorkerClient", () => ({
-  callAiWorker,
 }));
 
 /**
@@ -109,8 +101,8 @@ const buildDataProvider = (
   });
 
   return {
-    // ShidduchInputs' two ReferenceInputs (single_id, shadchan_id) fetch
-    // their own choice lists via a plain getList (no connection_id filter)
+    // The two ReferenceInputs (single_id, shadchan_id) fetch their own choice
+    // lists via a plain getList (no connection_id filter)
     // — stubbed empty, since no test asserts on them. InboxResolveDialog's
     // OWN lookup (Task 4) filters by connection_id — distinguished here the
     // same way the real dataProvider distinguishes any other filtered
@@ -221,11 +213,11 @@ describe("InboxResolveDialog — origin selection (AC-4)", () => {
 
     // Assert the field is not locked before submitting.
     await expect
-      .element(screen.getByRole("combobox", { name: "Shadchan" }))
+      .element(screen.getByRole("combobox", { name: "Who is the shadchan?" }))
       .not.toBeDisabled();
 
     // Act
-    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen.getByLabelText("Name of the person").fill("Chaya");
     await screen.getByRole("button", { name: "File as a suggestion" }).click();
 
     // Assert
@@ -249,7 +241,7 @@ describe("InboxResolveDialog — origin selection (AC-4)", () => {
     ]);
 
     // Act
-    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen.getByLabelText("Name of the person").fill("Chaya");
     await screen.getByRole("button", { name: "File as a suggestion" }).click();
 
     // Assert
@@ -276,18 +268,11 @@ describe("InboxResolveDialog — the locked shadchan_id field (AC-3)", () => {
 
     // Assert
     await expect
-      .element(screen.getByRole("combobox", { name: "Shadchan" }))
+      .element(screen.getByRole("combobox", { name: "Who is the shadchan?" }))
       .toBeDisabled();
-    await expect
-      .element(
-        screen.getByText(
-          "Sent by your connected shadchan — cannot be changed here",
-        ),
-      )
-      .toBeInTheDocument();
 
     // Act
-    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen.getByLabelText("Name of the person").fill("Chaya");
     await screen.getByRole("button", { name: "File as a suggestion" }).click();
 
     // Assert
@@ -312,18 +297,11 @@ describe("InboxResolveDialog — the locked shadchan_id field (AC-3)", () => {
 
     // Assert — fails CLOSED: disabled and empty, never open and editable.
     await expect
-      .element(screen.getByRole("combobox", { name: "Shadchan" }))
+      .element(screen.getByRole("combobox", { name: "Who is the shadchan?" }))
       .toBeDisabled();
-    await expect
-      .element(
-        screen.getByText(
-          "Sent by your connected shadchan, but their book entry could not be found — this can be resolved without a shadchan credited",
-        ),
-      )
-      .toBeInTheDocument();
 
     // Act — resolving is still possible, just without a shadchan credited.
-    await screen.getByLabelText("Name (English)").fill("Chaya");
+    await screen.getByLabelText("Name of the person").fill("Chaya");
     await screen.getByRole("button", { name: "File as a suggestion" }).click();
 
     // Assert
@@ -346,7 +324,7 @@ describe("InboxResolveDialog — the locked shadchan_id field (AC-3)", () => {
 
     // Assert
     await expect
-      .element(screen.getByRole("combobox", { name: "Shadchan" }))
+      .element(screen.getByRole("combobox", { name: "Who is the shadchan?" }))
       .not.toBeDisabled();
   });
 });
@@ -457,398 +435,74 @@ describe("InboxResolveDialog — attachment links are re-signed at click time (r
   });
 });
 
-describe("InboxResolveDialog — resume auto-fill (Story 11.2)", () => {
-  afterEach(() => {
-    callAiWorker.mockReset();
-    vi.unstubAllEnvs();
-  });
-
-  const entitledDataProviderOverrides = {
-    aiEntitlement: vi.fn().mockResolvedValue({
-      is_entitled: true,
-      plan: "ai_tier",
-      status: "active",
-      resumes_used: 0,
-      resumes_limit: 50,
-    }),
-  };
-
-  const parseResponse = {
-    fields: {
-      name_en: "Rivky",
-      name_he: "רבקה",
-      // Story 11-1 review fix (Finding 3, cross-reconciliation): this used
-      // to be a combined `parents_en`/`parents_he` pair, which
-      // `ShidduchInputs.tsx` has no input for — any parent info the model
-      // extracted was silently discarded. Split to match the four separate
-      // fields the form actually renders.
-      father_en: "Shloime",
-      father_he: null,
-      mother_en: "Chaya Sara",
-      mother_he: null,
-      seminary_en: "Bais Yaakov",
-      seminary_he: null,
-      shul_en: null,
-      shul_he: null,
-      location_en: "Lakewood, NJ",
-      location_he: null,
-      age: 24,
-      height: "5'6\"",
-      person_gender: null,
-      kohen_status: null,
-      marital_status: null,
-    },
-    lowConfidenceFields: ["age"],
-    sections: { learningHistory: [], references: [] },
-    rawDraft: { name_en: { value: "Rivky", confidence: 0.95 } },
-  };
-
-  it("renders the auto-fill button when entitled and a resume attachment exists", async () => {
-    // Arrange
+describe("InboxResolveDialog — confirm details", () => {
+  it("asks only for the approved details and has no auto-fill action", async () => {
     const item = buildItem({ attachments: [buildAttachment()] });
-    const { screen } = await renderDialog(
-      item,
-      [],
-      entitledDataProviderOverrides,
-    );
+    const { screen } = await renderDialog(item);
 
-    // Assert
+    await expect
+      .element(screen.getByText("Confirm the details", { exact: true }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByLabelText("Who is the shadchan?"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByLabelText("Which child is this for?"))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByLabelText("Name of the person"))
+      .toBeInTheDocument();
     await expect
       .element(screen.getByRole("button", { name: "Auto-fill from resume" }))
-      .toBeInTheDocument();
-  });
-
-  it("renders auto-fill for the official DOCX MIME type", async () => {
-    const item = buildItem({
-      attachments: [
-        buildAttachment({
-          title: "resume.docx",
-          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        }),
-      ],
-    });
-    const { screen } = await renderDialog(
-      item,
-      [],
-      entitledDataProviderOverrides,
-    );
+      .not.toBeInTheDocument();
     await expect
-      .element(screen.getByRole("button", { name: "Auto-fill from resume" }))
-      .toBeInTheDocument();
-  });
-
-  it("does not show the entitlement warning while entitlement is loading", async () => {
-    const item = buildItem({ attachments: [buildAttachment()] });
-    const { screen } = await renderDialog(item, [], {
-      aiEntitlement: vi.fn().mockReturnValue(new Promise(() => {})),
-    });
-
-    await expect
-      .element(
-        screen.getByText(
-          "Auto-fill isn’t available on this account right now. Your file is still attached; you can enter the details yourself.",
-        ),
-      )
+      .element(screen.getByLabelText("Name (English)"))
       .not.toBeInTheDocument();
   });
 
-  it("marks the Inbox dialog busy while the resume is being read", async () => {
-    let resolveParse!: (value: typeof parseResponse) => void;
-    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
-    callAiWorker.mockReturnValue(
-      new Promise((resolve) => {
-        resolveParse = resolve;
+  it("blocks nameless filing with a plain validation message", async () => {
+    const item = buildItem();
+    const { screen, dataProvider } = await renderDialog(item);
+
+    await screen.getByRole("button", { name: "File as a suggestion" }).click();
+
+    await expect
+      .element(
+        screen.getByText("Name of the person is required", { exact: true }),
+      )
+      .toBeInTheDocument();
+    expect(dataProvider.createShidduch).not.toHaveBeenCalled();
+  });
+
+  it("files the name and copies an attached resume without writing extraction fields", async () => {
+    const item = buildItem({ attachments: [buildAttachment()] });
+    const { screen, dataProvider } = await renderDialog(item);
+
+    await screen.getByLabelText("Name of the person").fill("Chaya");
+    await screen.getByRole("button", { name: "File as a suggestion" }).click();
+
+    await expect
+      .poll(
+        () =>
+          (dataProvider.createShidduch as ReturnType<typeof vi.fn>).mock.calls
+            .length,
+      )
+      .toBe(1);
+    expect(dataProvider.createShidduch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        single_id: 42,
+        name_en: "Chaya",
+        origin: "channel",
       }),
     );
-    const item = buildItem({ attachments: [buildAttachment()] });
-    const { screen } = await renderDialog(
-      item,
-      [],
-      entitledDataProviderOverrides,
-    );
-
-    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
-    await expect
-      .element(screen.getByRole("dialog"))
-      .toHaveAttribute("aria-busy", "true");
-    resolveParse(parseResponse);
-  });
-
-  it("keeps a legacy .doc attach-only in Inbox", async () => {
-    const item = buildItem({
-      attachments: [
-        buildAttachment({ title: "resume.doc", type: "application/msword" }),
-      ],
-    });
-    const { screen } = await renderDialog(item);
-    await expect
-      .element(
-        screen.getByText(/This older Word file \(\.doc\) cannot be read/),
-      )
-      .toBeInTheDocument();
-    await expect
-      .element(screen.getByRole("button", { name: "Auto-fill from resume" }))
-      .not.toBeInTheDocument();
-    await expect
-      .element(screen.getByRole("button", { name: "Upload a .docx or PDF" }))
-      .toBeInTheDocument();
-  });
-
-  it("opens a blank Add a suggestion route from the legacy .doc action", async () => {
-    const item = buildItem({
-      attachments: [
-        buildAttachment({ title: "resume.doc", type: "application/msword" }),
-      ],
-    });
-    const { screen, getPathname } = await renderDialog(item);
-
-    await screen.getByRole("button", { name: "Upload a .docx or PDF" }).click();
-
-    await expect.poll(getPathname).toBe("/shidduchim/new");
-  });
-
-  it("fills the form from the parsed draft and keeps the raw capture unchanged", async () => {
-    // Arrange
-    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
-    callAiWorker.mockResolvedValue(parseResponse);
-    const item = buildItem({
-      raw_text: "Dovid Berkowitz, BMG",
-      attachments: [buildAttachment()],
-    });
-    const { screen } = await renderDialog(
-      item,
-      [],
-      entitledDataProviderOverrides,
-    );
-
-    // Act
-    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
-
-    // Assert — raw capture is still visible.
-    await expect
-      .element(screen.getByText("Dovid Berkowitz, BMG"))
-      .toBeInTheDocument();
-    // Form was filled.
-    await expect
-      .element(screen.getByLabelText("Name (English)"))
-      .toHaveValue("Rivky");
-    await expect.element(screen.getByLabelText("Age")).toHaveValue(24);
-    // Story 11-1 review fix (Finding 3, cross-reconciliation): father/mother
-    // are split fields — regression coverage for the rename, since nothing
-    // here previously asserted on either.
-    await expect
-      .element(screen.getByLabelText("Father (English)"))
-      .toHaveValue("Shloime");
-    await expect
-      .element(screen.getByLabelText("Mother (English)"))
-      .toHaveValue("Chaya Sara");
-  });
-
-  it("renders a low-confidence badge for a flagged field", async () => {
-    // Arrange
-    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
-    callAiWorker.mockResolvedValue(parseResponse);
-    const item = buildItem({ attachments: [buildAttachment()] });
-    const { screen } = await renderDialog(
-      item,
-      [],
-      entitledDataProviderOverrides,
-    );
-
-    // Act
-    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
-
-    // Assert
-    await expect
-      .element(screen.getByText("Please check", { exact: true }))
-      .toBeInTheDocument();
-  });
-
-  it("preserves typed values and can undo only the auto-filled draft", async () => {
-    // Arrange
-    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
-    callAiWorker.mockResolvedValue(parseResponse);
-    const item = buildItem({ attachments: [buildAttachment()] });
-    const { screen } = await renderDialog(
-      item,
-      [],
-      entitledDataProviderOverrides,
-    );
-    await screen.getByLabelText("Name (English)").fill("Typed first");
-
-    // Act
-    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
-
-    // Assert — a human's non-empty value wins over the model's suggestion.
-    await expect
-      .element(screen.getByLabelText("Name (English)"))
-      .toHaveValue("Typed first");
-    await expect.element(screen.getByLabelText("Age")).toHaveValue(24);
-
-    // Act — undo restores the snapshot and removes the model-only value.
-    await screen.getByRole("button", { name: "Undo auto-fill" }).click();
-
-    // Assert
-    await expect
-      .element(screen.getByLabelText("Name (English)"))
-      .toHaveValue("Typed first");
-    await expect.element(screen.getByLabelText("Age")).toHaveValue(null);
-    await expect
-      .element(
-        screen.getByText(
-          "Auto-fill undone. The original file is still attached and unchanged.",
-        ),
-      )
-      .toBeInTheDocument();
-  });
-
-  it("leaves the manual form usable when auto-fill fails", async () => {
-    // Arrange
-    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
-    callAiWorker.mockRejectedValue(new Error(" monthly resume limit reached"));
-    const item = buildItem({ attachments: [buildAttachment()] });
-    const { screen, dataProvider } = await renderDialog(
-      item,
-      [],
-      entitledDataProviderOverrides,
-    );
-
-    // Act
-    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
-    await screen.getByLabelText("Name (English)").fill("Chaya");
-    await screen.getByRole("button", { name: "File as a suggestion" }).click();
-
-    // Assert
-    await expect
-      .poll(
-        () =>
-          (dataProvider.createShidduch as ReturnType<typeof vi.fn>).mock.calls
-            .length,
-      )
-      .toBeGreaterThan(0);
-    expect(dataProvider.createShidduch).toHaveBeenCalledWith(
-      expect.objectContaining({ name_en: "Chaya" }),
-    );
-  });
-
-  it("calls the parser again when Try again is clicked in Inbox", async () => {
-    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
-    callAiWorker
-      .mockRejectedValueOnce(new Error("temporary failure"))
-      .mockResolvedValueOnce(parseResponse);
-    const item = buildItem({ attachments: [buildAttachment()] });
-    const { screen } = await renderDialog(
-      item,
-      [],
-      entitledDataProviderOverrides,
-    );
-
-    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
-    await expect
-      .element(screen.getByRole("alert").getByText(/couldn’t read the resume/))
-      .toBeInTheDocument();
-    await screen.getByRole("button", { name: "Try again" }).click();
-
-    await expect
-      .element(screen.getByLabelText("Name (English)"))
-      .toHaveValue("Rivky");
-    expect(callAiWorker).toHaveBeenCalledTimes(2);
-  });
-
-  it("uses a generic damaged-file copy for a PDF attachment", async () => {
-    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
-    callAiWorker.mockRejectedValue(new Error("could not open resume"));
-    const item = buildItem({ attachments: [buildAttachment()] });
-    const { screen } = await renderDialog(
-      item,
-      [],
-      entitledDataProviderOverrides,
-    );
-
-    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
-    await expect
-      .element(
-        screen
-          .getByRole("alert")
-          .getByText(
-            "We couldn’t open this file. It may be damaged. Try saving it again or choose another file. You can still enter the details yourself.",
-          ),
-      )
-      .toBeInTheDocument();
-  });
-
-  it("does not show Undo for an all-null Inbox extraction", async () => {
-    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
-    callAiWorker.mockResolvedValue({
-      ...parseResponse,
-      fields: Object.fromEntries(
-        Object.keys(parseResponse.fields).map((field) => [field, null]),
-      ),
-    });
-    const item = buildItem({ attachments: [buildAttachment()] });
-    const { screen } = await renderDialog(
-      item,
-      [],
-      entitledDataProviderOverrides,
-    );
-
-    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
-    await expect
-      .element(screen.getByText(/couldn’t read the resume right now/))
-      .toBeInTheDocument();
-    await expect
-      .element(screen.getByRole("button", { name: "Undo auto-fill" }))
-      .not.toBeInTheDocument();
-  });
-
-  it("creates a shidduch and a resumes row when filing with a draft", async () => {
-    // Arrange
-    vi.stubEnv("VITE_PARSE_WORKER_URL", "http://parse.local");
-    callAiWorker.mockResolvedValue(parseResponse);
-    // Story 11-1 review fix (Finding 2, cross-reconciliation): the copy now
-    // lands in the `documents` bucket under a fresh path, with the real
-    // downloaded byte size — never the original `attachments`-bucket path
-    // and never a hardcoded 0.
-    const item = buildItem({ attachments: [buildAttachment()] });
-    const { screen, dataProvider } = await renderDialog(
-      item,
-      [],
-      entitledDataProviderOverrides,
-    );
-    const copyInboxAttachmentToResumeFile =
-      dataProvider.copyInboxAttachmentToResumeFile as ReturnType<typeof vi.fn>;
-
-    // Act
-    await screen.getByRole("button", { name: "Auto-fill from resume" }).click();
-    await expect
-      .element(screen.getByLabelText("Name (English)"))
-      .toHaveValue("Rivky");
-    await screen.getByRole("button", { name: "File as a suggestion" }).click();
-
-    // Assert
-    await expect
-      .poll(
-        () =>
-          (dataProvider.createShidduch as ReturnType<typeof vi.fn>).mock.calls
-            .length,
-      )
-      .toBeGreaterThan(0);
-    expect(copyInboxAttachmentToResumeFile).toHaveBeenCalledWith({
+    expect(dataProvider.copyInboxAttachmentToResumeFile).toHaveBeenCalledWith({
       shidduchimId: 99,
       attachment: buildAttachment(),
     });
     expect(dataProvider.create).toHaveBeenCalledWith("resumes", {
-      data: expect.objectContaining({
-        shidduchim_id: 99,
-        extracted: parseResponse.rawDraft,
-        sections: parseResponse.sections,
-        files: [
-          expect.objectContaining({
-            path: "1/resumes/99/copied-resume.pdf",
-            filename: "resume.pdf",
-            size: 54321,
-          }),
-        ],
+      data: expect.not.objectContaining({
+        extracted: expect.anything(),
+        sections: expect.anything(),
       }),
     });
   });
