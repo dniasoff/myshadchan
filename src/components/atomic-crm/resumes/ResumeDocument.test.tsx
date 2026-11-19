@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { isCanvasPainted, stubFetchWithPdf } from "@/test/pdfFixture";
 import { render } from "vitest-browser-react";
+import { userEvent } from "vitest/browser";
 import type { DataProvider } from "ra-core";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 
@@ -70,7 +71,7 @@ const renderDocument = async (files: ResumeFileVersion[]) => {
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
-  return { screen, signResumeFileUrl };
+  return { screen, dataProvider, signResumeFileUrl };
 };
 
 /**
@@ -188,11 +189,128 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     // element kinds are checked: asserting only "no iframe" would now pass
     // even if a blank canvas were rendered, which is the exact vacuity this
     // change could otherwise have introduced here.
-    await expect
-      .element(screen.getByText("No resume files attached"))
-      .toBeVisible();
+    await expect.element(screen.getByText("No resume attached")).toBeVisible();
     expect(anyPageCanvas()).toBeNull();
     expect(document.querySelector("iframe")).toBeNull();
+  });
+
+  it("starts at 100% with a responsive stage and accessible viewer controls", async () => {
+    const { screen } = await renderDocument([
+      version({
+        path: "p/reader.jpg",
+        filename: "reader.jpg",
+        mime_type: "image/jpeg",
+      }),
+    ]);
+
+    await expect.element(screen.getByText("100%")).toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: "Zoom out" }))
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: "Zoom in" }))
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: "Fit to width" }))
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: "Full screen" }))
+      .toBeVisible();
+    await expect
+      .element(screen.getByTestId("resume-document-stage"))
+      .toHaveClass("min-h-[410px]");
+    await expect
+      .element(screen.getByTestId("resume-document-stage"))
+      .toHaveClass("md:min-h-[520px]");
+  });
+
+  it("clamps zoom to its limits and Fit to width returns to 100%", async () => {
+    const { screen } = await renderDocument([
+      version({
+        path: "p/zoom.jpg",
+        filename: "zoom.jpg",
+        mime_type: "image/jpeg",
+      }),
+    ]);
+    const zoomIn = screen.getByRole("button", { name: "Zoom in" });
+    const zoomOut = screen.getByRole("button", { name: "Zoom out" });
+
+    await zoomIn.click();
+    await expect.element(screen.getByText("110%")).toBeVisible();
+    await screen.getByRole("button", { name: "Fit to width" }).click();
+    await expect.element(screen.getByText("100%")).toBeVisible();
+
+    for (let index = 0; index < 5; index += 1) await zoomIn.click();
+    await expect.element(screen.getByText("150%")).toBeVisible();
+    await expect.element(zoomIn).toBeDisabled();
+
+    for (let index = 0; index < 8; index += 1) await zoomOut.click();
+    await expect.element(screen.getByText("75%")).toBeVisible();
+    await expect.element(zoomOut).toBeDisabled();
+  });
+
+  it("opens the full-screen viewer and returns focus after Escape", async () => {
+    const { screen } = await renderDocument([
+      version({
+        path: "p/full-screen.jpg",
+        filename: "full-screen.jpg",
+        mime_type: "image/jpeg",
+      }),
+    ]);
+    const fullScreenButton = screen.getByRole("button", {
+      name: "Full screen",
+      exact: true,
+    });
+
+    await fullScreenButton.click();
+    await expect.element(screen.getByRole("dialog")).toBeVisible();
+    await expect
+      .element(
+        screen.getByRole("dialog").getByRole("button", { name: "Close" }),
+      )
+      .toBeVisible();
+
+    await userEvent.keyboard("{Escape}");
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+    await expect.element(fullScreenButton).toHaveFocus();
+  });
+
+  it("resets zoom when the viewer is unmounted instead of persisting it", async () => {
+    const files = [
+      version({
+        path: "p/reset-one.jpg",
+        filename: "reset-one.jpg",
+        mime_type: "image/jpeg",
+      }),
+    ];
+    const first = await renderDocument(files);
+    await first.screen.getByRole("button", { name: "Zoom in" }).click();
+    await expect.element(first.screen.getByText("110%")).toBeVisible();
+
+    const emptyTree = (
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={first.dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <div />
+        </CoreAdminContext>
+      </TestMemoryRouter>
+    );
+    await first.screen.rerender(emptyTree);
+    await first.screen.rerender(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={first.dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <ResumeDocument shidduchimId={1} />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+    await expect.element(first.screen.getByText("100%")).toBeVisible();
+    expect(window.localStorage.getItem("resume-viewer-zoom")).toBeNull();
+    expect(window.sessionStorage.getItem("resume-viewer-zoom")).toBeNull();
   });
 
   it("moves the embedded preview to the next visible file during Undo", async () => {

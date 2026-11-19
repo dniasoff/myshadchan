@@ -792,7 +792,7 @@ export const englishCrmMessages = {
       // controls. No visibility control (a resume has none) and no replace
       // (a resume is versioned by appending, never replacing — AC 2).
       resume: {
-        empty: "No resume files attached",
+        empty: "No resume attached",
         error: "Could not load the resume.",
         upload: "Attach resume",
         uploadHint:
