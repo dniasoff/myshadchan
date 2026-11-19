@@ -1468,6 +1468,7 @@ export const getDataProviderWithCustomMethods = () => {
         p_path: params.path,
         p_size: params.size,
         p_uploaded_at: params.uploadedAt,
+        p_delete_token: params.deleteToken,
       });
       if (error) {
         if (
@@ -1836,6 +1837,9 @@ type StoragePurgeRow = {
   bucket: string;
   storage_path: string;
   phase: number;
+  resume_id?: Identifier | null;
+  file_size?: number | null;
+  file_uploaded_at?: string | null;
 };
 
 type ListedStorageEntry = {
@@ -1924,6 +1928,13 @@ export const drainShidduchStoragePurge =
             p_bucket: row.bucket,
             p_queue_path: row.storage_path,
             p_object_path: objectPath,
+            ...(row.resume_id != null
+              ? {
+                  p_resume_id: row.resume_id,
+                  p_file_size: row.file_size,
+                  p_file_uploaded_at: row.file_uploaded_at,
+                }
+              : {}),
           });
         if (authorizationError) {
           rowComplete = false;
@@ -1949,6 +1960,13 @@ export const drainShidduchStoragePurge =
           p_kind: row.kind,
           p_bucket: row.bucket,
           p_path: row.storage_path,
+          ...(row.resume_id != null
+            ? {
+                p_resume_id: row.resume_id,
+                p_file_size: row.file_size,
+                p_file_uploaded_at: row.file_uploaded_at,
+              }
+            : {}),
         });
       if (acknowledgeError || !acknowledged) pending = true;
     }

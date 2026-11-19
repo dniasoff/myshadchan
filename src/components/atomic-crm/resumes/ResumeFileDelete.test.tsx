@@ -13,6 +13,7 @@ import {
   RESUME_FILE_DELETE_UNDO_MS,
   canDeleteResumeFile,
   clearPendingResumeFileDelete,
+  hydratePendingResumeFileDeletes,
   readPendingResumeFileDeletes,
   rememberPendingResumeFileDelete,
   resumeFileDeleteMarkerToken,
@@ -217,6 +218,7 @@ describe("resume file deletion contract", () => {
         path: "1/resumes/7/photo.jpg",
         size: 9,
         uploadedAt: "2026-02-01T00:00:00Z",
+        deleteToken: expect.stringMatching(/^[0-9a-f]{64}$/),
       });
     } finally {
       vi.useRealTimers();
@@ -269,6 +271,77 @@ describe("resume file deletion contract", () => {
       } else {
         Reflect.deleteProperty(navigator, "locks");
       }
+    }
+  });
+
+  it("rehydrates an expired matching marker so reload finalizes instead of losing the delete", async () => {
+    vi.useFakeTimers();
+    const file = resume.files![1]!;
+    const deadline = Date.now() - 1;
+    const token = await resumeFileDeleteMarkerToken(42, file);
+    try {
+      await rememberPendingResumeFileDelete({
+        resumeId: 42,
+        file,
+        deadline,
+      });
+      await hydratePendingResumeFileDeletes(42, [file]);
+      expect([...pendingResumeFileDeletes.values()]).toEqual([
+        expect.objectContaining({
+          resumeId: 42,
+          file,
+          deadline,
+          token,
+        }),
+      ]);
+
+      const finalize = vi.fn();
+      schedulePendingResumeFileDelete(
+        { resumeId: 42, file, deadline, token },
+        finalize,
+      );
+      await vi.runOnlyPendingTimersAsync();
+      expect(finalize).toHaveBeenCalledTimes(1);
+    } finally {
+      clearPendingResumeFileDelete(token);
+      pendingResumeFileDeletes.clear();
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats duplicate paths as independent files using their exact identity", async () => {
+    const duplicatePathResume: Resume = {
+      ...resume,
+      files: [
+        { ...resume.files![0]!, filename: "old.pdf", size: 8 },
+        {
+          ...resume.files![0]!,
+          filename: "old-alias.pdf",
+          size: 88,
+          uploaded_at: "2026-01-02T00:00:00Z",
+        },
+      ],
+    };
+    const target = duplicatePathResume.files![0]!;
+    await rememberPendingResumeFileDelete({
+      resumeId: 42,
+      file: target,
+      deadline: Date.now() + RESUME_FILE_DELETE_UNDO_MS,
+    });
+    try {
+      const { screen } = await renderList({}, true, duplicatePathResume);
+      await expect
+        .element(screen.getByText("old.pdf", { exact: true }))
+        .not.toBeInTheDocument();
+      await expect
+        .element(screen.getByText("old-alias.pdf", { exact: true }))
+        .toBeInTheDocument();
+      await expect
+        .element(screen.getByRole("button", { name: "Delete old-alias.pdf" }))
+        .toBeInTheDocument();
+    } finally {
+      pendingResumeFileDeletes.clear();
+      window.localStorage.clear();
     }
   });
 

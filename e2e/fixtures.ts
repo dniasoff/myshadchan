@@ -259,6 +259,48 @@ async function createShidduch({
 }
 
 /**
+ * Seeds the smallest real Resume row needed by a Resume-tab e2e scenario.
+ * The storage object is intentionally absent: the delete RPC owns the
+ * durable purge queue, so this fixture exercises the database/UI lifecycle
+ * without uploading a private object or calling a real provider.
+ */
+async function createResume({
+  accountId,
+  shidduchId,
+}: {
+  accountId: number;
+  shidduchId: number;
+}) {
+  const uploadedAt = new Date().toISOString();
+  const { data, error } = await adminSupabase
+    .from("resumes")
+    .insert({
+      account_id: accountId,
+      shidduchim_id: shidduchId,
+      files: [
+        {
+          path: `${accountId}/resumes/${shidduchId}/resume.pdf`,
+          filename: "resume.pdf",
+          uploaded_at: uploadedAt,
+          uploaded_by: null,
+          mime_type: "application/pdf",
+          size: 32,
+        },
+      ],
+      extracted: null,
+      sections: null,
+    })
+    .select()
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to create resume: ${error?.message}`);
+  }
+
+  return data;
+}
+
+/**
  * Story 4.1: seeds a shadchan row directly against an already-provisioned
  * account (`single.account_id`, itself created by `createSingle` above) —
  * unlike `createSingle`/`createInvite`, this does NOT provision its own
@@ -566,6 +608,7 @@ export const test = base.extend<{
   createSingle: typeof createSingle;
   createSelfManagedSingle: typeof createSelfManagedSingle;
   createShidduch: typeof createShidduch;
+  createResume: typeof createResume;
   createShadchan: typeof createShadchan;
   addHouseholdMember: typeof addHouseholdMember;
   createSecondContext: typeof createSecondContext;
@@ -596,6 +639,9 @@ export const test = base.extend<{
   },
   createShidduch: async ({}, cb) => {
     await cb(createShidduch);
+  },
+  createResume: async ({}, cb) => {
+    await cb(createResume);
   },
   createShadchan: async ({}, cb) => {
     await cb(createShadchan);

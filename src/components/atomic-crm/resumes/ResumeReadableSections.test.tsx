@@ -1461,6 +1461,16 @@ describe("ResumeReadableSections", () => {
   it("keeps the empty state wording and omits empty detail groups", async () => {
     const { screen } = await renderSections({
       fixtureRecord: { id: 1 } as ShidduchSummary,
+      files: [
+        {
+          path: "1/resumes/1/current.pdf",
+          filename: "current.pdf",
+          uploaded_at: "2026-11-15T12:00:00.000Z",
+          uploaded_by: null,
+          mime_type: "application/pdf",
+          size: 32,
+        },
+      ],
       sections: { learningHistory: [], references: [] },
       withLinks: false,
     });
@@ -1475,6 +1485,26 @@ describe("ResumeReadableSections", () => {
       )
       .toBeInTheDocument();
     await expect.element(screen.getByText("Family")).not.toBeInTheDocument();
+  });
+
+  it("does not claim the removed original can be read or downloaded", async () => {
+    const { screen } = await renderSections({
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      files: [],
+      sections: { learningHistory: [], references: [] },
+      withLinks: false,
+    });
+
+    await expect
+      .element(screen.getByText("No sections were found in this resume."))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "You can still read or download the original file above.",
+        ),
+      )
+      .not.toBeInTheDocument();
   });
 
   it("shows the empty-state read control, passes the exact file, and stays busy until completion", async () => {

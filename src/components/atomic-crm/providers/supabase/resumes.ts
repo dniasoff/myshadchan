@@ -71,6 +71,7 @@ export type RemoveResumeFileParams = {
   path: string;
   size: number;
   uploadedAt: string;
+  deleteToken: string;
 };
 
 export type ResumeFileDeleteResult = {

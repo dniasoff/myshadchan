@@ -224,4 +224,36 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     pendingResumeFileDeletes.clear();
     window.localStorage.clear();
   });
+
+  it("keeps a same-path file with different identity visible", async () => {
+    const first = version({
+      path: "p/same-path.pdf",
+      filename: "first.pdf",
+      size: 100,
+      uploaded_at: "2026-01-01T00:00:00Z",
+    });
+    const second = version({
+      path: "p/same-path.pdf",
+      filename: "second.pdf",
+      size: 200,
+      uploaded_at: "2026-01-02T00:00:00Z",
+    });
+    pendingResumeFileDeletes.clear();
+    window.localStorage.clear();
+    stubFetchWithPdf();
+    await rememberPendingResumeFileDelete({
+      resumeId: 1,
+      file: first,
+      deadline: Date.now() + 10_000,
+    });
+
+    await renderDocument([first, second]);
+    await expect
+      .poll(() => paintedPageFor("second.pdf"), { timeout: 15000 })
+      .toBe(true);
+    expect(paintedPageFor("first.pdf")).toBe(false);
+
+    pendingResumeFileDeletes.clear();
+    window.localStorage.clear();
+  });
 });

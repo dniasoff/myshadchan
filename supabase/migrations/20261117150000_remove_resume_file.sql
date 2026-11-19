@@ -12,6 +12,10 @@ alter table public.storage_purge_queue
 alter table public.storage_purge_queue
   add column if not exists file_uploaded_at timestamptz;
 alter table public.storage_purge_queue
+  add column if not exists delete_token text;
+alter table public.storage_purge_queue
+  add column if not exists resume_file_partial boolean not null default false;
+alter table public.storage_purge_queue
   drop constraint if exists storage_purge_queue_account_kind_bucket_path_key;
 do $constraint$
 begin
@@ -34,14 +38,20 @@ alter table public.storage_purge_queue
 create unique index if not exists storage_purge_queue_generic_key
   on public.storage_purge_queue (account_id, kind, bucket, storage_path)
   where resume_id is null;
+drop index if exists public.storage_purge_queue_resume_identity_key;
 create unique index if not exists storage_purge_queue_resume_identity_key
   on public.storage_purge_queue
-    (account_id, kind, bucket, storage_path, resume_id, file_size, file_uploaded_at)
+    (account_id, resume_id, storage_path)
   where resume_id is not null;
+create unique index if not exists storage_purge_queue_delete_token_key
+  on public.storage_purge_queue (account_id, delete_token)
+  where delete_token is not null;
 
 -- The two-argument RPC was deployed before exact file identity was required.
--- Remove it before exposing the guarded four-argument replacement.
+-- Remove it before exposing the guarded identity-and-token replacement.
 drop function if exists public.remove_resume_file(bigint, text);
+drop function if exists public.authorize_shidduch_storage_removal(text, text, text, text);
+drop function if exists public.ack_shidduch_storage_purge(text, text, text);
 
 drop function if exists public.claim_ai_reread_attempt(bigint, bigint, uuid, smallint);
 
@@ -600,6 +610,7 @@ begin
     from public.storage_purge_queue
     where account_id = v_account_id
       and not_before <= now()
+      and not resume_file_partial
       and (claimed_at is null or claimed_at < now() - interval '5 minutes')
     order by id
     limit 100
@@ -610,10 +621,61 @@ begin
 end;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.authorize_shidduch_storage_removal(
+  p_kind text,
+  p_bucket text,
+  p_queue_path text,
+  p_object_path text,
+  p_resume_id bigint DEFAULT NULL::bigint,
+  p_file_size bigint DEFAULT NULL::bigint,
+  p_file_uploaded_at timestamptz DEFAULT NULL::timestamptz
+) RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+declare
+  v_account_id bigint := public.current_context_id();
+begin
+  if v_account_id is null or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    return false;
+  end if;
+  if (p_resume_id is null) <> (p_file_size is null)
+     or (p_resume_id is null) <> (p_file_uploaded_at is null) then
+    return false;
+  end if;
+  return exists (
+    select 1
+    from public.storage_purge_queue q
+    where q.account_id = v_account_id
+      and q.kind = p_kind
+      and q.bucket = p_bucket
+      and q.storage_path = p_queue_path
+      and q.claimed_at is not null
+      and not q.resume_file_partial
+      and (
+        (p_resume_id is null and q.resume_id is null)
+        or (
+          p_resume_id is not null
+          and q.resume_id = p_resume_id
+          and q.file_size = p_file_size
+          and q.file_uploaded_at = p_file_uploaded_at
+        )
+      )
+      and (
+        (p_kind = 'object' and p_object_path = p_queue_path)
+        or (p_kind = 'prefix' and p_object_path like p_queue_path || '%')
+      )
+  ) and not public.storage_purge_path_referenced(p_bucket, p_object_path);
+end;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.ack_shidduch_storage_purge(
   p_kind text,
   p_bucket text,
-  p_path text
+  p_path text,
+  p_resume_id bigint DEFAULT NULL::bigint,
+  p_file_size bigint DEFAULT NULL::bigint,
+  p_file_uploaded_at timestamptz DEFAULT NULL::timestamptz
 ) RETURNS boolean
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path TO ''
@@ -626,12 +688,26 @@ begin
     raise exception 'Storage purge is not available to this role'
       using errcode = 'insufficient_privilege';
   end if;
+  if (p_resume_id is null) <> (p_file_size is null)
+     or (p_resume_id is null) <> (p_file_uploaded_at is null) then
+    raise exception 'Storage purge identity is incomplete'
+      using errcode = 'invalid_parameter_value';
+  end if;
   perform public.account_storage_lock(v_account_id);
   select * into v_row
   from public.storage_purge_queue
   where account_id = v_account_id
     and kind = p_kind and bucket = p_bucket and storage_path = p_path
     and claimed_at is not null
+    and (
+      (p_resume_id is null and resume_id is null)
+      or (
+        p_resume_id is not null
+        and resume_id = p_resume_id
+        and file_size = p_file_size
+        and file_uploaded_at = p_file_uploaded_at
+      )
+    )
   for update;
   if not found then
     return false;
@@ -732,7 +808,8 @@ CREATE OR REPLACE FUNCTION public.remove_resume_file(
   p_resume_id bigint,
   p_path text,
   p_size bigint,
-  p_uploaded_at timestamptz
+  p_uploaded_at timestamptz,
+  p_delete_token text
 ) RETURNS SETOF public.resumes
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path TO ''
@@ -744,6 +821,9 @@ declare
   v_file jsonb;
   v_files jsonb;
   v_remaining jsonb;
+  v_queue public.storage_purge_queue;
+  v_target_ordinality bigint;
+  v_has_different_identity boolean;
 begin
   if v_account_id is null
      or auth.uid() is null
@@ -753,15 +833,18 @@ begin
   end if;
 
   if p_resume_id is null or p_path is null or p_path = ''
-     or p_size is null or p_uploaded_at is null then
+     or p_size is null or p_uploaded_at is null
+     or p_delete_token is null
+     or p_delete_token !~ '^[0-9a-f]{64}$' then
     raise exception 'resume file not found'
       using errcode = 'P0002';
   end if;
 
   -- Global storage-writer order is parent shidduch -> advisory fence ->
-  -- resume -> purge queue. Duplicate path entries are aliases to one physical
-  -- object and are removed together; the queue stores exact file identity so
-  -- retries cannot match another resume's deletion.
+  -- resume -> purge queue. The queue's opaque token is the server-side claim;
+  -- a retry with the same token and exact identity is harmless. A duplicate
+  -- path with a different identity removes one entry and leaves a partial
+  -- queue claim until the last reference is removed.
   select s.id into v_parent_id
   from public.shidduchim s
   where s.account_id = v_account_id
@@ -793,25 +876,53 @@ begin
     when jsonb_typeof(v_resume.files) = 'array' then v_resume.files
     else '[]'::jsonb
   end;
-  select f.value into v_file
-  from jsonb_array_elements(v_files) f(value)
+  select q.* into v_queue
+  from public.storage_purge_queue q
+  where q.account_id = v_account_id
+    and q.kind = 'object'
+    and q.bucket = 'documents'
+    and q.storage_path = p_path
+    and q.resume_id = v_resume.id
+  for update;
+
+  -- A token retry is idempotent only for the exact resume/file identity. This
+  -- is the final arbiter for tabs whose local claim lease expires in flight.
+  if found and v_queue.delete_token = p_delete_token then
+    if v_queue.file_size is distinct from p_size
+       or v_queue.file_uploaded_at is distinct from p_uploaded_at then
+      raise exception 'resume delete token identity mismatch'
+        using errcode = 'serialization_failure';
+    end if;
+    return next v_resume;
+    return;
+  end if;
+
+  select f.value, f.ordinality into v_file, v_target_ordinality
+  from jsonb_array_elements(v_files) with ordinality f(value, ordinality)
   where f.value->>'path' = p_path
+    and (f.value->>'size')::bigint is not distinct from p_size
+    and (f.value->>'uploaded_at')::timestamptz is not distinct from p_uploaded_at
+  order by f.ordinality
   limit 1;
 
+  if v_queue.id is not null and not v_queue.resume_file_partial
+     and v_file is not null then
+    raise exception 'resume file changed'
+      using errcode = 'serialization_failure';
+  end if;
+
   if v_file is null then
-    -- A retry after this function already won is safe and does not enqueue a
-    -- second object. A genuinely unknown path remains a visible no-data error.
     if exists (
       select 1
-      from public.storage_purge_queue q
-      where q.account_id = v_account_id
-        and q.kind = 'object'
-        and q.bucket = 'documents'
-        and q.storage_path = p_path
-        and q.resume_id = v_resume.id
-        and q.file_size = p_size
-        and q.file_uploaded_at = p_uploaded_at
+      from jsonb_array_elements(v_files) f(value)
+      where f.value->>'path' = p_path
     ) then
+      raise exception 'resume file changed'
+        using errcode = 'serialization_failure';
+    end if;
+    if v_queue.id is not null and v_queue.file_size = p_size
+       and v_queue.file_uploaded_at = p_uploaded_at
+       and not v_queue.resume_file_partial then
       return next v_resume;
       return;
     end if;
@@ -819,17 +930,19 @@ begin
       using errcode = 'P0002';
   end if;
 
+  if v_queue.id is not null and (
+       v_queue.file_size is distinct from p_size
+       or v_queue.file_uploaded_at is distinct from p_uploaded_at
+     ) and not v_queue.resume_file_partial then
+    raise exception 'resume file changed'
+      using errcode = 'serialization_failure';
+  end if;
+
   if p_path !~ ('^' || v_account_id::text || '/resumes/' || v_parent_id::text || '/[^/]+$')
      or p_path ~ '(^|/)(\.\.?)($|/)'
      or p_path ~ '[*?]' then
     raise exception 'resume file path is not removable'
       using errcode = 'check_violation';
-  end if;
-
-  if (v_file->>'size')::bigint is distinct from p_size
-     or (v_file->>'uploaded_at')::timestamptz is distinct from p_uploaded_at then
-    raise exception 'resume file changed'
-      using errcode = 'serialization_failure';
   end if;
 
   if exists (
@@ -845,21 +958,68 @@ begin
       using errcode = '55P03';
   end if;
 
+  select exists (
+    select 1
+    from jsonb_array_elements(v_files) with ordinality f(value, ordinality)
+    where f.value->>'path' = p_path
+      and (
+        (f.value->>'size')::bigint is distinct from p_size
+        or (f.value->>'uploaded_at')::timestamptz is distinct from p_uploaded_at
+      )
+  ) into v_has_different_identity;
+
   select coalesce(jsonb_agg(f.value order by f.ordinality), '[]'::jsonb)
     into v_remaining
   from jsonb_array_elements(v_files) with ordinality f(value, ordinality)
-  where f.value->>'path' is distinct from p_path;
+  where case
+    when v_has_different_identity then f.ordinality <> v_target_ordinality
+    else f.value->>'path' is distinct from p_path
+  end;
 
   update public.resumes
   set files = v_remaining
   where id = v_resume.id
   returning * into v_resume;
 
-  insert into public.storage_purge_queue (
-    account_id, kind, bucket, storage_path, resume_id, file_size, file_uploaded_at
-  ) values (
-    v_account_id, 'object', 'documents', p_path, v_resume.id, p_size, p_uploaded_at
-  ) on conflict do nothing;
+  if v_has_different_identity then
+    if v_queue.id is not null then
+      update public.storage_purge_queue
+      set file_size = p_size,
+          file_uploaded_at = p_uploaded_at,
+          delete_token = p_delete_token,
+          resume_file_partial = true,
+          updated_at = now()
+      where id = v_queue.id;
+    else
+      insert into public.storage_purge_queue (
+        account_id, kind, bucket, storage_path, resume_id, file_size,
+        file_uploaded_at, delete_token, resume_file_partial
+      ) values (
+        v_account_id, 'object', 'documents', p_path, v_resume.id, p_size,
+        p_uploaded_at, p_delete_token, true
+      );
+    end if;
+    return next v_resume;
+    return;
+  end if;
+
+  if v_queue.id is not null then
+    update public.storage_purge_queue
+    set file_size = p_size,
+        file_uploaded_at = p_uploaded_at,
+        delete_token = p_delete_token,
+        resume_file_partial = false,
+        updated_at = now()
+    where id = v_queue.id;
+  else
+    insert into public.storage_purge_queue (
+      account_id, kind, bucket, storage_path, resume_id, file_size,
+      file_uploaded_at, delete_token, resume_file_partial
+    ) values (
+      v_account_id, 'object', 'documents', p_path, v_resume.id, p_size,
+      p_uploaded_at, p_delete_token, false
+    );
+  end if;
   if not exists (
     select 1
     from public.storage_purge_queue q
@@ -870,6 +1030,8 @@ begin
       and q.resume_id = v_resume.id
       and q.file_size = p_size
       and q.file_uploaded_at = p_uploaded_at
+      and q.delete_token = p_delete_token
+      and not q.resume_file_partial
   ) then
     raise exception 'resume file cleanup could not be queued'
       using errcode = 'check_violation';
@@ -1174,9 +1336,9 @@ begin
 end;
 $function$;
 
-revoke all on function public.remove_resume_file(bigint, text, bigint, timestamptz) from public, anon;
-grant execute on function public.remove_resume_file(bigint, text, bigint, timestamptz) to authenticated;
-grant execute on function public.remove_resume_file(bigint, text, bigint, timestamptz) to service_role;
+revoke all on function public.remove_resume_file(bigint, text, bigint, timestamptz, text) from public, anon;
+grant execute on function public.remove_resume_file(bigint, text, bigint, timestamptz, text) to authenticated;
+grant execute on function public.remove_resume_file(bigint, text, bigint, timestamptz, text) to service_role;
 
 revoke all on function public.resume_read_in_progress(bigint, text) from public, anon;
 grant execute on function public.resume_read_in_progress(bigint, text) to authenticated;

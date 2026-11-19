@@ -275,16 +275,7 @@ export const hydratePendingResumeFileDeletes = async (
   for (const file of files) {
     const token = await resumeFileDeleteMarkerToken(resumeId, file);
     const marker = resumeMarkers.find((candidate) => candidate.token === token);
-    if (!marker || marker.deadline <= Date.now()) {
-      if (marker) {
-        for (const [key, pending] of pendingResumeFileDeletes) {
-          if (pending.token === marker.token) {
-            pendingResumeFileDeletes.delete(key);
-            changed = true;
-          }
-        }
-        clearPendingResumeFileDelete(marker.token);
-      }
+    if (!marker) {
       continue;
     }
     matchedTokens.add(token);
@@ -295,7 +286,7 @@ export const hydratePendingResumeFileDeletes = async (
       token,
       resumeToken: currentResumeToken,
     };
-    const key = resumeFileDeleteKey(resumeId, file.path);
+    const key = resumeFileDeleteKey(resumeId, file);
     const previous = pendingResumeFileDeletes.get(key);
     if (
       !previous ||
@@ -345,9 +336,17 @@ export const usePendingResumeFileDeletes = (
 
 export function resumeFileDeleteKey(
   resumeId: Identifier,
-  path: string,
+  file: Pick<ResumeFileVersion, "path" | "size" | "uploaded_at">,
 ): string {
-  return `${String(resumeId)}\u0000${path}`;
+  return (
+    String(resumeId) +
+    "\u0000" +
+    file.path +
+    "\u0000" +
+    String(file.size) +
+    "\u0000" +
+    file.uploaded_at
+  );
 }
 
 export function canDeleteResumeFile(

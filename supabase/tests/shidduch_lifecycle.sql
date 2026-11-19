@@ -237,8 +237,8 @@ select 'lifecycle RPCs are not public or anonymous',
   and not has_function_privilege('anon', 'public.archive_shidduch(bigint)', 'EXECUTE')
   and not has_function_privilege('public', 'public.delete_shidduch(bigint)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.delete_shidduch(bigint)', 'EXECUTE')
-  and not has_function_privilege('public', 'public.ack_shidduch_storage_purge(text,text,text)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.ack_shidduch_storage_purge(text,text,text)', 'EXECUTE');
+  and not has_function_privilege('public', 'public.ack_shidduch_storage_purge(text,text,text,bigint,bigint,timestamptz)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.ack_shidduch_storage_purge(text,text,text,bigint,bigint,timestamptz)', 'EXECUTE');
 insert into results
 select 'queue is a live account cleanup obligation',
   public.account_has_domain_data((select value::bigint from ids where name = 'acct_a'));

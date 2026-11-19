@@ -8,6 +8,7 @@ import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 const execFileAsync = promisify(execFile);
 const userId = randomUUID();
 const marker = `resume-delete-concurrency-${process.pid}-${Date.now()}`;
+const deleteToken = "d".repeat(64);
 const sqlLiteral = (value: string): string =>
   `'${value.replaceAll("'", "''")}'`;
 
@@ -102,7 +103,7 @@ describe("resume delete lock order", () => {
 set local request.jwt.claims = '{"sub":"${userId}","role":"authenticated"}';
 select public.set_active_context(${accountId});`;
     const deleteSql = `${auth}
-select * from public.remove_resume_file(${resumeId}, ${sqlLiteral(`${accountId}/resumes/${shidduchId}/original.pdf`)}, 8, '2026-01-01T00:00:00Z');`;
+select * from public.remove_resume_file(${resumeId}, ${sqlLiteral(`${accountId}/resumes/${shidduchId}/original.pdf`)}, 8, '2026-01-01T00:00:00Z', ${sqlLiteral(deleteToken)});`;
     const uploadSql = `${auth}
 select * from public.add_resume_file(${sqlLiteral(`${accountId}/resumes/${shidduchId}/uploaded.pdf`)}, 'uploaded.pdf', 'application/pdf', 12, ${shidduchId}, null, null, null);`;
     const accountDeleteSql = `${auth}

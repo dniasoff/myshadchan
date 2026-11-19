@@ -7,7 +7,10 @@ import type { CrmDataProvider } from "../providers/types";
 import type { Resume, ResumeFileVersion } from "../types";
 import { resumeSubjectFilter, type ResumeSubject } from "./resumeSubject";
 import { ResumeVersionList } from "./ResumeVersionList";
-import { usePendingResumeFileDeletes } from "./resumeFileDelete";
+import {
+  resumeFileDeleteKey,
+  usePendingResumeFileDeletes,
+} from "./resumeFileDelete";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 
 /**
@@ -61,27 +64,32 @@ export function ResumeDocument(
    * resolves to the head; a path captured at mount would silently pin the
    * reader to the version they arrived on.
    */
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [selectedFileKey, setSelectedFileKey] = useState<string | null>(null);
 
   const versions = sortResumeFilesNewestFirst(data?.[0]?.files ?? []);
-  const pendingDeletes = usePendingResumeFileDeletes(data?.[0]?.id, versions);
-  const pendingPaths = new Set(
-    pendingDeletes.map((pending) => pending.file.path),
+  const resumeId = data?.[0]?.id;
+  const pendingDeletes = usePendingResumeFileDeletes(resumeId, versions);
+  const pendingKeys = new Set(
+    pendingDeletes.map((pending) =>
+      resumeFileDeleteKey(pending.resumeId, pending.file),
+    ),
   );
   const visibleVersions = versions.filter(
-    (version) => !pendingPaths.has(version.path),
+    (version) => !pendingKeys.has(resumeFileDeleteKey(resumeId ?? "", version)),
   );
   const resumeWasRemoved =
     data?.[0] != null &&
     Array.isArray(data[0].files) &&
     visibleVersions.length === 0;
   const shown =
-    visibleVersions.find((version) => version.path === selectedPath) ??
-    visibleVersions[0];
+    visibleVersions.find(
+      (version) =>
+        resumeFileDeleteKey(resumeId ?? "", version) === selectedFileKey,
+    ) ?? visibleVersions[0];
 
   return (
     <div className="flex flex-col gap-4">
-      {shown ? <ResumeEmbed version={shown} /> : null}
+      {shown ? <ResumeEmbed resumeId={resumeId ?? ""} version={shown} /> : null}
       {resumeWasRemoved ? (
         <p role="status" className="text-sm text-muted-foreground">
           Original resume · Removed
@@ -91,8 +99,15 @@ export function ResumeDocument(
         {...subject}
         canDelete={subject.canDelete}
         canReread={subject.canReread}
-        shownPath={shown?.path}
-        onShow={visibleVersions.length > 1 ? setSelectedPath : undefined}
+        shownFileKey={
+          shown ? resumeFileDeleteKey(resumeId ?? "", shown) : undefined
+        }
+        onShow={
+          visibleVersions.length > 1
+            ? (version) =>
+                setSelectedFileKey(resumeFileDeleteKey(resumeId ?? "", version))
+            : undefined
+        }
       />
     </div>
   );
@@ -106,8 +121,10 @@ export function ResumeDocument(
  * `dashboard/ParentFocusCards.tsx` and the e2e CLS spec that caught it).
  */
 function ResumeEmbed({
+  resumeId,
   version,
 }: {
+  resumeId: Resume["id"];
   version: ResumeFileVersion;
 }): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
@@ -147,7 +164,7 @@ function ResumeEmbed({
       className={`${EMBED_HEIGHT} overflow-hidden rounded-md border border-border bg-muted/40`}
     >
       <AttachmentPreview
-        key={version.path}
+        key={resumeFileDeleteKey(resumeId, version)}
         fileName={version.filename}
         mimeType={version.mime_type}
         signUrl={signUrl}

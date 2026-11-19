@@ -916,6 +916,8 @@ create table public.storage_purge_queue (
     resume_id bigint,
     file_size bigint,
     file_uploaded_at timestamp with time zone,
+    delete_token text,
+    resume_file_partial boolean not null default false,
     constraint storage_purge_queue_kind_check check (kind in ('object', 'prefix', 'quarantine')),
     constraint storage_purge_queue_reason_check check (
         (kind = 'quarantine' and reason in ('unsupported_path', 'legacy_path', 'unknown_bucket'))
@@ -950,8 +952,11 @@ create unique index storage_purge_queue_generic_key
     where resume_id is null;
 create unique index storage_purge_queue_resume_identity_key
     on public.storage_purge_queue
-      (account_id, kind, bucket, storage_path, resume_id, file_size, file_uploaded_at)
+    (account_id, resume_id, storage_path)
     where resume_id is not null;
+create unique index storage_purge_queue_delete_token_key
+    on public.storage_purge_queue (account_id, delete_token)
+    where delete_token is not null;
 
 create index storage_purge_queue_claim_idx
     on public.storage_purge_queue (account_id, not_before, claimed_at, id);
