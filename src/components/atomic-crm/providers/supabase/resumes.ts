@@ -145,6 +145,16 @@ export type AttachInboxAttachmentToResumeFileParams = ResumeSubject & {
   attachment: ResumeInboxAttachment;
 };
 
+/**
+ * The marker is an in-memory receipt only. It is returned by the provider
+ * after `add_resume_file` inserted this call's catalog entry, and is never
+ * persisted in `resumes.files`. Callers may use it to decide whether an
+ * exact rollback is safe after a lost ownership claim.
+ */
+export type InboxResumeAttachmentResult = Resume & {
+  __inboxAttachmentInserted?: boolean;
+};
+
 const INBOX_RESUME_ATTACH_ERROR =
   "Could not attach this file. It may be too large or no longer available. The Inbox item was not changed.";
 
@@ -154,6 +164,30 @@ function isExistingStorageObjectError(error: unknown): boolean {
   return (
     String(candidate.statusCode) === "409" ||
     /already exists|duplicate/i.test(candidate.message ?? "")
+  );
+}
+
+function isVerifiedResumeAppendRejection(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    code?: string | number;
+    status?: string | number;
+    statusCode?: string | number;
+    message?: string;
+  };
+  const message = candidate.message ?? "";
+  if (
+    /network|timeout|timed out|fetch|abort|connection reset|gateway|service unavailable|temporarily unavailable/i.test(
+      message,
+    )
+  ) {
+    return false;
+  }
+  const status = Number(candidate.status ?? candidate.statusCode);
+  if (Number.isFinite(status) && status >= 400 && status < 500) return true;
+  if (candidate.code != null) return true;
+  return /not found|deleted|no longer available|privilege|permission|policy|role|not eligible|must be provided|exactly one/i.test(
+    message,
   );
 }
 
@@ -255,7 +289,7 @@ async function validateInboxResumeAttach(
  */
 export async function attachInboxAttachmentToResumeFile(
   params: AttachInboxAttachmentToResumeFileParams,
-): Promise<Resume> {
+): Promise<InboxResumeAttachmentResult> {
   const { attachment, inboxItemId, ...subject } = params;
   const sourcePath = attachment.path;
   const accountId = await getCurrentAccountId();
@@ -264,7 +298,7 @@ export async function attachInboxAttachmentToResumeFile(
     subject,
     inboxItemId,
     sourcePath,
-    attachment.title,
+    "resume",
   );
 
   const existingResume = await validateInboxResumeAttach(
@@ -273,7 +307,12 @@ export async function attachInboxAttachmentToResumeFile(
     inboxItemId,
     attachment,
   );
-  if (existingResume) return existingResume;
+  if (existingResume) {
+    return {
+      ...existingResume,
+      __inboxAttachmentInserted: false,
+    };
+  }
 
   try {
     const { data: blob, error: downloadError } = await getSupabaseClient()
@@ -309,11 +348,7 @@ export async function attachInboxAttachmentToResumeFile(
       // created by this attempt and is therefore safe to remove. A rejected
       // RPC is distinct from an unknown network outcome below: in the latter
       // case a retry may already have committed the deterministic object.
-      if (
-        /Inbox attachment not found|source Inbox provenance/i.test(
-          appendError.message ?? "",
-        )
-      ) {
+      if (isVerifiedResumeAppendRejection(appendError)) {
         await getSupabaseClient()
           .storage.from(DOCUMENTS_BUCKET)
           .remove([storagePath])
@@ -323,7 +358,10 @@ export async function attachInboxAttachmentToResumeFile(
     }
 
     const row = Array.isArray(data) ? data[0] : data;
-    return row as Resume;
+    return {
+      ...(row as Resume),
+      __inboxAttachmentInserted: true,
+    };
   } catch (error) {
     if (error instanceof Error && error.message === INBOX_RESUME_ATTACH_ERROR) {
       throw error;
@@ -366,7 +404,6 @@ export async function copyInboxAttachmentToResumeFile(
 ): Promise<CopiedResumeFile> {
   const { attachment, inboxItemId, ...subject } = params;
   const attachmentPath = attachment.path;
-  const fileName = attachment.title;
   const accountId = await getCurrentAccountId();
   // This path is owned by the Inbox item and source attachment. A retry after
   // an ambiguous upload response upserts the same private object, so it can
@@ -377,7 +414,7 @@ export async function copyInboxAttachmentToResumeFile(
     subject,
     inboxItemId,
     attachmentPath,
-    fileName,
+    "resume",
   );
 
   const { data: blob, error: downloadError } = await getSupabaseClient()

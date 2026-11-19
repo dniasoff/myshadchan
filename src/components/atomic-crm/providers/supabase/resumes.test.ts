@@ -7,11 +7,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * a single test can assert the download and the upload each hit the bucket
  * they're supposed to.
  */
-const { download, upload, remove, rpc } = vi.hoisted(() => ({
+const { download, upload, remove, rpc, tableMaybeSingle } = vi.hoisted(() => ({
   download: vi.fn(),
   upload: vi.fn(),
   remove: vi.fn(),
   rpc: vi.fn(),
+  tableMaybeSingle: vi.fn(),
 }));
 
 vi.mock("./supabase", () => ({
@@ -24,11 +25,20 @@ vi.mock("./supabase", () => ({
         remove: (paths: string[]) => remove(bucket, paths),
       }),
     },
+    from: (table: string) => {
+      const query = {
+        select: () => query,
+        eq: () => query,
+        maybeSingle: () => tableMaybeSingle(table),
+      };
+      return query;
+    },
     rpc: (name: string, args?: unknown) => rpc(name, args),
   }),
 }));
 
 import {
+  attachInboxAttachmentToResumeFile,
   copyInboxAttachmentToResumeFile,
   removeResumeFileObjectsOrThrow,
 } from "./resumes";
@@ -42,6 +52,7 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     remove.mockReset().mockResolvedValue({ error: null });
     rpc.mockReset();
     rpc.mockResolvedValue({ data: 7, error: null });
+    tableMaybeSingle.mockReset();
   });
 
   it("downloads the captured attachment from the attachments bucket and re-uploads it under the documents bucket's resumes/{shidduch} grammar", async () => {
@@ -68,7 +79,7 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     expect(upload).toHaveBeenCalledTimes(1);
     const [bucket, path, data, options] = upload.mock.calls[0];
     expect(bucket).toBe("documents");
-    expect(path).toMatch(/^7\/resumes\/42\/inbox-[0-9a-f]{64}-resume\.pdf$/);
+    expect(path).toMatch(/^7\/resumes\/42\/inbox-[0-9a-f]{64}-resume$/);
     expect(options).toEqual({ upsert: true });
     expect(data).toBe(FAKE_BLOB);
 
@@ -122,9 +133,32 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
 
     // Assert
     const [, path] = upload.mock.calls[0];
-    expect(path).toMatch(
-      /^7\/resumes\/single-15\/inbox-[0-9a-f]{64}-resume\.pdf$/,
-    );
+    expect(path).toMatch(/^7\/resumes\/single-15\/inbox-[0-9a-f]{64}-resume$/);
+  });
+
+  it("keeps the opaque destination stable when the display title changes", async () => {
+    download.mockResolvedValue({ data: FAKE_BLOB, error: null });
+    upload.mockResolvedValue({ error: null });
+
+    const base = {
+      shidduchimId: 42,
+      inboxItemId: 700,
+      attachment: {
+        path: "7/inbox-abc.pdf",
+        title: "Alice Cohen.pdf",
+        type: "application/pdf",
+        src: "https://example.test/resume.pdf",
+      },
+    } as const;
+    await copyInboxAttachmentToResumeFile(base);
+    await copyInboxAttachmentToResumeFile({
+      ...base,
+      attachment: { ...base.attachment, title: "Renamed resume.docx" },
+    });
+
+    expect(upload.mock.calls[0][1]).toBe(upload.mock.calls[1][1]);
+    expect(upload.mock.calls[0][1]).not.toContain("Alice");
+    expect(upload.mock.calls[0][1]).not.toContain("Renamed");
   });
 
   it("throws a friendly error and never uploads when the captured attachment cannot be downloaded", async () => {
@@ -196,6 +230,51 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
     expect(upload.mock.calls[0][1]).toBe(upload.mock.calls[1][1]);
     expect(upload.mock.calls[0][3]).toEqual({ upsert: true });
     expect(retried.storagePath).toBe(upload.mock.calls[1][1]);
+  });
+
+  it("cleans the opaque object when a manager-only append is rejected", async () => {
+    tableMaybeSingle
+      .mockResolvedValueOnce({
+        data: { id: 700, status: "unresolved" },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: { id: 42 }, error: null })
+      .mockResolvedValueOnce({ data: null, error: null });
+    rpc.mockImplementation((name: string) => {
+      if (name === "current_context_id") return { data: 7, error: null };
+      if (name === "current_member_role")
+        return { data: "helper", error: null };
+      if (name === "add_resume_file") {
+        return {
+          data: null,
+          error: {
+            code: "42501",
+            status: 403,
+            message: "new row violates row-level security policy",
+          },
+        };
+      }
+      return { data: null, error: null };
+    });
+    download.mockResolvedValue({ data: FAKE_BLOB, error: null });
+    upload.mockResolvedValue({ error: null });
+
+    await expect(
+      attachInboxAttachmentToResumeFile({
+        shidduchimId: 42,
+        inboxItemId: 700,
+        attachment: {
+          path: "7/inbox-abc.pdf",
+          title: "private name.pdf",
+          type: "application/pdf",
+        },
+      }),
+    ).rejects.toThrow("Could not attach this file");
+
+    expect(remove).toHaveBeenCalledWith(
+      "documents",
+      expect.arrayContaining([expect.stringMatching(/-resume$/)]),
+    );
   });
 
   it("strictly reports a storage tuple error so owned compensation keeps its catalog row", async () => {

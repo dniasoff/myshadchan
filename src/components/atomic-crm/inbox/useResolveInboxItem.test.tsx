@@ -473,7 +473,7 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
     );
   });
 
-  it("compensates a suggestion when its id stash is lost before retrying", async () => {
+  it("retains a suggestion when its id stash is lost before retrying", async () => {
     let stashShouldFail = true;
     const hooks: DataProviderHooks = {
       beforeUpdate: (resource, params) => {
@@ -504,12 +504,15 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
       .toBeInTheDocument();
 
     await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
-    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("result:new:100"))
+      .toBeInTheDocument();
 
-    // The first suggestion was deleted during compensation; the retry leaves
-    // exactly one suggestion and the Inbox row points at it.
+    // Without an exact ownership receipt, the first suggestion stays visible
+    // for the household to inspect/delete with Undo; the retry may create a
+    // second visible suggestion, never silently deleting the first one.
     expect(dataProvider.createShidduch).toHaveBeenCalledTimes(2);
-    expect(dataProvider.delete).toHaveBeenCalledWith(
+    expect(dataProvider.delete).not.toHaveBeenCalledWith(
       "shidduchim",
       expect.objectContaining({ id: 99 }),
     );
@@ -518,7 +521,7 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
       expect.objectContaining({
         data: expect.objectContaining({
           status: "resolved",
-          resolved_shidduchim_id: 99,
+          resolved_shidduchim_id: 100,
         }),
       }),
     );

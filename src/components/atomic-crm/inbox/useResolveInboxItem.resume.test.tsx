@@ -97,6 +97,8 @@ type ResumeProviderOptions = {
   removeResumeFileObjectsStrict?: (paths: string[]) => Promise<void>;
   dependentDataAppearsDuringCompensation?: boolean;
   failResumeLock?: boolean;
+  failResumeLockOnce?: boolean;
+  attachReceiptInserted?: boolean;
 };
 
 const buildDataProvider = (options: ResumeProviderOptions = {}) => {
@@ -115,6 +117,8 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
     options.removeResumeFileObjectsStrict ??
     (async (paths: string[]) => removeResumeFileObjects(paths));
   let interactionReads = 0;
+  let resumeLockFailures = 0;
+  const attachReceiptInserted = options.attachReceiptInserted ?? true;
 
   const getOne = vi.fn(async (resource: string, params: { id: Identifier }) => {
     if (resource === "inbox_items" && params.id === currentItem.id) {
@@ -190,11 +194,17 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
             source_inbox_attachment_path: params.attachment.path,
           },
         ];
-        return existing;
+        return {
+          ...existing,
+          __inboxAttachmentInserted: attachReceiptInserted,
+        };
       }
       const resume = buildResume();
       resumes.push(resume);
-      return resume;
+      return {
+        ...resume,
+        __inboxAttachmentInserted: attachReceiptInserted,
+      };
     },
   );
 
@@ -261,6 +271,9 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
     )?.lock_acquired_at;
     if (
       (options.failResumeLock && params.data?.status === "resolving") ||
+      (options.failResumeLockOnce &&
+        params.data?.status === "resolving" &&
+        resumeLockFailures++ < 4) ||
       currentItem.status !== params.status ||
       (params.expectedResolutionAttemptId !== undefined &&
         currentItem.resolution_attempt_id !==
@@ -427,6 +440,33 @@ describe("resume-first Inbox resolution", () => {
     ).toHaveBeenCalledTimes(1);
     expect(dataProvider.deleteOwnedInboxResumeFile).toHaveBeenCalledTimes(1);
     expect(resumes).toHaveLength(0);
+  });
+
+  it("does not remove a winner's pre-lock file when this claim is lost, then retries the same suggestion", async () => {
+    const item = buildItem();
+    const { screen, dataProvider, resumes, createShidduch, getCurrentItem } =
+      await renderProbe(item, {
+        failResumeLockOnce: true,
+        attachReceiptInserted: false,
+      });
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(
+        screen.getByText("error:This Inbox item is already being handled."),
+      )
+      .toBeInTheDocument();
+
+    expect(dataProvider.deleteOwnedInboxResumeFile).not.toHaveBeenCalled();
+    expect(resumes).toHaveLength(1);
+    expect(getCurrentItem().status).toBe("unresolved");
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:completed:99:true"))
+      .toBeInTheDocument();
+    expect(createShidduch).toHaveBeenCalledTimes(1);
+    expect(resumes).toHaveLength(1);
   });
 
   it("does not reuse a provenance resume for a different selected child", async () => {
