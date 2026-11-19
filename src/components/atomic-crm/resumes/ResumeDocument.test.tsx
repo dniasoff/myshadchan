@@ -304,6 +304,11 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     await expect.element(close).toHaveFocus();
     expect(dialog.element().contains(document.activeElement)).toBe(true);
 
+    const dialogPreview = dialog.getByRole("img", { name: "focus-trap.jpg" });
+    await expect.element(dialogPreview).toBeVisible();
+    expect(dialog.element().contains(dialogPreview.element())).toBe(true);
+    expect(dialogPreview.element().closest('[aria-hidden="true"]')).toBeNull();
+
     const background = screen.getByTestId("resume-viewer-background").element();
     expect(background.closest('[aria-hidden="true"]')).not.toBeNull();
   });
@@ -324,16 +329,26 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     await screen.getByRole("button", { name: "Full screen" }).click();
     await expect.element(screen.getByRole("dialog")).toBeVisible();
     expect(signResumeFileUrl).toHaveBeenCalledTimes(1);
+    const dialog = screen.getByRole("dialog");
+    const dialogPreview = dialog.getByRole("img", {
+      name: "shared-preview.jpg",
+    });
+    await expect.element(dialogPreview).toBeVisible();
+    const dialogPreviewElement = dialogPreview.element();
+    expect(dialog.element().contains(dialogPreviewElement)).toBe(true);
+    expect(dialogPreviewElement.closest('[aria-hidden="true"]')).toBeNull();
     expect(
       document.querySelectorAll('img[alt="shared-preview.jpg"]'),
     ).toHaveLength(1);
 
-    await screen
-      .getByRole("dialog")
-      .getByRole("button", { name: "Close" })
-      .click();
+    await dialog.getByRole("button", { name: "Close" }).click();
     await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
     expect(signResumeFileUrl).toHaveBeenCalledTimes(1);
+    const inlinePreview = screen.getByRole("img", {
+      name: "shared-preview.jpg",
+    });
+    const inlineStage = screen.getByTestId("resume-document-stage").element();
+    expect(inlineStage.contains(inlinePreview.element())).toBe(true);
     expect(
       document.querySelectorAll('img[alt="shared-preview.jpg"]'),
     ).toHaveLength(1);

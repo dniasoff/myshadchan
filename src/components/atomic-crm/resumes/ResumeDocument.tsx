@@ -1,6 +1,13 @@
 import { Maximize2, Minus, Plus } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReactElement, RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import type { ReactElement, ReactNode, RefObject } from "react";
 import { useDataProvider, useGetList, useNotify, useTranslate } from "ra-core";
 
 import { Button } from "@/components/ui/button";
@@ -265,33 +272,56 @@ function ResumePreviewStage({
   children,
   zoom,
   fullScreen = false,
+  stageRef,
+  includeHost = false,
+  onHostReady,
+  onStageReady,
+  hidden = false,
+  testId,
 }: {
-  children: ReactElement;
+  children?: ReactNode;
   zoom: number;
   fullScreen?: boolean;
+  stageRef: RefObject<HTMLDivElement | null>;
+  includeHost?: boolean;
+  onHostReady?: (node: HTMLDivElement | null) => void;
+  onStageReady?: (node: HTMLDivElement | null) => void;
+  hidden?: boolean;
+  testId?: string;
 }): ReactElement {
   const scale = zoom / ZOOM_DEFAULT;
+  const setStage = useCallback(
+    (node: HTMLDivElement | null) => {
+      stageRef.current = node;
+      onStageReady?.(node);
+    },
+    [onStageReady, stageRef],
+  );
 
   return (
     <div
-      data-testid="resume-document-stage"
+      data-testid={testId}
+      ref={setStage}
+      hidden={hidden}
       className={
         fullScreen
-          ? "fixed inset-2 z-[51] h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] min-h-0 min-w-0 overflow-auto rounded-md bg-muted/40 motion-reduce:transition-none sm:inset-3 sm:h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-1.5rem)] sm:w-[calc(100vw-1.5rem)] sm:max-w-[calc(100vw-1.5rem)]"
+          ? "relative z-[51] min-h-0 min-w-0 max-w-full flex-1 overflow-auto bg-muted/40 motion-reduce:transition-none"
           : `${EMBED_HEIGHT} min-w-0 max-w-full overflow-auto bg-muted/40 motion-reduce:transition-none`
       }
       style={{ touchAction: "pan-x pan-y pinch-zoom" }}
     >
-      <div
-        className="min-h-full w-full origin-top-left motion-reduce:transition-none"
-        style={{
-          minHeight: `${scale * 100}%`,
-          transform: `scale(${scale})`,
-          transformOrigin: "top left",
-        }}
-      >
-        {children}
-      </div>
+      {includeHost ? (
+        <div
+          ref={onHostReady}
+          className="min-h-full w-full origin-top-left motion-reduce:transition-none"
+          style={{
+            minHeight: `${scale * 100}%`,
+            transform: `scale(${scale})`,
+            transformOrigin: "top left",
+          }}
+        />
+      ) : null}
+      {children}
     </div>
   );
 }
@@ -311,6 +341,30 @@ function ResumeViewer({
   const [fullScreen, setFullScreen] = useState(false);
   const fullScreenButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const inlineStageRef = useRef<HTMLDivElement>(null);
+  const dialogStageRef = useRef<HTMLDivElement>(null);
+  const previewHostRef = useRef<HTMLDivElement>(null);
+  const [previewHostNode, setPreviewHostNode] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const setPreviewHost = useCallback((node: HTMLDivElement | null) => {
+    previewHostRef.current = node;
+    setPreviewHostNode(node);
+  }, []);
+  const movePreviewHost = useCallback((destination: HTMLDivElement | null) => {
+    const host = previewHostRef.current;
+    if (host && destination && host.parentElement !== destination) {
+      destination.appendChild(host);
+    }
+  }, []);
+  const setDialogStage = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node && fullScreen) {
+        movePreviewHost(node);
+      }
+    },
+    [fullScreen, movePreviewHost],
+  );
   const changeZoom = (delta: number) => {
     setZoom((current) =>
       Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, current + delta)),
@@ -329,6 +383,14 @@ function ResumeViewer({
     };
   }, [fullScreen]);
 
+  useLayoutEffect(() => {
+    const inlineStage = inlineStageRef.current;
+    movePreviewHost(fullScreen ? dialogStageRef.current : inlineStage);
+    return () => {
+      movePreviewHost(inlineStage);
+    };
+  }, [fullScreen, movePreviewHost, previewHostNode]);
+
   const preview = (
     <AttachmentPreview
       fileName={fileName}
@@ -338,6 +400,9 @@ function ResumeViewer({
       onDownload={onDownload}
     />
   );
+  const previewPortal = previewHostNode
+    ? createPortal(preview, previewHostNode)
+    : null;
 
   return (
     <Dialog open={fullScreen} onOpenChange={setFullScreen}>
@@ -355,8 +420,15 @@ function ResumeViewer({
             fullScreenButtonRef={fullScreenButtonRef}
           />
         ) : null}
-        <ResumePreviewStage zoom={zoom} fullScreen={fullScreen}>
-          {preview}
+        <ResumePreviewStage
+          zoom={zoom}
+          stageRef={inlineStageRef}
+          includeHost
+          onHostReady={setPreviewHost}
+          hidden={fullScreen}
+          testId="resume-document-stage"
+        >
+          {previewPortal}
         </ResumePreviewStage>
       </div>
       <DialogContent
@@ -367,12 +439,13 @@ function ResumeViewer({
           closeButtonRef.current?.focus();
         }}
         onCloseAutoFocus={(event) => {
+          movePreviewHost(inlineStageRef.current);
           event.preventDefault();
           fullScreenButtonRef.current?.focus();
         }}
-        className="!pointer-events-none !fixed !inset-2 !z-50 !flex !h-[calc(100dvh-1rem)] !max-h-[calc(100dvh-1rem)] !w-[calc(100vw-1rem)] !max-w-[calc(100vw-1rem)] !translate-x-0 !translate-y-0 !flex-col !gap-0 !overflow-hidden !rounded-md !border-0 !bg-transparent !p-2 !shadow-none motion-reduce:!animate-none motion-reduce:!transition-none sm:!inset-3 sm:!h-[calc(100dvh-1.5rem)] sm:!max-h-[calc(100dvh-1.5rem)] sm:!w-[calc(100vw-1.5rem)] sm:!max-w-[calc(100vw-1.5rem)] sm:!p-3"
+        className="!fixed !inset-2 !z-50 !flex !h-[calc(100dvh-1rem)] !max-h-[calc(100dvh-1rem)] !w-[calc(100vw-1rem)] !max-w-[calc(100vw-1rem)] !translate-x-0 !translate-y-0 !flex-col !gap-0 !overflow-hidden !rounded-md !border !border-border !bg-background !p-2 !shadow-2xl motion-reduce:!animate-none motion-reduce:!transition-none sm:!inset-3 sm:!h-[calc(100dvh-1.5rem)] sm:!max-h-[calc(100dvh-1.5rem)] sm:!w-[calc(100vw-1.5rem)] sm:!max-w-[calc(100vw-1.5rem)] sm:!p-3"
       >
-        <div className="relative z-[52] flex shrink-0 items-center justify-between border-b border-border bg-background/95 pb-2 text-left pointer-events-auto">
+        <div className="relative z-[52] flex shrink-0 items-center justify-between border-b border-border bg-background/95 pb-2 text-left">
           <div className="min-w-0 pe-2">
             <DialogTitle dir="auto" className="truncate text-lg">
               {fileName}
@@ -391,7 +464,7 @@ function ResumeViewer({
             Close
           </Button>
         </div>
-        <div className="relative z-[52] pointer-events-auto">
+        <div className="relative z-[52]">
           <ResumeViewerToolbar
             zoom={zoom}
             onZoomOut={() => changeZoom(-ZOOM_STEP)}
@@ -400,6 +473,12 @@ function ResumeViewer({
             isFullScreen
           />
         </div>
+        <ResumePreviewStage
+          zoom={zoom}
+          fullScreen
+          stageRef={dialogStageRef}
+          onStageReady={setDialogStage}
+        />
       </DialogContent>
     </Dialog>
   );
