@@ -1,4 +1,13 @@
+import { createClient } from "@supabase/supabase-js";
+
 import { APP_URL, expect, test } from "./fixtures";
+import { supabaseUrlFromEnv } from "../scripts/stack-env.mjs";
+
+const adminSupabase = createClient(
+  supabaseUrlFromEnv(process.env),
+  process.env.SERVICE_ROLE_KEY!,
+  { auth: { autoRefreshToken: false, persistSession: false } },
+);
 
 test.describe("Resume file delete ownership", () => {
   test("two pages without Web Locks finalize one opaque token harmlessly", async ({
@@ -22,18 +31,19 @@ test.describe("Resume file delete ownership", () => {
       singleId: single.id,
       nameEn: "Resume delete fixture",
     });
-    await createResume({
+    const resume = await createResume({
       accountId: single.account_id,
       shidduchId: shidduch.id,
     });
 
     await signIn(page, member.email!);
     const pageB = await page.context().newPage();
+    await pageB.goto(`${APP_URL}/#/shidduchim`);
+    await expect(pageB.getByRole("link", { name: "Shidduchim" })).toBeVisible();
 
-    // Force the same fallback used by older Safari/WebViews only after the
-    // auth shell has booted. Supabase Auth may use Web Locks during startup;
-    // hiding it before sign-in strands both pages on the Suspense loader and
-    // never exercises the resume-file fallback.
+    // Both pages have now booted the authenticated shell while Web Locks are
+    // available. Force the fallback only before either Resume-tab navigation;
+    // hiding locks during auth startup strands a page on the Suspense loader.
     for (const tab of [page, pageB]) {
       await tab.evaluate(() => {
         Object.defineProperty(navigator, "locks", {
@@ -43,14 +53,17 @@ test.describe("Resume file delete ownership", () => {
       });
     }
 
-    const deleteRequests = { count: 0 };
-    for (const tab of [page, pageB]) {
-      tab.on("request", (request) => {
-        if (request.url().includes("/rest/v1/rpc/remove_resume_file")) {
-          deleteRequests.count += 1;
-        }
-      });
-    }
+    const deleteRequests = { pageA: 0, pageB: 0 };
+    page.on("request", (request) => {
+      if (request.url().includes("/rest/v1/rpc/remove_resume_file")) {
+        deleteRequests.pageA += 1;
+      }
+    });
+    pageB.on("request", (request) => {
+      if (request.url().includes("/rest/v1/rpc/remove_resume_file")) {
+        deleteRequests.pageB += 1;
+      }
+    });
 
     try {
       const resumeUrl = `${APP_URL}/#/shidduchim/${shidduch.id}/resume`;
@@ -71,15 +84,41 @@ test.describe("Resume file delete ownership", () => {
       ).toHaveCount(0);
       await expect(page.getByText("Deleted.")).toBeVisible();
 
-      // The server-side opaque token makes a second page's delayed call
-      // idempotent; both pages must settle on the removed state.
+      // The server-side token makes a second page's delayed call harmless,
+      // while the database state proves that exactly one file removal and one
+      // resume-specific purge row took effect.
       await expect(page.getByText("Original resume · Removed")).toBeVisible({
         timeout: 20_000,
       });
+      await expect
+        .poll(async () => {
+          const { data, error } = await adminSupabase
+            .from("resumes")
+            .select("files")
+            .eq("id", resume.id)
+            .single();
+          if (error) throw error;
+          return data?.files ?? null;
+        })
+        .toEqual([]);
+
+      const { data: purgeRows, error: purgeError } = await adminSupabase
+        .from("storage_purge_queue")
+        .select("id")
+        .eq("account_id", single.account_id)
+        .eq("resume_id", resume.id)
+        .eq("bucket", "documents")
+        .eq("storage_path", resume.files[0].path);
+      expect(purgeError).toBeNull();
+      expect(purgeRows).toHaveLength(1);
+
       await pageB.reload();
       await expect(pageB.getByText("Original resume · Removed")).toBeVisible();
-      expect(deleteRequests.count).toBeGreaterThanOrEqual(1);
-      expect(deleteRequests.count).toBeLessThanOrEqual(2);
+      expect(deleteRequests.pageA).toBeLessThanOrEqual(1);
+      expect(deleteRequests.pageB).toBeLessThanOrEqual(1);
+      expect(
+        deleteRequests.pageA + deleteRequests.pageB,
+      ).toBeGreaterThanOrEqual(1);
     } finally {
       await pageB.close();
     }

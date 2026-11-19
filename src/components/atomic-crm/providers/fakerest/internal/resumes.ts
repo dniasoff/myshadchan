@@ -260,6 +260,7 @@ export async function removeResumeFile(
     size,
     uploadedAt,
   ]);
+  if (removedPaths.has(deletionKey)) return { purgePending: false };
   const selectedIndex = files.findIndex(
     (file) =>
       file.path === path &&
@@ -267,7 +268,6 @@ export async function removeResumeFile(
       file.uploaded_at === uploadedAt,
   );
   if (selectedIndex === -1) {
-    if (removedPaths.has(deletionKey)) return { purgePending: false };
     throw new Error("Could not delete. Nothing was changed.");
   }
   const remaining = files.filter((_, index) => index !== selectedIndex);

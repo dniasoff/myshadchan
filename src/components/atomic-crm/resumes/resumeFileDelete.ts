@@ -48,6 +48,21 @@ export const pendingResumeFileDeletes = new Map<
 >();
 
 const pendingResumeFileDeleteTimers = new Map<string, number>();
+type FinalizationState = {
+  deadline: number;
+  status: "in_flight" | "completed";
+};
+
+type FinalizationRetry = {
+  deadline: number;
+  timer: number;
+};
+
+// The marker is durable across reloads, while this state prevents the same
+// page from re-invoking the provider when several Resume-tab effects observe
+// the same expired marker. A new deadline represents a new user action.
+const finalizationStates = new Map<string, FinalizationState>();
+const finalizationRetries = new Map<string, FinalizationRetry>();
 const listeners = new Set<() => void>();
 let snapshotVersion = 0;
 const tabOwner =
@@ -170,6 +185,9 @@ export const clearPendingResumeFileDelete = (token: string): void => {
   const timer = pendingResumeFileDeleteTimers.get(token);
   if (timer !== undefined) window.clearTimeout(timer);
   pendingResumeFileDeleteTimers.delete(token);
+  const retry = finalizationRetries.get(token);
+  if (retry !== undefined) window.clearTimeout(retry.timer);
+  finalizationRetries.delete(token);
   try {
     window.localStorage.removeItem(markerStorageKey(token));
     window.localStorage.removeItem(`${markerStorageKey(token)}:claim`);
@@ -185,14 +203,16 @@ const hasMarker = (token: string): boolean =>
 const runWithCrossTabClaim = async (
   token: string,
   callback: () => Promise<void>,
-): Promise<void> => {
+): Promise<"executed" | "missing" | "claimed_elsewhere"> => {
   const lockManager = globalThis.navigator?.locks;
   if (lockManager) {
+    let result: "executed" | "missing" = "missing";
     await lockManager.request(`resume-file-delete:${token}`, async (lock) => {
       if (!lock || !hasMarker(token)) return;
+      result = "executed";
       await callback();
     });
-    return;
+    return result;
   }
 
   // Safari/older WebViews have no Web Locks. This marker claim is a fallback;
@@ -214,10 +234,13 @@ const runWithCrossTabClaim = async (
         return null;
       }
     })();
-    if (existing?.expires && existing.expires > Date.now()) return;
+    if (existing?.expires && existing.expires > Date.now()) {
+      return "claimed_elsewhere";
+    }
     window.localStorage.setItem(claimKey, claim);
     const won = window.localStorage.getItem(claimKey) === claim;
-    if (!won || !hasMarker(token)) return;
+    if (!won) return hasMarker(token) ? "claimed_elsewhere" : "missing";
+    if (!hasMarker(token)) return "missing";
 
     // The RPC can outlive a short lease on a busy connection. Renew only
     // while this tab still owns the exact opaque claim, so another tab can
@@ -240,20 +263,71 @@ const runWithCrossTabClaim = async (
       window.localStorage.removeItem(claimKey);
     }
   }
+  return "executed";
+};
+
+const retryAfterClaimLease = (
+  marker: PendingResumeFileDelete,
+  onExpire: () => Promise<void> | void,
+): void => {
+  const existing = finalizationRetries.get(marker.token);
+  if (existing?.deadline === marker.deadline) return;
+  if (existing !== undefined) window.clearTimeout(existing.timer);
+  const timer = window.setTimeout(() => {
+    finalizationRetries.delete(marker.token);
+    schedulePendingResumeFileDelete(marker, onExpire);
+  }, FALLBACK_CLAIM_LEASE_MS + 100);
+  finalizationRetries.set(marker.token, { deadline: marker.deadline, timer });
 };
 
 export const schedulePendingResumeFileDelete = (
   marker: PendingResumeFileDelete,
   onExpire: () => Promise<void> | void,
 ): void => {
+  const state = finalizationStates.get(marker.token);
+  if (state?.deadline === marker.deadline) return;
+  if (state !== undefined) finalizationStates.delete(marker.token);
+
+  const retry = finalizationRetries.get(marker.token);
+  if (retry?.deadline === marker.deadline) return;
+  if (retry !== undefined) {
+    window.clearTimeout(retry.timer);
+    finalizationRetries.delete(marker.token);
+  }
+
   const previous = pendingResumeFileDeleteTimers.get(marker.token);
   if (previous !== undefined) window.clearTimeout(previous);
   const timer = window.setTimeout(
     () => {
       pendingResumeFileDeleteTimers.delete(marker.token);
+      const current = finalizationStates.get(marker.token);
+      if (current?.deadline === marker.deadline) return;
+      finalizationStates.set(marker.token, {
+        deadline: marker.deadline,
+        status: "in_flight",
+      });
       void runWithCrossTabClaim(marker.token, async () => {
         await onExpire();
-      });
+      })
+        .then((result) => {
+          if (result === "claimed_elsewhere") {
+            finalizationStates.delete(marker.token);
+            retryAfterClaimLease(marker, onExpire);
+            return;
+          }
+          finalizationStates.set(marker.token, {
+            deadline: marker.deadline,
+            status: "completed",
+          });
+        })
+        .catch(() => {
+          // The callback owns the user-facing transport error and clears the
+          // marker. Do not hot-retry a failed provider call in this page.
+          finalizationStates.set(marker.token, {
+            deadline: marker.deadline,
+            status: "completed",
+          });
+        });
     },
     Math.max(0, marker.deadline - Date.now()),
   );

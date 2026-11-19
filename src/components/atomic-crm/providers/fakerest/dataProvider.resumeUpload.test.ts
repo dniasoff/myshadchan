@@ -138,4 +138,62 @@ describe("FakeRest resume capture methods", () => {
       revokeObjectURL.mockRestore();
     }
   });
+
+  it("does not remove an identical sibling on an idempotent retry", async () => {
+    const file: ResumeFileVersion = {
+      path: "1/resumes/99/duplicate.pdf",
+      filename: "duplicate.pdf",
+      uploaded_at: "2026-11-17T12:00:00.000Z",
+      uploaded_by: 10,
+      mime_type: "application/pdf",
+      size: 100,
+    };
+    let current: Resume = {
+      id: 99,
+      account_id: 1,
+      shidduchim_id: 99,
+      created_at: "2026-11-17T12:00:00.000Z",
+      files: [file, { ...file }],
+    };
+    const update = vi.fn(
+      async (
+        _resource: string,
+        params: { data: { files: ResumeFileVersion[] } },
+      ) => {
+        current = { ...current, files: params.data.files };
+        return { data: current };
+      },
+    );
+    const baseDataProvider = {
+      getOne: vi.fn(async () => ({ data: current })),
+      update,
+    } as unknown as DataProvider;
+    const removedPaths = new Set<string>();
+
+    await removeResumeFile(
+      baseDataProvider,
+      new Map(),
+      removedPaths,
+      1,
+      "self_manager",
+      99,
+      file.path,
+      file.size,
+      file.uploaded_at,
+    );
+    await removeResumeFile(
+      baseDataProvider,
+      new Map(),
+      removedPaths,
+      1,
+      "self_manager",
+      99,
+      file.path,
+      file.size,
+      file.uploaded_at,
+    );
+
+    expect(current.files).toEqual([{ ...file }]);
+    expect(update).toHaveBeenCalledOnce();
+  });
 });

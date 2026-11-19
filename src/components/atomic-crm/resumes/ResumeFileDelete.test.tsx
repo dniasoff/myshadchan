@@ -263,6 +263,11 @@ describe("resume file deletion contract", () => {
 
       release();
       await vi.runOnlyPendingTimersAsync();
+      // A completed callback must not be re-armed by a later Resume-tab
+      // effect observing the same marker and deadline.
+      schedulePendingResumeFileDelete(marker, finalize);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(finalize).toHaveBeenCalledTimes(1);
     } finally {
       clearPendingResumeFileDelete(token);
       vi.useRealTimers();
