@@ -157,30 +157,6 @@ function isExistingStorageObjectError(error: unknown): boolean {
   );
 }
 
-function isVerifiedResumeAppendRejection(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const candidate = error as {
-    code?: string | number;
-    status?: string | number;
-    statusCode?: string | number;
-    message?: string;
-  };
-  const message = candidate.message ?? "";
-  if (
-    /network|timeout|timed out|fetch|abort|connection reset|gateway|service unavailable|temporarily unavailable/i.test(
-      message,
-    )
-  ) {
-    return false;
-  }
-  const status = Number(candidate.status ?? candidate.statusCode);
-  if (Number.isFinite(status) && status >= 400 && status < 500) return true;
-  if (candidate.code != null) return true;
-  return /not found|deleted|no longer available|privilege|permission|policy|role|not eligible|must be provided|exactly one/i.test(
-    message,
-  );
-}
-
 /**
  * The read-only checks keep common rejections out of the copy window. The
  * provenance-aware RPC remains the final authority because the Inbox,
@@ -272,10 +248,10 @@ async function validateInboxResumeAttach(
  * the object on every ambiguous or otherwise unclassified RPC error: a
  * response can be lost after the catalog append, and deleting it here could
  * silently remove a committed resume. The bounded leftover is private and
- * retry-safe; bead 89p tracks its Inbox-attachment object GC. The explicit
- * source/provenance rejection below is authoritative and cleanup is attempted
- * immediately; if that cleanup is unavailable, the same bounded GC policy
- * applies.
+ * retry-safe; bead 89p tracks its Inbox-attachment object GC. No rejection
+ * path removes this deterministic destination: without a per-call receipt,
+ * even a verified RPC rejection cannot prove that another attempt does not
+ * already reference the object.
  */
 export async function attachInboxAttachmentToResumeFile(
   params: AttachInboxAttachmentToResumeFileParams,
@@ -327,17 +303,9 @@ export async function attachInboxAttachmentToResumeFile(
       },
     );
     if (appendError) {
-      // An explicit source/provenance rejection means the delete won after
-      // the pre-copy checks but before this append. The destination was
-      // created by this attempt and is therefore safe to remove. A rejected
-      // RPC is distinct from an unknown network outcome below: in the latter
-      // case a retry may already have committed the deterministic object.
-      if (isVerifiedResumeAppendRejection(appendError)) {
-        await getSupabaseClient()
-          .storage.from(DOCUMENTS_BUCKET)
-          .remove([storagePath])
-          .catch(() => undefined);
-      }
+      // Preserve the deterministic destination on every rejection. Another
+      // attempt may have uploaded or catalogued the same object, and there is
+      // no per-call receipt that makes deletion safe; bead 89p tracks GC.
       throw new Error(INBOX_RESUME_ATTACH_ERROR);
     }
 

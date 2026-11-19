@@ -752,7 +752,7 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     expect(resumesCreateCalls).toHaveLength(1);
   });
 
-  it("removes the copied object and rethrows when the resumes row write fails, rather than leaving an orphaned object", async () => {
+  it("preserves the copied object when the resumes row write fails", async () => {
     // Arrange
     const create = vi.fn((resource: string) =>
       resource === "resumes"
@@ -772,12 +772,10 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     await expect
       .element(screen.getByText("error:insert failed"))
       .toBeInTheDocument();
-    expect(removeResumeFileObjects).toHaveBeenCalledWith([
-      "7/resumes/99/generated-uuid-resume.pdf",
-    ]);
+    expect(removeResumeFileObjects).not.toHaveBeenCalled();
   });
 
-  it("reuses a durably stashed copied path when row cleanup fails", async () => {
+  it("reuses a durably stashed copied path without deleting a shared object", async () => {
     let resumeCreateCalls = 0;
     const create = vi.fn(async (resource: string) => {
       if (resource === "resumes") {
@@ -810,15 +808,13 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
 
     expect(dataProvider.copyInboxAttachmentToResumeFile).toHaveBeenCalledTimes(
-      2,
+      1,
     );
-    expect(removeResumeFileObjects).toHaveBeenCalledWith([
-      "7/resumes/99/generated-uuid-resume.pdf",
-    ]);
+    expect(removeResumeFileObjects).not.toHaveBeenCalled();
     expect(create).toHaveBeenCalledTimes(2);
   });
 
-  it("does not reuse a deleted path after the cleanup CAS is lost", async () => {
+  it("does not remove a competing object while retrying a cleanup-pending path", async () => {
     let resumeCreateCalls = 0;
     const create = vi.fn(async (resource: string) => {
       if (resource === "resumes") {
@@ -829,33 +825,13 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     }) as unknown as CrmDataProvider["create"];
     const removeResumeFileObjects = vi
       .fn()
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("object already deleted"));
-    let cleanupCasShouldFail = true;
-    const hooks: DataProviderHooks = {
-      beforeUpdate: (resource, params) => {
-        const { data } = params as {
-          data?: {
-            resolution_input?: { resume_transfer_state?: string } | null;
-          };
-        };
-        if (
-          resource === "inbox_items" &&
-          data?.resolution_input?.resume_transfer_state === "cleaned" &&
-          cleanupCasShouldFail
-        ) {
-          cleanupCasShouldFail = false;
-          throw new Error("cleanup CAS lost");
-        }
-      },
-    };
+      .mockRejectedValue(new Error("competing attempt owns this object"));
     const item = buildItem();
     const draft = buildResumeDraft();
     const { screen, dataProvider } = await renderProbe(
       item,
       { create, removeResumeFileObjects },
       draft,
-      hooks,
     );
 
     await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
@@ -871,24 +847,23 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     });
 
     await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
-    await expect
-      .element(screen.getByText("error:object already deleted"))
-      .toBeInTheDocument();
+    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
 
-    // The retry refuses to create a row or point one at an object whose
-    // deletion was already acknowledged before the cleanup CAS was lost.
+    // The retry reuses the deterministic path and never attempts to delete a
+    // competing attempt's object.
     expect(
       (dataProvider.create as ReturnType<typeof vi.fn>).mock.calls.filter(
         ([resource]) => resource === "resumes",
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(dataProvider.copyInboxAttachmentToResumeFile).toHaveBeenCalledTimes(
       1,
     );
+    expect(removeResumeFileObjects).not.toHaveBeenCalled();
     const finalCurrent = await dataProvider.getOne<InboxItem>("inbox_items", {
       id: item.id,
     });
-    expect(finalCurrent.data.status).toBe("unresolved");
+    expect(finalCurrent.data.status).toBe("resolved");
   });
 
   it("keeps the item retryable when resume copy fails, then completes without an orphan", async () => {

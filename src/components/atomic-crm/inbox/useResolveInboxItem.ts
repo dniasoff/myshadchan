@@ -152,31 +152,6 @@ export type InboxResumeProcessResult = {
   suggestionKept: boolean;
 };
 
-type OwnershipDataProvider = CrmDataProvider & {
-  removeResumeFileObjectsStrict?: (paths: string[]) => Promise<void>;
-};
-
-async function removeCopiedResumeObject(
-  dataProvider: CrmDataProvider,
-  storagePath: string,
-): Promise<boolean> {
-  const provider = dataProvider as OwnershipDataProvider;
-  if (
-    Object.prototype.hasOwnProperty.call(
-      provider,
-      "removeResumeFileObjectsStrict",
-    ) &&
-    typeof provider.removeResumeFileObjectsStrict === "function"
-  ) {
-    await provider.removeResumeFileObjectsStrict([storagePath]);
-    return true;
-  }
-  await dataProvider.removeResumeFileObjects([storagePath]);
-  // The legacy method is fail-soft on the live provider. A successful return
-  // therefore cannot prove that the private object was actually removed.
-  return false;
-}
-
 type NewResolutionProgress = Extract<ResolutionInput, { action: "new" }> & {
   resolved_shidduchim_id?: Identifier;
   resume_created?: boolean;
@@ -348,34 +323,9 @@ export function useResolveInboxItem() {
 
         if (!existingResumeForAttempt) {
           let copiedFile: CopiedResumeFile | undefined;
-          if (
-            draftProgress.resume_transfer_state === "cleanup_pending" &&
-            draftProgress.resume_transfer_path
-          ) {
-            const removed = await removeCopiedResumeObject(
-              dataProvider,
-              draftProgress.resume_transfer_path,
-            );
-            if (!removed) {
-              throw new Error("Resume cleanup could not be verified.");
-            }
-            resolutionSnapshot = await updateOwnedInboxResolution(
-              item,
-              {
-                resolution_input: {
-                  ...draftProgress,
-                  resume_transfer_state: "cleaned",
-                },
-              },
-              attemptId,
-            );
-            draftProgress = {
-              ...draftProgress,
-              resume_transfer_state: "cleaned",
-            };
-          }
           const stashedTransferPath =
-            draftProgress.resume_transfer_state === "pending" &&
+            (draftProgress.resume_transfer_state === "pending" ||
+              draftProgress.resume_transfer_state === "cleanup_pending") &&
             draftProgress.resume_transfer_path;
           try {
             copiedFile = stashedTransferPath
@@ -437,11 +387,11 @@ export function useResolveInboxItem() {
               data: resumeData,
             });
           } catch (creationError) {
-            // The copied path was durably recorded before the row write. A
-            // strict cleanup closes the normal failure path; when cleanup is
-            // unavailable or loses the network, the pending path remains in
-            // resolution_input and the retry reuses this exact object rather
-            // than creating a second private object.
+            // The copied path was durably recorded before the row write. Do
+            // not delete this deterministic destination: another attempt may
+            // already reference the same object and there is no per-call
+            // receipt proving ownership. The retry reuses this exact path;
+            // bead 89p tracks GC for any bounded leftover Inbox object.
             if (copiedFile) {
               try {
                 const current = await getCurrentResolutionItem(item);
@@ -456,27 +406,10 @@ export function useResolveInboxItem() {
                   },
                   attemptId,
                 );
-                const removed = await removeCopiedResumeObject(
-                  dataProvider,
-                  copiedFile.storagePath,
-                );
-                if (!removed) throw creationError;
-                const afterDelete = await getCurrentResolutionItem(item);
-                if (afterDelete?.status !== "resolving") throw creationError;
-                await updateOwnedInboxResolution(
-                  item,
-                  {
-                    resolution_input: {
-                      ...(afterDelete.resolution_input ?? draftProgress),
-                      resume_transfer_state: "cleaned",
-                    },
-                  },
-                  attemptId,
-                );
               } catch {
-                // Keep cleanup_pending and its path durable. A retry repeats
-                // deletion before ever reusing the path, so a successful
-                // delete followed by a lost CAS cannot create a dangling row.
+                // The path was already recorded before the copy/create
+                // failure. Preserve the object even if this progress update
+                // is lost; its deterministic key is reused on retry.
               }
             }
             throw creationError;
@@ -981,6 +914,9 @@ export function useResolveInboxItem() {
         preAttachedResume &&
         findResumeFile(preAttachedResume, item.id, attachment.path);
       if (!preAttachedFile) {
+        // A same-item, different-child race can leave this visible attachment
+        // on the losing target; atomic claim+attach is deferred to
+        // myshadchan-5qi. Keep the file rather than risking destructive cleanup.
         preAttachedResume =
           await dataProvider.attachInboxAttachmentToResumeFile({
             shidduchimId: targetShidduch.id,

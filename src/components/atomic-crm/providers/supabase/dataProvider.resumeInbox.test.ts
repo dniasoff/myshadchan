@@ -142,7 +142,7 @@ describe("attachInboxAttachmentToResumeFile", () => {
     expect(sourceStatusReads).toEqual(["unresolved"]);
   });
 
-  it("cleans up its destination when the delete wins before the atomic append", async () => {
+  it("preserves its destination when the delete wins before the atomic append", async () => {
     rpc.mockImplementation((name: string) => {
       if (name === "current_context_id") return { data: 7, error: null };
       if (name === "current_member_role")
@@ -158,11 +158,7 @@ describe("attachInboxAttachmentToResumeFile", () => {
       }),
     ).rejects.toThrow("Could not attach this file");
 
-    expect(remove).toHaveBeenCalledTimes(1);
-    expect(remove.mock.calls[0][0]).toBe("documents");
-    expect(remove.mock.calls[0][1]).toEqual([
-      expect.stringMatching(/^7\/resumes\/42\/inbox-[0-9a-f]{64}$/),
-    ]);
+    expect(remove).not.toHaveBeenCalled();
   });
 
   it("returns an existing account-scoped row on a duplicate retry without copying", async () => {

@@ -271,10 +271,7 @@ describe("copyInboxAttachmentToResumeFile (Story 11.2 review fix, Finding 2)", (
       }),
     ).rejects.toThrow("Could not attach this file");
 
-    expect(remove).toHaveBeenCalledWith(
-      "documents",
-      expect.arrayContaining([expect.stringMatching(/inbox-[0-9a-f]{64}$/)]),
-    );
+    expect(remove).not.toHaveBeenCalled();
   });
 
   it("strictly reports a storage tuple error so owned compensation keeps its catalog row", async () => {
