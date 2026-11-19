@@ -54,11 +54,12 @@ export function DocxPreview({
     }
 
     let cancelled = false;
+    const abortController = new AbortController();
     setState({ status: "pending" });
 
     (async () => {
       const url = await signUrl({ inline: true });
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: abortController.signal });
       if (!response.ok) {
         throw new Error(`storage responded ${response.status}`);
       }
@@ -75,6 +76,7 @@ export function DocxPreview({
 
     return () => {
       cancelled = true;
+      abortController.abort();
     };
   }, [active, signUrl]);
 

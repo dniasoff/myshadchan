@@ -82,14 +82,17 @@ type PdfState =
  * returning 401 to a document already on screen — and that failure looks like
  * a corrupt PDF, not an expiry. One up-front fetch removes the whole class.
  */
-async function loadPdf(url: string): Promise<PDFDocumentLoadingTask> {
+async function loadPdf(
+  url: string,
+  signal: AbortSignal,
+): Promise<PDFDocumentLoadingTask> {
   const [pdfjs, workerUrl] = await Promise.all([
     import("pdfjs-dist"),
     import("pdfjs-dist/build/pdf.worker.min.mjs?url").then((m) => m.default),
   ]);
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
-  const response = await fetch(url);
+  const response = await fetch(url, { signal });
   if (!response.ok) {
     throw new Error(`storage responded ${response.status}`);
   }
@@ -124,11 +127,16 @@ export function PdfPreview({
 
     let cancelled = false;
     let loadingTask: PDFDocumentLoadingTask | null = null;
+    const abortController = new AbortController();
     setState({ status: "pending" });
 
     (async () => {
       const url = await signUrl({ inline: true });
-      const task = await loadPdf(url);
+      const task = await loadPdf(url, abortController.signal);
+      if (cancelled) {
+        void task.destroy().catch(() => {});
+        return;
+      }
       loadingTask = task;
       const doc = await task.promise;
       // Page 1's shape sizes every placeholder, so pages that have not been
@@ -144,10 +152,15 @@ export function PdfPreview({
 
     return () => {
       cancelled = true;
+      abortController.abort();
       // Frees the worker and the parsed document; without it, opening several
       // files in sequence leaks a worker each time. It rejects if the task
       // was still loading, which is a normal unmount, not a failure.
-      void loadingTask?.destroy().catch(() => {});
+      if (loadingTask) {
+        const task = loadingTask;
+        loadingTask = null;
+        void task.destroy().catch(() => {});
+      }
     };
   }, [active, signUrl]);
 

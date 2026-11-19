@@ -41,7 +41,7 @@ const version = (
   ...overrides,
 });
 
-function providerFor(files: ResumeFileVersion[]) {
+function providerFor(files: ResumeFileVersion[], resumeId = 1) {
   const signResumeFileUrl = vi.fn(
     (params: { storagePath: string; inline?: boolean }) =>
       Promise.resolve(`${SIGNED}/${params.storagePath}`),
@@ -50,7 +50,9 @@ function providerFor(files: ResumeFileVersion[]) {
     getList: (resource: string) =>
       resource === "resumes"
         ? Promise.resolve({
-            data: [{ id: 1, files, created_at: "" } as unknown as Resume],
+            data: [
+              { id: resumeId, files, created_at: "" } as unknown as Resume,
+            ],
             total: 1,
           })
         : Promise.resolve({ data: [], total: 0 }),
@@ -59,15 +61,15 @@ function providerFor(files: ResumeFileVersion[]) {
   return { dataProvider, signResumeFileUrl };
 }
 
-const renderDocument = async (files: ResumeFileVersion[]) => {
-  const { dataProvider, signResumeFileUrl } = providerFor(files);
+const renderDocument = async (files: ResumeFileVersion[], resumeId = 1) => {
+  const { dataProvider, signResumeFileUrl } = providerFor(files, resumeId);
   const screen = await render(
     <TestMemoryRouter>
       <CoreAdminContext
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <ResumeDocument shidduchimId={1} />
+        <ResumeDocument shidduchimId={resumeId} />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -150,6 +152,9 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
       .poll(() => paintedPageFor("newest-c.pdf"), { timeout: 15000 })
       .toBe(true);
 
+    await screen.getByRole("button", { name: "Zoom in" }).click();
+    await expect.element(screen.getByText("110%")).toBeVisible();
+
     // Act — the newest row is already shown, so the only Show belongs to the
     // older version.
     await screen.getByRole("button", { name: "Show" }).click();
@@ -158,6 +163,7 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     await expect
       .poll(() => paintedPageFor("older-c.pdf"), { timeout: 15000 })
       .toBe(true);
+    await expect.element(screen.getByText("100%")).toBeVisible();
     expect(
       document.querySelector('canvas[aria-label^="newest-c.pdf"]'),
     ).toBeNull();
@@ -273,6 +279,78 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     await userEvent.keyboard("{Escape}");
     await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
     await expect.element(fullScreenButton).toHaveFocus();
+  });
+
+  it("keeps one preview instance and fetch while opening and closing full screen", async () => {
+    const { screen, signResumeFileUrl } = await renderDocument([
+      version({
+        path: "p/shared-preview.jpg",
+        filename: "shared-preview.jpg",
+        mime_type: "image/jpeg",
+      }),
+    ]);
+    await expect.poll(() => signResumeFileUrl.mock.calls.length).toBe(1);
+    expect(
+      document.querySelectorAll('img[alt="shared-preview.jpg"]'),
+    ).toHaveLength(1);
+
+    await screen.getByRole("button", { name: "Full screen" }).click();
+    await expect.element(screen.getByRole("dialog")).toBeVisible();
+    expect(signResumeFileUrl).toHaveBeenCalledTimes(1);
+    expect(
+      document.querySelectorAll('img[alt="shared-preview.jpg"]'),
+    ).toHaveLength(1);
+
+    await screen
+      .getByRole("dialog")
+      .getByRole("button", { name: "Close" })
+      .click();
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+    expect(signResumeFileUrl).toHaveBeenCalledTimes(1);
+    expect(
+      document.querySelectorAll('img[alt="shared-preview.jpg"]'),
+    ).toHaveLength(1);
+  });
+
+  it("resets zoom when the resume identity changes", async () => {
+    const first = await renderDocument(
+      [
+        version({
+          path: "p/resume-one.jpg",
+          filename: "resume-one.jpg",
+          mime_type: "image/jpeg",
+        }),
+      ],
+      1,
+    );
+    await first.screen.getByRole("button", { name: "Zoom in" }).click();
+    await expect.element(first.screen.getByText("110%")).toBeVisible();
+
+    const { dataProvider: secondDataProvider } = providerFor(
+      [
+        version({
+          path: "p/resume-two.jpg",
+          filename: "resume-two.jpg",
+          mime_type: "image/jpeg",
+        }),
+      ],
+      2,
+    );
+    await first.screen.rerender(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={secondDataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <ResumeDocument shidduchimId={2} />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await expect.element(first.screen.getByText("100%")).toBeVisible();
+    await expect
+      .element(first.screen.getByText("resume-two.jpg"))
+      .toBeVisible();
   });
 
   it("resets zoom when the viewer is unmounted instead of persisting it", async () => {
