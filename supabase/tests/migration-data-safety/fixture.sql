@@ -477,6 +477,14 @@ values
      null, null, null, null, null,
      'new', 'channel', 'private_parent', null);
 
+-- Story 5xr: preserve a deployed tombstone and a pending Storage cleanup row
+-- while the new queue identity columns and indexes are introduced.
+insert into public.deleted_shidduch_tombstones (account_id, shidduch_id, deleted_at)
+values (9000001, 9000005, timestamptz '2026-01-01 00:00:00+00');
+
+insert into public.storage_purge_queue (account_id, kind, bucket, storage_path)
+values (9000001, 'object', 'documents', '9000001/resumes/9000005/guard-pending.pdf');
+
 insert into public.redts (id, account_id, shidduchim_id, shadchan_id, redt_date, note)
 values (9000001, 9000001, 9000001, 9000001, current_date - 30, 'First redt.');
 

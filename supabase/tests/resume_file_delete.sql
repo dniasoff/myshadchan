@@ -56,6 +56,7 @@ values (
   :shidduch_a,
   jsonb_build_array(
     jsonb_build_object('path', :account_a::text || '/resumes/' || :shidduch_a::text || '/old.pdf', 'filename', 'old.pdf', 'uploaded_at', '2026-01-01T00:00:00Z', 'mime_type', 'application/pdf', 'size', 8),
+    jsonb_build_object('path', :account_a::text || '/resumes/' || :shidduch_a::text || '/old.pdf', 'filename', 'old-alias.pdf', 'uploaded_at', '2026-01-01T00:00:00Z', 'mime_type', 'application/pdf', 'size', 8),
     jsonb_build_object('path', :account_a::text || '/resumes/' || :shidduch_a::text || '/new.pdf', 'filename', 'new.pdf', 'uploaded_at', '2026-02-01T00:00:00Z', 'mime_type', 'application/pdf', 'size', 9)
   ),
   '{"keep":"sections"}'::jsonb,
@@ -79,6 +80,8 @@ create or replace function pg_temp.expect_remove_error(
   p_expected text
 ) returns void
 language plpgsql
+security definer
+set search_path = pg_temp, public
 as $fn$
 declare
   message text;
@@ -258,16 +261,16 @@ select * from public.remove_resume_file(
   :account_a::text || '/resumes/' || :shidduch_a::text || '/old.pdf'
   ,8,
   '2026-01-01T00:00:00Z'
-) \gset removed_
+);
 set local role postgres;
 insert into results
-select 'first call removes only the exact entry and keeps the resume row',
-  (removed_files::jsonb @> jsonb_build_array(jsonb_build_object('path', :account_a::text || '/resumes/' || :shidduch_a::text || '/new.pdf')))
-  and jsonb_array_length(removed_files::jsonb) = 1
+select 'first call removes all duplicate aliases and keeps the resume row',
+  ((select files from public.resumes where id = :resume_a) @> jsonb_build_array(jsonb_build_object('path', :account_a::text || '/resumes/' || :shidduch_a::text || '/new.pdf')))
+  and jsonb_array_length((select files from public.resumes where id = :resume_a)) = 1
   and exists (select 1 from public.resumes where id = :resume_a)
   and (select sections from public.resumes where id = :resume_a) = '{"keep":"sections"}'::jsonb
   and (select extracted from public.resumes where id = :resume_a) = '{"keep":"extracted"}'::jsonb,
-  removed_files;
+  null;
 insert into results
 select 'first call queues exactly the removed object',
   (select count(*) from public.storage_purge_queue where account_id = :account_a and kind = 'object' and bucket = 'documents') = 1
@@ -275,19 +278,42 @@ select 'first call queues exactly the removed object',
   and not exists (select 1 from public.storage_purge_queue where account_id = :account_a and storage_path = :account_a::text || '/resumes/' || :shidduch_a::text || '/new.pdf'),
   null;
 
+set local role postgres;
+insert into public.storage_purge_queue (
+  account_id, kind, bucket, storage_path, resume_id, file_size, file_uploaded_at
+) values (
+  :account_a, 'object', 'documents',
+  :account_a::text || '/resumes/' || :shidduch_a::text || '/wrong-identity.pdf',
+  :resume_b, 7, '2026-01-01T00:00:00Z'
+);
+set local role authenticated;
+select public.set_active_context(:account_a);
+select pg_temp.expect_remove_error(
+  'queue identity mismatch is not an idempotent success',
+  :resume_a,
+  :account_a::text || '/resumes/' || :shidduch_a::text || '/wrong-identity.pdf',
+  7,
+  '2026-01-01T00:00:00Z',
+  'resume file not found'
+);
+set local role postgres;
+delete from public.storage_purge_queue
+where account_id = :account_a
+  and storage_path = :account_a::text || '/resumes/' || :shidduch_a::text || '/wrong-identity.pdf';
+
 set local role authenticated;
 select * from public.remove_resume_file(
   :resume_a,
   :account_a::text || '/resumes/' || :shidduch_a::text || '/old.pdf'
   ,8,
   '2026-01-01T00:00:00Z'
-) \gset retry_
+);
 set local role postgres;
 insert into results
 select 'second call is idempotent',
-  jsonb_array_length(retry_files::jsonb) = 1
+  jsonb_array_length((select files from public.resumes where id = :resume_a)) = 1
   and (select count(*) from public.storage_purge_queue where account_id = :account_a and kind = 'object' and bucket = 'documents') = 1,
-  retry_files;
+  null;
 
 set local role authenticated;
 select * from public.remove_resume_file(
@@ -312,6 +338,15 @@ select 'RPC is manager-only and queue remains FORCE RLS',
   not has_function_privilege('public', 'public.remove_resume_file(bigint,text,bigint,timestamptz)', 'execute')
   and not has_function_privilege('anon', 'public.remove_resume_file(bigint,text,bigint,timestamptz)', 'execute')
   and (select relforcerowsecurity from pg_class where oid = 'public.storage_purge_queue'::regclass),
+  null;
+insert into results
+select 'legacy two-argument RPC is gone',
+  case
+    when to_regprocedure('public.remove_resume_file(bigint,text)') is null then true
+    else not has_function_privilege(
+      'public', to_regprocedure('public.remove_resume_file(bigint,text)'), 'execute'
+    )
+  end,
   null;
 
 select json_agg(row_to_json(results) order by name) from results;

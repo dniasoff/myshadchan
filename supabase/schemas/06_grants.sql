@@ -563,6 +563,13 @@ grant execute on function public.add_resume_file(text, text, text, bigint, bigin
 revoke all on function public.remove_resume_file(bigint, text, bigint, timestamptz) from public, anon;
 grant execute on function public.remove_resume_file(bigint, text, bigint, timestamptz) to authenticated;
 grant execute on function public.remove_resume_file(bigint, text, bigint, timestamptz) to service_role;
+do $$
+begin
+  if to_regprocedure('public.remove_resume_file(bigint,text)') is not null then
+    execute 'revoke all on function public.remove_resume_file(bigint,text) from public, anon, authenticated, service_role';
+  end if;
+end;
+$$;
 revoke all on function public.resume_read_in_progress(bigint, text) from public, anon;
 grant execute on function public.resume_read_in_progress(bigint, text) to authenticated;
 grant execute on function public.resume_read_in_progress(bigint, text) to service_role;

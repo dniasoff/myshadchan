@@ -368,16 +368,19 @@ export function ResumeVersionList({
       const next = versions.find(
         (version) =>
           version.path !== removedPath &&
-          !pendingResumeFileDeletes.has(
-            resumeFileDeleteKey(resumeId ?? "", version.path),
+          !pending.some(
+            (marker) =>
+              resumeFileDeleteKey(marker.resumeId, marker.file.path) ===
+              resumeFileDeleteKey(resumeId ?? "", version.path),
           ),
       );
       window.requestAnimationFrame(() => {
-        if (next) deleteButtonRefs.current.get(next.path)?.focus();
+        const nextButton = next && deleteButtonRefs.current.get(next.path);
+        if (nextButton && document.contains(nextButton)) nextButton.focus();
         else headingRef.current?.focus();
       });
     },
-    [resumeId, versions],
+    [pending, resumeId, versions],
   );
 
   const finalizePending = useCallback(

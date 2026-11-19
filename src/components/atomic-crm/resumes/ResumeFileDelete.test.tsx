@@ -12,10 +12,12 @@ import {
   pendingResumeFileDeletes,
   RESUME_FILE_DELETE_UNDO_MS,
   canDeleteResumeFile,
+  clearPendingResumeFileDelete,
   readPendingResumeFileDeletes,
   rememberPendingResumeFileDelete,
   resumeFileDeleteMarkerToken,
   resumeFileTypeLabel,
+  schedulePendingResumeFileDelete,
 } from "./resumeFileDelete";
 
 const resume: Resume = {
@@ -218,6 +220,55 @@ describe("resume file deletion contract", () => {
       });
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("renews the fallback tab claim while a finalization RPC is in flight", async () => {
+    const originalLocks = Object.getOwnPropertyDescriptor(navigator, "locks");
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    });
+    vi.useFakeTimers();
+    let release!: () => void;
+    const finalize = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const file = resume.files![1]!;
+    const token = await resumeFileDeleteMarkerToken(42, file);
+    const marker = {
+      resumeId: 42,
+      file,
+      deadline: Date.now() + 100,
+      token,
+      resumeToken: "resume-token",
+    };
+    try {
+      await rememberPendingResumeFileDelete(marker);
+      schedulePendingResumeFileDelete(marker, finalize);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(finalize).toHaveBeenCalledTimes(1);
+
+      // The 60-second fallback lease would have expired here. A second timer
+      // must still observe the renewed opaque claim and stay out of the RPC.
+      await vi.advanceTimersByTimeAsync(61_000);
+      schedulePendingResumeFileDelete(marker, finalize);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(finalize).toHaveBeenCalledTimes(1);
+
+      release();
+      await vi.runOnlyPendingTimersAsync();
+    } finally {
+      clearPendingResumeFileDelete(token);
+      vi.useRealTimers();
+      if (originalLocks) {
+        Object.defineProperty(navigator, "locks", originalLocks);
+      } else {
+        Reflect.deleteProperty(navigator, "locks");
+      }
     }
   });
 

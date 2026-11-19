@@ -1170,8 +1170,7 @@ begin
   end if;
 
   select true into v_exists
-  from public.accounts where id = p_account_id
-  for update;
+  from public.accounts where id = p_account_id;
   if not found then
     -- Already gone (a concurrent lifecycle finished first). The invariant
     -- holds, so this is success, not failure.
@@ -1194,6 +1193,15 @@ begin
   -- erase a pending prefix sweep or race a Storage upload.
   if not public.account_storage_cleanup_fence(p_account_id) then
     return false;
+  end if;
+
+  -- Take the account row only after the parent-first storage fence. Recheck
+  -- existence because another lifecycle may have completed while unfenced.
+  select true into v_exists
+  from public.accounts where id = p_account_id
+  for update;
+  if not found then
+    return true;
   end if;
 
   -- Release the two references that must survive the account rather than
@@ -1263,11 +1271,10 @@ begin
 
   select a.demo into v_demo
   from public.accounts a
-  where a.id = p_account_id
-  for update;
+  where a.id = p_account_id;
   if not found then
     raise exception 'account not found for deletion: %', p_account_id
-      using errcode = 'no_data';
+      using errcode = 'P0002';
   end if;
   if v_demo then
     raise exception 'demo accounts must be cleared through the demo lifecycle'
@@ -1276,6 +1283,21 @@ begin
 
   if not public.account_storage_cleanup_fence(p_account_id) then
     raise exception 'account has pending Storage cleanup; drain it before deletion'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Take the account row only after the parent-first storage fence, then
+  -- recheck its existence/demo state before deleting account-owned rows.
+  select a.demo into v_demo
+  from public.accounts a
+  where a.id = p_account_id
+  for update;
+  if not found then
+    raise exception 'account disappeared during deletion: %', p_account_id
+      using errcode = 'serialization_failure';
+  end if;
+  if v_demo then
+    raise exception 'demo accounts must be cleared through the demo lifecycle'
       using errcode = 'check_violation';
   end if;
 
@@ -2032,15 +2054,14 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
-  -- Global storage-writer lock order is account row -> account advisory
-  -- fence -> shidduch parent -> resume/source rows. Every writer uses the
-  -- helper before a parent lock so account deletion cannot deadlock.
+  -- Global storage-writer order is parent shidduch -> advisory fence ->
+  -- resume/source rows. Parent rows are locked before the shared fence.
   if p_shidduchim_id is not null then
-    perform public.account_storage_lock(v_account_id);
     select s.id into v_parent_id
     from public.shidduchim s
     where s.id = p_shidduchim_id and s.account_id = v_account_id
-    for share;
+    for update;
+    perform public.account_storage_lock(v_account_id);
     if v_parent_id is null then
       raise exception 'shidduch % not found in current account', p_shidduchim_id;
     end if;
@@ -2176,6 +2197,8 @@ begin
 end;
 $$;
 
+drop function if exists public.remove_resume_file(bigint, text);
+
 CREATE OR REPLACE FUNCTION public.remove_resume_file(
   p_resume_id bigint,
   p_path text,
@@ -2203,13 +2226,13 @@ begin
   if p_resume_id is null or p_path is null or p_path = ''
      or p_size is null or p_uploaded_at is null then
     raise exception 'resume file not found'
-      using errcode = 'no_data';
+      using errcode = 'P0002';
   end if;
 
-  -- Global storage-writer order is account row -> account advisory fence ->
-  -- shidduch parent -> resume -> purge queue. The helper also protects the
-  -- account FK queue insert from account deletion.
-  perform public.account_storage_lock(v_account_id);
+  -- Global storage-writer order is parent shidduch -> advisory fence ->
+  -- resume -> purge queue. Duplicate path entries are aliases to one physical
+  -- object and are removed together; the queue stores exact file identity so
+  -- retries cannot match another resume's deletion.
   select s.id into v_parent_id
   from public.shidduchim s
   where s.account_id = v_account_id
@@ -2221,9 +2244,10 @@ begin
         and r.shidduchim_id = s.id
     )
   for update;
+  perform public.account_storage_lock(v_account_id);
   if v_parent_id is null then
     raise exception 'resume not found'
-      using errcode = 'no_data';
+      using errcode = 'P0002';
   end if;
   select r.* into v_resume
   from public.resumes r
@@ -2233,7 +2257,7 @@ begin
   for update;
   if not found then
     raise exception 'resume not found'
-      using errcode = 'no_data';
+      using errcode = 'P0002';
   end if;
 
   v_files := case
@@ -2255,12 +2279,15 @@ begin
         and q.kind = 'object'
         and q.bucket = 'documents'
         and q.storage_path = p_path
+        and q.resume_id = v_resume.id
+        and q.file_size = p_size
+        and q.file_uploaded_at = p_uploaded_at
     ) then
       return next v_resume;
       return;
     end if;
     raise exception 'resume file not found'
-      using errcode = 'no_data';
+      using errcode = 'P0002';
   end if;
 
   if p_path !~ ('^' || v_account_id::text || '/resumes/' || v_parent_id::text || '/[^/]+$')
@@ -2299,7 +2326,11 @@ begin
   where id = v_resume.id
   returning * into v_resume;
 
-  perform public.storage_purge_queue_object(v_account_id, 'documents', p_path);
+  insert into public.storage_purge_queue (
+    account_id, kind, bucket, storage_path, resume_id, file_size, file_uploaded_at
+  ) values (
+    v_account_id, 'object', 'documents', p_path, v_resume.id, p_size, p_uploaded_at
+  ) on conflict do nothing;
   if not exists (
     select 1
     from public.storage_purge_queue q
@@ -2307,6 +2338,9 @@ begin
       and q.kind = 'object'
       and q.bucket = 'documents'
       and q.storage_path = p_path
+      and q.resume_id = v_resume.id
+      and q.file_size = p_size
+      and q.file_uploaded_at = p_uploaded_at
   ) then
     raise exception 'resume file cleanup could not be queued'
       using errcode = 'check_violation';
@@ -2337,11 +2371,11 @@ begin
   end if;
 
   if p_shidduchim_id is not null then
-    perform public.account_storage_lock(v_account_id);
     select s.id into v_parent_id
     from public.shidduchim s
     where s.id = p_shidduchim_id and s.account_id = v_account_id
-    for share;
+    for update;
+    perform public.account_storage_lock(v_account_id);
     if v_parent_id is null then
       raise exception 'shidduch % not found in current account', p_shidduchim_id;
     end if;
@@ -6367,15 +6401,15 @@ begin
       using errcode = 'invalid_parameter_value';
   end if;
 
-  -- Global storage-writer lock order is account row -> advisory fence ->
-  -- shidduch parent -> child rows/queue. Keep reread claims in that order so
-  -- a claim/delete pair cannot deadlock.
-  perform public.account_storage_lock(p_account_id);
+  -- Global storage-writer lock order is parent shidduch -> advisory fence ->
+  -- child rows/queue. Keep reread claims in that order so a claim/delete pair
+  -- cannot deadlock.
   select s.id into v_shidduch_id
   from public.shidduchim s
   join public.resumes r on r.shidduchim_id = s.id
   where r.id = p_resume_id and r.account_id = p_account_id
-  for share of s;
+  for update of s;
+  perform public.account_storage_lock(p_account_id);
 
   -- The service-role RPC is an independent trust boundary from the Worker.
   -- Reject a forged account/resume pair before retention, quota reservation,
@@ -10256,11 +10290,10 @@ begin
     raise exception 'account storage lock requires an account'
       using errcode = 'invalid_parameter_value';
   end if;
-  -- Global storage-writer order: account row -> advisory fence -> parent
-  -- shidduch -> child rows/queue. The account key-share prevents an account
-  -- deletion (which takes the account row before this fence) from waiting on
-  -- a writer that is already waiting on the account FK.
-  perform 1 from public.accounts where id = p_account_id for key share;
+  -- Global storage-writer order: parent shidduch rows (ascending id) ->
+  -- advisory fence -> child rows/queue. Writers without a parent take only
+  -- this advisory fence. Account deletion enters the fence after locking all
+  -- parents, then locks the account row for its final delete.
   perform pg_advisory_xact_lock(
     hashtextextended(format('myshadchan-account-storage:%s', p_account_id), 0)
   );
@@ -10361,11 +10394,11 @@ begin
   end if;
 
   if new.target_type = 'shidduch' then
-    perform public.account_storage_lock(v_account_id);
     select s.id into v_parent_id
     from public.shidduchim s
     where s.id = new.target_id and s.account_id = v_account_id
-    for share;
+    for update;
+    perform public.account_storage_lock(v_account_id);
     if v_parent_id is null then
       raise exception 'entity file shidduch target is missing'
         using errcode = 'foreign_key_violation';
@@ -10444,7 +10477,7 @@ begin
   end if;
   insert into public.storage_purge_queue (account_id, kind, bucket, storage_path)
   values (p_account_id, 'object', p_bucket, p_path)
-  on conflict (account_id, kind, bucket, storage_path) do nothing;
+  on conflict do nothing;
 end;
 $$;
 
@@ -10463,7 +10496,7 @@ begin
   end if;
   insert into public.storage_purge_queue (account_id, kind, bucket, storage_path, reason)
   values (p_account_id, 'quarantine', p_bucket, p_path, p_reason)
-  on conflict (account_id, kind, bucket, storage_path) do nothing;
+  on conflict do nothing;
 end;
 $$;
 
@@ -10573,14 +10606,14 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path TO ''
 AS $$
 begin
-  -- Account deletion uses account row -> advisory fence -> parent rows.
-  -- Keep this order with uploads and per-file removal.
-  perform public.account_storage_lock(p_account_id);
+  -- Account deletion uses parent rows (ascending id) -> advisory fence ->
+  -- account row. This is the single global order for storage writers.
   perform 1
   from public.shidduchim
   where account_id = p_account_id
   order by id
   for update;
+  perform public.account_storage_lock(p_account_id);
   if not exists (select 1 from public.accounts where id = p_account_id) then
     return true;
   end if;
@@ -10679,10 +10712,10 @@ begin
     raise exception 'archive_shidduch requires an owning manager'
       using errcode = 'insufficient_privilege';
   end if;
-  perform public.account_storage_lock(v_account_id);
   select s.* into v_row from public.shidduchim s
   where s.id = p_id and s.account_id = v_account_id
   for update;
+  perform public.account_storage_lock(v_account_id);
   if not found then return; end if;
   update public.shidduchim set archived_at = coalesce(archived_at, now()) where id = p_id;
   return query select * from public.shidduch_row(p_id);
@@ -10703,10 +10736,10 @@ begin
     raise exception 'restore_shidduch requires an owning manager'
       using errcode = 'insufficient_privilege';
   end if;
-  perform public.account_storage_lock(v_account_id);
   select s.* into v_row from public.shidduchim s
   where s.id = p_id and s.account_id = v_account_id
   for update;
+  perform public.account_storage_lock(v_account_id);
   if not found then return; end if;
   update public.shidduchim set archived_at = null where id = p_id;
   return query select * from public.shidduch_row(p_id);
@@ -10731,10 +10764,10 @@ begin
     raise exception 'delete_shidduch requires an owning manager'
       using errcode = 'insufficient_privilege';
   end if;
-  perform public.account_storage_lock(v_account_id);
   select s.* into v_shidduch from public.shidduchim s
   where s.id = p_id and s.account_id = v_account_id
   for update;
+  perform public.account_storage_lock(v_account_id);
   if not found then return; end if;
 
   if exists (
@@ -10806,7 +10839,7 @@ begin
       v_account_id, 'prefix',
       case when v_prefix like '%/shidduch/%' then 'entity-files' else 'documents' end,
       v_prefix
-    ) on conflict (account_id, kind, bucket, storage_path) do nothing;
+    ) on conflict do nothing;
   end loop;
 
   delete from public.shidduchim where id = p_id and account_id = v_account_id;

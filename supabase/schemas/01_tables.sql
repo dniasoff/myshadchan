@@ -910,6 +910,12 @@ create table public.storage_purge_queue (
     claimed_at timestamp with time zone,
     created_at timestamp with time zone not null default now(),
     updated_at timestamp with time zone not null default now(),
+    -- Resume-file deletion records the owning resume and exact file identity;
+    -- generic lifecycle rows leave these three columns NULL. These columns
+    -- are deliberately the physical tail added by the migration.
+    resume_id bigint,
+    file_size bigint,
+    file_uploaded_at timestamp with time zone,
     constraint storage_purge_queue_kind_check check (kind in ('object', 'prefix', 'quarantine')),
     constraint storage_purge_queue_reason_check check (
         (kind = 'quarantine' and reason in ('unsupported_path', 'legacy_path', 'unknown_bucket'))
@@ -933,9 +939,19 @@ create table public.storage_purge_queue (
             )
         )
     ),
-    constraint storage_purge_queue_account_kind_bucket_path_key
-        unique (account_id, kind, bucket, storage_path)
+    constraint storage_purge_queue_resume_identity_check check (
+        (resume_id is null and file_size is null and file_uploaded_at is null)
+        or (resume_id is not null and file_size is not null and file_uploaded_at is not null)
+    )
 );
+
+create unique index storage_purge_queue_generic_key
+    on public.storage_purge_queue (account_id, kind, bucket, storage_path)
+    where resume_id is null;
+create unique index storage_purge_queue_resume_identity_key
+    on public.storage_purge_queue
+      (account_id, kind, bucket, storage_path, resume_id, file_size, file_uploaded_at)
+    where resume_id is not null;
 
 create index storage_purge_queue_claim_idx
     on public.storage_purge_queue (account_id, not_before, claimed_at, id);

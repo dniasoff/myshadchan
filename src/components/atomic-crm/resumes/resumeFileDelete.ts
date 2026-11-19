@@ -38,6 +38,8 @@ export function dispatchResumeReadStateChanged(
 }
 
 const markerKeyPrefix = `${RESUME_FILE_DELETE_MARKER_KEY}:`;
+const FALLBACK_CLAIM_LEASE_MS = 60_000;
+const FALLBACK_CLAIM_RENEW_MS = 5_000;
 
 /** Runtime details for the currently visible Resume tab. */
 export const pendingResumeFileDeletes = new Map<
@@ -197,9 +199,9 @@ const runWithCrossTabClaim = async (
   // the read-back makes the winner explicit and the expiry lets a crashed tab
   // recover without losing the durable delete.
   const claimKey = `${markerStorageKey(token)}:claim`;
-  const claim = JSON.stringify({
+  let claim = JSON.stringify({
     owner: tabOwner,
-    expires: Date.now() + 15_000,
+    expires: Date.now() + FALLBACK_CLAIM_LEASE_MS,
   });
   try {
     const existing = (() => {
@@ -212,15 +214,27 @@ const runWithCrossTabClaim = async (
         return null;
       }
     })();
-    if (
-      existing?.expires &&
-      existing.expires > Date.now() &&
-      existing.owner !== tabOwner
-    )
-      return;
+    if (existing?.expires && existing.expires > Date.now()) return;
     window.localStorage.setItem(claimKey, claim);
     const won = window.localStorage.getItem(claimKey) === claim;
-    if (won && hasMarker(token)) await callback();
+    if (!won || !hasMarker(token)) return;
+
+    // The RPC can outlive a short lease on a busy connection. Renew only
+    // while this tab still owns the exact opaque claim, so another tab can
+    // take over after a crash but never while the owner is still finalising.
+    const renew = window.setInterval(() => {
+      if (window.localStorage.getItem(claimKey) !== claim) return;
+      claim = JSON.stringify({
+        owner: tabOwner,
+        expires: Date.now() + FALLBACK_CLAIM_LEASE_MS,
+      });
+      window.localStorage.setItem(claimKey, claim);
+    }, FALLBACK_CLAIM_RENEW_MS);
+    try {
+      await callback();
+    } finally {
+      window.clearInterval(renew);
+    }
   } finally {
     if (window.localStorage.getItem(claimKey) === claim) {
       window.localStorage.removeItem(claimKey);
