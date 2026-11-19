@@ -42,7 +42,7 @@ export function ShidduchRightRail({
         </h3>
         <SingleInputPanel shidduchimId={record.id} />
       </section>
-      <section className="flex flex-col gap-2">
+      <section aria-label="Reminders" className="flex flex-col gap-2">
         <h3 className="text-sm font-semibold">
           {translate("crm.entity360.rail.reminders.heading", {
             _: "Reminders",

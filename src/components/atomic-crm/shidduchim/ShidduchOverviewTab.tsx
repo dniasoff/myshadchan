@@ -6,6 +6,7 @@ import { RedtHistorySection } from "./RedtHistorySection";
 import { ShidduchCatchSection } from "./ShidduchCatchSection";
 import { ShidduchFactsCard } from "./ShidduchFactsCard";
 import { SingleInputForm } from "./SingleInputForm";
+import { ShidduchTodoBox } from "./ShidduchTodoBox";
 
 /**
  * The `overview` tab's content (Story 5.1 AC 5/6) — the four presentational
@@ -41,6 +42,8 @@ export const ShidduchOverviewTab = () => {
           rail (ShidduchRightRail.guard.test.ts). Renders nothing for any
           viewer other than a single. */}
       <SingleInputForm shidduchId={record.id} />
+
+      <ShidduchTodoBox shidduch={record} />
 
       <ShidduchCatchSection shidduchimId={record.id} />
 
