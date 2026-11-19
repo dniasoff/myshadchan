@@ -456,8 +456,9 @@ describe("shidduchimDescriptor — the right rail (Story 5.7, AC 1 / AC 2 / AC 3
       .toBeInTheDocument();
     // The reminders panel, empty, with a link to the Tasks tab.
     await expect.element(screen.getByText("Reminders")).toBeInTheDocument();
+    const remindersPanel = screen.getByRole("region", { name: "Reminders" });
     await expect
-      .element(screen.getByRole("link", { name: "See all tasks" }))
+      .element(remindersPanel.getByRole("link", { name: "See all tasks" }))
       .toBeInTheDocument();
     // The forward action, disabled — no resume exists for this shidduch.
     await expect
@@ -544,8 +545,9 @@ describe("shidduchimDescriptor — the right rail (Story 5.7, AC 1 / AC 2 / AC 3
     );
 
     // Assert — this shidduch's own open task renders...
+    const remindersPanel = screen.getByRole("region", { name: "Reminders" });
     await expect
-      .element(screen.getByText("This Shidduch's Own Reminder"))
+      .element(remindersPanel.getByText("This Shidduch's Own Reminder"))
       .toBeInTheDocument();
     // ...the foreign shidduch's task never does...
     expect(screen.container.textContent ?? "").not.toContain(
@@ -555,7 +557,7 @@ describe("shidduchimDescriptor — the right rail (Story 5.7, AC 1 / AC 2 / AC 3
     // built through `buildTabPath` — a wrong `targetId` (e.g. a stray
     // literal) would still pass every other assertion here but produce a
     // broken href.
-    const link = screen.getByRole("link", { name: "See all tasks" });
+    const link = remindersPanel.getByRole("link", { name: "See all tasks" });
     await expect.element(link).toBeInTheDocument();
     expect(link.element().getAttribute("href")).toBe(
       buildTabPath("shidduchim", capturedShidduchId!, "tasks"),

@@ -7,6 +7,7 @@ import type { ShidduchSummary } from "../types";
 import { formatArchivedDate, formatRedtDate } from "./boardUtils";
 import { ShidduchRowLifecycleActions } from "./ShidduchLifecycleActions";
 import { getPipelineStateDef } from "./pipelineStates";
+import { ShidduchTodoMarker } from "./ShidduchTodoMarker";
 import { getTransientSuggestionName } from "./transientSuggestionDisplay";
 
 export interface ShidduchRowProps {
@@ -118,6 +119,7 @@ export const ShidduchRow = ({
               Suggested before
             </span>
           ) : null}
+          <ShidduchTodoMarker shidduchId={shidduch.id} />
         </span>
       </RecordLink>
       {/* AC-12: a sibling of the anchor above, never inside it. */}
