@@ -36,6 +36,9 @@ import {
 const nameFor = (record: ShidduchSummary): string =>
   record.name_en ?? record.single_first_name_en ?? `#${record.id}`;
 
+const READ_IN_PROGRESS_MESSAGE =
+  "Please wait: this resume is being made easy to read.";
+
 const reconcileArchivedMarker = async (
   dataProvider: Pick<CrmDataProvider, "getOne">,
   marker: Parameters<typeof rememberPendingShidduchAction>[0],
@@ -174,9 +177,7 @@ const useShidduchLifecycle = (
           const state = await getReadState(record.id);
           setReadInProgress(state.inProgress);
           if (state.inProgress) {
-            notify("Please wait: this resume is being made easy to read.", {
-              type: "warning",
-            });
+            notify(READ_IN_PROGRESS_MESSAGE, { type: "warning" });
             return;
           }
         } catch {
@@ -379,7 +380,7 @@ const ShidduchLifecycleMenu = ({
 
   const readStatus = readInProgress ? (
     <p className="text-right text-xs text-muted-foreground" role="status">
-      Please wait: this resume is being made easy to read.
+      {READ_IN_PROGRESS_MESSAGE}
     </p>
   ) : null;
 
@@ -577,14 +578,19 @@ export const ShidduchPendingActionBar = ({
         );
         onDone("expired");
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        const readInProgress =
+          error instanceof Error && error.message === READ_IN_PROGRESS_MESSAGE;
         void (async () => {
           try {
             await dataProvider.restoreShidduch(action.id);
             clearPendingShidduchAction(action.id);
-            notify("Could not delete. Nothing was changed.", {
-              type: "error",
-            });
+            notify(
+              readInProgress
+                ? READ_IN_PROGRESS_MESSAGE
+                : "Could not delete. Nothing was changed.",
+              { type: "error" },
+            );
             onDone("restored");
           } catch {
             rememberPendingShidduchAction({
