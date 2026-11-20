@@ -10,16 +10,16 @@ create temp table results (name text, passed boolean, detail text) on commit dro
 grant all on results to public;
 
 insert into auth.users (id, instance_id, aud, role, email)
-values ('5cgw0000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cgw-suggested-by@test.local')
+values ('5c000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cgw-suggested-by@test.local')
 on conflict (id) do nothing;
 
 delete from public.account_members;
 insert into public.accounts (name, kind) values ('cgw suggested-by', 'household') returning id as account_id \gset
 insert into public.account_members (account_id, user_id, role, status)
-values (:account_id, '5cgw0000-0000-0000-0000-000000000001', 'parent_admin', 'active');
+values (:account_id, '5c000000-0000-0000-0000-000000000001', 'parent_admin', 'active');
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"5cgw0000-0000-0000-0000-000000000001","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"5c000000-0000-0000-0000-000000000001","role":"authenticated"}';
 select public.set_active_context(:account_id);
 
 insert into public.singles (account_id, first_name_en, last_name_en)
