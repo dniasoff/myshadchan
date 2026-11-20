@@ -141,14 +141,14 @@ describe("shadchanimDescriptor — tab strip order (Story 5.9, AC 3)", () => {
       "Overview",
       "Shidduchim",
       "Notes",
-      "Tasks",
+      "Reminders",
       "Activity",
     ]);
   });
 });
 
 describe("shadchanimDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC 10)", () => {
-  it("shows the Tasks tab to a parent_admin viewer", async () => {
+  it("shows the Reminders tab to a parent_admin viewer", async () => {
     // Act
     const { screen } = await renderShadchanShow(
       undefined,
@@ -158,11 +158,11 @@ describe("shadchanimDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC
 
     // Assert
     await expect
-      .element(screen.getByRole("tab", { name: "Tasks", exact: true }))
+      .element(screen.getByRole("tab", { name: "Reminders", exact: true }))
       .toBeInTheDocument();
   });
 
-  it("never renders the Tasks tab (or its label anywhere) for a single viewer — RLS empties the table, this hides the dead shell", async () => {
+  it("never renders the Reminders tab (or its label anywhere) for a single viewer — RLS empties the table, this hides the dead shell", async () => {
     // Act
     const { screen } = await renderShadchanShow(undefined, undefined, "single");
 
@@ -172,9 +172,9 @@ describe("shadchanimDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC
       .element(screen.getByRole("tab", { name: "Overview", exact: true }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("tab", { name: "Tasks", exact: true }))
+      .element(screen.getByRole("tab", { name: "Reminders", exact: true }))
       .not.toBeInTheDocument();
-    expect(screen.container.textContent ?? "").not.toContain("Tasks");
+    expect(screen.container.textContent ?? "").not.toContain("Reminders");
   });
 });
 
@@ -418,7 +418,7 @@ describe("shadchanimDescriptor — the real Tasks tab is scoped to targetType='s
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Tasks", exact: true }).click();
+    await screen.getByRole("tab", { name: "Reminders", exact: true }).click();
 
     // Assert
     await expect

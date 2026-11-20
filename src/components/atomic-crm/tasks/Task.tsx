@@ -1,12 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { MoreVertical } from "lucide-react";
 import {
-  useDeleteWithUndoController,
+  useDelete,
   useNotify,
   useTranslate,
   useUpdate,
+  type UseDeleteOptions,
 } from "ra-core";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Confirm } from "@/components/admin/confirm";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -28,8 +30,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 export const Task = ({ task }: { task: TData }) => {
   const isMobile = useIsMobile();
   const { taskTypes } = useConfigurationContext();
-  const notify = useNotify();
   const translate = useTranslate();
+  const notify = useNotify();
   const queryClient = useQueryClient();
   // `TasksIterator.tsx`/`TasksListFilter.tsx` (out of this story's
   // ownership manifest) render one `Task` per row with no shared assignee
@@ -43,27 +45,138 @@ export const Task = ({ task }: { task: TData }) => {
     task.member_id != null && !assigneesById.has(task.member_id);
 
   const [openEdit, setOpenEdit] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteActivationRef = useRef(false);
+  const undoActivationRef = useRef(false);
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  const deleteFocusRef = useRef<{
+    taskId: string;
+    nextTaskId?: string;
+    previousTaskId?: string;
+  } | null>(null);
+
+  const isVisible = (element: HTMLElement) => {
+    const style = window.getComputedStyle(element);
+    return (
+      !element.hidden &&
+      element.getAttribute("aria-hidden") !== "true" &&
+      style.display !== "none" &&
+      style.visibility !== "hidden"
+    );
+  };
+
+  const getTaskEditButton = (taskIdToFind: string) =>
+    Array.from(document.querySelectorAll<HTMLElement>("[data-task-row]"))
+      .find(
+        (row) =>
+          row.dataset.taskId === taskIdToFind &&
+          isVisible(row) &&
+          Boolean(row.querySelector("[data-task-edit]")),
+      )
+      ?.querySelector<HTMLButtonElement>("[data-task-edit]") ?? null;
+
+  const focusTaskEdit = (taskIdToFind: string) => {
+    let attempt = 0;
+    const tryFocus = () => {
+      const button = getTaskEditButton(taskIdToFind);
+      if (button && isVisible(button)) {
+        button.focus();
+        if (document.activeElement === button) return;
+      }
+      if (attempt++ < 20) requestAnimationFrame(tryFocus);
+    };
+    requestAnimationFrame(tryFocus);
+  };
+
+  const focusSoon = (target: HTMLElement | null) => {
+    requestAnimationFrame(() => target?.focus());
+  };
+
+  const focusRowEdit = () => focusTaskEdit(String(task.id));
+
+  const rememberDeleteFocus = () => {
+    const allRows = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-task-row]"),
+    );
+    // Radix marks the background aria-hidden while the confirmation dialog is
+    // open. The rows are still the visible list and must be included in the
+    // pre-delete sibling snapshot.
+    const rows = allRows.filter((row) => {
+      const style = window.getComputedStyle(row);
+      return (
+        !row.hidden && style.display !== "none" && style.visibility !== "hidden"
+      );
+    });
+    const currentIndex = rows.findIndex(
+      (row) => row.dataset.taskId === String(task.id),
+    );
+    deleteFocusRef.current = {
+      taskId: String(task.id),
+      nextTaskId: rows[currentIndex + 1]?.dataset.taskId,
+      previousTaskId: rows[currentIndex - 1]?.dataset.taskId,
+    };
+  };
+
+  const focusAfterDelete = () => {
+    const snapshot = deleteFocusRef.current;
+    const targetId = snapshot?.nextTaskId ?? snapshot?.previousTaskId;
+    if (targetId) {
+      focusTaskEdit(targetId);
+      return;
+    }
+    requestAnimationFrame(() => {
+      const heading = document.querySelector<HTMLElement>(
+        "[data-tasks-list-heading], main h1, main h2, main h3",
+      );
+      heading?.focus();
+    });
+  };
 
   const handleCloseEdit = () => {
     setOpenEdit(false);
+    focusRowEdit();
   };
 
   const [update, { isPending: isUpdatePending, isSuccess, variables }] =
     useUpdate();
-  const { handleDelete } = useDeleteWithUndoController({
-    record: task,
-    redirect: false,
-    mutationOptions: {
-      onSuccess() {
-        notify("resources.tasks.deleted", {
-          undoable: true,
-        });
-      },
+  const deleteOptions: UseDeleteOptions<TData> & { onUndo?: () => void } = {
+    mutationMode: "undoable",
+    onSuccess: () => {
+      notify("Deleted. Undo is available for 10 seconds.", {
+        type: "info",
+        undoable: true,
+      });
     },
-  });
+    onUndo: () => {
+      if (undoActivationRef.current) return;
+      undoActivationRef.current = true;
+      deleteActivationRef.current = false;
+      focusRowEdit();
+      setTimeout(() => {
+        undoActivationRef.current = false;
+      }, 0);
+    },
+    onError: () => {
+      deleteActivationRef.current = false;
+      notify("Could not delete the task. Please try again.", {
+        type: "error",
+      });
+    },
+  };
+  const [deleteTask] = useDelete<TData>(
+    "tasks",
+    { id: task.id, previousData: task },
+    deleteOptions,
+  );
 
   const handleEdit = () => {
     setOpenEdit(true);
+  };
+
+  const handleRequestDelete = () => {
+    if (deleteActivationRef.current || undoActivationRef.current) return;
+    setConfirmDelete(true);
   };
 
   const handleCheck = () => () => {
@@ -93,7 +206,11 @@ export const Task = ({ task }: { task: TData }) => {
 
   return (
     <>
-      <div className="flex items-start justify-between">
+      <div
+        data-task-row
+        data-task-id={String(task.id)}
+        className="flex items-start justify-between"
+      >
         {/*
          * No onClick on this wrapper. It used to toggle the task done on
          * mobile, and every interactive child bubbled into it — so tapping
@@ -188,78 +305,122 @@ export const Task = ({ task }: { task: TData }) => {
           </div>
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              // Was `h-5 pr-0! size-8` — three declarations setting height
-              // twice, resolved by class order into a 20px-tall tap target.
-              // One declaration, at the 44px floor.
-              className="size-11 shrink-0 cursor-pointer"
-              aria-label={translate("resources.tasks.actions.title")}
-            >
-              <MoreVertical className="size-5 md:size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              className="cursor-pointer h-12 md:h-8 px-4 md:px-2 text-base md:text-sm"
-              onClick={() => {
-                update("tasks", {
-                  id: task.id,
-                  data: {
-                    due_date: new Date(Date.now() + 24 * 60 * 60 * 1000)
-                      .toISOString()
-                      .slice(0, 10),
-                  },
-                  previousData: task,
-                });
-              }}
-            >
-              {translate("resources.tasks.actions.postpone_tomorrow")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="cursor-pointer h-12 md:h-8 px-4 md:px-2 text-base md:text-sm"
-              onClick={() => {
-                update("tasks", {
-                  id: task.id,
-                  data: {
-                    due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-                      .toISOString()
-                      .slice(0, 10),
-                  },
-                  previousData: task,
-                });
-              }}
-            >
-              {translate("resources.tasks.actions.postpone_next_week")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="cursor-pointer h-12 md:h-8 px-4 md:px-2 text-base md:text-sm"
-              onClick={handleEdit}
-            >
-              {translate("ra.action.edit")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="cursor-pointer h-12 md:h-8 px-4 md:px-2 text-base md:text-sm"
-              onClick={handleDelete}
-            >
-              {translate("ra.action.delete")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex shrink-0 flex-wrap items-start justify-end gap-1">
+          <Button
+            ref={editButtonRef}
+            type="button"
+            variant="ghost"
+            className="min-h-11 min-w-11 px-2"
+            data-task-edit
+            onClick={handleEdit}
+          >
+            {translate("ra.action.edit")}
+          </Button>
+          <Button
+            ref={deleteButtonRef}
+            type="button"
+            variant="ghost"
+            className="min-h-11 min-w-11 px-2 text-destructive hover:text-destructive"
+            onClick={handleRequestDelete}
+          >
+            {translate("ra.action.delete")}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11 shrink-0 cursor-pointer"
+                aria-label={translate("resources.tasks.actions.title")}
+              >
+                <MoreVertical className="size-5 md:size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                className="cursor-pointer h-12 md:h-8 px-4 md:px-2 text-base md:text-sm"
+                onClick={() => {
+                  update("tasks", {
+                    id: task.id,
+                    data: {
+                      due_date: new Date(Date.now() + 24 * 60 * 60 * 1000)
+                        .toISOString()
+                        .slice(0, 10),
+                    },
+                    previousData: task,
+                  });
+                }}
+              >
+                {translate("resources.tasks.actions.postpone_tomorrow")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer h-12 md:h-8 px-4 md:px-2 text-base md:text-sm"
+                onClick={() => {
+                  update("tasks", {
+                    id: task.id,
+                    data: {
+                      due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+                        .toISOString()
+                        .slice(0, 10),
+                    },
+                    previousData: task,
+                  });
+                }}
+              >
+                {translate("resources.tasks.actions.postpone_next_week")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {isMobile ? (
         <TaskEditSheet
           taskId={task.id}
           open={openEdit}
-          onOpenChange={setOpenEdit}
+          onOpenChange={(nextOpen) => {
+            setOpenEdit(nextOpen);
+            if (!nextOpen) focusRowEdit();
+          }}
+          onDeleteStart={rememberDeleteFocus}
+          onDelete={focusAfterDelete}
+          onUndo={focusRowEdit}
         />
       ) : (
-        <TaskEdit taskId={task.id} open={openEdit} close={handleCloseEdit} />
+        <TaskEdit
+          taskId={task.id}
+          open={openEdit}
+          close={handleCloseEdit}
+          onDeleteStart={rememberDeleteFocus}
+          onDelete={focusAfterDelete}
+          onUndo={focusRowEdit}
+        />
       )}
+      <Confirm
+        isOpen={confirmDelete}
+        title="Delete this task?"
+        cancel="Cancel"
+        confirm="Delete"
+        confirmColor="warning"
+        onClose={() => {
+          setConfirmDelete(false);
+          deleteActivationRef.current = false;
+          focusSoon(deleteButtonRef.current);
+        }}
+        onConfirm={(event) => {
+          if (deleteActivationRef.current || undoActivationRef.current) return;
+          deleteActivationRef.current = true;
+          setConfirmDelete(false);
+          rememberDeleteFocus();
+          focusAfterDelete();
+          event.stopPropagation();
+          deleteTask(
+            "tasks",
+            { id: task.id, previousData: task },
+            { mutationMode: "undoable" },
+          );
+        }}
+      />
     </>
   );
 };

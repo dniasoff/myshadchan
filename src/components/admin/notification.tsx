@@ -57,21 +57,24 @@ export const Notification = (props: ToasterProps) => {
         }
 
         const mutation = takeMutation();
+        let mutationFinalized = false;
+
+        const finalizeMutation = (isUndo: boolean) => {
+          if (mutationFinalized) return;
+          mutationFinalized = true;
+          mutation?.({ isUndo });
+          window.removeEventListener("beforeunload", beforeunload);
+        };
 
         const handleExited = () => {
           if (undoable) {
-            if (mutation) {
-              mutation({ isUndo: false });
-            }
-            window.removeEventListener("beforeunload", beforeunload);
+            finalizeMutation(false);
           }
         };
 
-        const handleUndo = () => {
-          if (mutation) {
-            mutation({ isUndo: true });
-          }
-          window.removeEventListener("beforeunload", beforeunload);
+        const handleUndo = (toastId: string | number) => {
+          finalizeMutation(true);
+          toast.dismiss(toastId);
         };
 
         const finalMessage = message
@@ -85,17 +88,49 @@ export const Notification = (props: ToasterProps) => {
         const duration =
           autoHideDuration === null ? Infinity : autoHideDuration;
 
-        toast[type](finalMessage, {
-          duration,
-          action: undoable
-            ? {
-                label: translate("ra.action.undo"),
-                onClick: handleUndo,
-              }
-            : undefined,
-          onDismiss: handleExited,
-          onAutoClose: handleExited,
-        });
+        if (undoable) {
+          toast.custom(
+            (toastId) => (
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-center gap-3 rounded-md border bg-background px-4 py-3 text-foreground shadow-lg"
+              >
+                <span className="flex-1">{finalMessage}</span>
+                <button
+                  type="button"
+                  className="min-h-11 min-w-11 rounded-md px-3 font-medium underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleUndo(toastId);
+                  }}
+                >
+                  {translate("ra.action.undo")}
+                </button>
+                <button
+                  type="button"
+                  aria-label="Close toast"
+                  className="min-h-11 min-w-11 rounded-md px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    finalizeMutation(false);
+                    toast.dismiss(toastId);
+                  }}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+            ),
+            {
+              duration,
+              closeButton: true,
+              onDismiss: handleExited,
+              onAutoClose: handleExited,
+            },
+          );
+        } else {
+          toast[type](finalMessage, { duration });
+        }
       }
     }
   }, [notifications, takeMutation, takeNotification, translate]);

@@ -1,12 +1,26 @@
 import {
   EditBase,
   Form,
+  useDelete,
   useNotify,
+  useSaveContext,
   useTranslate,
   type Identifier,
+  type FormProps,
+  type MutationMode,
+  type UseDeleteOptions,
 } from "ra-core";
-import { DeleteButton } from "@/components/admin/delete-button";
+import {
+  useRef,
+  useState,
+  type BaseSyntheticEvent,
+  type MouseEvent,
+  type MutableRefObject,
+} from "react";
+import type { FieldValues } from "react-hook-form";
 import { SaveButton } from "@/components/admin/form";
+import { Button } from "@/components/ui/button";
+import { Confirm } from "@/components/admin/confirm";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { TaskFormContent } from "./TaskFormContent";
+import type { Task as TaskRecord } from "../types";
 
 /**
  * Deliberate, named exemption from UX-DR3 ("records live at URLs, not in
@@ -47,13 +62,56 @@ export const TaskEdit = ({
   open,
   close,
   taskId,
+  onDeleteStart,
+  onDelete,
+  onUndo,
+  mutationMode,
 }: {
   taskId: Identifier;
   open: boolean;
   close: () => void;
+  onDeleteStart?: () => void;
+  onDelete?: () => void;
+  onUndo?: () => void;
+  mutationMode?: MutationMode;
 }) => {
   const notify = useNotify();
   const translate = useTranslate();
+  const saveActivationRef = useRef(false);
+  const deleteActivationRef = useRef(false);
+  const undoActivationRef = useRef(false);
+  const deleteButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteMutationOptions: UseDeleteOptions & { onUndo?: () => void } = {
+    onSuccess: () => {
+      close();
+      onDelete?.();
+      notify("Deleted. Undo is available for 10 seconds.", {
+        type: "info",
+        undoable: true,
+      });
+    },
+    onUndo: () => {
+      if (undoActivationRef.current) return;
+      undoActivationRef.current = true;
+      deleteActivationRef.current = false;
+      onUndo?.();
+      setTimeout(() => {
+        undoActivationRef.current = false;
+      }, 0);
+    },
+    onError: () => {
+      deleteActivationRef.current = false;
+    },
+    onSettled: () => {
+      deleteActivationRef.current = false;
+    },
+  };
+  const [deleteTask] = useDelete<TaskRecord>(
+    "tasks",
+    { id: taskId },
+    deleteMutationOptions,
+  );
   return (
     <Dialog open={open} onOpenChange={close}>
       {open && taskId && (
@@ -69,36 +127,121 @@ export const TaskEdit = ({
                 undoable: true,
               });
             },
+            onError: () => {
+              saveActivationRef.current = false;
+            },
+            onSettled: () => {
+              saveActivationRef.current = false;
+            },
           }}
           redirect={false}
+          mutationMode={mutationMode}
         >
-          <DialogContent className="lg:max-w-xl overflow-y-auto max-h-9/10 top-1/20 translate-y-0">
-            <Form className="flex flex-col gap-4">
-              <DialogHeader>
-                <DialogTitle>
-                  {translate("resources.tasks.action.edit")}
-                </DialogTitle>
-              </DialogHeader>
-              <TaskFormContent />
-              <DialogFooter className="w-full sm:justify-between gap-4">
-                <DeleteButton
-                  mutationOptions={{
-                    onSuccess: () => {
-                      close();
-                      notify("resources.tasks.deleted", {
-                        type: "info",
-                        undoable: true,
-                      });
-                    },
-                  }}
-                  redirect={false}
-                />
-                <SaveButton label="ra.action.save" />
-              </DialogFooter>
-            </Form>
-          </DialogContent>
+          <TaskEditForm
+            taskId={taskId}
+            onDeleteStart={onDeleteStart}
+            translate={translate}
+            saveActivationRef={saveActivationRef}
+            deleteActivationRef={deleteActivationRef}
+            undoActivationRef={undoActivationRef}
+            confirmDelete={confirmDelete}
+            setConfirmDelete={setConfirmDelete}
+            deleteTask={deleteTask}
+            deleteButtonRef={deleteButtonRef}
+          />
         </EditBase>
       )}
     </Dialog>
+  );
+};
+
+interface TaskEditFormProps {
+  taskId: Identifier;
+  onDeleteStart?: () => void;
+  translate: ReturnType<typeof useTranslate>;
+  saveActivationRef: MutableRefObject<boolean>;
+  deleteActivationRef: MutableRefObject<boolean>;
+  undoActivationRef: MutableRefObject<boolean>;
+  confirmDelete: boolean;
+  setConfirmDelete: (open: boolean) => void;
+  deleteTask: ReturnType<typeof useDelete<TaskRecord>>[0];
+  deleteButtonRef: MutableRefObject<HTMLButtonElement | null>;
+}
+
+const TaskEditForm = ({
+  taskId,
+  onDeleteStart,
+  translate,
+  saveActivationRef,
+  deleteActivationRef,
+  undoActivationRef,
+  confirmDelete,
+  setConfirmDelete,
+  deleteTask,
+  deleteButtonRef,
+}: TaskEditFormProps) => {
+  const saveContext = useSaveContext();
+
+  const handleFormSubmit: FormProps["onSubmit"] = (
+    values: FieldValues,
+    event?: BaseSyntheticEvent,
+  ) => {
+    if (saveActivationRef.current) return false;
+    // This handler is called by react-hook-form only after validation. An
+    // invalid attempt therefore leaves the guard available for correction.
+    saveActivationRef.current = true;
+    return saveContext?.save?.(values, event as never);
+  };
+
+  const requestDelete = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (deleteActivationRef.current || undoActivationRef.current) return;
+    setConfirmDelete(true);
+  };
+
+  return (
+    <>
+      <DialogContent className="lg:max-w-xl overflow-y-auto max-h-9/10 top-1/20 translate-y-0">
+        <Form className="flex flex-col gap-4" onSubmit={handleFormSubmit}>
+          <DialogHeader>
+            <DialogTitle>
+              {translate("resources.tasks.action.edit")}
+            </DialogTitle>
+          </DialogHeader>
+          <TaskFormContent />
+          <DialogFooter className="w-full sm:justify-between gap-4">
+            <Button
+              ref={deleteButtonRef}
+              type="button"
+              variant="destructive"
+              className="min-h-11"
+              onClick={requestDelete}
+            >
+              Delete
+            </Button>
+            <SaveButton label="ra.action.save" className="min-h-11" />
+          </DialogFooter>
+        </Form>
+      </DialogContent>
+      <Confirm
+        isOpen={confirmDelete}
+        title="Delete this task?"
+        cancel="Cancel"
+        confirm="Delete"
+        confirmColor="warning"
+        onClose={() => {
+          setConfirmDelete(false);
+          requestAnimationFrame(() => deleteButtonRef.current?.focus());
+        }}
+        onConfirm={(event) => {
+          if (deleteActivationRef.current || undoActivationRef.current) return;
+          deleteActivationRef.current = true;
+          setConfirmDelete(false);
+          onDeleteStart?.();
+          event.stopPropagation();
+          deleteTask("tasks", { id: taskId }, { mutationMode: "undoable" });
+        }}
+      />
+    </>
   );
 };
