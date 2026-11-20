@@ -106,6 +106,10 @@ alter table public.shidduchim_external_links enable row level security;
 alter table public.shidduchim_external_links force row level security;
 alter table public.pipeline_transitions enable row level security;
 alter table public.pipeline_transitions force row level security;
+alter table public.shidduch_stage_transitions enable row level security;
+alter table public.shidduch_stage_transitions force row level security;
+alter table public.shidduch_stage_undo_context enable row level security;
+alter table public.shidduch_stage_undo_context force row level security;
 
 -- Accounts: a member sees every account they hold ANY membership in
 -- (active or not) — a strict superset of "the currently active one", never
@@ -489,6 +493,32 @@ create policy "Shidduchim scoped to account" on public.shidduchim
         and not coalesce(public.shidduch_has_known_halachic_conflict(
             single_id, person_gender, kohen_status, marital_status
         ), false)
+    );
+
+-- Stage history is readable only to non-single members of its active account.
+-- It has no client write policy; transition and undo functions own all writes.
+create policy "Shidduch stage history readable within account"
+    on public.shidduch_stage_transitions
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
+
+-- The transaction-bound undo receipt remains private (06_grants.sql gives no
+-- client role SELECT), but its policy is still account-scoped if a server
+-- diagnostic role is granted read access in the future.
+create policy "Shidduch undo context scoped within account"
+    on public.shidduch_stage_undo_context
+    for select to authenticated
+    using (
+        exists (
+            select 1
+            from public.shidduchim s
+            where s.id = shidduch_id
+              and s.account_id = public.current_context_id()
+        )
+        and public.current_member_role() <> 'single'
     );
 
 -- Story 6.2 (AC 1): a single sees a suggestion only when all three are

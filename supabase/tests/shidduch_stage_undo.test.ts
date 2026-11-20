@@ -1,4 +1,5 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -57,7 +58,7 @@ describe("shidduch stage undo (database)", () => {
   if (bailIfDbUnreachable(error)) return;
 
   it("runs the full set of checks", () => {
-    expect(checks.length).toBe(11);
+    expect(checks.length).toBe(16);
   });
 
   for (const check of checks) {
@@ -67,4 +68,147 @@ describe("shidduch stage undo (database)", () => {
       );
     });
   }
+});
+
+function runPsqlScript(script: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("psql", [DB_URL, "-X", "-q", "-f", "-"], {
+      env: process.env,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve(stdout);
+      else reject(new Error(`psql exited ${code}: ${stderr || stdout}`));
+    });
+    child.stdin.end(script);
+  });
+}
+
+describe("shidduch stage undo versus account purge", () => {
+  if (bailIfDbUnreachable(error)) return;
+
+  it("completes either side of the parent-first race without deadlock", async () => {
+    const token = randomUUID().replaceAll("-", "");
+    const userId = randomUUID();
+    const resultTable = `stage_undo_race_${token}`;
+    const setup = await runPsqlScript(`
+\\set ON_ERROR_STOP on
+begin;
+set local role postgres;
+insert into auth.users (id, instance_id, aud, role, email)
+values ('${userId}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '${userId}@test.invalid');
+insert into public.accounts (name) values ('stage undo race ${token}') returning id as account_id \\gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:account_id, '${userId}', 'parent_admin', 'active') returning id as member_id \\gset
+insert into public.member_state (user_id, active_account_id)
+values ('${userId}', :account_id)
+on conflict (user_id) do update set active_account_id = excluded.active_account_id;
+insert into public.singles (account_id, first_name_en)
+values (:account_id, 'Undo race') returning id as single_id \\gset
+insert into public.shidduchim (account_id, single_id, owner_member_id)
+values (:account_id, :single_id, :member_id) returning id as shidduch_id \\gset
+create table public.${resultTable} (
+  runner text primary key,
+  completed boolean not null,
+  sqlstate_code text,
+  error_message text
+);
+grant insert on public.${resultTable} to authenticated;
+commit;
+set role authenticated;
+set request.jwt.claims = '{"sub":"${userId}","role":"authenticated"}';
+select public.transition_shidduch(:shidduch_id, 'new', 'look_into');
+\\pset format unaligned
+\\pset tuples_only on
+\\pset columns 0
+select :account_id || ',' || :shidduch_id;
+`);
+    const fixture = setup
+      .split("\\n")
+      .map((line) => line.trim())
+      .find((line) => /^\\d+,\\d+$/.test(line));
+    if (!fixture) throw new Error(`could not parse race fixture: ${setup}`);
+    const [accountId, shidduchId] = fixture.split(",");
+
+    const undo = runPsqlScript(`
+\\set ON_ERROR_STOP on
+begin;
+set local role authenticated;
+set local statement_timeout = '5s';
+set request.jwt.claims = '{"sub":"${userId}","role":"authenticated"}';
+do $$
+begin
+  perform public.undo_shidduch(${shidduchId});
+  insert into public.${resultTable} values ('undo', true, null, null);
+exception when others then
+  insert into public.${resultTable} values ('undo', false, sqlstate, sqlerrm);
+end
+$$;
+commit;
+`);
+    const purge = runPsqlScript(`
+\\set ON_ERROR_STOP on
+begin;
+set local role authenticated;
+set local statement_timeout = '5s';
+set request.jwt.claims = '{"sub":"${userId}","role":"authenticated"}';
+do $$
+begin
+  perform public.delete_account_data(${accountId}, '${userId}'::uuid, false);
+  insert into public.${resultTable} values ('purge', true, null, null);
+exception when others then
+  insert into public.${resultTable} values ('purge', false, sqlstate, sqlerrm);
+end
+$$;
+commit;
+`);
+
+    try {
+      await Promise.all([undo, purge]);
+      const report = await runPsqlScript(`
+\\set ON_ERROR_STOP on
+set role postgres;
+\\pset format unaligned
+\\pset tuples_only on
+\\pset fieldsep '|'
+select runner, completed, coalesce(sqlstate_code, ''), coalesce(error_message, '')
+from public.${resultTable} order by runner;
+`);
+      const rows = report
+        .trim()
+        .split("\\n")
+        .filter(Boolean)
+        .map((line) => line.split("|"));
+      expect(rows).toHaveLength(2);
+      for (const [runner, completed, sqlstateCode, message] of rows) {
+        expect(["undo", "purge"]).toContain(runner);
+        expect(sqlstateCode).not.toBe("40P01");
+        expect(sqlstateCode).not.toBe("57014");
+        if (runner === "purge") {
+          expect(completed).toBe("t");
+        }
+        if (runner === "undo" && completed === "f") {
+          expect(sqlstateCode).toBe("P0001");
+          expect([
+            `shidduch ${shidduchId} not found`,
+            `undo is not available for shidduch ${shidduchId}`,
+          ]).toContain(message);
+        }
+      }
+    } finally {
+      await runPsqlScript(`
+set role postgres;
+drop table if exists public.${resultTable};
+delete from public.accounts where id = ${accountId};
+`);
+    }
+  });
 });

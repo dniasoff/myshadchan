@@ -1,9 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { Identifier } from "ra-core";
 import { useDataProvider, useNotify, useRefresh } from "ra-core";
 
 import type { CrmDataProvider } from "../providers/types";
-import type { PipelineState } from "../types";
+import type { PipelineState, Shidduch } from "../types";
 import { getPipelineStateDef } from "./pipelineStates";
 import {
   isTerminalPipelineState,
@@ -13,8 +19,21 @@ import {
 /** The visible Undo window. The server permits a small grace period after it. */
 export const SHIDDUCH_UNDO_MS = 10_000;
 
-export interface ShidduchUndoProvider extends CrmDataProvider {
-  undoShidduch: (id: Identifier) => Promise<unknown>;
+const focusShidduch = (id: Identifier) => {
+  if (typeof document === "undefined") return;
+  const container = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-shidduch-id]"),
+  ).find((candidate) => candidate.dataset.shidduchId === String(id));
+  const target = container?.matches("a,button,[tabindex]:not([tabindex='-1'])")
+    ? container
+    : container?.querySelector<HTMLElement>(
+        "a,button,[tabindex]:not([tabindex='-1'])",
+      );
+  target?.focus();
+};
+
+export interface ShidduchUndoProvider {
+  undoShidduch: (id: Identifier) => Promise<Shidduch>;
 }
 
 export interface ShidduchUndoState {
@@ -23,6 +42,8 @@ export interface ShidduchUndoState {
   busy: boolean;
   recordMove: (move: ShidduchMoveReceipt) => void;
   undo: () => Promise<void>;
+  onUndoFocus?: (id: Identifier) => void;
+  onUndoBlur?: (id: Identifier) => void;
 }
 
 /**
@@ -38,8 +59,35 @@ export const useShidduchUndo = (): ShidduchUndoState => {
   const [move, setMove] = useState<ShidduchMoveReceipt | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
+  const undoFocusId = useRef<Identifier | null>(null);
+  const focusRestoreId = useRef<Identifier | null>(null);
+
+  const onUndoFocus = useCallback((id: Identifier) => {
+    undoFocusId.current = id;
+  }, []);
+
+  const onUndoBlur = useCallback((id: Identifier) => {
+    if (undoFocusId.current === id) undoFocusId.current = null;
+  }, []);
+
+  const requestFocusRestore = useCallback((id: Identifier) => {
+    if (undoFocusId.current === id) {
+      focusRestoreId.current = id;
+    }
+  }, []);
+
+  // The bar unmount can move focus to body. Restore it in a layout effect,
+  // after React has committed the removal, so both success and expiry leave a
+  // keyboard user at the suggestion they were acting on.
+  useLayoutEffect(() => {
+    if (move || focusRestoreId.current === null) return;
+    const id = focusRestoreId.current;
+    focusRestoreId.current = null;
+    focusShidduch(id);
+  }, [move]);
 
   const recordMove = useCallback((nextMove: ShidduchMoveReceipt) => {
+    focusRestoreId.current = null;
     setMove(nextMove);
     setNow(nextMove.movedAt);
     setBusy(false);
@@ -66,8 +114,11 @@ export const useShidduchUndo = (): ShidduchUndoState => {
     : 0;
 
   useEffect(() => {
-    if (move && remaining === 0) setMove(null);
-  }, [move, remaining]);
+    if (move && remaining === 0) {
+      requestFocusRestore(move.id);
+      setMove(null);
+    }
+  }, [move, remaining, requestFocusRestore]);
 
   const undo = useCallback(async () => {
     if (!move || busy || remaining === 0) return;
@@ -77,6 +128,7 @@ export const useShidduchUndo = (): ShidduchUndoState => {
       const label = getPipelineStateDef(move.from)?.label ?? move.from;
       notify(`Moved back to ${label}`, { type: "info" });
       refresh();
+      requestFocusRestore(move.id);
       setMove(null);
     } catch (error) {
       notify(
@@ -85,7 +137,15 @@ export const useShidduchUndo = (): ShidduchUndoState => {
       );
       setBusy(false);
     }
-  }, [busy, dataProvider, move, notify, refresh, remaining]);
+  }, [
+    busy,
+    dataProvider,
+    move,
+    notify,
+    refresh,
+    remaining,
+    requestFocusRestore,
+  ]);
 
   return {
     move: move && remaining > 0 ? move : null,
@@ -93,6 +153,8 @@ export const useShidduchUndo = (): ShidduchUndoState => {
     busy,
     recordMove,
     undo,
+    onUndoFocus,
+    onUndoBlur,
   };
 };
 

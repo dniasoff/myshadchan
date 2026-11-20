@@ -73,6 +73,7 @@ export const ShidduchStateControl = ({
   return (
     <section
       data-tour="state-control"
+      data-shidduch-id={String(id)}
       className="rounded-2xl border border-border bg-card p-5 shadow-sm"
     >
       <h3 className="mb-3 font-display text-lg font-semibold">

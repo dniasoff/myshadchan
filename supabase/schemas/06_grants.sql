@@ -170,6 +170,7 @@ grant all on table public.pipeline_transitions to service_role;
 
 revoke all on table public.shidduch_stage_transitions,
   public.shidduch_stage_undo_context from public, anon, authenticated;
+grant select on table public.shidduch_stage_transitions to authenticated;
 grant all on table public.shidduch_stage_transitions to service_role;
 grant all on table public.shidduch_stage_undo_context to service_role;
 
@@ -317,9 +318,7 @@ revoke all on function public.enforce_pipeline_transition() from public, anon;
 grant execute on function public.enforce_pipeline_transition() to authenticated;
 grant execute on function public.enforce_pipeline_transition() to service_role;
 
-revoke all on function public.record_shidduch_stage_transition() from public, anon;
-grant execute on function public.record_shidduch_stage_transition() to authenticated;
-grant execute on function public.record_shidduch_stage_transition() to service_role;
+revoke all on function public.record_shidduch_stage_transition() from public, anon, authenticated;
 
 revoke all on function public.undo_shidduch(bigint) from public, anon;
 grant execute on function public.undo_shidduch(bigint) to authenticated;

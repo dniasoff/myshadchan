@@ -884,6 +884,7 @@ CREATE OR REPLACE FUNCTION "public"."account_has_domain_data"("p_account_id" big
     or exists (select 1 from public.shadchanim where account_id = p_account_id)
     or exists (select 1 from public."references" where account_id = p_account_id)
     or exists (select 1 from public.shidduchim where account_id = p_account_id)
+    or exists (select 1 from public.shidduch_stage_transitions where account_id = p_account_id)
     or exists (select 1 from public.resumes where account_id = p_account_id)
     or exists (select 1 from public.reference_links where account_id = p_account_id)
     or exists (select 1 from public.date_records where account_id = p_account_id)
@@ -8826,8 +8827,20 @@ begin
     raise exception 'shidduch % not found', p_id;
   end if;
 
-  -- Parent first, then child: every undo serializes against account deletion
-  -- and the transition RPC's shidduch lock in the same order.
+  -- Match account_storage_cleanup_fence(): all parent rows (singles, then
+  -- shidduchim in id order), then the account advisory fence, then the account
+  -- row. This single global order prevents undo/delete deadlocks.
+  perform 1
+  from public.singles
+  where account_id = v_shidduch_account_id
+  order by id
+  for update;
+  perform 1
+  from public.shidduchim
+  where account_id = v_shidduch_account_id
+  order by id
+  for update;
+  perform public.account_storage_lock(v_shidduch_account_id);
   perform 1
   from public.accounts a
   where a.id = v_shidduch_account_id

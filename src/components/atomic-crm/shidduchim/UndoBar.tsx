@@ -8,7 +8,12 @@ export const UndoBar = ({
   remaining,
   busy,
   undo,
-}: Pick<ShidduchUndoState, "move" | "remaining" | "busy" | "undo">) => {
+  onUndoFocus,
+  onUndoBlur,
+}: Pick<
+  ShidduchUndoState,
+  "move" | "remaining" | "busy" | "undo" | "onUndoFocus" | "onUndoBlur"
+>) => {
   if (!move || remaining === 0) return null;
 
   const progress = Math.max(
@@ -35,7 +40,11 @@ export const UndoBar = ({
           type="button"
           variant="outline"
           className="min-h-11 shrink-0"
+          aria-label={`Undo move to ${moveLabel(move.to)}`}
+          data-shidduch-undo-button="true"
           disabled={busy || remaining === 0}
+          onFocus={() => onUndoFocus?.(move.id)}
+          onBlur={() => onUndoBlur?.(move.id)}
           onClick={() => void undo()}
         >
           Undo

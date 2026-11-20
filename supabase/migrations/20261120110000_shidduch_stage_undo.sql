@@ -17,6 +17,9 @@ create table public.shidduch_stage_transitions (
     undo_of_id bigint references public.shidduch_stage_transitions(id) on delete set null
 );
 
+alter table public.shidduch_stage_transitions enable row level security;
+alter table public.shidduch_stage_transitions force row level security;
+
 comment on table public.shidduch_stage_transitions is
   'Server-owned stage history for transition_shidduch and its short-lived undo path.';
 
@@ -33,11 +36,71 @@ create table public.shidduch_stage_undo_context (
     primary key (transaction_id, shidduch_id)
 );
 
+alter table public.shidduch_stage_undo_context enable row level security;
+alter table public.shidduch_stage_undo_context force row level security;
+
 comment on table public.shidduch_stage_undo_context is
   'Private, transaction-bound authorization for the one reverse stage update.';
 
 revoke all on table public.shidduch_stage_transitions,
   public.shidduch_stage_undo_context from public, anon, authenticated;
+grant select on table public.shidduch_stage_transitions to authenticated;
+grant all on table public.shidduch_stage_transitions to service_role;
+grant all on table public.shidduch_stage_undo_context to service_role;
+
+create policy "Shidduch stage history readable within account"
+    on public.shidduch_stage_transitions
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
+
+-- The transaction-bound undo receipt remains private (06_grants.sql gives no
+-- client role SELECT), but its policy is still account-scoped if a server
+-- diagnostic role is granted read access in the future.
+create policy "Shidduch undo context scoped within account"
+    on public.shidduch_stage_undo_context
+    for select to authenticated
+    using (
+        exists (
+            select 1
+            from public.shidduchim s
+            where s.id = shidduch_id
+              and s.account_id = public.current_context_id()
+        )
+        and public.current_member_role() <> 'single'
+    );
+
+create or replace function public.account_has_domain_data(p_account_id bigint)
+returns boolean
+language sql stable
+set search_path to ''
+as $$
+  select
+       exists (select 1 from public.singles where account_id = p_account_id)
+    or exists (select 1 from public.shadchanim where account_id = p_account_id)
+    or exists (select 1 from public."references" where account_id = p_account_id)
+    or exists (select 1 from public.shidduchim where account_id = p_account_id)
+    or exists (select 1 from public.shidduch_stage_transitions where account_id = p_account_id)
+    or exists (select 1 from public.resumes where account_id = p_account_id)
+    or exists (select 1 from public.reference_links where account_id = p_account_id)
+    or exists (select 1 from public.date_records where account_id = p_account_id)
+    or exists (select 1 from public.redts where account_id = p_account_id)
+    or exists (select 1 from public.shidduch_education where account_id = p_account_id)
+    or exists (select 1 from public.shidduchim_external_links where account_id = p_account_id)
+    or exists (select 1 from public.interactions where account_id = p_account_id)
+    or exists (select 1 from public.identity_signals where account_id = p_account_id)
+    or exists (select 1 from public.inbox_items where account_id = p_account_id)
+    -- A queued Inbox object is a live cleanup obligation. Letting account
+    -- disposal cascade this row would orphan the Storage object permanently.
+    or exists (select 1 from public.inbox_attachment_purge where account_id = p_account_id)
+    -- Shidduch object/prefix/quarantine work is equally live. Account
+    -- deletion must not cascade this queue before the Storage drain.
+    or exists (select 1 from public.storage_purge_queue where account_id = p_account_id)
+    or exists (select 1 from public.tasks where account_id = p_account_id)
+    or exists (select 1 from public.outbound_share_history where account_id = p_account_id);
+$$;
 
 -- The normal graph remains the first and unchanged acceptance branch.  The
 -- second branch can only match a row inserted by undo_shidduch() in this
@@ -121,9 +184,7 @@ create or replace trigger record_shidduch_stage_transition
     after update of pipeline_state on public.shidduchim
     for each row execute function public.record_shidduch_stage_transition();
 
-revoke all on function public.record_shidduch_stage_transition() from public, anon;
-grant execute on function public.record_shidduch_stage_transition() to authenticated;
-grant execute on function public.record_shidduch_stage_transition() to service_role;
+revoke all on function public.record_shidduch_stage_transition() from public, anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.undo_shidduch(p_id bigint)
 RETURNS SETOF public.shidduchim
@@ -165,8 +226,20 @@ begin
     raise exception 'shidduch % not found', p_id;
   end if;
 
-  -- Parent first, then child: every undo serializes against account deletion
-  -- and the transition RPC's shidduch lock in the same order.
+  -- Match account_storage_cleanup_fence(): all parent rows (singles, then
+  -- shidduchim in id order), then the account advisory fence, then the account
+  -- row. This single global order prevents undo/delete deadlocks.
+  perform 1
+  from public.singles
+  where account_id = v_shidduch_account_id
+  order by id
+  for update;
+  perform 1
+  from public.shidduchim
+  where account_id = v_shidduch_account_id
+  order by id
+  for update;
+  perform public.account_storage_lock(v_shidduch_account_id);
   perform 1
   from public.accounts a
   where a.id = v_shidduch_account_id

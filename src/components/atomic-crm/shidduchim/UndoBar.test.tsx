@@ -33,7 +33,9 @@ describe("UndoBar", () => {
       .toHaveTextContent(
         "Moved to Yes (final).Undo is available for 10 seconds.",
       );
-    const undo = screen.getByRole("button", { name: "Undo" }).element();
+    const undo = screen
+      .getByRole("button", { name: "Undo move to Yes (final)" })
+      .element();
     expect(undo.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     await expect
       .element(screen.getByRole("progressbar"))
