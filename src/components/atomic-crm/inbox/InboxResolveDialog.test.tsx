@@ -451,8 +451,11 @@ describe("InboxResolveDialog — attachment links are re-signed at click time (r
 });
 
 describe("InboxResolveDialog — confirm details", () => {
-  it("shows the From fields and filters the shadchan picker to active rows", async () => {
-    const item = buildItem({ sender: "Sara Cohen" });
+  it("shows the From fields, defaults the safe sender, and filters active shadchanim", async () => {
+    const item = buildItem({
+      sender: "Sara Cohen",
+      sender_phone: "+1 347-555-0182",
+    });
     const { screen, dataProvider } = await renderDialog(item);
 
     await expect
@@ -460,6 +463,9 @@ describe("InboxResolveDialog — confirm details", () => {
       .toHaveValue("Sara Cohen");
     await expect
       .element(screen.getByLabelText("Phone number"))
+      .toHaveValue("+1 347-555-0182");
+    await expect
+      .element(screen.getByText("· +1 347-555-0182", { exact: true }))
       .toBeInTheDocument();
     await expect
       .poll(() =>

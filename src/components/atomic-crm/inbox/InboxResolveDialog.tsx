@@ -185,7 +185,8 @@ const LegacyInboxResolveDialog = ({
         shadchan_id: suggestedBy.shadchanId,
         suggested_by_name:
           suggestedBy.suggestedByName ?? suggestedByNameFromInboxItem(item),
-        suggested_by_phone: suggestedBy.suggestedByPhone,
+        suggested_by_phone:
+          suggestedBy.suggestedByPhone ?? item.sender_phone ?? null,
         name_en: readTextField(values.name_en)?.trim() || null,
         // Story 8.3 (AC-4): a shadchan-sourced item enters via
         // create_shidduch() with origin: 'shadchan', never 'channel' or
@@ -306,7 +307,7 @@ const LegacyInboxResolveDialog = ({
               single_id: item.single_id ?? undefined,
               shadchan_id: lockedShadchanId ?? item.shadchan_id ?? undefined,
               suggested_by_name: suggestedByNameFromInboxItem(item) ?? "",
-              suggested_by_phone: "",
+              suggested_by_phone: item.sender_phone ?? "",
               initial_state: "new",
               redt_date: item.created_at?.split("T")[0],
             }}

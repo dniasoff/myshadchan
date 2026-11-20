@@ -377,7 +377,11 @@ export const ShareTarget = () => {
         shadchan_id: suggestedBy.shadchanId,
         suggested_by_name:
           suggestedBy.suggestedByName ?? suggestedByNameFromInboxItem(item),
-        suggested_by_phone: suggestedBy.suggestedByPhone,
+        // ShareTarget has no capture-time From field today. If a future or
+        // resumed item already carries a phone, preserve it; otherwise the
+        // filing field remains genuinely optional rather than invented.
+        suggested_by_phone:
+          suggestedBy.suggestedByPhone ?? item.sender_phone ?? null,
         origin: "channel",
         initial_state: "new",
         visibility: "shared",

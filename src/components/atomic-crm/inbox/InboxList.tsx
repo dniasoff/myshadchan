@@ -87,6 +87,11 @@ const InboxCard = ({
             ) : item.sender ? (
               <span className="normal-case font-normal">· {item.sender}</span>
             ) : null}
+            {item.sender_phone ? (
+              <span className="normal-case font-normal" dir="ltr">
+                · {item.sender_phone}
+              </span>
+            ) : null}
           </span>
           <span className="text-xs tabular-nums text-muted-foreground">
             {formatRedtDate(item.created_at?.split("T")[0])}

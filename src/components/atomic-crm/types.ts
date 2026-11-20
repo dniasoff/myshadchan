@@ -660,6 +660,9 @@ export type InboxItem = {
    * row this Worker writes going forward always populates it.
    */
   sender_email?: string | null;
+  /** Optional phone captured with a manual Inbox item. Service-role ingest
+   * paths leave this null; household members may add it before filing. */
+  sender_phone?: string | null;
   sender_needs_confirmation: boolean;
   attachments?: InboxAttachment[] | null;
   status: InboxStatus;

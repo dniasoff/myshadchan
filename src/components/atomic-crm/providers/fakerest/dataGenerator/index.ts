@@ -112,6 +112,7 @@ export default (): Db => {
       created_at: "2026-07-20T10:12:00.000Z",
       source: "whatsapp",
       sender: "Mrs. Feldman",
+      sender_phone: null,
       sender_needs_confirmation: false,
       raw_text:
         "Hi! I have a wonderful boy for Rivky — Dovid Berkowitz, BMG, from Lakewood. 24, learning well. Should I send the resume?",
@@ -131,6 +132,7 @@ export default (): Db => {
       created_at: "2026-07-21T16:40:00.000Z",
       source: "email",
       sender: "Mrs. Feldman",
+      sender_phone: null,
       sender_needs_confirmation: false,
       subject: "A suggestion",
       raw_text:
@@ -150,6 +152,7 @@ export default (): Db => {
       created_at: "2026-07-22T09:15:00.000Z",
       source: "email",
       sender: null,
+      sender_phone: null,
       sender_needs_confirmation: true,
       subject: "Fwd: suggestion",
       raw_text:
@@ -177,6 +180,7 @@ export default (): Db => {
       source: "email",
       sender: "newcontact@example.com",
       sender_email: "newcontact@example.com",
+      sender_phone: null,
       sender_needs_confirmation: false,
       subject: "A possible shidduch",
       raw_text:
