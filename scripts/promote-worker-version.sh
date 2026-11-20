@@ -11,16 +11,17 @@ version_id=$1
 worker_name=$2
 message=$3
 
-if [[ -z "$version_id" || -z "$worker_name" || -z "$message" ]]; then
-  echo "VERSION_ID, WORKER_NAME, and MESSAGE must be non-empty" >&2
+if [[ -z "$worker_name" || -z "$message" ]]; then
+  echo "WORKER_NAME and MESSAGE must be non-empty" >&2
   exit 2
 fi
 
-# The upload step supplies an opaque UUID. Refuse a caller-provided traffic
-# suffix so this helper cannot silently turn the exact upload into "latest" or
-# another version selector.
-if [[ "$version_id" == *"@"* ]]; then
-  echo "VERSION_ID must be the exact uploaded version id without a traffic suffix" >&2
+# The upload step supplies a concrete UUID. Refuse selectors, whitespace, and
+# other text so this helper cannot silently turn the exact upload into "latest"
+# or another version selector.
+uuid_pattern='^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'
+if [[ ! "$version_id" =~ $uuid_pattern ]]; then
+  echo "VERSION_ID must be a concrete UUID (8-4-4-4-12 hexadecimal characters)" >&2
   exit 2
 fi
 

@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
 const helperPath = path.join(scriptsDirectory, "promote-worker-version.sh");
+const validVersion = "123e4567-e89b-12d3-a456-426614174000";
 
 function makeWranglerStub(directory) {
   const stubPath = path.join(directory, "wrangler-stub.sh");
@@ -80,11 +81,15 @@ exit 92
   return stubPath;
 }
 
-function runPromotion({ mode, failures = 0, listMissingOnce = false }) {
+function runPromotion({
+  mode,
+  failures = 0,
+  listMissingOnce = false,
+  version = validVersion,
+}) {
   const directory = mkdtempSync(
     path.join(os.tmpdir(), "promote-worker-version-"),
   );
-  const version = "version-123";
   const countFile = path.join(directory, "deploy-count");
   const listCountFile = path.join(directory, "list-count");
   const deployArgsFile = path.join(directory, "deploy-args");
@@ -122,7 +127,41 @@ function runPromotion({ mode, failures = 0, listMissingOnce = false }) {
   return { result, deployCount, listCount, deployArgs, version };
 }
 
+function runWithVersion(version) {
+  return spawnSync(
+    "bash",
+    [helperPath, version, "myshadchan-ai", "CI deploy test"],
+    {
+      cwd: scriptsDirectory,
+      encoding: "utf8",
+      env: { ...process.env, WRANGLER_BIN: "/bin/true" },
+    },
+  );
+}
+
 describe("promote-worker-version.sh", () => {
+  it.each([
+    ["latest", "latest selector"],
+    ["", "empty input"],
+    [`${validVersion}@100`, "traffic suffix"],
+    [` ${validVersion}`, "leading whitespace"],
+    ["not-a-uuid", "non-UUID text"],
+  ])("rejects %s (%s) before invoking Wrangler", (version) => {
+    const result = runWithVersion(version);
+
+    expect(result.status).toBe(2);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "VERSION_ID must be a concrete UUID",
+    );
+  });
+
+  it("accepts a valid UUID and promotes it", () => {
+    const { result, deployArgs, version } = runPromotion({ mode: "success" });
+
+    expect(result.status).toBe(0);
+    expect(deployArgs).toEqual([`${version}@100`]);
+  });
+
   it("retries the exact uploaded version after 100146 and then succeeds", () => {
     const { result, deployCount, deployArgs, version } = runPromotion({
       mode: "100146",
