@@ -62,6 +62,7 @@ export const TaskEdit = ({
   open,
   close,
   taskId,
+  onDeleteStart,
   onDelete,
   onUndo,
   mutationMode,
@@ -69,6 +70,7 @@ export const TaskEdit = ({
   taskId: Identifier;
   open: boolean;
   close: () => void;
+  onDeleteStart?: () => void;
   onDelete?: () => void;
   onUndo?: () => void;
   mutationMode?: MutationMode;
@@ -137,6 +139,7 @@ export const TaskEdit = ({
         >
           <TaskEditForm
             taskId={taskId}
+            onDeleteStart={onDeleteStart}
             translate={translate}
             saveActivationRef={saveActivationRef}
             deleteActivationRef={deleteActivationRef}
@@ -154,6 +157,7 @@ export const TaskEdit = ({
 
 interface TaskEditFormProps {
   taskId: Identifier;
+  onDeleteStart?: () => void;
   translate: ReturnType<typeof useTranslate>;
   saveActivationRef: MutableRefObject<boolean>;
   deleteActivationRef: MutableRefObject<boolean>;
@@ -166,6 +170,7 @@ interface TaskEditFormProps {
 
 const TaskEditForm = ({
   taskId,
+  onDeleteStart,
   translate,
   saveActivationRef,
   deleteActivationRef,
@@ -232,6 +237,7 @@ const TaskEditForm = ({
           if (deleteActivationRef.current || undoActivationRef.current) return;
           deleteActivationRef.current = true;
           setConfirmDelete(false);
+          onDeleteStart?.();
           event.stopPropagation();
           deleteTask("tasks", { id: taskId }, { mutationMode: "undoable" });
         }}

@@ -18,6 +18,7 @@ export interface TaskEditSheetProps {
   onOpenChange: (open: boolean) => void;
   taskId: Identifier;
   mutationMode?: MutationMode;
+  onDeleteStart?: () => void;
   onDelete?: () => void;
   onUndo?: () => void;
 }
@@ -27,6 +28,7 @@ export const TaskEditSheet = ({
   onOpenChange,
   taskId,
   mutationMode,
+  onDeleteStart,
   onDelete,
   onUndo,
 }: TaskEditSheetProps) => {
@@ -131,6 +133,7 @@ export const TaskEditSheet = ({
           if (deleteActivationRef.current || undoActivationRef.current) return;
           deleteActivationRef.current = true;
           setConfirmDelete(false);
+          onDeleteStart?.();
           event.stopPropagation();
           deleteTask("tasks", { id: taskId }, { mutationMode: "undoable" });
         }}

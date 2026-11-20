@@ -50,39 +50,86 @@ export const Task = ({ task }: { task: TData }) => {
   const undoActivationRef = useRef(false);
   const editButtonRef = useRef<HTMLButtonElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
-  const rowRef = useRef<HTMLDivElement>(null);
+  const deleteFocusRef = useRef<{
+    taskId: string;
+    nextTaskId?: string;
+    previousTaskId?: string;
+  } | null>(null);
+
+  const isVisible = (element: HTMLElement) => {
+    const style = window.getComputedStyle(element);
+    return (
+      !element.hidden &&
+      element.getAttribute("aria-hidden") !== "true" &&
+      style.display !== "none" &&
+      style.visibility !== "hidden"
+    );
+  };
+
+  const getTaskEditButton = (taskIdToFind: string) =>
+    Array.from(document.querySelectorAll<HTMLElement>("[data-task-row]"))
+      .find(
+        (row) =>
+          row.dataset.taskId === taskIdToFind &&
+          isVisible(row) &&
+          Boolean(row.querySelector("[data-task-edit]")),
+      )
+      ?.querySelector<HTMLButtonElement>("[data-task-edit]") ?? null;
+
+  const focusTaskEdit = (taskIdToFind: string) => {
+    let attempt = 0;
+    const tryFocus = () => {
+      const button = getTaskEditButton(taskIdToFind);
+      if (button && isVisible(button)) {
+        button.focus();
+        if (document.activeElement === button) return;
+      }
+      if (attempt++ < 20) requestAnimationFrame(tryFocus);
+    };
+    requestAnimationFrame(tryFocus);
+  };
 
   const focusSoon = (target: HTMLElement | null) => {
     requestAnimationFrame(() => target?.focus());
   };
 
-  const focusRowEdit = () => focusSoon(editButtonRef.current);
+  const focusRowEdit = () => focusTaskEdit(String(task.id));
+
+  const rememberDeleteFocus = () => {
+    const allRows = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-task-row]"),
+    );
+    // Radix marks the background aria-hidden while the confirmation dialog is
+    // open. The rows are still the visible list and must be included in the
+    // pre-delete sibling snapshot.
+    const rows = allRows.filter((row) => {
+      const style = window.getComputedStyle(row);
+      return (
+        !row.hidden && style.display !== "none" && style.visibility !== "hidden"
+      );
+    });
+    const currentIndex = rows.findIndex(
+      (row) => row.dataset.taskId === String(task.id),
+    );
+    deleteFocusRef.current = {
+      taskId: String(task.id),
+      nextTaskId: rows[currentIndex + 1]?.dataset.taskId,
+      previousTaskId: rows[currentIndex - 1]?.dataset.taskId,
+    };
+  };
 
   const focusAfterDelete = () => {
+    const snapshot = deleteFocusRef.current;
+    const targetId = snapshot?.nextTaskId ?? snapshot?.previousTaskId;
+    if (targetId) {
+      focusTaskEdit(targetId);
+      return;
+    }
     requestAnimationFrame(() => {
-      const rows = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-task-row]"),
-      );
-      const currentIndex = rows.indexOf(rowRef.current as HTMLElement);
-      const isVisible = (element: HTMLElement) => {
-        const style = window.getComputedStyle(element);
-        return (
-          !element.hidden &&
-          element.getAttribute("aria-hidden") !== "true" &&
-          style.display !== "none" &&
-          style.visibility !== "hidden"
-        );
-      };
-      const nextEdit = rows
-        .slice(currentIndex + 1)
-        .map((row) => row.querySelector<HTMLButtonElement>("[data-task-edit]"))
-        .find((button): button is HTMLButtonElement =>
-          Boolean(button && isVisible(button)),
-        );
       const heading = document.querySelector<HTMLElement>(
         "[data-tasks-list-heading], main h1, main h2, main h3",
       );
-      (nextEdit ?? heading)?.focus();
+      heading?.focus();
     });
   };
 
@@ -160,7 +207,6 @@ export const Task = ({ task }: { task: TData }) => {
   return (
     <>
       <div
-        ref={rowRef}
         data-task-row
         data-task-id={String(task.id)}
         className="flex items-start justify-between"
@@ -336,6 +382,7 @@ export const Task = ({ task }: { task: TData }) => {
             setOpenEdit(nextOpen);
             if (!nextOpen) focusRowEdit();
           }}
+          onDeleteStart={rememberDeleteFocus}
           onDelete={focusAfterDelete}
           onUndo={focusRowEdit}
         />
@@ -344,6 +391,7 @@ export const Task = ({ task }: { task: TData }) => {
           taskId={task.id}
           open={openEdit}
           close={handleCloseEdit}
+          onDeleteStart={rememberDeleteFocus}
           onDelete={focusAfterDelete}
           onUndo={focusRowEdit}
         />
@@ -363,6 +411,7 @@ export const Task = ({ task }: { task: TData }) => {
           if (deleteActivationRef.current || undoActivationRef.current) return;
           deleteActivationRef.current = true;
           setConfirmDelete(false);
+          rememberDeleteFocus();
           focusAfterDelete();
           event.stopPropagation();
           deleteTask(

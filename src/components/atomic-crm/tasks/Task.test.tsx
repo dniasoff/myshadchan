@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
-import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+import { CoreAdminContext, ListBase, TestMemoryRouter } from "ra-core";
 import type { DataProvider } from "ra-core";
 
 import { Notification } from "@/components/admin/notification";
@@ -9,6 +9,7 @@ import { Notification } from "@/components/admin/notification";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { ContextMember, Task as TaskRecord } from "../types";
 import { Task } from "./Task";
+import { TasksIterator } from "./TasksIterator";
 
 const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 } as const;
@@ -57,6 +58,41 @@ const renderTask = async (
         i18nProvider={testI18nProvider}
       >
         <Task task={task} />
+        <Notification />
+      </CoreAdminContext>
+    </TestMemoryRouter>,
+  );
+
+  return { screen, dataProvider };
+};
+
+const renderStatefulTaskList = async (tasks: TaskRecord[]) => {
+  const dataProvider = {
+    getList: vi.fn().mockImplementation((resource: string) =>
+      resource === "tasks"
+        ? Promise.resolve({ data: tasks, total: tasks.length })
+        : Promise.resolve({
+            data: [buildMember({ id: 1, is_self: true })],
+            total: 1,
+          }),
+    ),
+    getOne: vi.fn().mockResolvedValue({ data: tasks[0] }),
+    update: vi.fn().mockResolvedValue({ data: tasks[0] }),
+    delete: vi.fn().mockResolvedValue({ data: tasks[0] }),
+  } as unknown as DataProvider;
+
+  const screen = await render(
+    <TestMemoryRouter>
+      <CoreAdminContext
+        dataProvider={dataProvider}
+        i18nProvider={testI18nProvider}
+      >
+        <ListBase resource="tasks" disableAuthentication>
+          <h2 data-tasks-list-heading tabIndex={-1}>
+            Tasks
+          </h2>
+          <TasksIterator />
+        </ListBase>
         <Notification />
       </CoreAdminContext>
     </TestMemoryRouter>,
@@ -335,6 +371,84 @@ describe("Task — keyboard and focus behavior", () => {
     await screen.getByRole("button", { name: "Undo" }).click();
     await expect
       .poll(() => document.activeElement === edit.element())
+      .toBe(true);
+  });
+
+  it("uses the next task after a middle row is really removed", async () => {
+    const tasks = [
+      buildTask({ id: 1, text: "First task" }),
+      buildTask({ id: 2, text: "Middle task" }),
+      buildTask({ id: 3, text: "Last task" }),
+    ];
+    const { screen } = await renderStatefulTaskList(tasks);
+
+    await screen.getByRole("button", { name: "Delete" }).nth(1).click();
+    await screen
+      .getByRole("dialog")
+      .getByRole("button", { name: "Delete" })
+      .click();
+
+    await expect
+      .poll(() => document.querySelector('[data-task-id="2"]'))
+      .toBe(null);
+    await expect
+      .poll(
+        () =>
+          document.activeElement ===
+          document.querySelector('[data-task-id="3"] [data-task-edit]'),
+      )
+      .toBe(true);
+  });
+
+  it("uses the previous task after the last row is really removed", async () => {
+    const tasks = [
+      buildTask({ id: 1, text: "First task" }),
+      buildTask({ id: 2, text: "Middle task" }),
+      buildTask({ id: 3, text: "Last task" }),
+    ];
+    const { screen } = await renderStatefulTaskList(tasks);
+
+    await screen.getByRole("button", { name: "Delete" }).nth(2).click();
+    await screen
+      .getByRole("dialog")
+      .getByRole("button", { name: "Delete" })
+      .click();
+
+    await expect
+      .poll(() => document.querySelector('[data-task-id="3"]'))
+      .toBe(null);
+    await expect
+      .poll(
+        () =>
+          document.activeElement ===
+          document.querySelector('[data-task-id="2"] [data-task-edit]'),
+      )
+      .toBe(true);
+  });
+
+  it("focuses the restored row after Undo really remounts it", async () => {
+    const task = buildTask({ id: 1, text: "Restored task" });
+    const { screen } = await renderStatefulTaskList([task]);
+
+    await screen.getByRole("button", { name: "Delete" }).click();
+    await screen
+      .getByRole("dialog")
+      .getByRole("button", { name: "Delete" })
+      .click();
+    await expect
+      .poll(() => document.querySelector('[data-task-id="1"]'))
+      .toBe(null);
+
+    await screen.getByRole("button", { name: "Undo" }).click();
+    await expect
+      .poll(() => document.querySelector('[data-task-id="1"]'))
+      .not.toBe(null);
+    await expect
+      .poll(
+        () =>
+          document.activeElement ===
+          document.querySelector('[data-task-id="1"] [data-task-edit]'),
+      )
       .toBe(true);
   });
 });
