@@ -1905,9 +1905,7 @@ describe("ResumeReadableSections", () => {
       .toBeInTheDocument();
     await expect
       .element(
-        screen.getByText(
-          'This resume is not easy to read yet. Tap "Try again" to fill in the details.',
-        ),
+        screen.getByText("We couldn't read this resume yet. Tap Try again."),
       )
       .toBeInTheDocument();
     const button = screen.getByRole("button", {
@@ -1944,7 +1942,7 @@ describe("ResumeReadableSections", () => {
     await expect
       .element(
         screen.getByRole("button", {
-          name: /^(Make it easy to read|Try again)$/,
+          name: /^Try again$/,
         }),
       )
       .not.toBeInTheDocument();
@@ -2004,7 +2002,7 @@ describe("ResumeReadableSections", () => {
       await expect
         .element(
           screen.getByRole("button", {
-            name: /^(Make it easy to read|Try again)$/,
+            name: /^Try again$/,
           }),
         )
         .not.toBeInTheDocument();
@@ -2042,7 +2040,7 @@ describe("ResumeReadableSections", () => {
     await expect
       .element(
         screen.getByRole("button", {
-          name: /^(Make it easy to read|Try again)$/,
+          name: /^Try again$/,
         }),
       )
       .not.toBeInTheDocument();

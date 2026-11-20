@@ -437,8 +437,7 @@ export function ResumeReadableSections({
             />
             <div>
               <p className="font-medium">
-                This resume is not easy to read yet. Tap "Try again" to fill in
-                the details.
+                We couldn&apos;t read this resume yet. Tap Try again.
               </p>
               {isAutomaticallyReadableResume(newestFile) ? (
                 isReading ? (
