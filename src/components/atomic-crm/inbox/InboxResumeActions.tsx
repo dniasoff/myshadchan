@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Identifier } from "ra-core";
-import { useGetList, useNotify, useRedirect, useRefresh } from "ra-core";
+import {
+  Form,
+  useDataProvider,
+  useGetList,
+  useNotify,
+  useRedirect,
+  useRefresh,
+} from "ra-core";
 
+import { AutocompleteInput } from "@/components/admin/autocomplete-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,8 +22,11 @@ import {
 } from "@/components/ui/dialog";
 
 import { buildTabPath } from "../entity360/entityPaths";
-import type { ShidduchSummary, Single, InboxItem } from "../types";
+import type { ShidduchSummary, Single, InboxItem, Shadchan } from "../types";
+import type { CrmDataProvider } from "../providers/types";
+import { ReferenceInput } from "@/components/admin/reference-input";
 import { RESUME_AUTO_READ_COPY } from "../resumes/resumeAutoReadHelpers";
+import { createShadchanInline } from "../shidduchim/createShadchanInline";
 import {
   hasResumeDocumentAttachment,
   isResumeDocument,
@@ -25,6 +36,12 @@ import {
 } from "./useResolveInboxItem";
 import { ResolutionClaimLostError } from "./resolveInboxItemLock";
 import { rememberTransientSuggestionName } from "../shidduchim/transientSuggestionDisplay";
+import {
+  resolveSuggestedByValues,
+  suggestedByDefaultName,
+} from "./suggestedBy";
+import { SuggestedByFields } from "./SuggestedByFields";
+import type { SuggestedByFormValues } from "./suggestedBy";
 
 export type { InboxResumeAction } from "./useResolveInboxItem";
 
@@ -122,6 +139,7 @@ export const InboxResumeActionsDialog = ({
   const notify = useNotify();
   const redirect = useRedirect();
   const refresh = useRefresh();
+  const dataProvider = useDataProvider<CrmDataProvider>();
   const { resolveInboxResume } = useResolveInboxItem();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -131,6 +149,24 @@ export const InboxResumeActionsDialog = ({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageIsError, setMessageIsError] = useState(false);
+  const isShadchanSourced = item.source === "shadchan";
+  const { data: linkedShadchanim, isPending: isLoadingLinkedShadchan } =
+    useGetList<Shadchan>(
+      "shadchanim",
+      {
+        filter: {
+          connection_id: item.connection_id,
+          "archived_at@is": null,
+        },
+        pagination: { page: 1, perPage: 1 },
+        sort: { field: "id", order: "ASC" },
+      },
+      { enabled: isShadchanSourced && item.connection_id != null },
+    );
+  const lockedShadchanId: Identifier | null = isShadchanSourced
+    ? (linkedShadchanim?.[0]?.id ?? null)
+    : null;
+  const handleCreateShadchan = createShadchanInline(dataProvider);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search), 250);
@@ -187,7 +223,7 @@ export const InboxResumeActionsDialog = ({
     (single) => String(single.id) === String(selectedSingle),
   );
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (values: SuggestedByFormValues = {}) => {
     if (busy) return;
     if (action === "attach" && selectedSuggestion == null) return;
     if (action === "new" && selectedSingle == null) return;
@@ -195,11 +231,23 @@ export const InboxResumeActionsDialog = ({
     setMessage(RESUME_AUTO_READ_COPY.reading);
     setMessageIsError(false);
     try {
+      const suggestedBy =
+        action === "new"
+          ? await resolveSuggestedByValues(dataProvider, {
+              ...values,
+              ...(isShadchanSourced ? { shadchan_id: lockedShadchanId } : {}),
+            })
+          : {
+              suggestedByName: suggestedByNameFromInboxItem(item),
+              suggestedByPhone: null,
+              shadchanId: null,
+            };
       const result = await resolveInboxResume(item, action, {
         shidduchimId: selectedSuggestion ?? undefined,
         singleId: selectedSingle ?? undefined,
-        suggestedByName: suggestedByNameFromInboxItem(item),
-        suggestedByPhone: null,
+        shadchanId: suggestedBy.shadchanId,
+        suggestedByName: suggestedBy.suggestedByName,
+        suggestedByPhone: suggestedBy.suggestedByPhone,
       });
       if (result.outcome === "completed") {
         refresh();
@@ -243,7 +291,7 @@ export const InboxResumeActionsDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && !busy && onClose()}>
-      <DialogContent className="top-1/20 max-h-9/10 translate-y-0 overflow-y-auto sm:max-w-xl">
+      <DialogContent className="top-1/20 max-h-9/10 translate-y-0 overflow-y-auto flex flex-col sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
             {action === "attach"
@@ -257,133 +305,175 @@ export const InboxResumeActionsDialog = ({
           </DialogDescription>
         </DialogHeader>
 
-        {action === "attach" ? (
-          <div className="flex flex-col gap-3">
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by name"
-              aria-label="Search by name"
-              disabled={busy}
-            />
-            <p className="text-xs text-muted-foreground">{NEWEST_FIRST_COPY}</p>
-            {suggestionsPending ? (
-              <p className="text-sm text-muted-foreground">
-                Loading suggestions…
+        <Form
+          key={`${item.id}-${action}-${open}`}
+          onSubmit={(values: SuggestedByFormValues) =>
+            void handleSubmit(values)
+          }
+          mode="onBlur"
+          defaultValues={{
+            shadchan_id: lockedShadchanId ?? item.shadchan_id ?? undefined,
+            suggested_by_name: suggestedByDefaultName(item.sender),
+            suggested_by_phone: "",
+            make_person_shadchan: false,
+          }}
+        >
+          {action === "attach" ? (
+            <div className="flex flex-col gap-3">
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by name"
+                aria-label="Search by name"
+                disabled={busy}
+              />
+              <p className="text-xs text-muted-foreground">
+                {NEWEST_FIRST_COPY}
               </p>
-            ) : suggestions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No suggestions found.
-              </p>
-            ) : (
-              <div
-                className="flex flex-col gap-2"
-                role="listbox"
-                aria-label="Suggestions"
-              >
-                {suggestions.map((suggestion) => {
-                  const selected =
-                    String(suggestion.id) === String(selectedSuggestion);
-                  return (
-                    <button
-                      key={String(suggestion.id)}
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      disabled={busy}
-                      onClick={() => setSelectedSuggestion(suggestion.id)}
-                      className="flex min-h-14 items-center justify-between rounded-xl border border-border px-3 text-start aria-selected:border-primary aria-selected:bg-primary/5"
-                    >
-                      <span className="font-medium">
-                        {suggestionLabel(suggestion)}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {suggestion.created_at?.split("T")[0] ?? ""}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        ) : singlesPending ? (
-          <p className="text-sm text-muted-foreground">Loading singles…</p>
-        ) : singles.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            There are no singles in this household yet.
-          </p>
-        ) : singles.length === 1 ? (
-          <p className="rounded-xl bg-muted/50 p-3 text-sm">
-            This suggestion will be for {singleLabel(singles[0])}.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            <div>
-              <p className="font-medium">Who is this suggestion for?</p>
-              <p className="text-sm text-muted-foreground">
-                Choose one of the singles in this household.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {singles.map((single) => (
-                <button
-                  key={String(single.id)}
-                  type="button"
-                  disabled={busy}
-                  aria-pressed={String(single.id) === String(selectedSingle)}
-                  onClick={() => setSelectedSingle(single.id)}
-                  className="min-h-14 rounded-xl border border-border px-3 text-start font-medium aria-pressed:border-primary aria-pressed:bg-primary/5"
+              {suggestionsPending ? (
+                <p className="text-sm text-muted-foreground">
+                  Loading suggestions…
+                </p>
+              ) : suggestions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No suggestions found.
+                </p>
+              ) : (
+                <div
+                  className="flex flex-col gap-2"
+                  role="listbox"
+                  aria-label="Suggestions"
                 >
-                  {singleLabel(single)}
-                </button>
-              ))}
+                  {suggestions.map((suggestion) => {
+                    const selected =
+                      String(suggestion.id) === String(selectedSuggestion);
+                    return (
+                      <button
+                        key={String(suggestion.id)}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        disabled={busy}
+                        onClick={() => setSelectedSuggestion(suggestion.id)}
+                        className="flex min-h-14 items-center justify-between rounded-xl border border-border px-3 text-start aria-selected:border-primary aria-selected:bg-primary/5"
+                      >
+                        <span className="font-medium">
+                          {suggestionLabel(suggestion)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {suggestion.created_at?.split("T")[0] ?? ""}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          ) : isShadchanSourced && isLoadingLinkedShadchan ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : singlesPending ? (
+            <p className="text-sm text-muted-foreground">Loading singles…</p>
+          ) : singles.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              There are no singles in this household yet.
+            </p>
+          ) : singles.length === 1 ? (
+            <p className="rounded-xl bg-muted/50 p-3 text-sm">
+              This suggestion will be for {singleLabel(singles[0])}.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div>
+                <p className="font-medium">Who is this suggestion for?</p>
+                <p className="text-sm text-muted-foreground">
+                  Choose one of the singles in this household.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {singles.map((single) => (
+                  <button
+                    key={String(single.id)}
+                    type="button"
+                    disabled={busy}
+                    aria-pressed={String(single.id) === String(selectedSingle)}
+                    onClick={() => setSelectedSingle(single.id)}
+                    className="min-h-14 rounded-xl border border-border px-3 text-start font-medium aria-pressed:border-primary aria-pressed:bg-primary/5"
+                  >
+                    {singleLabel(single)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-        {message ? (
-          <p
-            role={messageIsError ? "alert" : "status"}
-            aria-live={messageIsError ? undefined : "polite"}
-            className="text-sm text-muted-foreground"
-          >
-            {message}
-          </p>
-        ) : null}
+          {action === "new" && !isLoadingLinkedShadchan ? (
+            <div className="mt-4 flex flex-col gap-4">
+              <ReferenceInput
+                source="shadchan_id"
+                reference="shadchanim"
+                filter={{ "archived_at@is": null }}
+              >
+                <fieldset
+                  disabled={isShadchanSourced}
+                  className="m-0 min-w-0 border-0 p-0"
+                >
+                  <AutocompleteInput
+                    label="Who is the shadchan?"
+                    onCreate={handleCreateShadchan}
+                    helperText={false}
+                  />
+                </fieldset>
+              </ReferenceInput>
+              <SuggestedByFields />
+            </div>
+          ) : null}
 
-        {action === "new" && selectedSingleRecord ? (
-          <p className="text-xs text-muted-foreground">
-            The suggestion will be for {singleLabel(selectedSingleRecord)}.
-          </p>
-        ) : null}
-        {action === "attach" && selectedSuggestionRecord ? (
-          <p className="text-xs text-muted-foreground">
-            The resume will be attached to{" "}
-            {suggestionLabel(selectedSuggestionRecord)}.
-          </p>
-        ) : null}
+          {message ? (
+            <p
+              role={messageIsError ? "alert" : "status"}
+              aria-live={messageIsError ? undefined : "polite"}
+              className="text-sm text-muted-foreground"
+            >
+              {message}
+            </p>
+          ) : null}
 
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={onClose}
-            disabled={busy}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={() => void handleSubmit()}
-            disabled={!canSubmit}
-          >
-            {busy
-              ? RESUME_AUTO_READ_COPY.reading
-              : action === "attach"
-                ? `Attach to ${selectedSuggestionRecord ? suggestionLabel(selectedSuggestionRecord) : "a suggestion"}`
-                : "Make a new suggestion"}
-          </Button>
-        </DialogFooter>
+          {action === "new" && selectedSingleRecord ? (
+            <p className="text-xs text-muted-foreground">
+              The suggestion will be for {singleLabel(selectedSingleRecord)}.
+            </p>
+          ) : null}
+          {action === "attach" && selectedSuggestionRecord ? (
+            <p className="text-xs text-muted-foreground">
+              The resume will be attached to{" "}
+              {suggestionLabel(selectedSuggestionRecord)}.
+            </p>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onClose}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              type={action === "new" ? "submit" : "button"}
+              onClick={
+                action === "attach" ? () => void handleSubmit() : undefined
+              }
+              disabled={!canSubmit}
+            >
+              {busy
+                ? RESUME_AUTO_READ_COPY.reading
+                : action === "attach"
+                  ? `Attach to ${selectedSuggestionRecord ? suggestionLabel(selectedSuggestionRecord) : "a suggestion"}`
+                  : "File as a suggestion"}
+            </Button>
+          </DialogFooter>
+        </Form>
       </DialogContent>
     </Dialog>
   );

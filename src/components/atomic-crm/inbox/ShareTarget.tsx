@@ -28,6 +28,8 @@ import type {
 import { createShadchanInline } from "../shidduchim/createShadchanInline";
 import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
 import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
+import { SuggestedByFields } from "./SuggestedByFields";
+import { resolveSuggestedByValues } from "./suggestedBy";
 import {
   suggestedByNameFromInboxItem,
   useResolveInboxItem,
@@ -369,11 +371,13 @@ export const ShareTarget = () => {
     setIsSaving(true);
     try {
       const item = await getOrCreateInboxItem();
+      const suggestedBy = await resolveSuggestedByValues(dataProvider, values);
       const input: CreateShidduchInput = {
         single_id: resolvedSingleId,
-        shadchan_id: (values.shadchan_id as Identifier | undefined) ?? null,
-        suggested_by_name: suggestedByNameFromInboxItem(item),
-        suggested_by_phone: null,
+        shadchan_id: suggestedBy.shadchanId,
+        suggested_by_name:
+          suggestedBy.suggestedByName ?? suggestedByNameFromInboxItem(item),
+        suggested_by_phone: suggestedBy.suggestedByPhone,
         origin: "channel",
         initial_state: "new",
         visibility: "shared",
@@ -554,10 +558,22 @@ export const ShareTarget = () => {
         ) : null}
       </div>
 
-      <Form onSubmit={handleSave} mode="onBlur">
+      <Form
+        onSubmit={handleSave}
+        mode="onBlur"
+        defaultValues={{
+          suggested_by_name: "",
+          suggested_by_phone: "",
+          make_person_shadchan: false,
+        }}
+      >
         <div className="flex flex-col gap-4">
           {/* AC 3: shadchan typeahead + inline "+ Add a shadchan". */}
-          <ReferenceInput source="shadchan_id" reference="shadchanim">
+          <ReferenceInput
+            source="shadchan_id"
+            reference="shadchanim"
+            filter={{ "archived_at@is": null }}
+          >
             <AutocompleteInput
               label={translate("crm.inbox.share.shadchanLabel", {
                 _: "Shadchan",
@@ -568,6 +584,8 @@ export const ShareTarget = () => {
               onCreate={handleCreateShadchan}
             />
           </ReferenceInput>
+
+          <SuggestedByFields />
 
           {/* AC 4: a pill picker, shown only when there is more than one
               single to disambiguate. */}

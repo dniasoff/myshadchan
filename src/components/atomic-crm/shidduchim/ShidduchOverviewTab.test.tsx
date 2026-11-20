@@ -40,6 +40,8 @@ const record: ShidduchSummary = {
   created_at: "2026-01-01T00:00:00Z",
   name_en: "Chaim Cohen",
   shadchan_name: "Mrs Klein",
+  suggested_by_name: "Sara Cohen",
+  suggested_by_phone: "+1 (347) 555-0182",
 };
 
 describe("ShidduchOverviewTab To-do placement", () => {
@@ -71,5 +73,40 @@ describe("ShidduchOverviewTab To-do placement", () => {
     expect(layout?.children[0]).toBe(shadchan);
     expect(layout?.children[1]).toBe(todo);
     await expect.element(screen.getByText("Mrs Klein")).toBeInTheDocument();
+    const phone = screen.getByRole("link", { name: "+1 (347) 555-0182" });
+    await expect
+      .element(phone)
+      .toHaveAttribute("href", "tel:+1 (347) 555-0182");
+    await expect.element(screen.getByText("Suggested by")).toBeInTheDocument();
+  });
+
+  it("keeps a friend separate from Shadchan and hides an empty phone", async () => {
+    const dataProvider = {
+      getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    } as unknown as DataProvider;
+    const friendRecord: ShidduchSummary = {
+      ...record,
+      shadchan_name: null,
+      suggested_by_name: "Sara Cohen",
+      suggested_by_phone: null,
+    };
+    const screen = await render(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <RecordContextProvider value={friendRecord}>
+            <ShidduchOverviewTab />
+          </RecordContextProvider>
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await expect
+      .element(screen.getByText("No shadchan recorded"))
+      .toBeInTheDocument();
+    await expect.element(screen.getByText("Sara Cohen")).toBeInTheDocument();
+    expect(document.querySelector('a[href^="tel:"]')).toBeNull();
   });
 });

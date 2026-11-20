@@ -15,7 +15,6 @@ import { CancelButton } from "@/components/admin/cancel-button";
 import { AutocompleteInput } from "@/components/admin/autocomplete-input";
 import { SaveButton } from "@/components/admin/form";
 import { ReferenceInput } from "@/components/admin/reference-input";
-import { FormToolbar } from "@/components/admin/simple-form";
 import { TextInput } from "@/components/admin/text-input";
 import {
   Dialog,
@@ -31,6 +30,11 @@ import { InboxCapturePreview } from "./InboxCapturePreview";
 import { INBOX_PRIMARY_CTA_CLASS } from "./inboxMeta";
 import { InboxResumeActionsDialog } from "./InboxResumeActions";
 import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
+import { SuggestedByFields } from "./SuggestedByFields";
+import {
+  resolveSuggestedByValues,
+  suggestedByDefaultName,
+} from "./suggestedBy";
 import {
   hasResumeDocumentAttachment,
   suggestedByNameFromInboxItem,
@@ -158,7 +162,10 @@ const LegacyInboxResolveDialog = ({
     useGetList<Shadchan>(
       "shadchanim",
       {
-        filter: { connection_id: item.connection_id },
+        filter: {
+          connection_id: item.connection_id,
+          "archived_at@is": null,
+        },
         pagination: PAGE_ONE,
         sort: SORT_BY_ID,
       },
@@ -175,11 +182,13 @@ const LegacyInboxResolveDialog = ({
   const onSubmit = async (values: Record<string, unknown>) => {
     setIsBusy(true);
     try {
+      const suggestedBy = await resolveSuggestedByValues(dataProvider, values);
       const input: CreateShidduchInput = {
         single_id: values.single_id as Identifier,
-        shadchan_id: (values.shadchan_id as Identifier) ?? null,
-        suggested_by_name: suggestedByNameFromInboxItem(item),
-        suggested_by_phone: null,
+        shadchan_id: suggestedBy.shadchanId,
+        suggested_by_name:
+          suggestedBy.suggestedByName ?? suggestedByNameFromInboxItem(item),
+        suggested_by_phone: suggestedBy.suggestedByPhone,
         name_en: readTextField(values.name_en)?.trim() || null,
         // Story 8.3 (AC-4): a shadchan-sourced item enters via
         // create_shidduch() with origin: 'shadchan', never 'channel' or
@@ -269,6 +278,7 @@ const LegacyInboxResolveDialog = ({
         aria-busy={isBusy}
         className={
           "top-1/20 max-h-9/10 translate-y-0 overflow-y-auto lg:max-w-4xl " +
+          "flex flex-col " +
           "bg-popover border-border shadow-lg " +
           "dark:bg-[var(--glass-bg)] dark:backdrop-blur-[var(--glass-blur)] dark:border-[var(--glass-border)]"
         }
@@ -298,12 +308,19 @@ const LegacyInboxResolveDialog = ({
             defaultValues={{
               single_id: item.single_id ?? undefined,
               shadchan_id: lockedShadchanId ?? item.shadchan_id ?? undefined,
+              suggested_by_name: suggestedByDefaultName(item.sender),
+              suggested_by_phone: "",
+              make_person_shadchan: false,
               initial_state: "new",
               redt_date: item.created_at?.split("T")[0],
             }}
           >
             <div className="flex flex-col gap-4">
-              <ReferenceInput source="shadchan_id" reference="shadchanim">
+              <ReferenceInput
+                source="shadchan_id"
+                reference="shadchanim"
+                filter={{ "archived_at@is": null }}
+              >
                 <fieldset
                   disabled={isShadchanSourced}
                   className="m-0 min-w-0 border-0 p-0"
@@ -327,6 +344,7 @@ const LegacyInboxResolveDialog = ({
                 />
               </ReferenceInput>
               <NameInput />
+              <SuggestedByFields />
             </div>
 
             {/* AC 5 (Story 10.1, Task 3): link to an existing suggestion
@@ -344,7 +362,7 @@ const LegacyInboxResolveDialog = ({
               />
             </div>
 
-            <FormToolbar>
+            <div role="toolbar" className="pt-2 pb-2">
               {/* Stacked below sm. All three of these come from
                   buttonVariants' `whitespace-nowrap shrink-0` base, so on one
                   row they cannot shrink or wrap: at 360px they need ~420px
@@ -374,7 +392,7 @@ const LegacyInboxResolveDialog = ({
                   />
                 </div>
               </div>
-            </FormToolbar>
+            </div>
           </Form>
         )}
       </DialogContent>
