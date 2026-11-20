@@ -70,6 +70,12 @@ const SHADCHANIM = [
   { id: 2, name: "Moshe Adler" },
 ];
 
+const FOOTER_LAYOUT_SHADCHANIM = [
+  { id: 1, name: "Rivka Stern" },
+  { id: 2, name: "Moshe Adler" },
+  { id: 3, name: "Yael Cohen" },
+];
+
 const NOTE = {
   id: 22,
   account_id: 1,
@@ -82,11 +88,11 @@ const NOTE = {
   deleted_at: null,
 };
 
-const renderGrid = () =>
+const renderGrid = (data = SHADCHANIM) =>
   render(
     <TestMemoryRouter>
       <CoreAdminContext i18nProvider={testI18nProvider}>
-        <ShadchanCardGrid data={SHADCHANIM} />
+        <ShadchanCardGrid data={data} />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -212,7 +218,7 @@ describe("ShadchanCardGrid — gates on the shidduchim count query, not just the
       .toHaveAttribute("href", "/shadchanim/1/tasks");
   });
 
-  it("keeps reminder-only and note-plus-reminder actions in one stable phone footer", async () => {
+  it("keeps every card footer on one stable phone line", async () => {
     await page.viewport(390, 844);
     useGetListMock.mockReturnValue({ data: [], isPending: false });
     useShadchanNotesMock.mockReturnValue({
@@ -229,19 +235,37 @@ describe("ShadchanCardGrid — gates on the shidduchim count query, not just the
       error: null,
     });
 
-    const screen = await renderGrid();
+    const screen = await renderGrid(FOOTER_LAYOUT_SHADCHANIM);
     const cards = screen.getByTestId("shadchan-card");
+    const footers = screen.getByTestId("shadchan-card-footer");
     const actionGroups = screen.getByTestId("shadchan-card-actions");
 
     await expect.element(cards.nth(0)).toBeInTheDocument();
     await expect.element(cards.nth(1)).toBeInTheDocument();
+    await expect.element(cards.nth(2)).toBeInTheDocument();
     await expect.element(actionGroups.nth(0)).toHaveClass("min-h-11");
     await expect.element(actionGroups.nth(1)).toHaveClass("min-h-11");
+    await expect.element(actionGroups.nth(2)).toHaveClass("min-h-11");
+    await expect.element(footers.nth(0)).toHaveClass("flex-nowrap");
+    await expect.element(footers.nth(1)).toHaveClass("flex-nowrap");
+    await expect.element(footers.nth(2)).toHaveClass("flex-nowrap");
+
+    const cardHeights = [0, 1, 2].map((index) =>
+      Math.round(cards.nth(index).element().getBoundingClientRect().height),
+    );
+    const footerHeights = [0, 1, 2].map((index) =>
+      Math.round(footers.nth(index).element().getBoundingClientRect().height),
+    );
+    expect(new Set(cardHeights).size).toBe(1);
+    expect(new Set(footerHeights).size).toBe(1);
     expect(cards.nth(0).element().scrollWidth).toBeLessThanOrEqual(
       cards.nth(0).element().clientWidth,
     );
     expect(cards.nth(1).element().scrollWidth).toBeLessThanOrEqual(
       cards.nth(1).element().clientWidth,
+    );
+    expect(cards.nth(2).element().scrollWidth).toBeLessThanOrEqual(
+      cards.nth(2).element().clientWidth,
     );
     await expect
       .element(screen.getByRole("link", { name: "1 reminder" }))

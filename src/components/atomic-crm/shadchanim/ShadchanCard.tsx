@@ -102,19 +102,22 @@ export const ShadchanCard = ({
           </div>
         </div>
       </RecordLink>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-border pt-2.5">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+      <div
+        data-testid="shadchan-card-footer"
+        className="mt-3 flex min-h-11 min-w-0 flex-nowrap items-center gap-2 overflow-hidden border-t border-border pt-2.5"
+      >
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-x-2 overflow-hidden">
           <ResponsivenessChip value={shadchan.responsiveness} />
           {phoneMatch ? (
-            <span className="text-[11.5px] tabular-nums text-muted-foreground">
+            <span className="min-w-0 truncate whitespace-nowrap text-[11.5px] tabular-nums text-muted-foreground">
               {getShadchanPhoneMatchLabel(phoneMatch)}
             </span>
           ) : null}
-          <span className="inline-flex items-center gap-1 text-[11.5px] tabular-nums text-muted-foreground">
+          <span className="inline-flex min-w-0 items-center gap-1 truncate whitespace-nowrap text-[11.5px] tabular-nums text-muted-foreground">
             <Send className="size-3 shrink-0" aria-hidden="true" />
             {countLabel}
           </span>
-          <span className="text-[11.5px] font-medium text-muted-foreground">
+          <span className="shrink-0 whitespace-nowrap text-[11.5px] font-medium text-muted-foreground">
             Open file
           </span>
         </div>
