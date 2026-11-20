@@ -850,7 +850,12 @@ jobs:
       - if: ${{ env.IS_CLOUDFLARE_CONFIGURED && (matrix.worker == 'ai' || matrix.worker == 'parse' || matrix.worker == 'cron' || matrix.worker == 'billing' || matrix.worker == 'email') }}
         name: 🚀 Promote uploaded version to 100% traffic
         working-directory: workers/${{ matrix.worker }}
-        run: npx wrangler versions deploy "${WRANGLER_VERSION_ID}@100" --yes --message "CI deploy $GITHUB_SHA"
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/scripts/promote-worker-version.sh" \
+            "$WRANGLER_VERSION_ID" \
+            "myshadchan-${{ matrix.worker }}" \
+            "CI deploy $GITHUB_SHA"
 
       # `ai`/`parse` are excluded here — they get SUPABASE_URL /
       # SUPABASE_SERVICE_ROLE_KEY via the atomic `--secrets-file` upload
