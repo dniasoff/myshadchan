@@ -372,7 +372,7 @@ commit;
 set role authenticated;
 set request.jwt.claims = '{"sub":"${CONCURRENCY_USER_ID}","role":"authenticated"}';
 select public.set_active_context(${fixture.accountId});
-create temp table add_redt_race_result (rejected boolean) on commit drop;
+create temp table add_redt_race_result (rejected boolean);
 do $$
 begin
   perform public.add_redt(${fixture.shidduchId}, ${fixture.shadchanId});
@@ -416,7 +416,7 @@ commit;
 set role authenticated;
 set request.jwt.claims = '{"sub":"${CONCURRENCY_USER_ID}","role":"authenticated"}';
 select public.set_active_context(${fixture.accountId});
-create temp table create_shidduch_race_result (rejected boolean) on commit drop;
+create temp table create_shidduch_race_result (rejected boolean);
 do $$
 begin
   perform public.create_shidduch(${fixture.singleId}, ${fixture.shadchanId}, 'Race create');
@@ -448,7 +448,7 @@ set role authenticated;
 set statement_timeout = '5s';
 set request.jwt.claims = '{"sub":"${CONCURRENCY_USER_ID}","role":"authenticated"}';
 select public.set_active_context(${fixture.accountId});
-create temp table add_redt_purge_race_result (rejected boolean) on commit drop;
+create temp table add_redt_purge_race_result (rejected boolean);
 do $$
 begin
   perform public.add_redt(${fixture.shidduchId}, ${fixture.shadchanId});
@@ -479,7 +479,7 @@ set role authenticated;
 set statement_timeout = '5s';
 set request.jwt.claims = '{"sub":"${CONCURRENCY_USER_ID}","role":"authenticated"}';
 select public.set_active_context(${fixture.accountId});
-create temp table create_purge_race_result (rejected boolean) on commit drop;
+create temp table create_purge_race_result (rejected boolean);
 do $$
 begin
   perform public.create_shidduch(${fixture.singleId}, ${fixture.shadchanId}, 'Purge race create');
