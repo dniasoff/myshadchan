@@ -3,25 +3,19 @@
 -- paths do not have a reliable phone source, and service-role ingest leaves
 -- this field NULL.
 
--- Keep a row-count receipt so a non-empty Inbox cannot be changed silently by
--- this migration. The repository's migration-data-safety fixture performs the
--- broader value-preservation check against production-shaped rows.
-create temporary table _inbox_sender_phone_row_count (
-  row_count bigint not null
-) on commit drop;
-
-insert into _inbox_sender_phone_row_count (row_count)
-select count(*) from public.inbox_items;
-
-alter table public.inbox_items
-  add column if not exists sender_phone text;
-
 do $$
 declare
   before_count bigint;
   after_count bigint;
 begin
-  select row_count into before_count from _inbox_sender_phone_row_count;
+  -- Keep a row-count receipt so a non-empty Inbox cannot be changed silently
+  -- by this migration. The repository's migration-data-safety fixture performs
+  -- the broader value-preservation check against production-shaped rows.
+  select count(*) into before_count from public.inbox_items;
+
+  alter table public.inbox_items
+    add column if not exists sender_phone text;
+
   select count(*) into after_count from public.inbox_items;
 
   if before_count > 0 and after_count <> before_count then
