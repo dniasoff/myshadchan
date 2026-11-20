@@ -1746,10 +1746,6 @@ export const createDataProvider = ({
       if (resource === "shadchanim") {
         return getVisibleAccountRows("shadchanim", params);
       }
-      // Mirror production task visibility (account scope/RLS) for reminders.
-      if (resource === "tasks") {
-        return getVisibleAccountRows("tasks", params);
-      }
       if (resource === "outbound_share_history") {
         const caller = await resolveCallerMembership();
         if (

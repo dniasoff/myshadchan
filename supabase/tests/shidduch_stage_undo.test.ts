@@ -125,16 +125,16 @@ grant insert on public.${resultTable} to authenticated;
 commit;
 set role authenticated;
 set request.jwt.claims = '{"sub":"${userId}","role":"authenticated"}';
-select public.transition_shidduch(:shidduch_id, 'new', 'look_into');
+select public.transition_shidduch(:shidduch_id, 'new', 'look_into') as transition_result \\gset
 \\pset format unaligned
 \\pset tuples_only on
 \\pset columns 0
 select :account_id || ',' || :shidduch_id;
 `);
     const fixture = setup
-      .split("\\n")
+      .split("\n")
       .map((line) => line.trim())
-      .find((line) => /^\\d+,\\d+$/.test(line));
+      .find((line) => /^\d+,\d+$/.test(line));
     if (!fixture) throw new Error(`could not parse race fixture: ${setup}`);
     const [accountId, shidduchId] = fixture.split(",");
 
@@ -178,29 +178,34 @@ commit;
 set role postgres;
 \\pset format unaligned
 \\pset tuples_only on
-\\pset fieldsep '|'
-select runner, completed, coalesce(sqlstate_code, ''), coalesce(error_message, '')
-from public.${resultTable} order by runner;
+\\pset columns 0
+select json_agg(row_to_json(r) order by r.runner)
+from (
+  select runner, completed, coalesce(sqlstate_code, '') as sqlstate_code,
+         coalesce(error_message, '') as error_message
+  from public.${resultTable}
+) r;
 `);
-      const rows = report
-        .trim()
-        .split("\\n")
-        .filter(Boolean)
-        .map((line) => line.split("|"));
+      const rows = JSON.parse(report.trim()) as Array<{
+        runner: string;
+        completed: boolean;
+        sqlstate_code: string;
+        error_message: string;
+      }>;
       expect(rows).toHaveLength(2);
-      for (const [runner, completed, sqlstateCode, message] of rows) {
-        expect(["undo", "purge"]).toContain(runner);
-        expect(sqlstateCode).not.toBe("40P01");
-        expect(sqlstateCode).not.toBe("57014");
-        if (runner === "purge") {
-          expect(completed).toBe("t");
+      for (const row of rows) {
+        expect(["undo", "purge"]).toContain(row.runner);
+        expect(row.sqlstate_code).not.toBe("40P01");
+        expect(row.sqlstate_code).not.toBe("57014");
+        if (row.runner === "purge") {
+          expect(row.completed).toBe(true);
         }
-        if (runner === "undo" && completed === "f") {
-          expect(sqlstateCode).toBe("P0001");
+        if (row.runner === "undo" && !row.completed) {
+          expect(row.sqlstate_code).toBe("P0001");
           expect([
             `shidduch ${shidduchId} not found`,
             `undo is not available for shidduch ${shidduchId}`,
-          ]).toContain(message);
+          ]).toContain(row.error_message);
         }
       }
     } finally {
