@@ -6,6 +6,7 @@ import { ShadchanCard } from "./ShadchanCard";
 import { countSuggestionsByShadchan } from "./shadchanUtils";
 import { ShadchanNotesLookupStatus } from "./ShadchanNoteAction";
 import { useShadchanNotes } from "./useShadchanNotes";
+import { useShadchanReminders } from "./useShadchanReminders";
 
 /**
  * Review fix (F6): extracted out of `ShadchanList.tsx`, mirroring
@@ -61,6 +62,9 @@ export const ShadchanCardGrid = ({
   const noteLookup = useShadchanNotes(
     shadchanim.map((shadchan) => shadchan.id),
   );
+  const reminderLookup = useShadchanReminders(
+    shadchanim.map((shadchan) => shadchan.id),
+  );
   const { data: shidduchim, isPending: shidduchimPending } =
     useGetList<ShidduchSummary>("shidduchim", {
       filter: { "archived_at@is": null },
@@ -91,6 +95,10 @@ export const ShadchanCardGrid = ({
             index={index}
             phoneSearchQuery={phoneSearchQuery}
             note={noteLookup.notesByShadchanId.get(String(shadchan.id))}
+            reminderCount={
+              reminderLookup.remindersByShadchanId.get(String(shadchan.id))
+                ?.count ?? 0
+            }
           />
         ))}
       </div>

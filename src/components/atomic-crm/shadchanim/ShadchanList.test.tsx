@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import {
   CoreAdminContext,
@@ -16,6 +16,18 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import "./entityDescriptor";
 
 import { ShadchanList } from "./ShadchanList";
+
+const { useShadchanRemindersMock } = vi.hoisted(() => ({
+  useShadchanRemindersMock: vi.fn(() => ({
+    remindersByShadchanId: new Map<string, { count: number }>(),
+    isPending: false,
+    error: null,
+  })),
+}));
+
+vi.mock("./useShadchanReminders", () => ({
+  useShadchanReminders: useShadchanRemindersMock,
+}));
 
 const SHADCHANIM = [
   {
@@ -99,6 +111,14 @@ const renderShadchanList = (
   );
 
 describe("ShadchanList — retrofitted onto EntityList, search filters the book (AC 3, 4)", () => {
+  beforeEach(() => {
+    useShadchanRemindersMock.mockImplementation(() => ({
+      remindersByShadchanId: new Map(),
+      isPending: false,
+      error: null,
+    }));
+  });
+
   it("hides archived shadchanim from the active book", async () => {
     const dataProvider = fakeDataProvider({
       shadchanim: [
@@ -261,6 +281,21 @@ describe("ShadchanList — retrofitted onto EntityList, search filters the book 
         screen.getByRole("button", { name: "Open note for Rivka Stern" }),
       )
       .toBeInTheDocument();
+  });
+
+  it("passes the batched reminder marker through to the row renderer", async () => {
+    useShadchanRemindersMock.mockReturnValue({
+      remindersByShadchanId: new Map([["1", { count: 1 }]]),
+      isPending: false,
+      error: null,
+    });
+
+    const screen = await renderShadchanList();
+    await screen.getByRole("button", { name: "List view" }).click();
+
+    await expect
+      .element(screen.getByRole("link", { name: "1 reminder" }))
+      .toHaveAttribute("href", "/shadchanim/1/tasks");
   });
 
   // Adversarial-review fix (Story 4.2, AC 2): the toggle's position relative

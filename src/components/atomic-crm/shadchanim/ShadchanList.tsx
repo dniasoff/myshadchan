@@ -18,6 +18,7 @@ import {
 import { useAllShadchanim } from "./useAllShadchanim";
 import { ShadchanNotesLookupStatus } from "./ShadchanNoteAction";
 import { useShadchanNotes } from "./useShadchanNotes";
+import { useShadchanReminders } from "./useShadchanReminders";
 import { ShadchanPendingActionBar } from "./ShadchanLifecycleActions";
 import {
   clearPendingShadchanAction,
@@ -42,6 +43,9 @@ const ShadchanRowList = ({
 }) => {
   const shadchanim = data as Shadchan[];
   const noteLookup = useShadchanNotes(
+    shadchanim.map((shadchan) => shadchan.id),
+  );
+  const reminderLookup = useShadchanReminders(
     shadchanim.map((shadchan) => shadchan.id),
   );
   const { data: shidduchim, isPending: shidduchimPending } =
@@ -81,6 +85,10 @@ const ShadchanRowList = ({
             index={index}
             phoneSearchQuery={phoneSearchQuery}
             note={noteLookup.notesByShadchanId.get(String(shadchan.id))}
+            reminderCount={
+              reminderLookup.remindersByShadchanId.get(String(shadchan.id))
+                ?.count ?? 0
+            }
           />
         ))}
       </div>

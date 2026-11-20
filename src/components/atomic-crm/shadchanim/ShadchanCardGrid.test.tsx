@@ -21,20 +21,26 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
  * "suggestion(s)" — this file's own two assertions below are updated in the
  * same diff.
  */
-const { useGetListMock, useShadchanNotesMock } = vi.hoisted(() => ({
-  useGetListMock: vi.fn(),
-  useShadchanNotesMock: vi.fn<
-    () => {
-      notesByShadchanId: Map<string, unknown>;
-      isPending: boolean;
-      error: unknown;
-    }
-  >(() => ({
-    notesByShadchanId: new Map(),
-    isPending: false,
-    error: null,
-  })),
-}));
+const { useGetListMock, useShadchanNotesMock, useShadchanRemindersMock } =
+  vi.hoisted(() => ({
+    useGetListMock: vi.fn(),
+    useShadchanNotesMock: vi.fn<
+      () => {
+        notesByShadchanId: Map<string, unknown>;
+        isPending: boolean;
+        error: unknown;
+      }
+    >(() => ({
+      notesByShadchanId: new Map(),
+      isPending: false,
+      error: null,
+    })),
+    useShadchanRemindersMock: vi.fn(() => ({
+      remindersByShadchanId: new Map<string, { count: number }>(),
+      isPending: false,
+      error: null,
+    })),
+  }));
 
 vi.mock("ra-core", async (importOriginal) => {
   const actual = await importOriginal<typeof RaCore>();
@@ -43,6 +49,10 @@ vi.mock("ra-core", async (importOriginal) => {
 
 vi.mock("./useShadchanNotes", () => ({
   useShadchanNotes: useShadchanNotesMock,
+}));
+
+vi.mock("./useShadchanReminders", () => ({
+  useShadchanReminders: useShadchanRemindersMock,
 }));
 
 // Side-effect import — registers the real `shadchanim` descriptor so
@@ -82,6 +92,11 @@ describe("ShadchanCardGrid — gates on the shidduchim count query, not just the
   beforeEach(() => {
     useShadchanNotesMock.mockImplementation(() => ({
       notesByShadchanId: new Map(),
+      isPending: false,
+      error: null,
+    }));
+    useShadchanRemindersMock.mockImplementation(() => ({
+      remindersByShadchanId: new Map(),
       isPending: false,
       error: null,
     }));
@@ -173,6 +188,21 @@ describe("ShadchanCardGrid — gates on the shidduchim count query, not just the
     await expect
       .element(screen.getByText("Moshe Adler"))
       .not.toBeInTheDocument();
+  });
+
+  it("renders the batched reminder marker on the matching card", async () => {
+    useGetListMock.mockReturnValue({ data: [], isPending: false });
+    useShadchanRemindersMock.mockReturnValue({
+      remindersByShadchanId: new Map([["1", { count: 2 }]]),
+      isPending: false,
+      error: null,
+    });
+
+    const screen = await renderGrid();
+
+    await expect
+      .element(screen.getByRole("link", { name: "2 reminders" }))
+      .toHaveAttribute("href", "/shadchanim/1/tasks");
   });
 
   it("renders the real per-shadchan shidduchim counts once the count query resolves", async () => {

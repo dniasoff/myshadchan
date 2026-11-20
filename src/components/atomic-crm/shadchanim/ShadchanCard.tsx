@@ -12,6 +12,7 @@ import {
   getShadchanPhoneMatchLabel,
 } from "./shadchanUtils";
 import { ShadchanNoteAction } from "./ShadchanNoteAction";
+import { ShadchanReminderAction } from "./ShadchanReminderAction";
 import type { ShadchanNote } from "./useShadchanNotes";
 
 export interface ShadchanCardProps {
@@ -21,6 +22,7 @@ export interface ShadchanCardProps {
   /** Position in the grid, drives the `.ql-enter` stagger delay. */
   index: number;
   note?: ShadchanNote;
+  reminderCount?: number;
 }
 
 /**
@@ -42,6 +44,7 @@ export const ShadchanCard = ({
   index,
   phoneSearchQuery,
   note,
+  reminderCount = 0,
 }: ShadchanCardProps) => {
   const translate = useTranslate();
   const countLabel = translate("crm.shadchanim.row.shidduchimCount", {
@@ -114,9 +117,12 @@ export const ShadchanCard = ({
           </span>
         </div>
       </RecordLink>
-      {note ? (
-        <div className="mt-1 flex justify-end">
-          <ShadchanNoteAction shadchan={shadchan} note={note} />
+      {note || reminderCount > 0 ? (
+        <div className="mt-1 flex flex-wrap justify-end gap-1">
+          {reminderCount > 0 ? (
+            <ShadchanReminderAction shadchan={shadchan} count={reminderCount} />
+          ) : null}
+          {note ? <ShadchanNoteAction shadchan={shadchan} note={note} /> : null}
         </div>
       ) : null}
     </Card>

@@ -460,6 +460,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shadchanim/useShadchanReminders.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shadchanim/useShadchanNotes.ts",
           "type": "registry:component"
         },
@@ -505,6 +509,10 @@
         },
         {
           "path": "src/components/atomic-crm/shadchanim/ShadchanRow.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shadchanim/ShadchanReminderAction.tsx",
           "type": "registry:component"
         },
         {
