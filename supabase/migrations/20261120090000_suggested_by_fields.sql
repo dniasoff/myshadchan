@@ -73,6 +73,55 @@ from candidates c
 where s.id = c.shidduch_id
   and s.suggested_by_name is null;
 
+-- Keep the row-returning helper in lockstep with the 37-column shidduchim
+-- rowtype before create_shidduch below calls it. This is intentionally kept
+-- in the exact pg_dump format used by schemas/02_functions.sql.
+CREATE OR REPLACE FUNCTION "public"."shidduch_row"("p_shidduchim_id" bigint) RETURNS SETOF "public"."shidduchim"
+    LANGUAGE "sql" STABLE
+    SET "search_path" TO ''
+    AS $$
+  select
+    s.id,
+    s.account_id,
+    s.created_at,
+    s.single_id,
+    s.shadchan_id,
+    s.name_en,
+    s.name_he,
+    s.seminary_en,
+    s.seminary_he,
+    s.shul_en,
+    s.shul_he,
+    s.location_en,
+    s.location_he,
+    s.age,
+    s.height,
+    s.pipeline_state,
+    s.first_suggested_by,
+    s.first_suggested_at,
+    s.redt_date,
+    public.shidduch_close_reason(s.id),
+    s.origin,
+    s.owner_member_id,
+    s.visibility,
+    s.index,
+    s.background,
+    s.dob,
+    s.existing_children_note,
+    s.father_en,
+    s.father_he,
+    s.marital_status,
+    s.mother_en,
+    s.mother_he,
+    s.kohen_status,
+    s.person_gender,
+    s.archived_at,
+    s.suggested_by_name,
+    s.suggested_by_phone
+  from public.shidduchim s
+  where s.id = p_shidduchim_id;
+$$;
+
 -- Replace the old input signature rather than leaving an overload whose
 -- defaults would make PostgREST calls ambiguous. All existing callers remain
 -- valid because the two new inputs have NULL defaults.

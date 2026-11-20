@@ -57,8 +57,29 @@ from public.create_shidduch(
 )
 \gset
 
--- Shape legacy rows directly; the migration is responsible for the update.
+-- Emulate a deployed pre-migration database: the table already has the new
+-- columns, but the row-returning helper still has its old 35-column body.
+-- The migration must replace this before its new create_shidduch can return.
 set local role postgres;
+CREATE OR REPLACE FUNCTION public.shidduch_row(p_shidduchim_id bigint)
+ RETURNS SETOF public.shidduchim
+ LANGUAGE sql
+ STABLE
+ SET search_path TO ''
+AS $function$
+  select
+    s.id, s.account_id, s.created_at, s.single_id, s.shadchan_id,
+    s.name_en, s.name_he, s.seminary_en, s.seminary_he,
+    s.shul_en, s.shul_he, s.location_en, s.location_he,
+    s.age, s.height, s.pipeline_state, s.first_suggested_by,
+    s.first_suggested_at, s.redt_date, public.shidduch_close_reason(s.id),
+    s.origin, s.owner_member_id, s.visibility, s.index, s.background, s.dob,
+    s.existing_children_note, s.father_en, s.father_he, s.marital_status,
+    s.mother_en, s.mother_he, s.kohen_status, s.person_gender, s.archived_at
+  from public.shidduchim s where s.id = p_shidduchim_id;
+$function$;
+
+-- Shape legacy rows directly; the migration is responsible for the update.
 insert into public.inbox_items (
   account_id, source, raw_text, sender, status, single_id,
   resolved_shidduchim_id
@@ -69,6 +90,24 @@ values
 
 -- Replay the additive migration to exercise its idempotent backfill path.
 \ir ../migrations/20261120090000_suggested_by_fields.sql
+
+set local role authenticated;
+select id as migrated_rpc_shidduch_id
+from public.create_shidduch(
+  p_single_id => :single_id,
+  p_name_en => 'Migration replay candidate',
+  p_suggested_by_name => 'Replay Referrer',
+  p_suggested_by_phone => '+1 555 0111'
+)
+\gset
+
+insert into results
+select 'migration replay create_shidduch returns suggested-by fields',
+  suggested_by_name = 'Replay Referrer'
+    and suggested_by_phone = '+1 555 0111',
+  format('name=%s phone=%s', suggested_by_name, suggested_by_phone)
+from public.shidduchim
+where id = :migrated_rpc_shidduch_id;
 
 insert into results
 select 'legacy backfill trims and copies a qualifying sender',
