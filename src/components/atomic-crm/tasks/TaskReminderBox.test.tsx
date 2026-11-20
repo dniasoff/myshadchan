@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { userEvent } from "vitest/browser";
 import { QueryClient } from "@tanstack/react-query";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+
+import { Notification } from "@/components/admin/notification";
 import type { DataProvider } from "ra-core";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
@@ -50,6 +53,7 @@ const renderBox = async (
         i18nProvider={testI18nProvider}
       >
         <TaskReminderBox targetType="shadchan" targetId={7} />
+        <Notification />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -100,6 +104,7 @@ describe("TaskReminderBox", () => {
     await expect
       .element(screen.getByText("We couldn't read that time. Try 9:34 PM."))
       .toBeInTheDocument();
+    await expect.element(time).toHaveAttribute("aria-invalid", "true");
     await screen.getByRole("button", { name: "Add reminder" }).click();
     expect(create).not.toHaveBeenCalled();
   });
@@ -134,6 +139,106 @@ describe("TaskReminderBox", () => {
     const updatedDueDate = update.mock.calls[0][1].data.due_date as string;
     expect(updatedDueDate).toBe(new Date(2026, 10, 20, 21, 0).toISOString());
     vi.useRealTimers();
+  });
+
+  it("moves focus into edit, cancels on Escape, and restores the Edit trigger", async () => {
+    const task = buildTask({ id: 10 });
+    const { screen } = await renderBox([task]);
+    const editButton = screen.getByRole("button", { name: "Edit" });
+
+    await editButton.click();
+    const editText = screen.getByLabelText("What do I need to do?").last();
+    await expect.element(editText).toHaveFocus();
+
+    await userEvent.keyboard("{Escape}");
+    await expect.element(editButton).toHaveFocus();
+    await expect
+      .element(screen.getByText("Call the family"))
+      .toBeInTheDocument();
+  });
+
+  it("returns focus to Edit after a successful save and cancels delete on Escape", async () => {
+    const task = buildTask({ id: 11 });
+    const update = vi.fn().mockResolvedValue({ data: task });
+    const { screen } = await renderBox([task], { update });
+    const editButton = screen.getByRole("button", { name: "Edit" });
+
+    await editButton.click();
+    await screen.getByRole("button", { name: "Save" }).click();
+    await expect.element(editButton).toHaveFocus();
+
+    const deleteButton = screen.getByRole("button", { name: "Delete" });
+    await deleteButton.click();
+    await expect
+      .element(screen.getByRole("heading", { name: "Delete this task?" }))
+      .toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await expect
+      .element(screen.getByRole("heading", { name: "Delete this task?" }))
+      .not.toBeInTheDocument();
+    await expect.element(deleteButton).toHaveFocus();
+  });
+
+  it("guards a second save activation until the first provider call settles", async () => {
+    const task = buildTask({ id: 14 });
+    const update = vi.fn().mockImplementation(
+      () =>
+        new Promise<{ data: Task }>((resolve) => {
+          setTimeout(() => resolve({ data: task }), 50);
+        }),
+    );
+    const { screen } = await renderBox([task], { update });
+
+    await screen.getByRole("button", { name: "Edit" }).click();
+    const save = screen.getByRole("button", { name: "Save" });
+    await Promise.all([save.click(), save.click({ force: true })]);
+    expect(update).toHaveBeenCalledTimes(1);
+
+    await expect
+      .element(screen.getByRole("button", { name: "Edit" }))
+      .toBeInTheDocument();
+  });
+
+  it("focuses the stable heading after delete and the restored Edit button after Undo", async () => {
+    const task = buildTask({ id: 12 });
+    const { screen } = await renderBox([task]);
+
+    await screen.getByRole("button", { name: "Delete" }).click();
+    await screen
+      .getByRole("dialog")
+      .getByRole("button", { name: "Delete" })
+      .click();
+    await expect
+      .element(screen.getByRole("heading", { name: "Reminders" }))
+      .toHaveFocus();
+    await expect
+      .element(screen.getByRole("button", { name: "Undo" }))
+      .toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "Undo" }).click();
+    await expect
+      .element(screen.getByRole("button", { name: "Edit" }))
+      .toHaveFocus();
+  });
+
+  it("finalizes a double-confirm delete with exactly one provider effect", async () => {
+    const task = buildTask({ id: 13 });
+    const deleteTask = vi.fn().mockResolvedValue({ data: task });
+    const { screen } = await renderBox([task], {
+      delete: deleteTask,
+    });
+
+    await screen.getByRole("button", { name: "Delete" }).click();
+    const confirmDelete = screen
+      .getByRole("dialog")
+      .getByRole("button", { name: "Delete" });
+    await confirmDelete.dblClick();
+    await expect
+      .element(screen.getByRole("button", { name: "Undo" }))
+      .toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "Close toast" }).click();
+    await expect.poll(() => deleteTask.mock.calls.length).toBe(1);
   });
 
   it("asks for confirmation before deleting and keeps the action word-labelled", async () => {

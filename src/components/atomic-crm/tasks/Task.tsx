@@ -1,7 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { MoreVertical } from "lucide-react";
-import { useDeleteWithUndoController, useTranslate, useUpdate } from "ra-core";
-import { useEffect, useState } from "react";
+import {
+  useDelete,
+  useNotify,
+  useTranslate,
+  useUpdate,
+  type UseDeleteOptions,
+} from "ra-core";
+import { useEffect, useRef, useState } from "react";
 import { Confirm } from "@/components/admin/confirm";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,6 +31,7 @@ export const Task = ({ task }: { task: TData }) => {
   const isMobile = useIsMobile();
   const { taskTypes } = useConfigurationContext();
   const translate = useTranslate();
+  const notify = useNotify();
   const queryClient = useQueryClient();
   // `TasksIterator.tsx`/`TasksListFilter.tsx` (out of this story's
   // ownership manifest) render one `Task` per row with no shared assignee
@@ -39,6 +46,8 @@ export const Task = ({ task }: { task: TData }) => {
 
   const [openEdit, setOpenEdit] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteActivationRef = useRef(false);
+  const undoActivationRef = useRef(false);
 
   const handleCloseEdit = () => {
     setOpenEdit(false);
@@ -46,12 +55,34 @@ export const Task = ({ task }: { task: TData }) => {
 
   const [update, { isPending: isUpdatePending, isSuccess, variables }] =
     useUpdate();
-  const { handleDelete } = useDeleteWithUndoController({
-    resource: "tasks",
-    record: task,
-    redirect: false,
-    successMessage: "Deleted. Undo is available for 10 seconds.",
-  });
+  const deleteOptions: UseDeleteOptions<TData> & { onUndo?: () => void } = {
+    mutationMode: "undoable",
+    onSuccess: () => {
+      notify("Deleted. Undo is available for 10 seconds.", {
+        type: "info",
+        undoable: true,
+      });
+    },
+    onUndo: () => {
+      if (undoActivationRef.current) return;
+      undoActivationRef.current = true;
+      deleteActivationRef.current = false;
+      setTimeout(() => {
+        undoActivationRef.current = false;
+      }, 0);
+    },
+    onError: () => {
+      deleteActivationRef.current = false;
+      notify("Could not delete the task. Please try again.", {
+        type: "error",
+      });
+    },
+  };
+  const [deleteTask] = useDelete<TData>(
+    "tasks",
+    { id: task.id, previousData: task },
+    deleteOptions,
+  );
 
   const handleEdit = () => {
     setOpenEdit(true);
@@ -234,7 +265,11 @@ export const Task = ({ task }: { task: TData }) => {
             </DropdownMenuItem>
             <DropdownMenuItem
               className="cursor-pointer h-12 md:h-8 px-4 md:px-2 text-base md:text-sm"
-              onClick={() => setConfirmDelete(true)}
+              onClick={() => {
+                if (deleteActivationRef.current || undoActivationRef.current)
+                  return;
+                setConfirmDelete(true);
+              }}
             >
               {translate("ra.action.delete")}
             </DropdownMenuItem>
@@ -257,10 +292,20 @@ export const Task = ({ task }: { task: TData }) => {
         cancel="Cancel"
         confirm="Delete"
         confirmColor="warning"
-        onClose={() => setConfirmDelete(false)}
-        onConfirm={(event) => {
+        onClose={() => {
           setConfirmDelete(false);
-          handleDelete(event);
+          deleteActivationRef.current = false;
+        }}
+        onConfirm={(event) => {
+          if (deleteActivationRef.current || undoActivationRef.current) return;
+          deleteActivationRef.current = true;
+          setConfirmDelete(false);
+          event.stopPropagation();
+          deleteTask(
+            "tasks",
+            { id: task.id, previousData: task },
+            { mutationMode: "undoable" },
+          );
         }}
       />
     </>

@@ -4,6 +4,8 @@ import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import type { DataProvider } from "ra-core";
 
+import { Notification } from "@/components/admin/notification";
+
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { ContextMember, Task as TaskRecord } from "../types";
 import { Task } from "./Task";
@@ -35,6 +37,7 @@ const buildMember = (
 const renderTask = async (
   task: TaskRecord,
   contextMembers: ContextMember[],
+  overrides: Partial<DataProvider> = {},
 ) => {
   const dataProvider = {
     getList: vi.fn().mockResolvedValue({
@@ -44,6 +47,7 @@ const renderTask = async (
     getOne: vi.fn().mockResolvedValue({ data: task }),
     update: vi.fn().mockResolvedValue({ data: task }),
     delete: vi.fn().mockResolvedValue({ data: task }),
+    ...overrides,
   } as unknown as DataProvider;
 
   const screen = await render(
@@ -53,6 +57,7 @@ const renderTask = async (
         i18nProvider={testI18nProvider}
       >
         <Task task={task} />
+        <Notification />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -177,5 +182,29 @@ describe("Task — destructive actions are confirmed", () => {
       .getByRole("button", { name: "Cancel" })
       .click();
     expect(dataProvider.delete).not.toHaveBeenCalled();
+  });
+
+  it("applies a double-confirm delete exactly once", async () => {
+    const task = buildTask({ id: 2 });
+    const deleteTask = vi.fn().mockResolvedValue({ data: task });
+    const { screen } = await renderTask(
+      task,
+      [buildMember({ id: 1, is_self: true })],
+      { delete: deleteTask },
+    );
+
+    await screen.getByRole("button", { name: "task actions" }).click();
+    await screen.getByRole("menuitem", { name: "Delete" }).click();
+    const confirmDelete = screen
+      .getByRole("dialog")
+      .getByRole("button", { name: "Delete" });
+
+    await confirmDelete.dblClick();
+    await expect
+      .element(screen.getByRole("button", { name: "Undo" }))
+      .toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "Close toast" }).click();
+    await expect.poll(() => deleteTask.mock.calls.length).toBe(1);
   });
 });

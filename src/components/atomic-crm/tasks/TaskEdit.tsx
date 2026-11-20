@@ -4,7 +4,9 @@ import {
   useNotify,
   useTranslate,
   type Identifier,
+  type UseDeleteOptions,
 } from "ra-core";
+import { useRef } from "react";
 import { DeleteButton } from "@/components/admin/delete-button";
 import { SaveButton } from "@/components/admin/form";
 import {
@@ -54,6 +56,33 @@ export const TaskEdit = ({
 }) => {
   const notify = useNotify();
   const translate = useTranslate();
+  const saveActivationRef = useRef(false);
+  const deleteActivationRef = useRef(false);
+  const undoActivationRef = useRef(false);
+  const deleteMutationOptions: UseDeleteOptions & { onUndo?: () => void } = {
+    onSuccess: () => {
+      deleteActivationRef.current = false;
+      close();
+      notify("resources.tasks.deleted", {
+        type: "info",
+        undoable: true,
+      });
+    },
+    onUndo: () => {
+      if (undoActivationRef.current) return;
+      undoActivationRef.current = true;
+      deleteActivationRef.current = false;
+      setTimeout(() => {
+        undoActivationRef.current = false;
+      }, 0);
+    },
+    onError: () => {
+      deleteActivationRef.current = false;
+    },
+    onSettled: () => {
+      deleteActivationRef.current = false;
+    },
+  };
   return (
     <Dialog open={open} onOpenChange={close}>
       {open && taskId && (
@@ -63,11 +92,18 @@ export const TaskEdit = ({
           className="mt-0"
           mutationOptions={{
             onSuccess: () => {
+              saveActivationRef.current = false;
               close();
               notify("resources.tasks.updated", {
                 type: "info",
                 undoable: true,
               });
+            },
+            onError: () => {
+              saveActivationRef.current = false;
+            },
+            onSettled: () => {
+              saveActivationRef.current = false;
             },
           }}
           redirect={false}
@@ -82,18 +118,29 @@ export const TaskEdit = ({
               <TaskFormContent />
               <DialogFooter className="w-full sm:justify-between gap-4">
                 <DeleteButton
-                  mutationOptions={{
-                    onSuccess: () => {
-                      close();
-                      notify("resources.tasks.deleted", {
-                        type: "info",
-                        undoable: true,
-                      });
-                    },
+                  onClick={(event) => {
+                    if (
+                      deleteActivationRef.current ||
+                      undoActivationRef.current
+                    ) {
+                      event.preventDefault();
+                      return;
+                    }
+                    deleteActivationRef.current = true;
                   }}
+                  mutationOptions={deleteMutationOptions}
                   redirect={false}
                 />
-                <SaveButton label="ra.action.save" />
+                <SaveButton
+                  label="ra.action.save"
+                  onClick={(event) => {
+                    if (saveActivationRef.current) {
+                      event.preventDefault();
+                      return;
+                    }
+                    saveActivationRef.current = true;
+                  }}
+                />
               </DialogFooter>
             </Form>
           </DialogContent>

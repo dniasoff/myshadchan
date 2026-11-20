@@ -2,13 +2,13 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import {
   useCreate,
-  useDeleteWithUndoController,
+  useDelete,
   useGetList,
   useNotify,
   useRefresh,
   useUpdate,
 } from "ra-core";
-import type { Identifier } from "ra-core";
+import type { Identifier, UseDeleteOptions } from "ra-core";
 
 import { Confirm } from "@/components/admin/confirm";
 import { Button } from "@/components/ui/button";
@@ -87,6 +87,8 @@ interface ReminderRowProps {
   onToggle: (task: Task) => Promise<boolean>;
   onChanged: () => void;
   onFocusAfterToggle: (taskId: string | null) => void;
+  onFocusAfterDelete: (taskId: string, nextTaskId: string | null) => void;
+  onFocusAfterUndo: (taskId: string) => void;
   nextTaskId: string | null;
 }
 
@@ -95,6 +97,8 @@ const ReminderRow = ({
   onToggle,
   onChanged,
   onFocusAfterToggle,
+  onFocusAfterDelete,
+  onFocusAfterUndo,
   nextTaskId,
 }: ReminderRowProps): ReactElement => {
   const notify = useNotify();
@@ -108,20 +112,63 @@ const ReminderRow = ({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const editTimeId = `reminder-${String(task.id)}-edit-time`;
   const editTimeErrorId = `${editTimeId}-error`;
+  const editTextRef = useRef<HTMLInputElement>(null);
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  const actionGuardRef = useRef<"save" | "delete" | null>(null);
+  const undoActivationRef = useRef(false);
 
-  const { isPending: isDeleting, handleDelete } =
-    useDeleteWithUndoController<Task>({
-      resource: "tasks",
-      record: task,
-      redirect: false,
-      successMessage: "Deleted. Undo is available for 10 seconds.",
-      mutationOptions: {
-        onSuccess: () => {
-          refresh();
-          onChanged();
-        },
-      },
-    });
+  const focusSoon = (getElement: () => HTMLElement | null) => {
+    requestAnimationFrame(() => getElement()?.focus());
+  };
+
+  const cancelEditing = () => {
+    setTimeError("");
+    setIsEditing(false);
+    focusSoon(() => editButtonRef.current);
+  };
+
+  useEffect(() => {
+    if (!isEditing) return;
+    const frame = requestAnimationFrame(() => editTextRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [isEditing]);
+
+  const deleteOptions: UseDeleteOptions<Task> & { onUndo?: () => void } = {
+    mutationMode: "undoable",
+    onSuccess: () => {
+      refresh();
+      onChanged();
+      notify("Deleted. Undo is available for 10 seconds.", {
+        type: "info",
+        undoable: true,
+      });
+    },
+    onUndo: () => {
+      if (undoActivationRef.current) return;
+      undoActivationRef.current = true;
+      actionGuardRef.current = null;
+      onChanged();
+      onFocusAfterUndo(String(task.id));
+      setTimeout(() => {
+        undoActivationRef.current = false;
+      }, 0);
+    },
+    onError: () => {
+      actionGuardRef.current = null;
+      notify("Could not delete the reminder. Please try again.", {
+        type: "error",
+      });
+    },
+  };
+  const [deleteTask, { isPending: isDeleting }] = useDelete<Task>(
+    "tasks",
+    {
+      id: task.id,
+      previousData: task,
+    },
+    deleteOptions,
+  );
 
   useEffect(() => {
     if (!isEditing) {
@@ -150,6 +197,8 @@ const ReminderRow = ({
     if (editText.trim() === "" || !normaliseTime()) return;
     const parsedTime = editTime.trim() === "" ? null : parseTaskTime(editTime);
     if (editTime.trim() !== "" && parsedTime == null) return;
+    if (actionGuardRef.current != null || undoActivationRef.current) return;
+    actionGuardRef.current = "save";
 
     try {
       await update(
@@ -172,8 +221,12 @@ const ReminderRow = ({
       setTimeError("");
       onChanged();
       refresh();
+      focusSoon(() => editButtonRef.current);
     } catch {
       notify(UPDATE_ERROR, { type: "error" });
+      focusSoon(() => editTextRef.current);
+    } finally {
+      actionGuardRef.current = null;
     }
   };
 
@@ -184,11 +237,20 @@ const ReminderRow = ({
   return (
     <li className="flex min-w-0 flex-col gap-3 border-b py-4 last:border-b-0">
       {isEditing ? (
-        <div className="flex flex-col gap-3">
+        <div
+          className="flex flex-col gap-3"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              cancelEditing();
+            }
+          }}
+        >
           <Label htmlFor={`reminder-${String(task.id)}-edit-text`}>
             What do I need to do?
           </Label>
           <Input
+            ref={editTextRef}
             id={`reminder-${String(task.id)}-edit-text`}
             value={editText}
             maxLength={TEXT_MAX_LENGTH}
@@ -215,6 +277,7 @@ const ReminderRow = ({
                 inputMode="text"
                 placeholder="for example 9:34 PM"
                 aria-label="Edit time (optional)"
+                aria-invalid={Boolean(timeError)}
                 aria-describedby={timeError ? editTimeErrorId : undefined}
                 onChange={(event) => {
                   setEditTime(event.target.value);
@@ -251,7 +314,7 @@ const ReminderRow = ({
               type="button"
               variant="outline"
               className="min-h-11"
-              onClick={() => setIsEditing(false)}
+              onClick={cancelEditing}
             >
               Cancel
             </Button>
@@ -284,15 +347,18 @@ const ReminderRow = ({
           </div>
           <div className="flex shrink-0 flex-wrap justify-end gap-2">
             <Button
+              ref={editButtonRef}
               type="button"
               variant="ghost"
               className="min-h-11 min-w-11 gap-1 px-2"
+              data-edit-task-id={String(task.id)}
               onClick={() => setIsEditing(true)}
             >
               <Pencil className="size-4" aria-hidden="true" />
               Edit
             </Button>
             <Button
+              ref={deleteButtonRef}
               type="button"
               variant="ghost"
               className="min-h-11 min-w-11 gap-1 px-2 text-destructive hover:text-destructive"
@@ -312,10 +378,22 @@ const ReminderRow = ({
         confirm="Delete"
         confirmColor="warning"
         loading={isDeleting}
-        onClose={() => setConfirmOpen(false)}
-        onConfirm={(event) => {
+        onClose={() => {
           setConfirmOpen(false);
-          handleDelete(event);
+          focusSoon(() => deleteButtonRef.current);
+        }}
+        onConfirm={(event) => {
+          if (actionGuardRef.current != null || undoActivationRef.current)
+            return;
+          actionGuardRef.current = "delete";
+          setConfirmOpen(false);
+          onFocusAfterDelete(String(task.id), nextTaskId);
+          event.stopPropagation();
+          deleteTask(
+            "tasks",
+            { id: task.id, previousData: task },
+            { mutationMode: "undoable" },
+          );
         }}
       />
     </li>
@@ -343,6 +421,11 @@ export const TaskReminderBox = ({
   const [focusAfterCompletion, setFocusAfterCompletion] = useState<
     string | null | undefined
   >(undefined);
+  const [focusAfterDelete, setFocusAfterDelete] = useState<
+    | { kind: "delete"; taskId: string; nextTaskId: string | null }
+    | { kind: "edit"; taskId: string }
+    | null
+  >(null);
   const textInputRef = useRef<HTMLInputElement>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -381,6 +464,71 @@ export const TaskReminderBox = ({
     }
     setFocusAfterCompletion(undefined);
   }, [focusAfterCompletion, tasks]);
+
+  useEffect(() => {
+    if (focusAfterDelete == null) return;
+    let attempts = 0;
+    let frame = 0;
+    let timeout = 0;
+    const isVisible = (element: HTMLElement) => {
+      const style = window.getComputedStyle(element);
+      return (
+        !element.hidden &&
+        element.getAttribute("aria-hidden") !== "true" &&
+        style.display !== "none" &&
+        style.visibility !== "hidden"
+      );
+    };
+    const focusTarget = () => {
+      let target: HTMLElement | null = null;
+      if (focusAfterDelete.kind === "delete") {
+        target =
+          focusAfterDelete.nextTaskId == null
+            ? null
+            : (Array.from(
+                listRef.current?.querySelectorAll<HTMLButtonElement>(
+                  "[data-edit-task-id]",
+                ) ?? [],
+              ).find(
+                (element) =>
+                  element.dataset.editTaskId === focusAfterDelete.nextTaskId &&
+                  isVisible(element),
+              ) ?? null);
+        target ??= headingRef.current;
+      } else {
+        target =
+          Array.from(
+            listRef.current?.querySelectorAll<HTMLButtonElement>(
+              "[data-edit-task-id]",
+            ) ?? [],
+          ).find(
+            (element) => element.dataset.editTaskId === focusAfterDelete.taskId,
+          ) ?? null;
+      }
+      if (target == null) {
+        if (attempts++ < 30) frame = requestAnimationFrame(focusTarget);
+        return;
+      }
+      target.focus();
+      if (attempts++ < 12) {
+        frame = requestAnimationFrame(focusTarget);
+        return;
+      }
+      setFocusAfterDelete(null);
+    };
+    if (focusAfterDelete.kind === "edit") {
+      // The toast action dismisses itself after calling onUndo. Defer the
+      // focus until that dismissal has finished so it cannot move focus back
+      // to the heading after this effect focuses the restored row.
+      timeout = window.setTimeout(focusTarget, 0);
+    } else {
+      frame = requestAnimationFrame(focusTarget);
+    }
+    return () => {
+      window.clearTimeout(timeout);
+      cancelAnimationFrame(frame);
+    };
+  }, [focusAfterDelete, tasks]);
 
   if (!canSee) return null;
 
@@ -564,6 +712,7 @@ export const TaskReminderBox = ({
               value={time}
               inputMode="text"
               placeholder="for example 9:34 PM"
+              aria-invalid={Boolean(timeError)}
               aria-describedby={
                 timeError ? `${inputPrefix}time-error` : undefined
               }
@@ -620,6 +769,16 @@ export const TaskReminderBox = ({
               onToggle={handleToggle}
               onChanged={refresh}
               onFocusAfterToggle={setFocusAfterCompletion}
+              onFocusAfterDelete={(taskId, nextTaskId) => {
+                setFocusAfterDelete({
+                  kind: "delete",
+                  taskId,
+                  nextTaskId,
+                });
+              }}
+              onFocusAfterUndo={(taskId) => {
+                setFocusAfterDelete({ kind: "edit", taskId });
+              }}
               nextTaskId={
                 index + 1 < tasks.length ? String(tasks[index + 1].id) : null
               }
