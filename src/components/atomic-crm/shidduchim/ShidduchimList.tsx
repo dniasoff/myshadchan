@@ -20,6 +20,7 @@ import { TopToolbar } from "../layout/TopToolbar";
 import { EmptyState } from "../misc/EmptyState";
 import type { ShidduchSummary, Single } from "../types";
 import { PipelineListSkeleton } from "./ShidduchimPipelineList";
+import { ShidduchTodoSummaryProvider } from "./ShidduchTodoSummary";
 import { ShidduchimViewSwitch } from "./ShidduchimViewSwitch";
 import {
   getPendingShidduchAction,
@@ -578,7 +579,9 @@ const ShidduchimBody = ({
         </div>
       </div>
 
-      <ShidduchimViewSwitch />
+      <ShidduchTodoSummaryProvider>
+        <ShidduchimViewSwitch />
+      </ShidduchTodoSummaryProvider>
     </div>
   );
 };

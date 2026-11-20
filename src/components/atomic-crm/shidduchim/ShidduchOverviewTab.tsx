@@ -6,6 +6,7 @@ import { RedtHistorySection } from "./RedtHistorySection";
 import { ShidduchCatchSection } from "./ShidduchCatchSection";
 import { ShidduchFactsCard } from "./ShidduchFactsCard";
 import { SingleInputForm } from "./SingleInputForm";
+import { ShidduchTodoBox } from "./ShidduchTodoBox";
 
 /**
  * The `overview` tab's content (Story 5.1 AC 5/6) — the four presentational
@@ -41,6 +42,29 @@ export const ShidduchOverviewTab = () => {
           rail (ShidduchRightRail.guard.test.ts). Renders nothing for any
           viewer other than a single. */}
       <SingleInputForm shidduchId={record.id} />
+
+      <div
+        data-slot="shidduch-shadchan-todo-layout"
+        className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] lg:items-start"
+      >
+        <section
+          aria-labelledby="shidduch-shadchan-heading"
+          data-slot="shidduch-shadchan-block"
+          className="rounded-2xl border border-border bg-card p-5 shadow-sm"
+        >
+          <h3
+            id="shidduch-shadchan-heading"
+            className="font-display text-lg font-semibold"
+          >
+            Shadchan
+          </h3>
+          <p className="mt-2 break-words text-sm text-muted-foreground">
+            {record.shadchan_name ?? "No shadchan recorded"}
+          </p>
+        </section>
+
+        <ShidduchTodoBox shidduch={record} />
+      </div>
 
       <ShidduchCatchSection shidduchimId={record.id} />
 
