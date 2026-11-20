@@ -70,6 +70,23 @@ function isRenderingCancelledException(error: unknown): boolean {
   );
 }
 
+type DestroyablePdfDocument = PDFDocumentProxy & {
+  // Some pdf.js builds expose the document teardown as destroy(), while the
+  // installed build exposes the equivalent cleanup() API in its typings.
+  destroy?: () => Promise<void>;
+};
+
+function destroyPdfDocument(doc: PDFDocumentProxy): void {
+  const destroyable = doc as DestroyablePdfDocument;
+  try {
+    void Promise.resolve(
+      destroyable.destroy ? destroyable.destroy.call(doc) : doc.cleanup(),
+    ).catch(() => {});
+  } catch {
+    // Document cleanup is best-effort; task cleanup still releases the worker.
+  }
+}
+
 type PdfState =
   | { status: "pending" }
   | { status: "ready"; doc: PDFDocumentProxy; aspect: number }
@@ -127,9 +144,32 @@ export function PdfPreview({
 }: PdfPreviewProps): ReactElement {
   const translate = useTranslate();
   const [state, setState] = useState<PdfState>({ status: "pending" });
-  const handlePageError = useCallback(() => {
-    setState({ status: "error" });
+  const loadingTaskRef = useRef<PDFDocumentLoadingTask | null>(null);
+  const documentRef = useRef<PDFDocumentProxy | null>(null);
+  const destroyPdf = useCallback(() => {
+    // Clear the handles before invoking either destroy method. Page failures
+    // and effect cleanup can race, but each loaded task/document must only be
+    // torn down once.
+    const task = loadingTaskRef.current;
+    const doc = documentRef.current;
+    loadingTaskRef.current = null;
+    documentRef.current = null;
+
+    if (doc) {
+      destroyPdfDocument(doc);
+    }
+    if (task) {
+      try {
+        void task.destroy().catch(() => {});
+      } catch {
+        // Destroy is best-effort during error and unmount cleanup.
+      }
+    }
   }, []);
+  const handlePageError = useCallback(() => {
+    destroyPdf();
+    setState({ status: "error" });
+  }, [destroyPdf]);
 
   useEffect(() => {
     if (!active) {
@@ -138,7 +178,6 @@ export function PdfPreview({
     }
 
     let cancelled = false;
-    let loadingTask: PDFDocumentLoadingTask | null = null;
     const abortController = new AbortController();
     setState({ status: "pending" });
 
@@ -149,8 +188,13 @@ export function PdfPreview({
         void task.destroy().catch(() => {});
         return;
       }
-      loadingTask = task;
+      loadingTaskRef.current = task;
       const doc = await task.promise;
+      if (cancelled) {
+        destroyPdfDocument(doc);
+        return;
+      }
+      documentRef.current = doc;
       // Page 1's shape sizes every placeholder, so pages that have not been
       // painted yet still occupy their real height — no layout shift as the
       // reader scrolls into them.
@@ -159,7 +203,10 @@ export function PdfPreview({
       if (cancelled) return;
       setState({ status: "ready", doc, aspect: height / width });
     })().catch(() => {
-      if (!cancelled) setState({ status: "error" });
+      if (!cancelled) {
+        destroyPdf();
+        setState({ status: "error" });
+      }
     });
 
     return () => {
@@ -168,13 +215,9 @@ export function PdfPreview({
       // Frees the worker and the parsed document; without it, opening several
       // files in sequence leaks a worker each time. It rejects if the task
       // was still loading, which is a normal unmount, not a failure.
-      if (loadingTask) {
-        const task = loadingTask;
-        loadingTask = null;
-        void task.destroy().catch(() => {});
-      }
+      destroyPdf();
     };
-  }, [active, signUrl]);
+  }, [active, destroyPdf, signUrl]);
 
   if (state.status === "pending") {
     return (

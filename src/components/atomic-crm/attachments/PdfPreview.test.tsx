@@ -54,6 +54,7 @@ const makePdf = (baseWidth = 600, baseHeight = 800, pageCount = 1) => {
   const documentProxy = {
     numPages: pageCount,
     getPage: vi.fn().mockResolvedValue(page),
+    destroy: vi.fn().mockResolvedValue(undefined),
   };
   const loadingTask = {
     promise: Promise.resolve(documentProxy),
@@ -110,10 +111,12 @@ describe("PdfPreview rendering lifecycle", () => {
   });
 
   it("surfaces a real page-render rejection with the download fallback", async () => {
-    const { page, tasks } = makePdf();
+    const { documentProxy, loadingTask, page, tasks } = makePdf();
     const { screen } = await renderPdf();
 
     await expect.poll(() => page.render.mock.calls.length).toBe(1);
+    expect(loadingTask.destroy).not.toHaveBeenCalled();
+    expect(documentProxy.destroy).not.toHaveBeenCalled();
     tasks[0].reject(new Error("page render failed"));
 
     await expect
@@ -122,6 +125,10 @@ describe("PdfPreview rendering lifecycle", () => {
     await expect
       .element(screen.getByRole("button", { name: "Download a copy" }))
       .toBeVisible();
+    await expect.poll(() => loadingTask.destroy.mock.calls.length).toBe(1);
+    await expect.poll(() => documentProxy.destroy.mock.calls.length).toBe(1);
+    expect(loadingTask.destroy).toHaveBeenCalledTimes(1);
+    expect(documentProxy.destroy).toHaveBeenCalledTimes(1);
   });
 
   it("waits for a positive width and detects reveal without ResizeObserver", async () => {
