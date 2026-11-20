@@ -1,7 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { page } from "vitest/browser";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import type * as RaCore from "ra-core";
+
+import "@/index.css";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 
@@ -21,20 +24,26 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
  * "suggestion(s)" — this file's own two assertions below are updated in the
  * same diff.
  */
-const { useGetListMock, useShadchanNotesMock } = vi.hoisted(() => ({
-  useGetListMock: vi.fn(),
-  useShadchanNotesMock: vi.fn<
-    () => {
-      notesByShadchanId: Map<string, unknown>;
-      isPending: boolean;
-      error: unknown;
-    }
-  >(() => ({
-    notesByShadchanId: new Map(),
-    isPending: false,
-    error: null,
-  })),
-}));
+const { useGetListMock, useShadchanNotesMock, useShadchanRemindersMock } =
+  vi.hoisted(() => ({
+    useGetListMock: vi.fn(),
+    useShadchanNotesMock: vi.fn<
+      () => {
+        notesByShadchanId: Map<string, unknown>;
+        isPending: boolean;
+        error: unknown;
+      }
+    >(() => ({
+      notesByShadchanId: new Map(),
+      isPending: false,
+      error: null,
+    })),
+    useShadchanRemindersMock: vi.fn(() => ({
+      remindersByShadchanId: new Map<string, { count: number }>(),
+      isPending: false,
+      error: null,
+    })),
+  }));
 
 vi.mock("ra-core", async (importOriginal) => {
   const actual = await importOriginal<typeof RaCore>();
@@ -43,6 +52,10 @@ vi.mock("ra-core", async (importOriginal) => {
 
 vi.mock("./useShadchanNotes", () => ({
   useShadchanNotes: useShadchanNotesMock,
+}));
+
+vi.mock("./useShadchanReminders", () => ({
+  useShadchanReminders: useShadchanRemindersMock,
 }));
 
 // Side-effect import — registers the real `shadchanim` descriptor so
@@ -57,6 +70,12 @@ const SHADCHANIM = [
   { id: 2, name: "Moshe Adler" },
 ];
 
+const FOOTER_LAYOUT_SHADCHANIM = [
+  { id: 1, name: "Rivka Stern" },
+  { id: 2, name: "Moshe Adler" },
+  { id: 3, name: "Yael Cohen" },
+];
+
 const NOTE = {
   id: 22,
   account_id: 1,
@@ -69,19 +88,28 @@ const NOTE = {
   deleted_at: null,
 };
 
-const renderGrid = () =>
+const renderGrid = (data = SHADCHANIM) =>
   render(
     <TestMemoryRouter>
       <CoreAdminContext i18nProvider={testI18nProvider}>
-        <ShadchanCardGrid data={SHADCHANIM} />
+        <ShadchanCardGrid data={data} />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
 
 describe("ShadchanCardGrid — gates on the shidduchim count query, not just the shadchanim list (F5)", () => {
+  afterEach(async () => {
+    await page.viewport(1280, 720);
+  });
+
   beforeEach(() => {
     useShadchanNotesMock.mockImplementation(() => ({
       notesByShadchanId: new Map(),
+      isPending: false,
+      error: null,
+    }));
+    useShadchanRemindersMock.mockImplementation(() => ({
+      remindersByShadchanId: new Map(),
       isPending: false,
       error: null,
     }));
@@ -173,6 +201,83 @@ describe("ShadchanCardGrid — gates on the shidduchim count query, not just the
     await expect
       .element(screen.getByText("Moshe Adler"))
       .not.toBeInTheDocument();
+  });
+
+  it("renders the batched reminder marker on the matching card", async () => {
+    useGetListMock.mockReturnValue({ data: [], isPending: false });
+    useShadchanRemindersMock.mockReturnValue({
+      remindersByShadchanId: new Map([["1", { count: 2 }]]),
+      isPending: false,
+      error: null,
+    });
+
+    const screen = await renderGrid();
+
+    await expect
+      .element(screen.getByRole("link", { name: "2 reminders" }))
+      .toHaveAttribute("href", "/shadchanim/1/tasks");
+  });
+
+  it("keeps every card footer on one stable phone line", async () => {
+    await page.viewport(390, 844);
+    useGetListMock.mockReturnValue({ data: [], isPending: false });
+    useShadchanNotesMock.mockReturnValue({
+      notesByShadchanId: new Map([["2", { ...NOTE, target_id: 2 }]]),
+      isPending: false,
+      error: null,
+    });
+    useShadchanRemindersMock.mockReturnValue({
+      remindersByShadchanId: new Map([
+        ["1", { count: 1 }],
+        ["2", { count: 2 }],
+      ]),
+      isPending: false,
+      error: null,
+    });
+
+    const screen = await renderGrid(FOOTER_LAYOUT_SHADCHANIM);
+    const cards = screen.getByTestId("shadchan-card");
+    const footers = screen.getByTestId("shadchan-card-footer");
+    const actionGroups = screen.getByTestId("shadchan-card-actions");
+
+    await expect.element(cards.nth(0)).toBeInTheDocument();
+    await expect.element(cards.nth(1)).toBeInTheDocument();
+    await expect.element(cards.nth(2)).toBeInTheDocument();
+    await expect.element(actionGroups.nth(0)).toHaveClass("min-h-11");
+    await expect.element(actionGroups.nth(1)).toHaveClass("min-h-11");
+    await expect.element(actionGroups.nth(2)).toHaveClass("min-h-11");
+    await expect.element(footers.nth(0)).toHaveClass("flex-nowrap");
+    await expect.element(footers.nth(1)).toHaveClass("flex-nowrap");
+    await expect.element(footers.nth(2)).toHaveClass("flex-nowrap");
+
+    const cardHeights = [0, 1, 2].map((index) =>
+      Math.round(cards.nth(index).element().getBoundingClientRect().height),
+    );
+    const footerHeights = [0, 1, 2].map((index) =>
+      Math.round(footers.nth(index).element().getBoundingClientRect().height),
+    );
+    expect(new Set(cardHeights).size).toBe(1);
+    expect(new Set(footerHeights).size).toBe(1);
+    expect(cards.nth(0).element().scrollWidth).toBeLessThanOrEqual(
+      cards.nth(0).element().clientWidth,
+    );
+    expect(cards.nth(1).element().scrollWidth).toBeLessThanOrEqual(
+      cards.nth(1).element().clientWidth,
+    );
+    expect(cards.nth(2).element().scrollWidth).toBeLessThanOrEqual(
+      cards.nth(2).element().clientWidth,
+    );
+    await expect
+      .element(screen.getByRole("link", { name: "1 reminder" }))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByRole("button", { name: "Open note for Moshe Adler" }),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("link", { name: "2 reminders" }))
+      .toBeInTheDocument();
   });
 
   it("renders the real per-shadchan shidduchim counts once the count query resolves", async () => {

@@ -865,11 +865,20 @@ export const createDataProvider = ({
       ...params,
       pagination: { page: 1, perPage: 10_000 },
     });
-    const visible = rows.filter(
-      (row: any) =>
-        String(row.account_id) === String(accountId) &&
-        (resource !== "shadchanim" || row.archived_at == null),
-    );
+    const visible = rows.filter((row: any) => {
+      // Production account-scoped rows always carry account_id. FakeRest's
+      // older demo fixtures may omit it, so only an explicit foreign account
+      // is cross-account data; an absent value remains visible in the caller's
+      // local fixture while preserving the RLS boundary for named accounts.
+      const accountMatches =
+        resource === "tasks" &&
+        (row.account_id === null || row.account_id === undefined)
+          ? true
+          : String(row.account_id) === String(accountId);
+      return (
+        accountMatches && (resource !== "shadchanim" || row.archived_at == null)
+      );
+    });
     return pageRows(visible, params);
   };
 
@@ -1722,6 +1731,10 @@ export const createDataProvider = ({
       }
       if (resource === "shadchanim") {
         return getVisibleAccountRows("shadchanim", params);
+      }
+      // Mirror production task visibility (account scope/RLS) for reminders.
+      if (resource === "tasks") {
+        return getVisibleAccountRows("tasks", params);
       }
       if (resource === "outbound_share_history") {
         const caller = await resolveCallerMembership();

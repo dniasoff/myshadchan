@@ -12,6 +12,7 @@ import {
   getShadchanPhoneMatchLabel,
 } from "./shadchanUtils";
 import { ShadchanNoteAction } from "./ShadchanNoteAction";
+import { ShadchanReminderAction } from "./ShadchanReminderAction";
 import type { ShadchanNote } from "./useShadchanNotes";
 
 export interface ShadchanCardProps {
@@ -21,6 +22,7 @@ export interface ShadchanCardProps {
   /** Position in the grid, drives the `.ql-enter` stagger delay. */
   index: number;
   note?: ShadchanNote;
+  reminderCount?: number;
 }
 
 /**
@@ -42,6 +44,7 @@ export const ShadchanCard = ({
   index,
   phoneSearchQuery,
   note,
+  reminderCount = 0,
 }: ShadchanCardProps) => {
   const translate = useTranslate();
   const countLabel = translate("crm.shadchanim.row.shidduchimCount", {
@@ -56,6 +59,7 @@ export const ShadchanCard = ({
 
   return (
     <Card
+      data-testid="shadchan-card"
       className="ql-enter gap-0 p-4 shadow-sm transition-[box-shadow,transform] duration-[160ms]
         ease-[var(--ease-out)] hover:-translate-y-0.5 hover:shadow-md"
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
@@ -97,28 +101,36 @@ export const ShadchanCard = ({
             ) : null}
           </div>
         </div>
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-border pt-2.5">
+      </RecordLink>
+      <div
+        data-testid="shadchan-card-footer"
+        className="mt-3 flex min-h-11 min-w-0 flex-nowrap items-center gap-2 overflow-hidden border-t border-border pt-2.5"
+      >
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-x-2 overflow-hidden">
           <ResponsivenessChip value={shadchan.responsiveness} />
           {phoneMatch ? (
-            <span className="text-[11.5px] tabular-nums text-muted-foreground">
+            <span className="min-w-0 truncate whitespace-nowrap text-[11.5px] tabular-nums text-muted-foreground">
               {getShadchanPhoneMatchLabel(phoneMatch)}
             </span>
           ) : null}
-          <span className="inline-flex items-center gap-1 text-[11.5px] tabular-nums text-muted-foreground">
+          <span className="inline-flex min-w-0 items-center gap-1 truncate whitespace-nowrap text-[11.5px] tabular-nums text-muted-foreground">
             <Send className="size-3 shrink-0" aria-hidden="true" />
             {countLabel}
           </span>
-          <span className="text-[11.5px] font-medium text-muted-foreground">
+          <span className="shrink-0 whitespace-nowrap text-[11.5px] font-medium text-muted-foreground">
             Open file
           </span>
         </div>
-      </RecordLink>
-      {note ? (
-        <div className="mt-1 flex justify-end">
-          <ShadchanNoteAction shadchan={shadchan} note={note} />
+        <div
+          data-testid="shadchan-card-actions"
+          className="flex min-h-11 shrink-0 items-center gap-1"
+        >
+          {reminderCount > 0 ? (
+            <ShadchanReminderAction shadchan={shadchan} count={reminderCount} />
+          ) : null}
+          {note ? <ShadchanNoteAction shadchan={shadchan} note={note} /> : null}
         </div>
-      ) : null}
+      </div>
     </Card>
   );
 };
