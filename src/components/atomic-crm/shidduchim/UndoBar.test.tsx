@@ -14,6 +14,10 @@ const move = {
 };
 
 describe("UndoBar", () => {
+  it("keeps the visible window at ten seconds", () => {
+    expect(SHIDDUCH_UNDO_MS).toBe(10_000);
+  });
+
   it("announces a ten-second Undo affordance with a touch-sized button", async () => {
     const screen = await render(
       <UndoBar
