@@ -14,6 +14,7 @@ import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import type { MemberRole, MyContext, ShidduchSummary, Task } from "../types";
 import { ShidduchTodoMarker } from "./ShidduchTodoMarker";
 import { ShidduchTodoSummaryProvider } from "./ShidduchTodoSummary";
+import { useShidduchTodoSummaryStatus } from "./ShidduchTodoSummaryContext";
 import { fetchAllOpenShidduchTasks } from "./shidduchTodoSummary";
 import "./entityDescriptor";
 
@@ -66,12 +67,20 @@ const contextFor = (role: MemberRole, isActive = true): MyContext => ({
   is_active: isActive,
 });
 
+const SummaryStatusProbe = () => (
+  <output data-testid="todo-summary-status">
+    {useShidduchTodoSummaryStatus()}
+  </output>
+);
+
 const renderSummary = async ({
   role,
   isPending = false,
+  taskState = "success",
 }: {
   role: MemberRole | undefined;
   isPending?: boolean;
+  taskState?: "success" | "loading" | "error";
 }) => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -80,11 +89,17 @@ const renderSummary = async ({
     role == null ? [contextFor("single", false)] : [contextFor(role)];
   if (!isPending) queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, contexts);
 
+  const getList =
+    taskState === "loading"
+      ? vi.fn().mockReturnValue(new Promise(() => {}))
+      : taskState === "error"
+        ? vi.fn().mockRejectedValue(new Error("task provider secret"))
+        : vi.fn().mockResolvedValue({ data: [], total: 0 });
   const dataProvider = {
     getMyContexts: isPending
       ? vi.fn().mockReturnValue(new Promise(() => {}))
       : vi.fn().mockResolvedValue(contexts),
-    getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    getList,
   } as unknown as DataProvider;
 
   const screen = await render(
@@ -96,6 +111,7 @@ const renderSummary = async ({
       >
         <ListContextProvider value={listContext}>
           <ShidduchTodoSummaryProvider>
+            <SummaryStatusProbe />
             <ShidduchTodoMarker shidduchId={shidduch.id} />
           </ShidduchTodoSummaryProvider>
         </ListContextProvider>
@@ -138,6 +154,46 @@ describe("ShidduchTodoSummaryProvider privacy gate", () => {
       "tasks",
       expect.anything(),
     );
+  });
+
+  it("does not claim an empty list while the grouped task query is loading", async () => {
+    const { screen } = await renderSummary({
+      role: "parent_admin",
+      taskState: "loading",
+    });
+
+    await expect
+      .element(screen.getByTestId("todo-summary-status"))
+      .toHaveTextContent("loading");
+    await expect
+      .element(screen.getByText("No open to do"))
+      .not.toBeInTheDocument();
+  });
+
+  it("does not claim an empty list when the grouped task query fails", async () => {
+    const { screen } = await renderSummary({
+      role: "parent_admin",
+      taskState: "error",
+    });
+
+    await expect
+      .element(screen.getByTestId("todo-summary-status"))
+      .toHaveTextContent("error");
+    await expect
+      .element(screen.getByText("No open to do"))
+      .not.toBeInTheDocument();
+  });
+
+  it("claims no open work only after a successful empty task query", async () => {
+    const { screen } = await renderSummary({
+      role: "parent_admin",
+      taskState: "success",
+    });
+
+    await expect
+      .element(screen.getByTestId("todo-summary-status"))
+      .toHaveTextContent("ready");
+    await expect.element(screen.getByText("No open to do")).toBeInTheDocument();
   });
 });
 

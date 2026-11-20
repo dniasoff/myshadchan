@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { formatTodoWhen } from "./shidduchTodo";
 import {
   useShidduchTodoSummary,
+  useShidduchTodoSummaryStatus,
   useShidduchTodoVisibility,
 } from "./ShidduchTodoSummaryContext";
 
@@ -14,8 +15,9 @@ export const ShidduchTodoMarker = ({
   shidduchId: string | number;
 }) => {
   const canSee = useShidduchTodoVisibility();
+  const status = useShidduchTodoSummaryStatus();
   const summary = useShidduchTodoSummary(shidduchId);
-  if (!canSee) return null;
+  if (!canSee || status !== "ready") return null;
 
   const label =
     summary.count === 0

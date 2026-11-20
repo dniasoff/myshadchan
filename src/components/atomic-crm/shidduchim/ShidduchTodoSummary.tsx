@@ -7,12 +7,14 @@ import { useViewerRole } from "../entity360/useViewerRole";
 import { isTodoBoxVisible } from "./shidduchTodo";
 import {
   ShidduchTodoSummaryContext,
+  ShidduchTodoSummaryStatusContext,
   ShidduchTodoVisibilityContext,
 } from "./ShidduchTodoSummaryContext";
 import {
   fetchAllOpenShidduchTasks,
   todoSummaryForTasks,
 } from "./shidduchTodoSummary";
+import type { ShidduchTodoSummaryStatus } from "./ShidduchTodoSummaryContext";
 
 /**
  * One open-task query for the rows currently in the Shidduchim list. The
@@ -35,6 +37,7 @@ export const ShidduchTodoSummaryProvider = ({
   );
 
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [status, setStatus] = useState<ShidduchTodoSummaryStatus>("hidden");
   const shidduchIdsKey = shidduchIds.join(",");
 
   useEffect(() => {
@@ -42,18 +45,26 @@ export const ShidduchTodoSummaryProvider = ({
 
     if (!canSee || shidduchIds.length === 0) {
       setTasks([]);
+      setStatus(canSee ? "ready" : "hidden");
       return () => {
         cancelled = true;
       };
     }
 
     setTasks([]);
+    setStatus("loading");
     void fetchAllOpenShidduchTasks(dataProvider, shidduchIds).then(
       (loadedTasks) => {
-        if (!cancelled) setTasks(loadedTasks);
+        if (!cancelled) {
+          setTasks(loadedTasks);
+          setStatus("ready");
+        }
       },
       () => {
-        if (!cancelled) setTasks([]);
+        if (!cancelled) {
+          setTasks([]);
+          setStatus("error");
+        }
       },
     );
 
@@ -69,9 +80,11 @@ export const ShidduchTodoSummaryProvider = ({
 
   return (
     <ShidduchTodoVisibilityContext.Provider value={canSee}>
-      <ShidduchTodoSummaryContext.Provider value={summaries}>
-        {children}
-      </ShidduchTodoSummaryContext.Provider>
+      <ShidduchTodoSummaryStatusContext.Provider value={status}>
+        <ShidduchTodoSummaryContext.Provider value={summaries}>
+          {children}
+        </ShidduchTodoSummaryContext.Provider>
+      </ShidduchTodoSummaryStatusContext.Provider>
     </ShidduchTodoVisibilityContext.Provider>
   );
 };

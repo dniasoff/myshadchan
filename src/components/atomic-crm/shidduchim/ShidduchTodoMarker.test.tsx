@@ -5,6 +5,7 @@ import { TestMemoryRouter } from "ra-core";
 import { ShidduchTodoMarker } from "./ShidduchTodoMarker";
 import {
   ShidduchTodoSummaryContext,
+  ShidduchTodoSummaryStatusContext,
   ShidduchTodoVisibilityContext,
 } from "./ShidduchTodoSummaryContext";
 
@@ -20,9 +21,13 @@ const renderMarker = async (
   render(
     <TestMemoryRouter>
       <ShidduchTodoVisibilityContext.Provider value={visible}>
-        <ShidduchTodoSummaryContext.Provider value={new Map([["42", summary]])}>
-          <ShidduchTodoMarker shidduchId={42} />
-        </ShidduchTodoSummaryContext.Provider>
+        <ShidduchTodoSummaryStatusContext.Provider value="ready">
+          <ShidduchTodoSummaryContext.Provider
+            value={new Map([["42", summary]])}
+          >
+            <ShidduchTodoMarker shidduchId={42} />
+          </ShidduchTodoSummaryContext.Provider>
+        </ShidduchTodoSummaryStatusContext.Provider>
       </ShidduchTodoVisibilityContext.Provider>
     </TestMemoryRouter>,
   );
