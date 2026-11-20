@@ -161,6 +161,7 @@ const LegacyInboxResolveDialog = ({
       {
         filter: {
           connection_id: item.connection_id,
+          "archived_at@is": null,
         },
         pagination: PAGE_ONE,
         sort: SORT_BY_ID,
@@ -314,7 +315,7 @@ const LegacyInboxResolveDialog = ({
               <ReferenceInput
                 source="shadchan_id"
                 reference="shadchanim"
-                filter={{}}
+                filter={{ "archived_at@is": null }}
               >
                 <fieldset
                   disabled={isShadchanSourced}

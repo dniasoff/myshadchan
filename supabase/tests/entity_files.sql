@@ -442,7 +442,13 @@ insert into public.entity_files (target_type, target_id, storage_path, file_name
 select 'shadchan', :purge_shadchan, value || '/shadchan/' || :purge_shadchan || '/p.pdf', 'p.pdf', 'application/pdf', 10
 from ids where name = 'acct_a';
 
+-- Hard purge is an account-deletion service operation. Authenticated users
+-- must use archive_shadchan instead; keep this test on the service path so it
+-- continues to assert the polymorphic file purge without weakening the new
+-- archive-only boundary.
+set local role service_role;
 delete from public.shadchanim where id = :purge_shadchan;
+set local role authenticated;
 
 insert into results (name, passed)
 select '(h) AC 7(a): deleting a shadchan purges its entity_files rows',

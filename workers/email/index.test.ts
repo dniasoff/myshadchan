@@ -61,6 +61,7 @@ function makeHarness(options: HarnessOptions = {}) {
   const calls = {
     from: [] as string[],
     in: [] as unknown[][],
+    is: [] as unknown[][],
     storagePaths: [] as string[],
   };
   const counts = [...(options.counts ?? [0, 0, 0])];
@@ -120,7 +121,10 @@ function makeHarness(options: HarnessOptions = {}) {
       return query;
     };
     query.gte = (..._args) => query;
-    query.is = (..._args) => query;
+    query.is = (...args) => {
+      calls.is.push(args);
+      return query;
+    };
     query.order = (..._args) => query;
     query.limit = (..._args) => query;
     query.maybeSingle = async <T>() => ({
@@ -267,6 +271,7 @@ describe("workers/email POST /send", () => {
     const harness = makeHarness({ shadchan: { [shadchanEmailField]: {} } });
     const response = await post(harness);
     expect(response.status).toBe(422);
+    expect(harness.calls.is).toContainEqual(["archived_at", null]);
     expect(await response.json()).toMatchObject({
       meta: { code: "no_email" },
     });

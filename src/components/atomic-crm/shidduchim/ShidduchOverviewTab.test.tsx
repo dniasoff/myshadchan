@@ -62,6 +62,12 @@ describe("ShidduchOverviewTab To-do placement", () => {
       </TestMemoryRouter>,
     );
 
+    expect(dataProvider.getList).toHaveBeenCalledWith(
+      "shadchanim",
+      expect.objectContaining({
+        filter: { "archived_at@is": null },
+      }),
+    );
     const todo = screen.getByText("TO_DO_BOX").element();
     const layout = todo.parentElement;
     const shadchan = screen.getByRole("region", { name: "Shadchan" }).element();

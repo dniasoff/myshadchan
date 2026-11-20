@@ -203,6 +203,15 @@ describe("resume capture provider methods", () => {
     expect(dataProvider.deleteInboxItem).toEqual(expect.any(Function));
     expect(dataProvider.removeResumeFileObjects).toEqual(expect.any(Function));
   });
+
+  it("exposes the manager-only shadchan archive lifecycle methods", () => {
+    vi.stubEnv("VITE_SUPABASE_URL", "http://localhost:54321");
+    vi.stubEnv("VITE_SB_PUBLISHABLE_KEY", "test-key");
+    const dataProvider = getDataProviderWithCustomMethods();
+
+    expect(dataProvider.archiveShadchan).toEqual(expect.any(Function));
+    expect(dataProvider.restoreShadchan).toEqual(expect.any(Function));
+  });
 });
 
 describe("shidduchim search column list (Story 5.2 AC-3)", () => {

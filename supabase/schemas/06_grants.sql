@@ -128,7 +128,7 @@ grant all on table public.singles to authenticated;
 grant all on table public.singles to service_role;
 
 revoke all on table public.shadchanim from anon;
-grant all on table public.shadchanim to authenticated;
+grant select, insert, update on table public.shadchanim to authenticated;
 grant all on table public.shadchanim to service_role;
 
 revoke all on table public."references" from anon;
@@ -772,7 +772,9 @@ revoke all on table public.singles from anon, authenticated;
 grant select, insert, update, delete on table public.singles to authenticated;
 
 revoke all on table public.shadchanim from anon, authenticated;
-grant select, insert, update, delete on table public.shadchanim to authenticated;
+grant select, insert, update on table public.shadchanim to authenticated;
+-- Shadchan removal is archive-only; account deletion uses service_role.
+revoke delete on table public.shadchanim from authenticated;
 
 revoke all on table public."references" from anon, authenticated;
 -- INSERT is deliberately absent. public.create_reference_for_shidduch is now
@@ -1963,6 +1965,10 @@ revoke all on function public.archive_shidduch(bigint) from public, anon;
 grant execute on function public.archive_shidduch(bigint) to authenticated, service_role;
 revoke all on function public.restore_shidduch(bigint) from public, anon;
 grant execute on function public.restore_shidduch(bigint) to authenticated, service_role;
+revoke all on function public.archive_shadchan(bigint) from public, anon;
+grant execute on function public.archive_shadchan(bigint) to authenticated, service_role;
+revoke all on function public.restore_shadchan(bigint) from public, anon;
+grant execute on function public.restore_shadchan(bigint) to authenticated, service_role;
 revoke all on function public.delete_shidduch(bigint) from public, anon;
 grant execute on function public.delete_shidduch(bigint) to authenticated, service_role;
 revoke all on function public.delete_owned_inbox_shidduch(bigint, bigint, timestamptz) from public, anon;

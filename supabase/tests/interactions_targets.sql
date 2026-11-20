@@ -868,7 +868,11 @@ values (
   'IT task on shadchan B'
 );
 
+-- Hard purge is intentionally exercised as the service/account-delete path;
+-- authenticated managers now archive shadchanim instead of deleting them.
+set local role service_role;
 delete from public.shadchanim where id = (select value::bigint from ids where name = 'shadchan_b');
+set local role authenticated;
 
 insert into results (name, passed)
 select 'AC 10(e): deleting a shadchan leaves zero interactions pointing at it',
@@ -893,6 +897,8 @@ where target_type = 'shadchan' and target_id = (select value::bigint from ids wh
 -- as postgres (reset role, above) — deliberately NOT an authenticated
 -- insert (Dev Notes, "What 3-14 does and does not unlock").
 -- ---------------------------------------------------------------------------
+set local role postgres;
+
 insert into results (name, passed)
 select 'AC 10(f): pg_trigger holds no validate_interactions_household_scope on public.interactions',
        not exists (

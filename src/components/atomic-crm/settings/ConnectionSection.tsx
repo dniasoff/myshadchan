@@ -237,13 +237,15 @@ const PendingInvites = () => {
  * Review finding F3 (fix): deriving the connected list, and its only "End
  * connection" button, from `shadchanim.connection_id` meant a household
  * lost every path to end an accepted connection the moment it deleted that
- * book row (`authenticated` still holds table-level DELETE on `shadchanim`,
- * and `<Edit>` renders a DeleteButton by default) — the connection stayed
- * `accepted` and fully visible to the shadchan side while this panel
+ * book row. Shadchan rows are now archive-only for authenticated users: the
+ * table grant and policy do not allow direct DELETE, while the service-role
+ * account-deletion path remains the hard-purge exception. The connection
+ * stayed `accepted` and fully visible to the shadchan side while this panel
  * rendered nothing, which made AC-3 ("either side may end it") false for
  * the household through every shipped surface. `connections` is the ground
  * truth this story's own consent workflow writes to and RLS scopes to
- * either party — reading it directly here can never be lost that way. */
+ * either party — reading it directly here can never be lost through a
+ * manager archive. */
 const HouseholdConnectionPanel = ({ accountId }: { accountId: Identifier }) => {
   const translate = useTranslate();
   const notify = useNotify();

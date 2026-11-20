@@ -1,6 +1,7 @@
 import type { RaRecord } from "ra-core";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useGetList, useTranslate } from "ra-core";
+import { useLocation, useNavigate } from "react-router";
 
 import { buildNewPath } from "../entity360/entityPaths";
 import { EntityList } from "../misc/EntityList";
@@ -17,6 +18,12 @@ import {
 import { useAllShadchanim } from "./useAllShadchanim";
 import { ShadchanNotesLookupStatus } from "./ShadchanNoteAction";
 import { useShadchanNotes } from "./useShadchanNotes";
+import { ShadchanPendingActionBar } from "./ShadchanLifecycleActions";
+import {
+  clearPendingShadchanAction,
+  readPendingShadchanAction,
+  type ShadchanLifecycleAction,
+} from "./shadchanLifecycle";
 
 /**
  * `EntityList`'s `renderList` for the shadchan book (Story 4.2, Task 4): the
@@ -94,7 +101,13 @@ const ShadchanRowList = ({
  */
 export const ShadchanList = () => {
   const translate = useTranslate();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
+  const [pendingAction, setPendingAction] =
+    useState<ShadchanLifecycleAction | null>(() =>
+      readPendingShadchanAction(location.state),
+    );
   const allShadchanim = useAllShadchanim();
   const handleQueryChange = useCallback(
     (query: string) => setSearchQuery(query),
@@ -102,99 +115,129 @@ export const ShadchanList = () => {
   );
   const phoneSearchActive = isPhoneSearchQuery(searchQuery);
 
+  useEffect(() => {
+    const action = readPendingShadchanAction(location.state);
+    setPendingAction(action);
+    if (
+      location.state &&
+      typeof location.state === "object" &&
+      "shadchanLifecycle" in location.state
+    ) {
+      navigate(`${location.pathname}${location.search}`, {
+        replace: true,
+        state: null,
+      });
+    }
+  }, [location, navigate]);
+
   return (
-    <EntityList
-      resource="shadchanim"
-      eyebrow={translate("crm.shadchanim.list.eyebrow", {
-        _: "Matchmaker book",
-      })}
-      subtitle={translate("crm.shadchanim.list.subtitle", {
-        _: "Shadchanim your family has worked with.",
-      })}
-      createTo={buildNewPath("shadchanim")}
-      createLabel={translate("crm.shadchanim.list.createLabel", {
-        _: "Add a shadchan",
-      })}
-      searchInput={
-        <ShadchanSearchInput
-          key="q"
-          source="q"
-          alwaysOn
-          onQueryChange={handleQueryChange}
-        />
-      }
-      perPage={200}
-      pagination={null}
-      sort={{ field: "name", order: "ASC" }}
-      // Review fix (F4): see SingleList.tsx's identical note — AC-10's sort
-      // clause had no reachable UI on either retrofitted list.
-      sortFields={["name", "location"]}
-      skeleton={<ShadchanCardGridSkeleton />}
-      emptyState={
-        phoneSearchActive
-          ? {
-              title: "No shadchan with that number",
-              description:
-                "Try the last 4 or more digits, or check the number you entered.",
-              className: "py-14",
-            }
-          : {
-              title: translate("crm.shadchanim.list.emptyTitle", {
-                _: "Add your first shadchan",
-              }),
-              description: translate("crm.shadchanim.list.emptyDescription", {
-                _: "Shadchanim your family works with are listed here.",
-              }),
-              actionLabel: translate("crm.shadchanim.list.createLabel", {
-                _: "Add a shadchan",
-              }),
-              actionTo: buildNewPath("shadchanim"),
-              // Review fix (F9): the pre-story `ShadchanDirectory`'s EmptyState
-              // carried `className="py-14"`; the retrofit dropped it.
-              className: "py-14",
-            }
-      }
-      noMatchesMessage={
-        phoneSearchActive
-          ? "No shadchan with that number"
-          : translate("crm.shadchanim.list.noMatches", {
-              _: "No shadchanim match this search.",
-            })
-      }
-      noMatchesDescription={
-        phoneSearchActive
-          ? "Try the last 4 or more digits, or check the number you entered."
-          : undefined
-      }
-      filterData={(data, sort) =>
-        sortShadchanim(
-          filterShadchanimBySearch(data as Shadchan[], searchQuery),
-          sort,
-        )
-      }
-      listStatusOverrides={{
-        data: allShadchanim.data?.data ?? [],
-        isPending: allShadchanim.isPending,
-        error: allShadchanim.error,
-        refetch: () => {
-          void allShadchanim.refetch();
-        },
-      }}
-      // Story 4.2, AC 1: this book's current, only, deliberately-designed
-      // first-visit look (Dev Notes).
-      defaultViewMode="cards"
-      renderCards={(data) => (
-        <ShadchanCardGrid
-          data={data}
-          phoneSearchQuery={phoneSearchActive ? searchQuery : undefined}
-        />
-      )}
-      renderList={(data) => (
-        <ShadchanRowList
-          data={data}
-          phoneSearchQuery={phoneSearchActive ? searchQuery : undefined}
-        />
-      )}
-    />
+    <div className="w-full">
+      {pendingAction ? (
+        <div className="mb-5">
+          <ShadchanPendingActionBar
+            action={pendingAction}
+            onDone={(result) => {
+              if (result !== "failed") clearPendingShadchanAction();
+              setPendingAction(result === "failed" ? pendingAction : null);
+              if (result !== "failed") void allShadchanim.refetch();
+            }}
+          />
+        </div>
+      ) : null}
+      <EntityList
+        resource="shadchanim"
+        eyebrow={translate("crm.shadchanim.list.eyebrow", {
+          _: "Matchmaker book",
+        })}
+        subtitle={translate("crm.shadchanim.list.subtitle", {
+          _: "Shadchanim your family has worked with.",
+        })}
+        createTo={buildNewPath("shadchanim")}
+        createLabel={translate("crm.shadchanim.list.createLabel", {
+          _: "Add a shadchan",
+        })}
+        searchInput={
+          <ShadchanSearchInput
+            key="q"
+            source="q"
+            alwaysOn
+            onQueryChange={handleQueryChange}
+          />
+        }
+        perPage={200}
+        pagination={null}
+        filterDefaultValues={{ "archived_at@is": null }}
+        sort={{ field: "name", order: "ASC" }}
+        // Review fix (F4): see SingleList.tsx's identical note — AC-10's sort
+        // clause had no reachable UI on either retrofitted list.
+        sortFields={["name", "location"]}
+        skeleton={<ShadchanCardGridSkeleton />}
+        emptyState={
+          phoneSearchActive
+            ? {
+                title: "No shadchan with that number",
+                description:
+                  "Try the last 4 or more digits, or check the number you entered.",
+                className: "py-14",
+              }
+            : {
+                title: translate("crm.shadchanim.list.emptyTitle", {
+                  _: "Add your first shadchan",
+                }),
+                description: translate("crm.shadchanim.list.emptyDescription", {
+                  _: "Shadchanim your family works with are listed here.",
+                }),
+                actionLabel: translate("crm.shadchanim.list.createLabel", {
+                  _: "Add a shadchan",
+                }),
+                actionTo: buildNewPath("shadchanim"),
+                // Review fix (F9): the pre-story `ShadchanDirectory`'s EmptyState
+                // carried `className="py-14"`; the retrofit dropped it.
+                className: "py-14",
+              }
+        }
+        noMatchesMessage={
+          phoneSearchActive
+            ? "No shadchan with that number"
+            : translate("crm.shadchanim.list.noMatches", {
+                _: "No shadchanim match this search.",
+              })
+        }
+        noMatchesDescription={
+          phoneSearchActive
+            ? "Try the last 4 or more digits, or check the number you entered."
+            : undefined
+        }
+        filterData={(data, sort) =>
+          sortShadchanim(
+            filterShadchanimBySearch(data as Shadchan[], searchQuery),
+            sort,
+          )
+        }
+        listStatusOverrides={{
+          data: allShadchanim.data?.data ?? [],
+          isPending: allShadchanim.isPending,
+          error: allShadchanim.error,
+          refetch: () => {
+            void allShadchanim.refetch();
+          },
+        }}
+        // Story 4.2, AC 1: this book's current, only, deliberately-designed
+        // first-visit look (Dev Notes).
+        defaultViewMode="cards"
+        renderCards={(data) => (
+          <ShadchanCardGrid
+            data={data}
+            phoneSearchQuery={phoneSearchActive ? searchQuery : undefined}
+          />
+        )}
+        renderList={(data) => (
+          <ShadchanRowList
+            data={data}
+            phoneSearchQuery={phoneSearchActive ? searchQuery : undefined}
+          />
+        )}
+      />
+    </div>
   );
 };

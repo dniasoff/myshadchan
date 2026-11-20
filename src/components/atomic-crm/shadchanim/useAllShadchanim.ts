@@ -10,14 +10,14 @@ export const useAllShadchanim = () => {
   const dataProvider = useDataProvider<CrmDataProvider>();
 
   return useQuery({
-    queryKey: ["shadchanim", "all-account-rows"],
+    queryKey: ["shadchanim", "active-account-rows"],
     queryFn: async () => {
       const rows: Shadchan[] = [];
       let page = 1;
 
       while (true) {
         const result = await dataProvider.getList<Shadchan>("shadchanim", {
-          filter: {},
+          filter: { "archived_at@is": null },
           pagination: { page, perPage: SHADCHAN_PAGE_SIZE },
           sort: { field: "name", order: "ASC" },
         });

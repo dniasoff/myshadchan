@@ -50,6 +50,7 @@ import type {
   ResumePhoto,
   ShareAccessLog,
   ShareLink,
+  Shadchan,
   Shidduch,
   ShidduchCatch,
   ShidduchEducation,
@@ -591,7 +592,7 @@ export const createDataProvider = ({
       redtsResult,
     ] = await Promise.all([
       baseDataProvider.getList("shadchanim", {
-        filter: {},
+        filter: { "archived_at@is": null },
         pagination: { page: 1, perPage: 10_000 },
         sort: { field: "id", order: "ASC" },
       }),
@@ -622,15 +623,21 @@ export const createDataProvider = ({
         })
         .catch(() => ({ data: [] as any[] })),
     ]);
-    const shadchanById = new Map(shadchanim.map((s: any) => [s.id, s]));
+    const shadchanById = new Map(
+      shadchanim
+        .filter((shadchan: any) => shadchan.archived_at == null)
+        .map((s: any) => [s.id, s]),
+    );
     const singleById = new Map(singles.map((c: any) => [c.id, c]));
     const refLinks = refLinksResult.data;
     const redts = redtsResult.data;
     return rows.map((row: any) => {
       const sh = shadchanById.get(row.shadchan_id);
+      const firstShadchan = shadchanById.get(row.first_suggested_by);
       const c = singleById.get(row.single_id);
       return {
         ...row,
+        first_suggested_by: firstShadchan ? row.first_suggested_by : null,
         shadchan_name: sh?.name ?? null,
         shadchan_name_he: sh?.name_he ?? null,
         single_first_name_en: c?.first_name_en ?? null,
@@ -859,7 +866,9 @@ export const createDataProvider = ({
       pagination: { page: 1, perPage: 10_000 },
     });
     const visible = rows.filter(
-      (row: any) => String(row.account_id) === String(accountId),
+      (row: any) =>
+        String(row.account_id) === String(accountId) &&
+        (resource !== "shadchanim" || row.archived_at == null),
     );
     return pageRows(visible, params);
   };
@@ -1264,7 +1273,8 @@ export const createDataProvider = ({
       });
       if (
         !shadchan ||
-        String(shadchan.account_id) !== String(caller.membership.account_id)
+        String(shadchan.account_id) !== String(caller.membership.account_id) ||
+        shadchan.archived_at != null
       ) {
         throw new Error("shadchan not found in the active account");
       }
@@ -1416,7 +1426,8 @@ export const createDataProvider = ({
       });
       if (
         !shadchan ||
-        String(shadchan.account_id) !== String(current.account_id)
+        String(shadchan.account_id) !== String(current.account_id) ||
+        shadchan.archived_at != null
       ) {
         throw new Error(`${field} must belong to the current account`);
       }
@@ -1900,6 +1911,16 @@ export const createDataProvider = ({
         const [enriched] = await enrichReferenceLinks(baseDataProvider, [row]);
         return { data: enriched };
       }
+      if (resource === "shadchanim") {
+        const { data: rows } = await getVisibleAccountRows("shadchanim", {
+          filter: { id: params.id },
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "id", order: "ASC" },
+        });
+        const row = rows[0];
+        if (!row) throw new Error("shadchan record not found");
+        return { data: row };
+      }
       if (resource === "shadchan_stats") {
         const { data: rows } = await getVisibleAccountRows("shadchanim", {
           filter: { id: params.id },
@@ -2025,14 +2046,18 @@ export const createDataProvider = ({
         const { data: shadchanim } = await baseDataProvider.getList(
           "shadchanim",
           {
-            filter: { id: params.data?.shadchan_id },
+            filter: {
+              id: params.data?.shadchan_id,
+              "archived_at@is": null,
+            },
             pagination: { page: 1, perPage: 1 },
           },
         );
         const targetShadchan = shadchanim[0] as any;
         if (
           !targetShadchan ||
-          String(targetShadchan.account_id) !== String(membership.account_id)
+          String(targetShadchan.account_id) !== String(membership.account_id) ||
+          targetShadchan.archived_at != null
         ) {
           throw new Error("outbound share recipient is outside the account");
         }
@@ -2371,6 +2396,128 @@ export const createDataProvider = ({
     // The SOLE writer of pipeline_state (AD-4 invariant 2) — FakeRest mirror of
     // transition_shidduch. Enforces the transitions-as-data graph with the same
     // optimistic-concurrency check as Postgres.
+    archiveShadchan: async (id: Identifier): Promise<void> => {
+      const caller = await requireCallerMembership();
+      if (
+        caller.membership.role !== "parent_admin" &&
+        caller.membership.role !== "self_manager"
+      ) {
+        throw new Error("You do not have permission to delete this shadchan");
+      }
+      const { data: current } = await baseDataProvider.getOne<Shadchan>(
+        "shadchanim",
+        { id },
+      );
+      if (
+        !current ||
+        String(current.account_id) !== String(caller.membership.account_id)
+      ) {
+        throw new Error("shadchan not found in the active context");
+      }
+      if (current.archived_at) {
+        throw new Error("shadchan is already archived");
+      }
+      await baseDataProvider.update("shadchanim", {
+        id,
+        data: { archived_at: new Date().toISOString() },
+        previousData: current,
+      });
+      const [{ data: tasks }, { data: notifications }] = await Promise.all([
+        baseDataProvider.getList("tasks", {
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        }),
+        baseDataProvider.getList("task_notifications", {
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        }),
+      ]);
+      for (const notification of notifications) {
+        const task = tasks.find(
+          (candidate) => String(candidate.id) === String(notification.task_id),
+        );
+        if (
+          task?.target_type === "shadchan" &&
+          String(task.target_id) === String(id) &&
+          String(task.account_id) === String(caller.membership.account_id) &&
+          (notification.status === "pending" ||
+            notification.status === "sending")
+        ) {
+          await baseDataProvider.update("task_notifications", {
+            id: notification.id,
+            data: {
+              status: "skipped",
+              error: "shadchan archived",
+              claimed_at: null,
+              next_attempt_at: null,
+            },
+            previousData: notification,
+          });
+        }
+      }
+    },
+    restoreShadchan: async (id: Identifier): Promise<void> => {
+      const caller = await requireCallerMembership();
+      if (
+        caller.membership.role !== "parent_admin" &&
+        caller.membership.role !== "self_manager"
+      ) {
+        throw new Error("You do not have permission to restore this shadchan");
+      }
+      const { data: current } = await baseDataProvider.getOne<Shadchan>(
+        "shadchanim",
+        { id },
+      );
+      if (
+        !current ||
+        String(current.account_id) !== String(caller.membership.account_id)
+      ) {
+        throw new Error("shadchan not found in the active context");
+      }
+      if (!current.archived_at) return;
+      await baseDataProvider.update("shadchanim", {
+        id,
+        data: { archived_at: null },
+        previousData: current,
+      });
+      const [{ data: tasks }, { data: notifications }] = await Promise.all([
+        baseDataProvider.getList("tasks", {
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        }),
+        baseDataProvider.getList("task_notifications", {
+          filter: {},
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        }),
+      ]);
+      for (const notification of notifications) {
+        const task = tasks.find(
+          (candidate) => String(candidate.id) === String(notification.task_id),
+        );
+        if (
+          task?.target_type === "shadchan" &&
+          String(task.target_id) === String(id) &&
+          String(task.account_id) === String(caller.membership.account_id) &&
+          notification.status === "skipped" &&
+          notification.error === "shadchan archived"
+        ) {
+          await baseDataProvider.update("task_notifications", {
+            id: notification.id,
+            data: {
+              status: "pending",
+              error: null,
+              claimed_at: null,
+              next_attempt_at: null,
+            },
+            previousData: notification,
+          });
+        }
+      }
+    },
     archiveShidduch: async (id: Identifier): Promise<void> => {
       const caller = await requireCallerMembership();
       if (
@@ -2744,7 +2891,8 @@ export const createDataProvider = ({
         });
         if (
           !shadchan ||
-          String(shadchan.account_id) !== String(shidduch.account_id)
+          String(shadchan.account_id) !== String(shidduch.account_id) ||
+          shadchan.archived_at != null
         ) {
           throw new Error("shadchan not found in the active context");
         }

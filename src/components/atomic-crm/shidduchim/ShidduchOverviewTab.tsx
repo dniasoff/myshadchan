@@ -27,6 +27,7 @@ export const ShidduchOverviewTab = () => {
     sort: { field: "redt_date", order: "DESC" },
   });
   const { data: shadchanim } = useGetList<Shadchan>("shadchanim", {
+    filter: { "archived_at@is": null },
     pagination: { page: 1, perPage: 200 },
     sort: { field: "name", order: "ASC" },
   });

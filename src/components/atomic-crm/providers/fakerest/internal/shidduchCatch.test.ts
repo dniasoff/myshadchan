@@ -43,10 +43,20 @@ const shidduch = (overrides: Partial<Shidduch>): Shidduch =>
 /** A minimal DataProvider that serves fixed in-memory tables to catchShidduch. */
 const providerFor = (tables: Record<string, unknown[]>): DataProvider =>
   ({
-    getList: async (resource: string) => ({
-      data: (tables[resource] ?? []) as never[],
-      total: (tables[resource] ?? []).length,
-    }),
+    getList: async (
+      resource: string,
+      params?: { filter?: Record<string, unknown> },
+    ) => {
+      const rows = tables[resource] ?? [];
+      const data =
+        resource === "shadchanim" && params?.filter?.["archived_at@is"] === null
+          ? rows.filter(
+              (row) =>
+                (row as { archived_at?: string | null }).archived_at == null,
+            )
+          : rows;
+      return { data: data as never[], total: data.length };
+    },
   }) as unknown as DataProvider;
 
 describe("computeShidduchCatchCount", () => {
@@ -293,5 +303,40 @@ describe("catchShidduch", () => {
     // Assert
     expect(result.dates.map((d) => d.date_record_id)).toEqual([100]);
     expect(result.has_catch).toBe(true);
+  });
+
+  it("does not expose the name of an archived prior shadchan", async () => {
+    // Arrange — the prior suggestion still points at the archived shadchan,
+    // but SQL catch_shidduch treats that relationship as no shadchan.
+    const target = shidduch({
+      id: 1,
+      name_en: "Chaim Cohen",
+      father_en: "Yaakov Cohen",
+    });
+    const prior = shidduch({
+      id: 2,
+      name_en: "Chaim Cohen",
+      father_en: "Yaakov Cohen",
+      shadchan_id: 9,
+    });
+    const provider = providerFor({
+      shidduchim: [target, prior],
+      singles: [],
+      shadchanim: [
+        {
+          id: 9,
+          name: "Archived shadchan",
+          archived_at: "2026-11-20T00:00:00Z",
+        },
+      ],
+      date_records: [],
+    });
+
+    // Act
+    const result = await catchShidduch(provider, 1);
+
+    // Assert
+    expect(result.suggestions).toHaveLength(1);
+    expect(result.suggestions[0].shadchan_name).toBeNull();
   });
 });

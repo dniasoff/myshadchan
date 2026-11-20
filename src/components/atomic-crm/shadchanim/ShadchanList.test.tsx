@@ -99,6 +99,45 @@ const renderShadchanList = (
   );
 
 describe("ShadchanList — retrofitted onto EntityList, search filters the book (AC 3, 4)", () => {
+  it("hides archived shadchanim from the active book", async () => {
+    const dataProvider = fakeDataProvider({
+      shadchanim: [
+        ...SHADCHANIM,
+        {
+          id: 3,
+          name: "Archived Shadchan",
+          archived_at: "2026-11-20T00:00:00.000Z",
+        },
+      ],
+      shidduchim: [],
+    });
+    const baseGetList = dataProvider.getList.bind(dataProvider);
+    const getList = vi.spyOn(dataProvider, "getList");
+    getList.mockImplementation(async (resource, params) => {
+      const result = await baseGetList(resource, params);
+      if (resource !== "shadchanim") return result;
+      return {
+        ...result,
+        data: result.data.filter((row) => row.archived_at == null),
+      };
+    });
+    const screen = await renderShadchanList(memoryStore(), [], {
+      dataProvider,
+    });
+
+    await expect.element(screen.getByText("Rivka Stern")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Archived Shadchan"))
+      .not.toBeInTheDocument();
+    expect(
+      getList.mock.calls.some(
+        ([resource, params]) =>
+          resource === "shadchanim" &&
+          params.filter?.["archived_at@is"] === null,
+      ),
+    ).toBe(true);
+  });
+
   it("shows every shadchan, then only the matching one once a search term is typed", async () => {
     // Arrange
     const screen = await renderShadchanList();

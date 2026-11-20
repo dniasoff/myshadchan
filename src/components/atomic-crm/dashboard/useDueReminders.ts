@@ -201,40 +201,22 @@ export function useDueReminders(): UseDueRemindersResult {
 
   const openTasks = useMemo(() => tasks ?? [], [tasks]);
 
-  const overdueCount = useMemo(
-    () =>
-      openTasks.filter(
-        (task) => task.due_date != null && isOverdue(task.due_date),
-      ).length,
+  const shidduchIds = useMemo(
+    () => collectIds(openTasks, "shidduch"),
     [openTasks],
   );
-
-  // Ordering comes free from the query's own `due_date ASC` sort — overdue
-  // rows are already the head of the list, so the first MAX_ROWS of the
-  // whole (already-sorted) list is exactly what AC-4 wants. Slicing BEFORE
-  // resolving labels also means this card only ever fetches labels for the
-  // rows it actually renders.
-  const visibleTasks = useMemo(() => openTasks.slice(0, MAX_ROWS), [openTasks]);
-
-  const shidduchIds = useMemo(
-    () => collectIds(visibleTasks, "shidduch"),
-    [visibleTasks],
-  );
   const shadchanIds = useMemo(
-    () => collectIds(visibleTasks, "shadchan"),
-    [visibleTasks],
+    () => collectIds(openTasks, "shadchan"),
+    [openTasks],
   );
-  const singleIds = useMemo(
-    () => collectIds(visibleTasks, "single"),
-    [visibleTasks],
-  );
+  const singleIds = useMemo(() => collectIds(openTasks, "single"), [openTasks]);
   const referenceIds = useMemo(
-    () => collectIds(visibleTasks, "reference"),
-    [visibleTasks],
+    () => collectIds(openTasks.slice(0, MAX_ROWS), "reference"),
+    [openTasks],
   );
   const connectionIds = useMemo(
-    () => collectIds(visibleTasks, "connection"),
-    [visibleTasks],
+    () => collectIds(openTasks, "connection"),
+    [openTasks],
   );
 
   const shidduchim = useGetMany(
@@ -302,11 +284,50 @@ export function useDueReminders(): UseDueRemindersResult {
         ) {
           return;
         }
+        if (
+          type === "shadchan" &&
+          "archived_at" in record &&
+          record.archived_at != null
+        ) {
+          return;
+        }
         lookup.set(`${type}:${record.id}`, record as Record<string, unknown>);
       });
     });
     return lookup;
   }, [shidduchim, shadchanim, singles, connections]);
+
+  const shadchanLookupReady = shadchanIds.length === 0 || !shadchanim.isPending;
+  const activeOpenTasks = useMemo(
+    () =>
+      shadchanLookupReady
+        ? openTasks.filter(
+            (task) =>
+              task.target_type !== "shadchan" ||
+              task.target_id == null ||
+              labelRecordsByKey.has(`shadchan:${task.target_id}`),
+          )
+        : openTasks,
+    [openTasks, labelRecordsByKey, shadchanLookupReady],
+  );
+
+  const overdueCount = useMemo(
+    () =>
+      activeOpenTasks.filter(
+        (task) => task.due_date != null && isOverdue(task.due_date),
+      ).length,
+    [activeOpenTasks],
+  );
+
+  // Ordering comes free from the query's own `due_date ASC` sort — overdue
+  // rows are already the head of the list, so the first MAX_ROWS of the
+  // whole (already-sorted) active list is exactly what AC-4 wants. Slicing
+  // BEFORE resolving labels also means this card only ever fetches reference
+  // links for rows it actually renders.
+  const visibleTasks = useMemo(
+    () => activeOpenTasks.slice(0, MAX_ROWS),
+    [activeOpenTasks],
+  );
 
   const bestLinkByReferenceId = useMemo(
     () => pickBestLinkPerReference(referenceLinks),
@@ -395,6 +416,6 @@ export function useDueReminders(): UseDueRemindersResult {
     isPending: tasksPending || labelsPending,
     rows,
     overdueCount,
-    totalCount: openTasks.length,
+    totalCount: activeOpenTasks.length,
   };
 }

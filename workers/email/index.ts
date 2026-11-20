@@ -640,6 +640,7 @@ export function createEmailApp(
         .from("shadchanim")
         .select("id,name,contacts")
         .eq("id", body.shadchan_id)
+        .is("archived_at", null)
         .maybeSingle<ShadchanRow>();
       const recipient = contactEmail(shadchan?.contacts);
       if (shadchanError || !shadchan || !recipient) {

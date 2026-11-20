@@ -124,10 +124,21 @@ const useLinkedEntityRecords = (
     byType.forEach(([type, ids, result]) => {
       if (ids.length > 0 && result.isPending) isPending = true;
       (result.data ?? []).forEach((record) => {
+        if (
+          type === "shadchan" &&
+          "archived_at" in record &&
+          record.archived_at != null
+        ) {
+          return;
+        }
         lookup.set(`${type}:${record.id}`, record as Record<string, unknown>);
       });
     });
-    return { lookup, isPending };
+    return {
+      lookup,
+      isPending,
+      shadchanReady: shadchanIds.length === 0 || !shadchanim.isPending,
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the five query results are the only inputs; idsByType is derived from them.
   }, [shidduchim, references, shadchanim, singles, connections]);
 };
@@ -166,12 +177,27 @@ export const useReminders = (
 
   const openTasks = useMemo(() => tasks ?? [], [tasks]);
   const idsByType = useMemo(() => groupIdsByTargetType(openTasks), [openTasks]);
-  const { lookup, isPending: entitiesPending } =
-    useLinkedEntityRecords(idsByType);
+  const {
+    lookup,
+    isPending: entitiesPending,
+    shadchanReady,
+  } = useLinkedEntityRecords(idsByType);
+
+  const visibleTasks = useMemo(
+    () =>
+      openTasks.filter(
+        (task) =>
+          task.target_type !== "shadchan" ||
+          task.target_id == null ||
+          !shadchanReady ||
+          lookup.has(`shadchan:${task.target_id}`),
+      ),
+    [openTasks, lookup, shadchanReady],
+  );
 
   const items = useMemo<ReminderItem[]>(
     () =>
-      openTasks.map((task) => {
+      visibleTasks.map((task) => {
         if (!task.target_type || task.target_id == null) {
           return { task, linkedEntity: null };
         }
@@ -186,7 +212,7 @@ export const useReminders = (
           },
         };
       }),
-    [openTasks, lookup],
+    [visibleTasks, lookup],
   );
 
   // Epic 12 review fix (R6): a task with no due_date is honestly neither

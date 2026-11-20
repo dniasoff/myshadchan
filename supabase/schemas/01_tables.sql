@@ -568,7 +568,10 @@ create table public.shadchanim (
     -- never client-writable (06_grants.sql narrows this table's
     -- insert/update grants to a column list that omits it). UNIQUE, not a
     -- plain index: one connection can only ever back one book entry.
-    connection_id bigint unique
+    connection_id bigint unique,
+    -- Archive-only lifecycle state. Appended at the physical TAIL because
+    -- shadchanim already carries rows (COLUMN-ORDER TRAP).
+    archived_at timestamp with time zone
 );
 
 -- Reusable references — a first-class main entity. A reference is reusable

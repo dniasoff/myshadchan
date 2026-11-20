@@ -773,6 +773,24 @@ export const getDataProviderWithCustomMethods = () => {
       if (error)
         throw new Error(error.message || "Could not restore this shidduch");
     },
+    /** Manager-only shadchan lifecycle RPCs. Account and role are always
+     * derived by the database; these methods intentionally do not accept
+     * either as input. The archive is reversible, so linked suggestions stay
+     * intact and are hidden from active reads until restore. */
+    async archiveShadchan(id: Identifier): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("archive_shadchan", {
+        p_id: id,
+      });
+      if (error)
+        throw new Error(error.message || "Could not delete this shadchan");
+    },
+    async restoreShadchan(id: Identifier): Promise<void> {
+      const { error } = await getSupabaseClient().rpc("restore_shadchan", {
+        p_id: id,
+      });
+      if (error)
+        throw new Error(error.message || "Could not restore this shadchan");
+    },
     async getShidduchReadState(id: Identifier): Promise<ShidduchReadState> {
       const { data, error } = await getSupabaseClient().rpc(
         "shidduch_read_in_progress",

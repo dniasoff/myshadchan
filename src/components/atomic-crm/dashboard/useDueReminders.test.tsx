@@ -173,11 +173,14 @@ const referenceLinks: ReferenceLink[] = [
   // REFERENCE_UNATTACHED_ID deliberately has NO rows here at all.
 ];
 
-function buildDb(tasks: TaskFixture[]) {
+function buildDb(tasks: TaskFixture[], archivedShadchan = false) {
   const db = generateData();
   db.singles = singles;
   db.shidduchim = shidduchim;
-  db.shadchanim = shadchanim;
+  db.shadchanim = shadchanim.map((shadchan) => ({
+    ...shadchan,
+    archived_at: archivedShadchan ? "2026-11-20T00:00:00.000Z" : null,
+  }));
   db.references = references;
   db.reference_links = referenceLinks;
   db.connections = connections;
@@ -191,13 +194,14 @@ interface RenderHookProbeOptions {
    * "many links for one reference" scenario doesn't add 150 irrelevant rows
    * to every other test in this file. */
   extraReferenceLinks?: ReferenceLink[];
+  archivedShadchan?: boolean;
 }
 
 async function renderHookProbe(
   tasks: TaskFixture[],
   options: RenderHookProbeOptions = {},
 ) {
-  const db = buildDb(tasks);
+  const db = buildDb(tasks, options.archivedShadchan);
   if (options.extraReferenceLinks) {
     db.reference_links = [...referenceLinks, ...options.extraReferenceLinks];
   }
@@ -482,6 +486,28 @@ describe("useDueReminders — the three browsable target types (AC-4)", () => {
       resource: "singles",
       id: SINGLE_ID,
     });
+  });
+
+  it("does not render an open task when its archived shadchan is hidden by the provider", async () => {
+    const { getCaptured } = await renderHookProbe(
+      [
+        {
+          id: 1,
+          account_id: ACCOUNT_ID,
+          type: "call",
+          text: "Archived shadchan task",
+          due_date: PAST_DATE,
+          target_type: "shadchan",
+          target_id: SHADCHAN_ID,
+        },
+      ],
+      { archivedShadchan: true },
+    );
+
+    const result = getCaptured();
+    expect(result.rows).toEqual([]);
+    expect(result.overdueCount).toBe(0);
+    expect(result.totalCount).toBe(0);
   });
 });
 

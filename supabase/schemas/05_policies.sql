@@ -408,18 +408,34 @@ create policy "Single notes readable by manager when shared" on public.single_no
     );
 
 -- Story 6.3 (AC 3): writes stay denied to a `single`; reads are carved out
--- into a second, SELECT-only policy below rather than added here — the same
--- two-policy pattern Story 6.2 established for `accounts`/`account_members`
--- (permissive policies OR together per command, so a role guard on this
--- shared `for all` predicate would have blocked the read too).
+-- into a separate SELECT-only policy. Keep DELETE absent: shadchan removal is
+-- archive-only, with account deletion as the service-role purge path.
 create policy "Shadchanim scoped to account" on public.shadchanim
-    for all to authenticated
+    for select to authenticated
     using (
         account_id = public.current_context_id()
+        and archived_at is null
+        and public.current_member_role() <> 'single'
+    );
+
+create policy "Shadchanim insert scoped to account" on public.shadchanim
+    for insert to authenticated
+    with check (
+        account_id = public.current_context_id()
+        and archived_at is null
+        and public.current_member_role() <> 'single'
+    );
+
+create policy "Shadchanim update scoped to account" on public.shadchanim
+    for update to authenticated
+    using (
+        account_id = public.current_context_id()
+        and archived_at is null
         and public.current_member_role() <> 'single'
     )
     with check (
         account_id = public.current_context_id()
+        and archived_at is null
         and public.current_member_role() <> 'single'
     );
 
@@ -437,6 +453,7 @@ create policy "Shadchanim visible to single" on public.shadchanim
     for select to authenticated
     using (
         account_id = public.current_context_id()
+        and archived_at is null
         and public.current_member_role() = 'single'
     );
 

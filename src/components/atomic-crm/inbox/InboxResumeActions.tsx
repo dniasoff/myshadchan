@@ -153,6 +153,7 @@ export const InboxResumeActionsDialog = ({
       {
         filter: {
           connection_id: item.connection_id,
+          "archived_at@is": null,
         },
         pagination: { page: 1, perPage: 1 },
         sort: { field: "id", order: "ASC" },
@@ -406,7 +407,7 @@ export const InboxResumeActionsDialog = ({
               <ReferenceInput
                 source="shadchan_id"
                 reference="shadchanim"
-                filter={{}}
+                filter={{ "archived_at@is": null }}
               >
                 <fieldset
                   disabled={isShadchanSourced}

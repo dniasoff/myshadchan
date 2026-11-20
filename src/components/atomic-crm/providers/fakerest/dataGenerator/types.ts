@@ -55,8 +55,11 @@ export type DemoTaskNotification = {
   channel: "email";
   due_date: string;
   status: "pending" | "sending" | "sent" | "failed" | "skipped";
+  error?: string | null;
   simulated: boolean;
   sent_at?: string | null;
+  next_attempt_at?: string | null;
+  claimed_at?: string | null;
   created_at: string;
 } & Pick<RaRecord, "id">;
 

@@ -87,7 +87,10 @@ select
     s.marital_status,
     s.existing_children_note,
     s.pipeline_state,
-    s.first_suggested_by,
+    case
+        when first_sh.id is not null and first_sh.archived_at is null
+            then s.first_suggested_by
+    end as first_suggested_by,
     s.first_suggested_at,
     s.redt_date,
     -- Story 6.3 (AC 4/AC 7): free-text decision rationale can carry candid
@@ -120,8 +123,8 @@ select
     s.owner_member_id,
     s.visibility,
     s.index,
-    sh.name as shadchan_name,
-    sh.name_he as shadchan_name_he,
+    case when sh.archived_at is null then sh.name end as shadchan_name,
+    case when sh.archived_at is null then sh.name_he end as shadchan_name_he,
     c.first_name_en as single_first_name_en,
     c.first_name_he as single_first_name_he,
     c.last_name_en as single_last_name_en,
@@ -136,6 +139,7 @@ select
     s.suggested_by_phone
 from public.shidduchim s
     left join public.shadchanim sh on sh.id = s.shadchan_id
+    left join public.shadchanim first_sh on first_sh.id = s.first_suggested_by
     left join public.singles c on c.id = s.single_id
     left join public.reference_links rl on rl.shidduchim_id = s.id
     left join public.redts r on r.shidduchim_id = s.id
@@ -149,7 +153,8 @@ where not coalesce(
     ),
     false
 )
-group by s.id, sh.name, sh.name_he, c.first_name_en, c.first_name_he, c.last_name_en, c.last_name_he;
+group by s.id, sh.archived_at, sh.name, sh.name_he, first_sh.id, first_sh.archived_at,
+    c.first_name_en, c.first_name_he, c.last_name_en, c.last_name_he;
 
 -- The reference book's list read path (AD-10, mirrors shidduchim_summary).
 -- Every count the list row shows comes from here, so the
@@ -301,6 +306,7 @@ select
     ) as nb_open_singles
 from public.shadchanim sh
     left join public.shidduchim s on s.shadchan_id = sh.id
+where sh.archived_at is null
 group by sh.id;
 
 -- Story 3.6 (AC 5): resolves a note's author identity server-side, in one
