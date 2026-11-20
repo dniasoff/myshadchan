@@ -1,7 +1,6 @@
--- 9ys follow-up: serialize every undo caller/owner pair in one account order.
--- The preceding parent-first repair still took the target owner account before
--- demo_storage_write_fence() took the caller account. Reciprocal accepted edit
--- grants could therefore hold those two account locks in opposite order.
+-- 9ys follow-up: serialize undo and account purge across every related account.
+-- Parent rows come first, then all advisory and account-row locks in ascending
+-- account-id order. This also covers child-grant trigger endpoints.
 
 CREATE OR REPLACE FUNCTION "public"."undo_shidduch"("p_id" bigint) RETURNS SETOF "public"."shidduchim"
     SECURITY DEFINER
@@ -14,6 +13,7 @@ declare
   v_member_id bigint;
   v_service_role boolean;
   v_shidduch_account_id bigint;
+  v_shidduch_single_id bigint;
   v_lock_account_id bigint;
   v_row public.shidduchim;
   v_transition public.shidduch_stage_transitions;
@@ -34,7 +34,8 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
-  select s.account_id into v_shidduch_account_id
+  select s.account_id, s.single_id
+  into v_shidduch_account_id, v_shidduch_single_id
   from public.shidduchim s
   where s.id = p_id;
 
@@ -44,11 +45,12 @@ begin
 
   -- Match account_storage_cleanup_fence(): all target-account parent rows
   -- (singles, then shidduchim in id order) come before any account lock. This
-  -- preserves the purge/undo order. Once those parents are held, take both
-  -- the caller and owner account locks in ascending id order. The FOR UPDATE
-  -- account lock is the strongest mode needed by either side, so the later
-  -- demo fence's FOR KEY SHARE is re-entrant and cannot create an owner/caller
-  -- lock cycle.
+  -- preserves the purge/undo order. Once those parents are held, take every
+  -- account involved by this shidduch (the caller, owner, and all accepted
+  -- grant endpoints for its target single) in ascending id order. The FOR
+  -- UPDATE account lock is the strongest mode needed by either side, so the
+  -- later demo fence's FOR KEY SHARE is re-entrant and cannot create an
+  -- owner/caller/grant-endpoint lock cycle.
   perform 1
   from public.singles
   where account_id = v_shidduch_account_id
@@ -63,7 +65,24 @@ begin
   for v_lock_account_id in
     select lock_account_id
     from (
-      values (v_shidduch_account_id), (v_account_id)
+      select v_shidduch_account_id as lock_account_id
+      union all
+      select v_account_id
+      union all
+      select g.proposer_account_id
+      from public.child_grants g
+      where g.target_single_id = v_shidduch_single_id
+        and g.status = 'accepted'
+      union all
+      select g.grantee_account_id
+      from public.child_grants g
+      where g.target_single_id = v_shidduch_single_id
+        and g.status = 'accepted'
+      union all
+      select g.severed_by_account_id
+      from public.child_grants g
+      where g.target_single_id = v_shidduch_single_id
+        and g.status = 'accepted'
     ) as lock_accounts(lock_account_id)
     where lock_account_id is not null
     group by lock_account_id
@@ -215,6 +234,106 @@ begin
     and shidduch_id = p_id;
 
   return query select * from public.shidduch_row(p_id);
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.account_storage_cleanup_fence(p_account_id bigint)
+RETURNS boolean
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+declare
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
+begin
+  -- Account deletion uses parent rows (singles, then shidduchim, ascending
+  -- id) -> every related account's advisory fence in ascending account-id
+  -- order -> every related account row in that same order. In particular,
+  -- collect child-grant endpoints before taking any account row: the delete
+  -- trigger takes KEY SHARE on those endpoints, so taking only the caller's
+  -- row first can deadlock with an accepted-edit undo.
+  select array_agg(lock_account_id order by lock_account_id)
+  into v_lock_accounts
+  from (
+    select distinct lock_account_id
+    from (
+      select p_account_id as lock_account_id
+      union all
+      select g.proposer_account_id
+      from public.child_grants g
+      where g.proposer_account_id = p_account_id
+         or g.grantee_account_id = p_account_id
+         or g.severed_by_account_id = p_account_id
+         or exists (
+           select 1
+           from public.singles s
+           where s.id = g.target_single_id
+             and s.account_id = p_account_id
+         )
+      union all
+      select g.grantee_account_id
+      from public.child_grants g
+      where g.proposer_account_id = p_account_id
+         or g.grantee_account_id = p_account_id
+         or g.severed_by_account_id = p_account_id
+         or exists (
+           select 1
+           from public.singles s
+           where s.id = g.target_single_id
+             and s.account_id = p_account_id
+         )
+      union all
+      select g.severed_by_account_id
+      from public.child_grants g
+      where g.proposer_account_id = p_account_id
+         or g.grantee_account_id = p_account_id
+         or g.severed_by_account_id = p_account_id
+         or exists (
+           select 1
+           from public.singles s
+           where s.id = g.target_single_id
+             and s.account_id = p_account_id
+         )
+      union all
+      select s.account_id
+      from public.child_grants g
+      join public.singles s on s.id = g.target_single_id
+      where g.proposer_account_id = p_account_id
+         or g.grantee_account_id = p_account_id
+         or g.severed_by_account_id = p_account_id
+         or s.account_id = p_account_id
+    ) endpoint_accounts
+    where lock_account_id is not null
+  ) ordered_accounts;
+
+  perform 1
+  from public.singles
+  where account_id = p_account_id
+  order by id
+  for update;
+  perform 1
+  from public.shidduchim
+  where account_id = p_account_id
+  order by id
+  for update;
+  for v_lock_account_id in
+    select unnest(coalesce(v_lock_accounts, array[]::bigint[]))
+    order by 1
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+  if not exists (select 1 from public.accounts where id = p_account_id) then
+    return true;
+  end if;
+  return not exists (
+    select 1 from public.storage_purge_queue where account_id = p_account_id
+  ) and not exists (
+    select 1
+    from storage.objects
+    where bucket_id in ('documents', 'entity-files', 'attachments')
+      and (name = p_account_id::text or name like p_account_id::text || '/%')
+  );
 end;
 $function$;
 
