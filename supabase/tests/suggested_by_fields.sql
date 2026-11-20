@@ -61,6 +61,7 @@ from public.create_shidduch(
 -- columns, but the row-returning helper still has its old 35-column body.
 -- The migration must replace this before its new create_shidduch can return.
 set local role postgres;
+set local check_function_bodies = off;
 CREATE OR REPLACE FUNCTION public.shidduch_row(p_shidduchim_id bigint)
  RETURNS SETOF public.shidduchim
  LANGUAGE sql
