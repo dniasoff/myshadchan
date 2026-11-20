@@ -477,6 +477,29 @@ values
      null, null, null, null, null,
      'new', 'channel', 'private_parent', null);
 
+-- 9ys: stage history is append-only production data. Seed one live move for
+-- the existing look_into suggestion (9000002), so a pending migration cannot
+-- drop or rewrite the actor/account/state columns without this guard noticing.
+-- The table is absent on a baseline from before 9ys, so keep the seed guarded
+-- exactly like the other post-migration tables in this fixture.
+do $$
+begin
+  if to_regclass('public.shidduch_stage_transitions') is not null then
+    execute $seed$
+      insert into public.shidduch_stage_transitions (
+        id, shidduch_id, account_id, actor_member_id,
+        from_state, to_state, previous_close_reason, produced_close_reason,
+        created_at, undone_at, undo_of_id
+      )
+      values (
+        9000001, 9000002, 9000001, 9000001,
+        'new', 'look_into', null, null,
+        now() - interval '1 hour', null, null
+      );
+    $seed$;
+  end if;
+end $$;
+
 -- Story 5xr: preserve a deployed tombstone and a pending Storage cleanup row
 -- while the new queue identity columns and indexes are introduced.
 insert into public.deleted_shidduch_tombstones (account_id, shidduch_id, deleted_at)
@@ -1494,6 +1517,10 @@ insert into migration_guard.empty_by_design (table_name, reason) values
 insert into migration_guard.empty_by_design (table_name, reason) values
     ('analytics_events', 'Story 15.2 analytics event table. Seeded by the analytics worker in production; '
                       'no realistic synthetic event data exists for the fixture. Seed once a story wires it up.');
+insert into migration_guard.empty_by_design (table_name, reason) values
+    ('shidduch_stage_undo_context', 'The 9ys undo authorization is transaction-bound: the server inserts '
+                      'a receipt only while undo_shidduch is running and deletes it before that transaction '
+                      'commits. It therefore has no rows between transactions to protect in this fixture.');
 -- `stripe_events` (Story 12.4 billing) is a KNOWN, still-open gap: it has no
 -- captured row and no declaration here either, so this guard cannot reach
 -- its ASSERT phase for ANY change today, not just this one — confirmed by
