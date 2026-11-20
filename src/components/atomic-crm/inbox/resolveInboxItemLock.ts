@@ -64,6 +64,7 @@ export type ResolutionInput =
       single_id?: Identifier;
       suggested_by_name?: string | null;
       suggested_by_phone?: string | null;
+      shadchan_id?: Identifier | null;
       resolved_shidduchim_id?: Identifier;
       resume_id?: Identifier;
       resume_file_path?: string;

@@ -1628,6 +1628,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/inbox/suggestedBy.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/inbox/resumeUpload.ts",
           "type": "registry:component"
         },
@@ -1649,6 +1653,10 @@
         },
         {
           "path": "src/components/atomic-crm/inbox/inboxDelete.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/inbox/SuggestedByFields.tsx",
           "type": "registry:component"
         },
         {

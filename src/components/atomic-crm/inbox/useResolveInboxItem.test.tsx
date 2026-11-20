@@ -355,6 +355,30 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
         sender_needs_confirmation: true,
       }),
     ).toBeNull();
+    expect(
+      suggestedByNameFromInboxItem({
+        sender: "miriam@example.test",
+        sender_needs_confirmation: false,
+      }),
+    ).toBeNull();
+    expect(
+      suggestedByNameFromInboxItem({
+        sender: `Miriam${String.fromCharCode(0x1f)}Cohen`,
+        sender_needs_confirmation: false,
+      }),
+    ).toBeNull();
+    expect(
+      suggestedByNameFromInboxItem({
+        sender: "M".repeat(201),
+        sender_needs_confirmation: false,
+      }),
+    ).toBeNull();
+    expect(
+      suggestedByNameFromInboxItem({
+        sender: "   ",
+        sender_needs_confirmation: false,
+      }),
+    ).toBeNull();
   });
 
   it.each([

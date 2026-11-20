@@ -2,6 +2,7 @@ import type { Identifier } from "ra-core";
 import { useGetList, useRecordContext } from "ra-core";
 
 import type { Redt, Shadchan, ShidduchSummary } from "../types";
+import { suggestedByPhoneHref } from "../inbox/suggestedBy";
 import { RedtHistorySection } from "./RedtHistorySection";
 import { ShidduchCatchSection } from "./ShidduchCatchSection";
 import { ShidduchFactsCard } from "./ShidduchFactsCard";
@@ -59,8 +60,37 @@ export const ShidduchOverviewTab = () => {
             Shadchan
           </h3>
           <p className="mt-2 break-words text-sm text-muted-foreground">
-            {record.shadchan_name ?? "No shadchan recorded"}
+            {record.shadchan_name?.trim() || "No shadchan recorded"}
           </p>
+          {record.suggested_by_name?.trim() ||
+          record.suggested_by_phone?.trim() ? (
+            <div
+              className="mt-4 border-t border-border pt-4"
+              data-slot="shidduch-suggested-by"
+            >
+              <h4 className="text-sm font-semibold">Suggested by</h4>
+              <p className="mt-1 break-words text-sm text-muted-foreground">
+                {record.suggested_by_name?.trim() ? (
+                  <span>{record.suggested_by_name.trim()}</span>
+                ) : null}
+                {record.suggested_by_name?.trim() &&
+                record.suggested_by_phone?.trim()
+                  ? " · "
+                  : null}
+                {record.suggested_by_phone?.trim() ? (
+                  <a
+                    href={
+                      suggestedByPhoneHref(record.suggested_by_phone) ??
+                      undefined
+                    }
+                    className="inline-flex min-h-11 items-center px-2 underline decoration-dotted underline-offset-2"
+                  >
+                    {record.suggested_by_phone.trim()}
+                  </a>
+                ) : null}
+              </p>
+            </div>
+          ) : null}
         </section>
 
         <ShidduchTodoBox shidduch={record} />

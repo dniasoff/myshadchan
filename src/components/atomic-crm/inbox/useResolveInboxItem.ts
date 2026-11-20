@@ -91,7 +91,7 @@ export function suggestedByNameFromInboxItem(
   const hasControlCharacter = sender
     ? [...sender].some((character) => {
         const codePoint = character.charCodeAt(0);
-        return codePoint <= 0x1f || codePoint === 0x7f;
+        return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f);
       })
     : false;
   if (
@@ -256,8 +256,10 @@ export function useResolveInboxItem() {
       }
 
       let resolutionSnapshot = lockedItem;
-      const stashed = (resolutionSnapshot.resolution_input ??
-        {}) as ResolutionInput & {
+      const stashed = (resolutionSnapshot.resolution_input ?? {}) as Extract<
+        ResolutionInput,
+        { action: "new" }
+      > & {
         resolved_shidduchim_id?: Identifier;
       };
 
@@ -837,6 +839,7 @@ export function useResolveInboxItem() {
     action: InboxResumeAction,
     shidduchimId?: Identifier,
     singleId?: Identifier,
+    shadchanId?: Identifier | null,
     suggestedByName?: string | null,
     suggestedByPhone?: string | null,
     attemptId = generateAttemptId(),
@@ -853,9 +856,16 @@ export function useResolveInboxItem() {
       resolved_shidduchim_id?: Identifier;
       resume_id?: Identifier;
       resume_file_path?: string;
+      shadchan_id?: Identifier | null;
       suggested_by_name?: string | null;
       suggested_by_phone?: string | null;
     };
+    const effectiveShadchanId = Object.prototype.hasOwnProperty.call(
+      currentProgress,
+      "shadchan_id",
+    )
+      ? (currentProgress.shadchan_id ?? null)
+      : (shadchanId ?? null);
     const effectiveSuggestedByName =
       currentProgress.suggested_by_name ?? suggestedByName ?? null;
     const effectiveSuggestedByPhone =
@@ -868,6 +878,7 @@ export function useResolveInboxItem() {
       ...(singleId == null ? {} : { single_id: singleId }),
       ...(action === "new"
         ? {
+            shadchan_id: effectiveShadchanId,
             suggested_by_name: effectiveSuggestedByName,
             suggested_by_phone: effectiveSuggestedByPhone,
           }
@@ -919,6 +930,7 @@ export function useResolveInboxItem() {
             throw new Error("Choose who this suggestion is for.");
           precreatedShidduch = await dataProvider.createShidduch({
             single_id: singleId,
+            shadchan_id: effectiveShadchanId,
             name_en: null,
             suggested_by_name: effectiveSuggestedByName,
             suggested_by_phone: effectiveSuggestedByPhone,
@@ -1018,12 +1030,15 @@ export function useResolveInboxItem() {
       };
     }
 
-    const stashed = (lockedItem.resolution_input ??
-      {}) as typeof resolutionInput & {
+    const stashed = (lockedItem.resolution_input ?? {}) as Extract<
+      ResolutionInput,
+      { action: "resume_new" | "resume_attach" }
+    > & {
       resolved_shidduchim_id?: Identifier;
       resume_id?: Identifier;
       resume_file_path?: string;
       resume_created?: boolean;
+      shadchan_id?: Identifier | null;
       read_completed?: boolean;
       entity_file_ids?: Identifier[];
       resume_read_request_id?: string;
@@ -1059,6 +1074,7 @@ export function useResolveInboxItem() {
         } else {
           shidduch = await dataProvider.createShidduch({
             single_id: singleId,
+            shadchan_id: stashed.shadchan_id ?? effectiveShadchanId,
             name_en: null,
             suggested_by_name:
               stashed.suggested_by_name ?? effectiveSuggestedByName,
@@ -1267,6 +1283,7 @@ export function useResolveInboxItem() {
       singleId?: Identifier;
       suggestedByName?: string | null;
       suggestedByPhone?: string | null;
+      shadchanId?: Identifier | null;
     },
   ): Promise<InboxResumeProcessResult> => {
     const currentBeforeAttempt = await getCurrentResolutionItem(item).catch(
@@ -1293,6 +1310,7 @@ export function useResolveInboxItem() {
         action,
         options.shidduchimId,
         options.singleId,
+        options.shadchanId,
         options.suggestedByName,
         options.suggestedByPhone,
         attemptId,

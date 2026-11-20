@@ -440,6 +440,28 @@ describe("InboxResolveDialog — attachment links are re-signed at click time (r
 });
 
 describe("InboxResolveDialog — confirm details", () => {
+  it("shows the From fields, defaults the safe sender, and does not query pre-migration archived_at", async () => {
+    const item = buildItem({ sender: "Sara Cohen" });
+    const { screen, dataProvider } = await renderDialog(item);
+
+    await expect
+      .element(screen.getByLabelText("Suggested by"))
+      .toHaveValue("Sara Cohen");
+    await expect
+      .element(screen.getByLabelText("Phone number"))
+      .toBeInTheDocument();
+    expect(
+      (dataProvider.getList as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([resource, params]) =>
+          resource === "shadchanim" &&
+          Object.prototype.hasOwnProperty.call(
+            params.filter ?? {},
+            "archived_at@is",
+          ),
+      ),
+    ).toBe(false);
+  });
+
   it("asks only for the approved details and has no auto-fill action", async () => {
     const item = buildItem({ attachments: [buildAttachment()] });
     const { screen } = await renderDialog(item);
