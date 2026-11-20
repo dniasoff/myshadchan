@@ -25,9 +25,10 @@ type RenderTask = {
   cancel: ReturnType<typeof vi.fn>;
 };
 
-const makePdf = (baseWidth = 600, baseHeight = 800) => {
+const makePdf = (baseWidth = 600, baseHeight = 800, pageCount = 1) => {
   const tasks: Array<{
     resolve: () => void;
+    reject: (reason?: unknown) => void;
     task: RenderTask;
   }> = [];
   const page = {
@@ -37,19 +38,21 @@ const makePdf = (baseWidth = 600, baseHeight = 800) => {
     })),
     render: vi.fn(() => {
       let resolve!: () => void;
-      const promise = new Promise<void>((done) => {
+      let reject!: (reason?: unknown) => void;
+      const promise = new Promise<void>((done, fail) => {
         resolve = done;
+        reject = fail;
       });
       const task: RenderTask = {
         promise,
         cancel: vi.fn(),
       };
-      tasks.push({ resolve, task });
+      tasks.push({ resolve, reject, task });
       return task;
     }),
   };
   const documentProxy = {
-    numPages: 1,
+    numPages: pageCount,
     getPage: vi.fn().mockResolvedValue(page),
   };
   const loadingTask = {
@@ -60,7 +63,7 @@ const makePdf = (baseWidth = 600, baseHeight = 800) => {
   return { documentProxy, loadingTask, page, tasks };
 };
 
-const renderPdf = async (width = 600) => {
+const renderPdf = async (width = 600, hidden = false) => {
   const signUrl = vi
     .fn()
     .mockResolvedValue("https://storage.example/resume.pdf");
@@ -69,7 +72,7 @@ const renderPdf = async (width = 600) => {
   );
   const screen = await render(
     <CoreAdminContext i18nProvider={testI18nProvider}>
-      <div style={{ height: "800px", width: `${width}px` }}>
+      <div style={{ height: "800px", width: hidden ? "0px" : `${width}px` }}>
         <PdfPreview
           fileName="test.pdf"
           signUrl={signUrl}
@@ -84,6 +87,7 @@ const renderPdf = async (width = 600) => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("PdfPreview rendering lifecycle", () => {
@@ -103,6 +107,40 @@ describe("PdfPreview rendering lifecycle", () => {
     await expect
       .poll(() => screen.container.querySelector("canvas")?.width ?? 0)
       .toBeGreaterThan(900);
+  });
+
+  it("surfaces a real page-render rejection with the download fallback", async () => {
+    const { page, tasks } = makePdf();
+    const { screen } = await renderPdf();
+
+    await expect.poll(() => page.render.mock.calls.length).toBe(1);
+    tasks[0].reject(new Error("page render failed"));
+
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("Could not open this file for reading.");
+    await expect
+      .element(screen.getByRole("button", { name: "Download a copy" }))
+      .toBeVisible();
+  });
+
+  it("waits for a positive width and detects reveal without ResizeObserver", async () => {
+    const { page, tasks } = makePdf();
+    vi.stubGlobal("ResizeObserver", undefined);
+    const { screen } = await renderPdf(600, true);
+
+    await expect.poll(() => pdfMocks.getDocument.mock.calls.length).toBe(1);
+    await new Promise((resolve) => window.setTimeout(resolve, 200));
+    await expect.poll(() => page.render.mock.calls.length).toBe(0);
+    const wrapper = screen.container.querySelector<HTMLElement>(
+      '[style*="width: 0px"]',
+    );
+    expect(wrapper).not.toBeNull();
+    if (!wrapper) return;
+
+    wrapper.style.width = "600px";
+    await expect.poll(() => page.render.mock.calls.length).toBe(1);
+    tasks[0].resolve();
   });
 
   it("re-renders after a container resize and cancels the stale render", async () => {
@@ -146,5 +184,73 @@ describe("PdfPreview rendering lifecycle", () => {
     expect(tasks[0].task.cancel).toHaveBeenCalledTimes(1);
     expect(loadingTask.destroy).toHaveBeenCalledTimes(1);
     expect(pdfMocks.getDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it("evicts canvases for far pages and repaints only a bounded live set", async () => {
+    const { page, tasks } = makePdf(600, 800, 6);
+    const observers: Array<{
+      element: Element | null;
+      emit: (isIntersecting: boolean) => void;
+    }> = [];
+    class TestIntersectionObserver {
+      private readonly callback: IntersectionObserverCallback;
+      private element: Element | null = null;
+
+      constructor(callback: IntersectionObserverCallback) {
+        this.callback = callback;
+        observers.push({
+          element: null,
+          emit: (isIntersecting) => {
+            if (this.element) {
+              this.callback(
+                [
+                  {
+                    isIntersecting,
+                    target: this.element,
+                  } as IntersectionObserverEntry,
+                ],
+                this as unknown as IntersectionObserver,
+              );
+            }
+          },
+        });
+      }
+
+      observe(element: Element) {
+        this.element = element;
+        observers.at(-1)!.element = element;
+      }
+
+      disconnect() {}
+    }
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+
+    const { screen } = await renderPdf();
+    await expect.poll(() => page.render.mock.calls.length).toBe(1);
+    tasks[0].resolve();
+    await expect
+      .poll(() => screen.container.querySelectorAll("canvas")[0]?.width ?? 0)
+      .toBeGreaterThan(0);
+
+    for (let index = 1; index < 6; index += 1) {
+      observers[index - 1]?.emit(false);
+      observers[index]?.emit(true);
+      await expect.poll(() => page.render.mock.calls.length).toBe(index + 1);
+      tasks[index].resolve();
+      await expect
+        .poll(
+          () =>
+            [...screen.container.querySelectorAll("canvas")].filter(
+              (canvas) => canvas.width > 0 && canvas.height > 0,
+            ).length,
+        )
+        .toBeLessThanOrEqual(1);
+    }
+
+    expect(
+      [...screen.container.querySelectorAll("canvas")].filter(
+        (canvas) => canvas.width > 0 && canvas.height > 0,
+      ),
+    ).toHaveLength(1);
   });
 });

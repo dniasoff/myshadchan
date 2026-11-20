@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { useTranslate } from "ra-core";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
@@ -61,6 +61,15 @@ const MAX_CANVAS_PIXELS = 8_300_000;
  * A4/Letter are both close enough that no visible shift occurs. */
 const FALLBACK_PAGE_ASPECT = 1.414;
 
+function isRenderingCancelledException(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "RenderingCancelledException"
+  );
+}
+
 type PdfState =
   | { status: "pending" }
   | { status: "ready"; doc: PDFDocumentProxy; aspect: number }
@@ -118,6 +127,9 @@ export function PdfPreview({
 }: PdfPreviewProps): ReactElement {
   const translate = useTranslate();
   const [state, setState] = useState<PdfState>({ status: "pending" });
+  const handlePageError = useCallback(() => {
+    setState({ status: "error" });
+  }, []);
 
   useEffect(() => {
     if (!active) {
@@ -208,6 +220,7 @@ export function PdfPreview({
             pageCount={state.doc.numPages}
             aspect={state.aspect}
             fileName={fileName}
+            onError={handlePageError}
           />
         ))}
       </div>
@@ -229,12 +242,14 @@ function PdfPage({
   pageCount,
   aspect,
   fileName,
+  onError,
 }: {
   doc: PDFDocumentProxy;
   pageNumber: number;
   pageCount: number;
   aspect: number;
   fileName: string;
+  onError: () => void;
 }): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -242,33 +257,54 @@ function PdfPage({
   const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
-    if (isNearViewport) return;
     const element = containerRef.current;
-    // No IntersectionObserver (a JSDOM-style environment, an old browser):
-    // paint rather than leave the page permanently blank.
-    if (!element || typeof IntersectionObserver === "undefined") {
-      setIsNearViewport(true);
-      return;
+    if (!element) return;
+
+    if (typeof IntersectionObserver === "undefined") {
+      // Keep the fallback bounded too. Older browsers without an observer
+      // still release pages as they leave the scrollport, and the scroll/
+      // resize listeners make the page visible again when it returns.
+      const scrollParent = element.parentElement;
+      const updateVisibility = () => {
+        const elementRect = element.getBoundingClientRect();
+        const rootRect = scrollParent?.getBoundingClientRect();
+        const top = rootRect?.top ?? 0;
+        const bottom = rootRect?.bottom ?? window.innerHeight;
+        const margin = window.innerHeight;
+        setIsNearViewport(
+          elementRect.bottom >= top - margin &&
+            elementRect.top <= bottom + margin,
+        );
+      };
+      updateVisibility();
+      scrollParent?.addEventListener("scroll", updateVisibility);
+      window.addEventListener("resize", updateVisibility);
+      return () => {
+        scrollParent?.removeEventListener("scroll", updateVisibility);
+        window.removeEventListener("resize", updateVisibility);
+      };
     }
+
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setIsNearViewport(true);
-        }
+        const entry = entries.find((candidate) => candidate.target === element);
+        if (entry) setIsNearViewport(entry.isIntersecting);
       },
-      // A screen ahead, so a page is painted before it is scrolled to.
+      // A screen ahead, so a page is painted before it is scrolled to and
+      // released after it is safely far behind the reader.
       { rootMargin: "150% 0px" },
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [isNearViewport]);
+  }, []);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const updateWidth = () => {
-      setContainerWidth(container.clientWidth || 800);
+      const width = container.clientWidth;
+      setContainerWidth((previous) => (previous === width ? previous : width));
     };
     updateWidth();
 
@@ -278,12 +314,29 @@ function PdfPage({
       return () => observer.disconnect();
     }
 
+    // Without ResizeObserver, polling is needed in addition to window resize:
+    // moving the shared host from a hidden inline stage into the dialog can
+    // reveal it without changing the window dimensions.
+    const interval = window.setInterval(updateWidth, 100);
     window.addEventListener("resize", updateWidth);
-    return () => window.removeEventListener("resize", updateWidth);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("resize", updateWidth);
+    };
   }, []);
 
   useEffect(() => {
-    if (!isNearViewport || containerWidth === 0) return;
+    const canvas = canvasRef.current;
+    if (!canvas || (isNearViewport && containerWidth > 0)) return;
+    // The visible canvas is the expensive part: width × height × 4 bytes.
+    // Releasing it when the page is far away bounds memory for long PDFs;
+    // the next intersection/scroll event paints it again.
+    canvas.width = 0;
+    canvas.height = 0;
+  }, [containerWidth, isNearViewport]);
+
+  useEffect(() => {
+    if (!isNearViewport || containerWidth <= 0) return;
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
@@ -313,7 +366,10 @@ function PdfPage({
       renderCanvas.width = Math.floor(viewport.width);
       renderCanvas.height = Math.floor(viewport.height);
       const renderContext = renderCanvas.getContext("2d");
-      if (!renderContext || cancelled) return;
+      if (cancelled) return;
+      if (!renderContext) {
+        throw new Error("Could not create a PDF canvas context");
+      }
 
       // Paint into a detached canvas first. The visible canvas keeps its last
       // complete bitmap while a resize/full-screen move is being rendered, so
@@ -328,24 +384,24 @@ function PdfPage({
       if (cancelled) return;
 
       const context = canvas.getContext("2d");
-      if (!context) return;
+      if (!context) {
+        throw new Error("Could not create the visible PDF canvas context");
+      }
       canvas.width = renderCanvas.width;
       canvas.height = renderCanvas.height;
       context.drawImage(renderCanvas, 0, 0);
       renderCanvas.width = 0;
       renderCanvas.height = 0;
-    })().catch(() => {
-      // A cancelled render rejects by design (unmount, or scrolling away
-      // mid-paint). There is nothing to report: the page simply stays a
-      // placeholder, and the document's own error state covers a real
-      // failure to load.
+    })().catch((error: unknown) => {
+      if (cancelled || isRenderingCancelledException(error)) return;
+      onError();
     });
 
     return () => {
       cancelled = true;
       renderTask?.cancel();
     };
-  }, [containerWidth, doc, isNearViewport, pageNumber]);
+  }, [containerWidth, doc, isNearViewport, onError, pageNumber]);
 
   return (
     <div

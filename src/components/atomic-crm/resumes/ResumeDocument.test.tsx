@@ -294,6 +294,14 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     const canvas = document.querySelector<HTMLCanvasElement>(
       'canvas[aria-label^="sharp-full-screen.pdf — page 1"]',
     );
+    const inlineStage = screen.getByTestId("resume-document-stage").element();
+    const initialWidth = canvas?.width ?? 0;
+    inlineStage.style.width = "120px";
+    await expect
+      .poll(() => canvas?.width ?? 0, { timeout: 15000 })
+      .toBeLessThan(initialWidth);
+    const compactWidth = canvas?.width ?? 0;
+
     await screen.getByRole("button", { name: "Full screen" }).click();
     await expect.element(screen.getByRole("dialog")).toBeVisible();
     const dialog = screen.getByRole("dialog");
@@ -302,7 +310,10 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     });
     await expect.element(dialogCanvas).toBeVisible();
     expect(dialog.element().contains(canvas)).toBe(true);
-    expect(canvas?.width).toBeGreaterThan(300);
+    await expect
+      .poll(() => canvas?.width ?? 0, { timeout: 15000 })
+      .toBeGreaterThan(compactWidth + 100);
+    expect(canvas?.width).not.toBe(compactWidth);
     expect(signResumeFileUrl).toHaveBeenCalledTimes(1);
   });
 
