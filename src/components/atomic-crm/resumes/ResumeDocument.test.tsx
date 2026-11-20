@@ -152,9 +152,6 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
       .poll(() => paintedPageFor("newest-c.pdf"), { timeout: 15000 })
       .toBe(true);
 
-    await screen.getByRole("button", { name: "Zoom in" }).click();
-    await expect.element(screen.getByText("110%")).toBeVisible();
-
     // Act — the newest row is already shown, so the only Show belongs to the
     // older version.
     await screen.getByRole("button", { name: "Show" }).click();
@@ -163,7 +160,6 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     await expect
       .poll(() => paintedPageFor("older-c.pdf"), { timeout: 15000 })
       .toBe(true);
-    await expect.element(screen.getByText("100%")).toBeVisible();
     expect(
       document.querySelector('canvas[aria-label^="newest-c.pdf"]'),
     ).toBeNull();
@@ -200,7 +196,7 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     expect(document.querySelector("iframe")).toBeNull();
   });
 
-  it("starts at 100% with a responsive stage and accessible viewer controls", async () => {
+  it("opens fit to width with no zoom controls and an accessible viewer control", async () => {
     const { screen } = await renderDocument([
       version({
         path: "p/reader.jpg",
@@ -209,16 +205,12 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
       }),
     ]);
 
-    await expect.element(screen.getByText("100%")).toBeVisible();
-    await expect
-      .element(screen.getByRole("button", { name: "Zoom out" }))
-      .toBeVisible();
-    await expect
-      .element(screen.getByRole("button", { name: "Zoom in" }))
-      .toBeVisible();
-    await expect
-      .element(screen.getByRole("button", { name: "Fit to width" }))
-      .toBeVisible();
+    expect(screen.getByText("Zoom").query()).toBeNull();
+    expect(screen.getByRole("button", { name: "Zoom out" }).query()).toBeNull();
+    expect(screen.getByRole("button", { name: "Zoom in" }).query()).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Fit to width" }).query(),
+    ).toBeNull();
     await expect
       .element(screen.getByRole("button", { name: "Full screen" }))
       .toBeVisible();
@@ -230,29 +222,104 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
       .toHaveClass("md:min-h-[520px]");
   });
 
-  it("clamps zoom to its limits and Fit to width returns to 100%", async () => {
+  it("renders a PDF at the container width and caps DPR 3 at two pixels per CSS pixel", async () => {
+    stubFetchWithPdf();
+    const devicePixelRatio = vi
+      .spyOn(window, "devicePixelRatio", "get")
+      .mockReturnValue(1);
+    await renderDocument([
+      version({ path: "p/sharp-dpr1.pdf", filename: "sharp-dpr1.pdf" }),
+    ]);
+    await expect
+      .poll(() => paintedPageFor("sharp-dpr1.pdf"), { timeout: 15000 })
+      .toBe(true);
+    const dpr1Canvas = document.querySelector<HTMLCanvasElement>(
+      'canvas[aria-label^="sharp-dpr1.pdf — page 1"]',
+    );
+
+    devicePixelRatio.mockReturnValue(3);
+    await renderDocument([
+      version({ path: "p/sharp-dpr3.pdf", filename: "sharp-dpr3.pdf" }),
+    ]);
+    await expect
+      .poll(() => paintedPageFor("sharp-dpr3.pdf"), { timeout: 15000 })
+      .toBe(true);
+    const dpr3Canvas = document.querySelector<HTMLCanvasElement>(
+      'canvas[aria-label^="sharp-dpr3.pdf — page 1"]',
+    );
+
+    expect(dpr1Canvas).not.toBeNull();
+    expect(dpr3Canvas).not.toBeNull();
+    expect(dpr1Canvas?.width).toBeGreaterThan(300);
+    expect(dpr3Canvas?.width).toBeGreaterThan((dpr1Canvas?.width ?? 0) * 1.8);
+    expect(dpr3Canvas?.width).toBeLessThan((dpr1Canvas?.width ?? 0) * 2.2);
+  });
+
+  it("repaints at the new stage width when the viewer is resized", async () => {
+    stubFetchWithPdf();
+    await renderDocument([
+      version({ path: "p/sharp-resize.pdf", filename: "sharp-resize.pdf" }),
+    ]);
+    await expect
+      .poll(() => paintedPageFor("sharp-resize.pdf"), { timeout: 15000 })
+      .toBe(true);
+
+    const stage = document.querySelector<HTMLElement>(
+      '[data-testid="resume-document-stage"]',
+    );
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      'canvas[aria-label^="sharp-resize.pdf — page 1"]',
+    );
+    expect(stage).not.toBeNull();
+    expect(canvas).not.toBeNull();
+    const before = canvas?.width ?? 0;
+    if (stage) stage.style.width = "400px";
+    await expect
+      .poll(() => canvas?.width ?? 0, { timeout: 15000 })
+      .toBeLessThan(before);
+    expect(canvas?.width).toBeGreaterThan(300);
+  });
+
+  it("moves the shared preview into full screen without re-fetching", async () => {
+    stubFetchWithPdf();
+    const { screen, signResumeFileUrl } = await renderDocument([
+      version({
+        path: "p/sharp-full-screen.pdf",
+        filename: "sharp-full-screen.pdf",
+      }),
+    ]);
+    await expect
+      .poll(() => paintedPageFor("sharp-full-screen.pdf"), { timeout: 15000 })
+      .toBe(true);
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      'canvas[aria-label^="sharp-full-screen.pdf — page 1"]',
+    );
+    await screen.getByRole("button", { name: "Full screen" }).click();
+    await expect.element(screen.getByRole("dialog")).toBeVisible();
+    const dialog = screen.getByRole("dialog");
+    const dialogCanvas = dialog.getByRole("img", {
+      name: "sharp-full-screen.pdf — page 1 of 1",
+    });
+    await expect.element(dialogCanvas).toBeVisible();
+    expect(dialog.element().contains(canvas)).toBe(true);
+    expect(canvas?.width).toBeGreaterThan(300);
+    expect(signResumeFileUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not expose removed zoom controls after the viewer is remounted", async () => {
     const { screen } = await renderDocument([
       version({
-        path: "p/zoom.jpg",
-        filename: "zoom.jpg",
+        path: "p/no-zoom.jpg",
+        filename: "no-zoom.jpg",
         mime_type: "image/jpeg",
       }),
     ]);
-    const zoomIn = screen.getByRole("button", { name: "Zoom in" });
-    const zoomOut = screen.getByRole("button", { name: "Zoom out" });
-
-    await zoomIn.click();
-    await expect.element(screen.getByText("110%")).toBeVisible();
-    await screen.getByRole("button", { name: "Fit to width" }).click();
-    await expect.element(screen.getByText("100%")).toBeVisible();
-
-    for (let index = 0; index < 5; index += 1) await zoomIn.click();
-    await expect.element(screen.getByText("150%")).toBeVisible();
-    await expect.element(zoomIn).toBeDisabled();
-
-    for (let index = 0; index < 8; index += 1) await zoomOut.click();
-    await expect.element(screen.getByText("75%")).toBeVisible();
-    await expect.element(zoomOut).toBeDisabled();
+    expect(screen.getByText("100%").query()).toBeNull();
+    expect(screen.getByRole("button", { name: "Zoom out" }).query()).toBeNull();
+    expect(screen.getByRole("button", { name: "Zoom in" }).query()).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Fit to width" }).query(),
+    ).toBeNull();
   });
 
   it("opens the full-screen viewer and returns focus after Escape", async () => {
@@ -293,11 +360,10 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
 
     const dialog = screen.getByRole("dialog");
     const close = dialog.getByRole("button", { name: "Close" });
-    const fitToWidth = dialog.getByRole("button", { name: "Fit to width" });
     await expect.element(close).toHaveFocus();
 
     await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
-    await expect.element(fitToWidth).toHaveFocus();
+    await expect.element(close).toHaveFocus();
     expect(dialog.element().contains(document.activeElement)).toBe(true);
 
     await userEvent.keyboard("{Tab}");
@@ -354,7 +420,7 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
     ).toHaveLength(1);
   });
 
-  it("resets zoom when the resume identity changes", async () => {
+  it("switches the shared viewer when the resume identity changes", async () => {
     const first = await renderDocument(
       [
         version({
@@ -365,9 +431,6 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
       ],
       1,
     );
-    await first.screen.getByRole("button", { name: "Zoom in" }).click();
-    await expect.element(first.screen.getByText("110%")).toBeVisible();
-
     const { dataProvider: secondDataProvider } = providerFor(
       [
         version({
@@ -389,48 +452,9 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
       </TestMemoryRouter>,
     );
 
-    await expect.element(first.screen.getByText("100%")).toBeVisible();
     await expect
       .element(first.screen.getByText("resume-two.jpg"))
       .toBeVisible();
-  });
-
-  it("resets zoom when the viewer is unmounted instead of persisting it", async () => {
-    const files = [
-      version({
-        path: "p/reset-one.jpg",
-        filename: "reset-one.jpg",
-        mime_type: "image/jpeg",
-      }),
-    ];
-    const first = await renderDocument(files);
-    await first.screen.getByRole("button", { name: "Zoom in" }).click();
-    await expect.element(first.screen.getByText("110%")).toBeVisible();
-
-    const emptyTree = (
-      <TestMemoryRouter>
-        <CoreAdminContext
-          dataProvider={first.dataProvider}
-          i18nProvider={testI18nProvider}
-        >
-          <div />
-        </CoreAdminContext>
-      </TestMemoryRouter>
-    );
-    await first.screen.rerender(emptyTree);
-    await first.screen.rerender(
-      <TestMemoryRouter>
-        <CoreAdminContext
-          dataProvider={first.dataProvider}
-          i18nProvider={testI18nProvider}
-        >
-          <ResumeDocument shidduchimId={1} />
-        </CoreAdminContext>
-      </TestMemoryRouter>,
-    );
-    await expect.element(first.screen.getByText("100%")).toBeVisible();
-    expect(window.localStorage.getItem("resume-viewer-zoom")).toBeNull();
-    expect(window.sessionStorage.getItem("resume-viewer-zoom")).toBeNull();
   });
 
   it("moves the embedded preview to the next visible file during Undo", async () => {

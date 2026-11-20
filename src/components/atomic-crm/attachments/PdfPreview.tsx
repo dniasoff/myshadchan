@@ -199,7 +199,7 @@ export function PdfPreview({
       role="document"
       aria-label={fileName}
     >
-      <div className="mx-auto flex max-w-3xl flex-col gap-3 p-2 sm:p-4">
+      <div className="mx-auto flex w-full flex-col gap-3 p-2 sm:p-4">
         {Array.from({ length: state.doc.numPages }, (_, index) => (
           <PdfPage
             key={index + 1}
@@ -239,6 +239,7 @@ function PdfPage({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isNearViewport, setIsNearViewport] = useState(pageNumber === 1);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
     if (isNearViewport) return;
@@ -263,7 +264,26 @@ function PdfPage({
   }, [isNearViewport]);
 
   useEffect(() => {
-    if (!isNearViewport) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateWidth = () => {
+      setContainerWidth(container.clientWidth || 800);
+    };
+    updateWidth();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(updateWidth);
+      observer.observe(container);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
+  }, []);
+
+  useEffect(() => {
+    if (!isNearViewport || containerWidth === 0) return;
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
@@ -280,7 +300,7 @@ function PdfPage({
       // by the device's pixel ratio — capped twice over, so neither a huge
       // desktop window nor a high-DPI phone can allocate a canvas iOS will
       // refuse (silently, with a blank one).
-      const cssWidth = container.clientWidth || 800;
+      const cssWidth = containerWidth;
       const ratio = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO);
       let scale = (cssWidth / base.width) * ratio;
       const area = base.width * scale * (base.height * scale);
@@ -289,14 +309,31 @@ function PdfPage({
       }
 
       const viewport = page.getViewport({ scale });
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
-      const context = canvas.getContext("2d");
-      if (!context || cancelled) return;
+      const renderCanvas = document.createElement("canvas");
+      renderCanvas.width = Math.floor(viewport.width);
+      renderCanvas.height = Math.floor(viewport.height);
+      const renderContext = renderCanvas.getContext("2d");
+      if (!renderContext || cancelled) return;
 
-      const task = page.render({ canvas, canvasContext: context, viewport });
+      // Paint into a detached canvas first. The visible canvas keeps its last
+      // complete bitmap while a resize/full-screen move is being rendered, so
+      // rapid layout changes never flash a blank or half-painted page.
+      const task = page.render({
+        canvas: renderCanvas,
+        canvasContext: renderContext,
+        viewport,
+      });
       renderTask = task;
       await task.promise;
+      if (cancelled) return;
+
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      canvas.width = renderCanvas.width;
+      canvas.height = renderCanvas.height;
+      context.drawImage(renderCanvas, 0, 0);
+      renderCanvas.width = 0;
+      renderCanvas.height = 0;
     })().catch(() => {
       // A cancelled render rejects by design (unmount, or scrolling away
       // mid-paint). There is nothing to report: the page simply stays a
@@ -308,7 +345,7 @@ function PdfPage({
       cancelled = true;
       renderTask?.cancel();
     };
-  }, [doc, pageNumber, isNearViewport]);
+  }, [containerWidth, doc, isNearViewport, pageNumber]);
 
   return (
     <div

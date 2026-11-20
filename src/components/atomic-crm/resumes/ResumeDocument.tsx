@@ -1,4 +1,4 @@
-import { Maximize2, Minus, Plus } from "lucide-react";
+import { Maximize2 } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -47,11 +47,6 @@ import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
  */
 const EMBED_HEIGHT =
   "h-[60svh] min-h-[410px] md:h-[70vh] md:min-h-[520px] md:max-h-[720px]";
-const ZOOM_MIN = 75;
-const ZOOM_MAX = 150;
-const ZOOM_STEP = 10;
-const ZOOM_DEFAULT = 100;
-
 /**
  * The Resume tab, whole: the document itself, then the versions beneath it.
  *
@@ -192,23 +187,13 @@ function ResumeEmbed({
 }
 
 interface ResumeViewerToolbarProps {
-  zoom: number;
-  onZoomOut: () => void;
-  onZoomIn: () => void;
-  onFitToWidth: () => void;
   onFullScreen?: () => void;
   fullScreenButtonRef?: RefObject<HTMLButtonElement | null>;
-  isFullScreen?: boolean;
 }
 
 function ResumeViewerToolbar({
-  zoom,
-  onZoomOut,
-  onZoomIn,
-  onFitToWidth,
   onFullScreen,
   fullScreenButtonRef,
-  isFullScreen = false,
 }: ResumeViewerToolbarProps): ReactElement {
   return (
     <div
@@ -216,61 +201,24 @@ function ResumeViewerToolbar({
       aria-label="Resume viewing controls"
       className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border bg-background/95 p-2 backdrop-blur motion-reduce:transition-none"
     >
-      <span className="text-sm font-medium">Zoom</span>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        aria-label="Zoom out"
-        onClick={onZoomOut}
-        disabled={zoom <= ZOOM_MIN}
-        className="min-h-11 min-w-11 motion-reduce:transition-none"
-      >
-        <Minus aria-hidden="true" />
-      </Button>
-      <span
-        className="min-w-12 text-center text-sm tabular-nums"
-        aria-live="polite"
-      >
-        {zoom}%
-      </span>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        aria-label="Zoom in"
-        onClick={onZoomIn}
-        disabled={zoom >= ZOOM_MAX}
-        className="min-h-11 min-w-11 motion-reduce:transition-none"
-      >
-        <Plus aria-hidden="true" />
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className="min-h-11 motion-reduce:transition-none"
-        onClick={onFitToWidth}
-      >
-        Fit to width
-      </Button>
-      <Button
-        ref={fullScreenButtonRef}
-        type="button"
-        variant="outline"
-        className="min-h-11 motion-reduce:transition-none"
-        onClick={onFullScreen}
-        disabled={isFullScreen}
-      >
-        <Maximize2 aria-hidden="true" />
-        Full screen
-      </Button>
+      {onFullScreen ? (
+        <Button
+          ref={fullScreenButtonRef}
+          type="button"
+          variant="outline"
+          className="min-h-11 motion-reduce:transition-none"
+          onClick={onFullScreen}
+        >
+          <Maximize2 aria-hidden="true" />
+          Full screen
+        </Button>
+      ) : null}
     </div>
   );
 }
 
 function ResumePreviewStage({
   children,
-  zoom,
   fullScreen = false,
   stageRef,
   includeHost = false,
@@ -280,7 +228,6 @@ function ResumePreviewStage({
   testId,
 }: {
   children?: ReactNode;
-  zoom: number;
   fullScreen?: boolean;
   stageRef: RefObject<HTMLDivElement | null>;
   includeHost?: boolean;
@@ -289,7 +236,6 @@ function ResumePreviewStage({
   hidden?: boolean;
   testId?: string;
 }): ReactElement {
-  const scale = zoom / ZOOM_DEFAULT;
   const setStage = useCallback(
     (node: HTMLDivElement | null) => {
       stageRef.current = node;
@@ -305,7 +251,7 @@ function ResumePreviewStage({
       hidden={hidden}
       className={
         fullScreen
-          ? "relative z-[51] min-h-0 min-w-0 max-w-full flex-1 overflow-auto bg-muted/40 motion-reduce:transition-none"
+          ? "relative min-h-0 min-w-0 max-w-full flex-1 overflow-auto bg-muted/40 motion-reduce:transition-none"
           : `${EMBED_HEIGHT} min-w-0 max-w-full overflow-auto bg-muted/40 motion-reduce:transition-none`
       }
       style={{ touchAction: "pan-x pan-y pinch-zoom" }}
@@ -313,12 +259,7 @@ function ResumePreviewStage({
       {includeHost ? (
         <div
           ref={onHostReady}
-          className="min-h-full w-full origin-top-left motion-reduce:transition-none"
-          style={{
-            minHeight: `${scale * 100}%`,
-            transform: `scale(${scale})`,
-            transformOrigin: "top left",
-          }}
+          className="min-h-full w-full motion-reduce:transition-none"
         />
       ) : null}
       {children}
@@ -337,7 +278,6 @@ function ResumeViewer({
   signUrl: (options: { inline: boolean }) => Promise<string>;
   onDownload: () => void;
 }): ReactElement {
-  const [zoom, setZoom] = useState(ZOOM_DEFAULT);
   const [fullScreen, setFullScreen] = useState(false);
   const fullScreenButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -365,12 +305,6 @@ function ResumeViewer({
     },
     [fullScreen, movePreviewHost],
   );
-  const changeZoom = (delta: number) => {
-    setZoom((current) =>
-      Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, current + delta)),
-    );
-  };
-
   useEffect(() => {
     if (!fullScreen) {
       return;
@@ -412,16 +346,11 @@ function ResumeViewer({
       >
         {!fullScreen ? (
           <ResumeViewerToolbar
-            zoom={zoom}
-            onZoomOut={() => changeZoom(-ZOOM_STEP)}
-            onZoomIn={() => changeZoom(ZOOM_STEP)}
-            onFitToWidth={() => setZoom(ZOOM_DEFAULT)}
             onFullScreen={() => setFullScreen(true)}
             fullScreenButtonRef={fullScreenButtonRef}
           />
         ) : null}
         <ResumePreviewStage
-          zoom={zoom}
           stageRef={inlineStageRef}
           includeHost
           onHostReady={setPreviewHost}
@@ -464,17 +393,7 @@ function ResumeViewer({
             Close
           </Button>
         </div>
-        <div className="relative z-[52]">
-          <ResumeViewerToolbar
-            zoom={zoom}
-            onZoomOut={() => changeZoom(-ZOOM_STEP)}
-            onZoomIn={() => changeZoom(ZOOM_STEP)}
-            onFitToWidth={() => setZoom(ZOOM_DEFAULT)}
-            isFullScreen
-          />
-        </div>
         <ResumePreviewStage
-          zoom={zoom}
           fullScreen
           stageRef={dialogStageRef}
           onStageReady={setDialogStage}
