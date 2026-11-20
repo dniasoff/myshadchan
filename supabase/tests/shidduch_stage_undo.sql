@@ -6,27 +6,27 @@ create temporary table results (
   name text,
   passed boolean,
   detail text
-) on commit drop;
+);
 grant all on results to public;
 
 insert into auth.users (id, instance_id, aud, role, email) values
-  ('9ys00000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '9ys-one@test.local'),
-  ('9ys00000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '9ys-two@test.local'),
-  ('9ys00000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '9ys-single@test.local'),
-  ('9ys00000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '9ys-pending@test.local');
+  ('9f500000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '9ys-one@test.local'),
+  ('9f500000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '9ys-two@test.local'),
+  ('9f500000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '9ys-single@test.local'),
+  ('9f500000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '9ys-pending@test.local');
 
 insert into public.accounts (name) values ('9ys Undo Household') returning id as acct \gset
 
 insert into public.account_members (account_id, user_id, role) values
-  (:acct, '9ys00000-0000-0000-0000-000000000001', 'parent_admin') returning id as member_one \gset
+  (:acct, '9f500000-0000-0000-0000-000000000001', 'parent_admin') returning id as member_one \gset
 insert into public.account_members (account_id, user_id, role) values
-  (:acct, '9ys00000-0000-0000-0000-000000000002', 'parent_admin') returning id as member_two \gset
+  (:acct, '9f500000-0000-0000-0000-000000000002', 'parent_admin') returning id as member_two \gset
 insert into public.account_members (account_id, user_id, role) values
-  (:acct, '9ys00000-0000-0000-0000-000000000003', 'single') returning id as member_single \gset
+  (:acct, '9f500000-0000-0000-0000-000000000003', 'single') returning id as member_single \gset
 
 insert into public.member_state (user_id, active_account_id) values
-  ('9ys00000-0000-0000-0000-000000000001', :acct),
-  ('9ys00000-0000-0000-0000-000000000002', :acct)
+  ('9f500000-0000-0000-0000-000000000001', :acct),
+  ('9f500000-0000-0000-0000-000000000002', :acct)
 on conflict (user_id) do update set active_account_id = excluded.active_account_id;
 
 insert into public.singles (account_id, first_name_en, last_name_en)
@@ -98,23 +98,24 @@ $$;
 
 -- User one creates the history row and moves the suggestion forward.
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000001","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select public.transition_shidduch(:shidduch_one, 'new', 'look_into') \gset
 
 -- A different actor cannot consume user one's undo window.
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000002","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000002","role":"authenticated"}';
 select * from pg_temp.try_undo(:shidduch_one) \gset other_actor_
 reset role;
 
 insert into results values (
   'a second actor cannot undo another actor''s move',
-  :'other_actor_raised'::boolean and :'other_actor_message' like 'undo is not available%',
+  :'other_actor_raised'::boolean
+    and :'other_actor_message' = format('undo is not available for shidduch %s', :shidduch_one),
   format('raised=%s message=%s', :'other_actor_raised', :'other_actor_message')
 );
 
 -- User one can undo its own move, and a second click is idempotent.
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000001","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select public.undo_shidduch(:shidduch_one);
 select * from pg_temp.try_undo(:shidduch_one) \gset double_click_
 reset role;
@@ -130,42 +131,44 @@ from public.shidduchim s where s.id = :shidduch_one;
 
 -- A later move by another actor makes the earlier actor's undo stale.
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000001","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select public.transition_shidduch(:shidduch_later, 'new', 'look_into');
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000002","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000002","role":"authenticated"}';
 select public.transition_shidduch(:shidduch_later, 'look_into', 'yes', 'later actor');
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000001","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select * from pg_temp.try_undo(:shidduch_later) \gset later_move_
 reset role;
 
 insert into results values (
   'undo after a later move is refused',
-  :'later_move_raised'::boolean and :'later_move_message' like 'undo is not available%',
+  :'later_move_raised'::boolean
+    and :'later_move_message' = format('undo is not available for shidduch %s', :shidduch_later),
   format('raised=%s message=%s', :'later_move_raised', :'later_move_message')
 );
 
 -- The age guard is independent of actor and current-state checks.
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000001","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select public.transition_shidduch(:shidduch_age, 'new', 'look_into');
 reset role;
 update public.shidduch_stage_transitions
 set created_at = clock_timestamp() - interval '16 seconds'
 where shidduch_id = :shidduch_age;
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000001","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select * from pg_temp.try_undo(:shidduch_age) \gset aged_move_
 reset role;
 
 insert into results values (
   'undo outside the ten-second window plus grace is refused',
-  :'aged_move_raised'::boolean and :'aged_move_message' like 'undo is not available%',
+  :'aged_move_raised'::boolean
+    and :'aged_move_message' = format('undo is not available for shidduch %s', :shidduch_age),
   format('raised=%s message=%s', :'aged_move_raised', :'aged_move_message')
 );
 
 -- Terminal transitions restore both the prior state and the prior close reason.
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000001","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select public.transition_shidduch(:shidduch_for_sure_not, 'new', 'for_sure_not', 'not a fit');
 select public.undo_shidduch(:shidduch_for_sure_not);
 select public.transition_shidduch(:shidduch_yes, 'new', 'look_into');
@@ -194,7 +197,7 @@ from public.shidduchim where id = :shidduch_no;
 
 -- The raw table writer and the transaction-bound context are not client doors.
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000001","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select * from pg_temp.try_direct_update(:shidduch_one) \gset direct_update_
 select * from pg_temp.try_context_insert(:shidduch_one) \gset forged_context_
 set local role anon;
@@ -216,9 +219,9 @@ insert into results values (
 -- A single role and a pending/no-active-context login are both denied before
 -- the history lookup, even when the target belongs to the same household.
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000003","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000003","role":"authenticated"}';
 select * from pg_temp.try_undo(:shidduch_one) \gset single_role_
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000004","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000004","role":"authenticated"}';
 select * from pg_temp.try_undo(:shidduch_one) \gset pending_role_
 set local role anon;
 set local request.jwt.claims = '{"role":"anon"}';
@@ -228,8 +231,11 @@ reset role;
 insert into results values (
   'single, pending, and anonymous callers cannot undo',
   :'single_role_raised'::boolean
+    and :'single_role_message' = format('undo is not available for shidduch %s', :shidduch_one)
     and :'pending_role_raised'::boolean
-    and :'anon_undo_raised'::boolean,
+    and :'pending_role_message' = format('undo is not available for shidduch %s', :shidduch_one)
+    and :'anon_undo_raised'::boolean
+    and :'anon_undo_message' = format('undo is not available for shidduch %s', :shidduch_one),
   format('single=%s pending=%s anon=%s', :'single_role_raised', :'pending_role_raised', :'anon_undo_raised')
 );
 
@@ -241,13 +247,15 @@ insert into public.demo_run_accounts (run_id, account_id, context_key, context_k
 values (:run_id, :acct, 'primary-household', 'household', true);
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"9ys00000-0000-0000-0000-000000000001","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select * from pg_temp.try_undo(:shidduch_later) \gset fenced_
 reset role;
 
 insert into results values (
   'demo clearing fence refuses undo',
-  :'fenced_raised'::boolean and :'fenced_sqlstate_code' = '42501',
+  :'fenced_raised'::boolean
+    and :'fenced_sqlstate_code' = '42501'
+    and :'fenced_message' = format('undo is not available for shidduch %s', :shidduch_later),
   format('raised=%s sqlstate=%s message=%s', :'fenced_raised', :'fenced_sqlstate_code', :'fenced_message')
 );
 

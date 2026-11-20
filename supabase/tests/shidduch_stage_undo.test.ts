@@ -14,6 +14,9 @@ type Check = { name: string; passed: boolean; detail: string | null };
 
 function isolatedScript(): string {
   return [
+    "\\pset format unaligned",
+    "\\pset tuples_only on",
+    "\\pset columns 0",
     "\\set ON_ERROR_STOP on",
     "begin;",
     "delete from public.account_members;",

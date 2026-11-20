@@ -121,6 +121,10 @@ create or replace trigger record_shidduch_stage_transition
     after update of pipeline_state on public.shidduchim
     for each row execute function public.record_shidduch_stage_transition();
 
+revoke all on function public.record_shidduch_stage_transition() from public, anon;
+grant execute on function public.record_shidduch_stage_transition() to authenticated;
+grant execute on function public.record_shidduch_stage_transition() to service_role;
+
 CREATE OR REPLACE FUNCTION public.undo_shidduch(p_id bigint)
 RETURNS SETOF public.shidduchim
 SECURITY DEFINER
