@@ -8799,6 +8799,7 @@ declare
   v_member_id bigint;
   v_service_role boolean;
   v_shidduch_account_id bigint;
+  v_lock_account_id bigint;
   v_row public.shidduchim;
   v_transition public.shidduch_stage_transitions;
   v_latest public.shidduch_stage_transitions;
@@ -8826,9 +8827,13 @@ begin
     raise exception 'shidduch % not found', p_id;
   end if;
 
-  -- Match account_storage_cleanup_fence(): all parent rows (singles, then
-  -- shidduchim in id order), then the account advisory fence, then the account
-  -- row. This single global order prevents undo/delete deadlocks.
+  -- Match account_storage_cleanup_fence(): all target-account parent rows
+  -- (singles, then shidduchim in id order) come before any account lock. This
+  -- preserves the purge/undo order. Once those parents are held, take both
+  -- the caller and owner account locks in ascending id order. The FOR UPDATE
+  -- account lock is the strongest mode needed by either side, so the later
+  -- demo fence's FOR KEY SHARE is re-entrant and cannot create an owner/caller
+  -- lock cycle.
   perform 1
   from public.singles
   where account_id = v_shidduch_account_id
@@ -8839,16 +8844,26 @@ begin
   where account_id = v_shidduch_account_id
   order by id
   for update;
-  perform public.account_storage_lock(v_shidduch_account_id);
-  perform 1
-  from public.accounts a
-  where a.id = v_shidduch_account_id
-  for update;
 
-  -- demo_storage_write_fence() takes the account row FOR KEY SHARE.  It must
-  -- run after the parent-first locks above, otherwise undo can hold the
-  -- account key-share lock while account purge holds a shidduch row and waits
-  -- for the account row FOR UPDATE.
+  for v_lock_account_id in
+    select lock_account_id
+    from (
+      values (v_shidduch_account_id), (v_account_id)
+    ) as lock_accounts(lock_account_id)
+    where lock_account_id is not null
+    group by lock_account_id
+    order by lock_account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+    perform 1
+    from public.accounts a
+    where a.id = v_lock_account_id
+    for update;
+  end loop;
+
+  -- demo_storage_write_fence() takes the caller account row FOR KEY SHARE. It
+  -- runs after the parent-first locks and after both account rows are already
+  -- held FOR UPDATE, so it cannot invert the deterministic account order.
   if not public.demo_storage_write_fence(v_account_id) then
     raise exception 'undo is not available for shidduch %', p_id
       using errcode = 'insufficient_privilege';
