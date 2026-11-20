@@ -161,6 +161,13 @@ function extractOutputBoolean(stdout: string, label: string): boolean {
   return match[1] === "t";
 }
 
+function extractOutputValue(stdout: string, label: string): string {
+  const match = stdout.match(new RegExp(label + "=([^\r\n]*)"));
+  if (!match)
+    throw new Error("missing " + label + " in psql output:\n" + stdout);
+  return match[1].trim();
+}
+
 function runAccountPurgeHoldingParents(fixture: LifecycleFixture): {
   ready: Promise<void>;
   done: Promise<string>;
@@ -448,24 +455,43 @@ set role authenticated;
 set statement_timeout = '5s';
 set request.jwt.claims = '{"sub":"${CONCURRENCY_USER_ID}","role":"authenticated"}';
 select public.set_active_context(${fixture.accountId});
-create temp table add_redt_purge_race_result (rejected boolean);
+create temp table add_redt_purge_race_result (
+  rejected boolean,
+  sql_state text,
+  error_message text
+);
 do $$
 begin
   perform public.add_redt(${fixture.shidduchId}, ${fixture.shadchanId});
-  insert into add_redt_purge_race_result values (false);
+  insert into add_redt_purge_race_result values (false, null, null);
 exception when others then
-  insert into add_redt_purge_race_result values (true);
+  insert into add_redt_purge_race_result values (
+    sqlstate = 'P0001',
+    sqlstate,
+    sqlerrm
+  );
 end
 $$;
-select rejected as add_redt_purge_rejected
+select
+  rejected as add_redt_purge_rejected,
+  sql_state as add_redt_purge_sql_state,
+  error_message as add_redt_purge_error
 from add_redt_purge_race_result \\gset
 \\echo ADD_REDT_PURGE_REJECTED=:add_redt_purge_rejected
+\\echo ADD_REDT_PURGE_SQL_STATE=:add_redt_purge_sql_state
+\\echo ADD_REDT_PURGE_ERROR=:add_redt_purge_error
 `);
     const purgeOutput = await purge.done;
 
     expect(purgeOutput).toContain("PURGE_COMPLETED");
     expect(extractOutputBoolean(addRedtOutput, "ADD_REDT_PURGE_REJECTED")).toBe(
       true,
+    );
+    expect(extractOutputValue(addRedtOutput, "ADD_REDT_PURGE_SQL_STATE")).toBe(
+      "P0001",
+    );
+    expect(extractOutputValue(addRedtOutput, "ADD_REDT_PURGE_ERROR")).toBe(
+      "shadchan " + fixture.shadchanId + " not found in current account",
     );
   });
 
@@ -479,24 +505,43 @@ set role authenticated;
 set statement_timeout = '5s';
 set request.jwt.claims = '{"sub":"${CONCURRENCY_USER_ID}","role":"authenticated"}';
 select public.set_active_context(${fixture.accountId});
-create temp table create_purge_race_result (rejected boolean);
+create temp table create_purge_race_result (
+  rejected boolean,
+  sql_state text,
+  error_message text
+);
 do $$
 begin
   perform public.create_shidduch(${fixture.singleId}, ${fixture.shadchanId}, 'Purge race create');
-  insert into create_purge_race_result values (false);
+  insert into create_purge_race_result values (false, null, null);
 exception when others then
-  insert into create_purge_race_result values (true);
+  insert into create_purge_race_result values (
+    sqlstate = 'P0001',
+    sqlstate,
+    sqlerrm
+  );
 end
 $$;
-select rejected as create_purge_rejected
+select
+  rejected as create_purge_rejected,
+  sql_state as create_purge_sql_state,
+  error_message as create_purge_error
 from create_purge_race_result \\gset
 \\echo CREATE_PURGE_REJECTED=:create_purge_rejected
+\\echo CREATE_PURGE_SQL_STATE=:create_purge_sql_state
+\\echo CREATE_PURGE_ERROR=:create_purge_error
 `);
     const purgeOutput = await purge.done;
 
     expect(purgeOutput).toContain("PURGE_COMPLETED");
     expect(extractOutputBoolean(createOutput, "CREATE_PURGE_REJECTED")).toBe(
       true,
+    );
+    expect(extractOutputValue(createOutput, "CREATE_PURGE_SQL_STATE")).toBe(
+      "P0001",
+    );
+    expect(extractOutputValue(createOutput, "CREATE_PURGE_ERROR")).toBe(
+      "shadchan " + fixture.shadchanId + " not found in current account",
     );
   });
 });

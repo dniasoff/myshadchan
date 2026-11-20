@@ -663,6 +663,143 @@ begin
 end;
 $$;
 
+CREATE OR REPLACE FUNCTION "public"."catch_shidduch"("p_shidduchim_id" bigint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" STABLE
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_account_id bigint;
+  v_s public.shidduchim;
+  v_suggestions jsonb;
+  v_dates jsonb;
+  v_name_en_norm text;
+  v_name_he_norm text;
+  v_name_en_key text;
+  v_name_he_key text;
+  v_parents_norm text;
+  v_seminary_norm text;
+  v_location_norm text;
+begin
+  v_account_id := public.current_context_id();
+  if v_account_id is null then
+    return jsonb_build_object('has_catch', false, 'suggestions', '[]'::jsonb, 'dates', '[]'::jsonb);
+  end if;
+
+  -- shidduch_row() rather than `select * from public.shidduchim`: the same
+  -- RLS-filtered row (that function is SECURITY INVOKER), reached without the
+  -- SELECT-on-every-column that `select *` demands and `authenticated` no
+  -- longer has for close_reason. Nothing below reads v_s.close_reason.
+  select * into v_s
+  from public.shidduch_row(p_shidduchim_id) s
+  where s.account_id = v_account_id;
+
+  if not found then
+    raise exception 'shidduch % not found in current account', p_shidduchim_id;
+  end if;
+  if v_s.archived_at is not null then
+    return jsonb_build_object('has_catch', false, 'suggestions', '[]'::jsonb, 'dates', '[]'::jsonb);
+  end if;
+
+  -- Prior suggestions: the shared matcher, excluding this very row. Each
+  -- candidate is joined back to its single/shadchan so the panel renders the
+  -- prior context ("suggested for {single}, via {shadchan}, {state}") in one hop.
+  select coalesce(
+    jsonb_agg(to_jsonb(cand) order by cand.confidence desc, cand.prior_shidduchim_id asc),
+    '[]'::jsonb
+  )
+  into v_suggestions
+  from (
+    select
+      m.target_id as prior_shidduchim_id,
+      m.confidence,
+      m.deciding_facts,
+      ps.name_en,
+      ps.name_he,
+      ps.age,
+      ps.pipeline_state,
+      ps.first_suggested_at,
+      ps.redt_date,
+      ps.single_id,
+      c.first_name_en as single_first_name_en,
+      c.first_name_he as single_first_name_he,
+      case when sh.archived_at is null then sh.name end as shadchan_name
+    from public.match_identity(
+      'shidduch',
+      v_s.name_en,
+      v_s.name_he,
+      null,
+      nullif(trim(
+        coalesce(v_s.father_en, v_s.father_he, '') || ' ' ||
+        coalesce(v_s.mother_en, v_s.mother_he, '')
+      ), ''),
+      coalesce(v_s.seminary_en, v_s.seminary_he),
+      coalesce(v_s.shul_en, v_s.shul_he),
+      coalesce(v_s.location_en, v_s.location_he),
+      p_shidduchim_id
+    ) m
+      join public.shidduchim ps on ps.id = m.target_id
+      left join public.singles c on c.id = ps.single_id
+      left join public.shadchanim sh on sh.id = ps.shadchan_id
+    where ps.archived_at is null
+      and not coalesce(public.shidduch_has_known_halachic_conflict(
+      ps.single_id,
+      ps.person_gender,
+      ps.kohen_status,
+      ps.marital_status
+    ), false)
+  ) cand;
+
+  -- Prior dating (honest, corroborated, never fabricated). date_records is not in
+  -- identity_signals, so it is compared directly with the shared normalizers.
+  v_name_en_norm := public.normalize_identity_text(v_s.name_en);
+  v_name_he_norm := public.normalize_identity_text(v_s.name_he);
+  v_name_en_key := public.identity_name_key(v_s.name_en);
+  v_name_he_key := public.identity_name_key(v_s.name_he);
+  v_parents_norm := public.normalize_identity_text(nullif(trim(
+    coalesce(v_s.father_en, v_s.father_he, '') || ' ' ||
+    coalesce(v_s.mother_en, v_s.mother_he, '')
+  ), ''));
+  v_seminary_norm := public.normalize_identity_text(coalesce(v_s.seminary_en, v_s.seminary_he));
+  v_location_norm := public.normalize_identity_text(coalesce(v_s.location_en, v_s.location_he));
+
+  select coalesce(
+    jsonb_agg(to_jsonb(d) order by d.date_on desc nulls last, d.date_record_id desc),
+    '[]'::jsonb
+  )
+  into v_dates
+  from (
+    select
+      dr.id as date_record_id,
+      dr.person_name_en,
+      dr.person_name_he,
+      dr.date_on,
+      dr.outcome,
+      dr.single_id,
+      c.first_name_en as single_first_name_en
+    from public.date_records dr
+      left join public.singles c on c.id = dr.single_id
+    where dr.account_id = v_account_id
+      and (
+        (v_name_en_norm is not null and public.normalize_identity_text(dr.person_name_en) = v_name_en_norm)
+        or (v_name_he_norm is not null and public.normalize_identity_text(dr.person_name_he) = v_name_he_norm)
+        or (v_name_en_key is not null and public.identity_name_key(dr.person_name_en) = v_name_en_key)
+        or (v_name_he_key is not null and public.identity_name_key(dr.person_name_he) = v_name_he_key)
+      )
+      and (
+        (v_parents_norm is not null and public.normalize_identity_text(dr.person_parents) = v_parents_norm)
+        or (v_seminary_norm is not null and public.normalize_identity_text(dr.person_seminary) = v_seminary_norm)
+        or (v_location_norm is not null and public.normalize_identity_text(dr.person_location) = v_location_norm)
+      )
+  ) d;
+
+  return jsonb_build_object(
+    'has_catch', (jsonb_array_length(v_suggestions) > 0 or jsonb_array_length(v_dates) > 0),
+    'suggestions', v_suggestions,
+    'dates', v_dates
+  );
+end;
+$$;
+
 -- Shadchan removal is archive-only for authenticated clients. Account
 -- deletion remains the service-role purge path and is not affected by this
 -- column-level fence.
