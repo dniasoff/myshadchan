@@ -246,12 +246,10 @@ function ResolveProbe({
   item,
   draft,
   input = { single_id: 5, shadchan_id: 7 },
-  makePersonShadchan = false,
 }: {
   item: InboxItem;
   draft?: ResumeDraft;
   input?: CreateShidduchInput;
-  makePersonShadchan?: boolean;
 }) {
   const { resolveAsNewShidduch, resolveAsLinkToExisting, dismissInboxItem } =
     useResolveInboxItem();
@@ -271,9 +269,7 @@ function ResolveProbe({
       <button
         onClick={() =>
           run(async () => {
-            const created = await resolveAsNewShidduch(item, input, draft, {
-              makePersonShadchan,
-            });
+            const created = await resolveAsNewShidduch(item, input, draft);
             return `new:${created.id}`;
           })
         }
@@ -310,7 +306,6 @@ const renderProbe = async (
   draft?: ResumeDraft,
   hooks: DataProviderHooks = {},
   input?: CreateShidduchInput,
-  makePersonShadchan = false,
 ) => {
   const dataProvider = buildDataProvider(dataProviderOverrides, item, hooks);
   const screen = await render(
@@ -319,12 +314,7 @@ const renderProbe = async (
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <ResolveProbe
-          item={item}
-          draft={draft}
-          input={input}
-          makePersonShadchan={makePersonShadchan}
-        />
+        <ResolveProbe item={item} draft={draft} input={input} />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -481,56 +471,6 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
     await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
 
     expect(dataProvider.createShidduch).toHaveBeenCalledTimes(1);
-  });
-
-  it("reuses one promoted shadchan when suggestion creation fails before retry", async () => {
-    let failFirstSuggestion = true;
-    const createShadchan = vi
-      .fn()
-      .mockResolvedValue({ data: { id: 88, name: "Sara Cohen" } });
-    const createShidduch = vi.fn(async (input: CreateShidduchInput) => {
-      if (failFirstSuggestion) {
-        failFirstSuggestion = false;
-        throw new Error("suggestion creation failed");
-      }
-      return { id: 99, ...input } as Shidduch;
-    });
-    const item = buildItem();
-    const input = {
-      single_id: 5,
-      shadchan_id: null,
-      suggested_by_name: "Sara Cohen",
-    } as CreateShidduchInput;
-    const { screen, dataProvider } = await renderProbe(
-      item,
-      { create: createShadchan, createShidduch },
-      undefined,
-      {},
-      input,
-      true,
-    );
-
-    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
-    await expect
-      .element(screen.getByText("error:suggestion creation failed"))
-      .toBeInTheDocument();
-
-    await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
-    await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
-
-    expect(createShadchan).toHaveBeenCalledTimes(1);
-    expect(createShidduch).toHaveBeenCalledTimes(2);
-    expect(createShidduch).toHaveBeenLastCalledWith(
-      expect.objectContaining({ shadchan_id: 88 }),
-    );
-    expect(dataProvider.update).toHaveBeenCalledWith(
-      "inbox_items",
-      expect.objectContaining({
-        data: expect.objectContaining({
-          resolution_input: expect.objectContaining({ shadchan_id: 88 }),
-        }),
-      }),
-    );
   });
 
   it("retries a finalize failure with the same suggestion and one resume", async () => {

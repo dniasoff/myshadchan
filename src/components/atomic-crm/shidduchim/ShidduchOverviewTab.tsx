@@ -83,7 +83,7 @@ export const ShidduchOverviewTab = () => {
                       suggestedByPhoneHref(record.suggested_by_phone) ??
                       undefined
                     }
-                    className="underline decoration-dotted underline-offset-2"
+                    className="inline-flex min-h-11 items-center px-2 underline decoration-dotted underline-offset-2"
                   >
                     {record.suggested_by_phone.trim()}
                   </a>

@@ -178,7 +178,7 @@ const LegacyInboxResolveDialog = ({
   const onSubmit = async (values: Record<string, unknown>) => {
     setIsBusy(true);
     try {
-      const suggestedBy = await resolveSuggestedByValues(dataProvider, values);
+      const suggestedBy = await resolveSuggestedByValues(values);
       const input: CreateShidduchInput = {
         single_id: values.single_id as Identifier,
         shadchan_id: suggestedBy.shadchanId,
@@ -215,7 +215,6 @@ const LegacyInboxResolveDialog = ({
               sections: null,
             }
           : undefined,
-        { makePersonShadchan: suggestedBy.makePersonShadchan },
       );
       notify("Filed as a suggestion", { type: "info" });
       refresh();
@@ -307,7 +306,6 @@ const LegacyInboxResolveDialog = ({
               shadchan_id: lockedShadchanId ?? item.shadchan_id ?? undefined,
               suggested_by_name: suggestedByNameFromInboxItem(item) ?? "",
               suggested_by_phone: "",
-              make_person_shadchan: false,
               initial_state: "new",
               redt_date: item.created_at?.split("T")[0],
             }}

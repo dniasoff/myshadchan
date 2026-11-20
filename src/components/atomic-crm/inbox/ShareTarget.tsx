@@ -371,7 +371,7 @@ export const ShareTarget = () => {
     setIsSaving(true);
     try {
       const item = await getOrCreateInboxItem();
-      const suggestedBy = await resolveSuggestedByValues(dataProvider, values);
+      const suggestedBy = await resolveSuggestedByValues(values);
       const input: CreateShidduchInput = {
         single_id: resolvedSingleId,
         shadchan_id: suggestedBy.shadchanId,
@@ -383,9 +383,7 @@ export const ShareTarget = () => {
         visibility: "shared",
         redt_date: item.created_at.split("T")[0],
       };
-      await resolveAsNewShidduch(item, input, undefined, {
-        makePersonShadchan: suggestedBy.makePersonShadchan,
-      });
+      await resolveAsNewShidduch(item, input);
       notify(
         translate("crm.inbox.share.saved", { _: "Filed as a suggestion" }),
         {
@@ -566,7 +564,6 @@ export const ShareTarget = () => {
         defaultValues={{
           suggested_by_name: "",
           suggested_by_phone: "",
-          make_person_shadchan: false,
         }}
       >
         <div className="flex flex-col gap-4">

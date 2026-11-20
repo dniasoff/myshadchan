@@ -450,11 +450,6 @@ describe("InboxResolveDialog — confirm details", () => {
     await expect
       .element(screen.getByLabelText("Phone number"))
       .toBeInTheDocument();
-    await expect
-      .element(
-        screen.getByRole("switch", { name: "Make this person a shadchan" }),
-      )
-      .toBeInTheDocument();
     expect(
       (dataProvider.getList as ReturnType<typeof vi.fn>).mock.calls.some(
         ([resource, params]) =>
@@ -465,60 +460,6 @@ describe("InboxResolveDialog — confirm details", () => {
           ),
       ),
     ).toBe(false);
-  });
-
-  it("creates and links a shadchan only when the promotion tick is selected", async () => {
-    const item = buildItem({ sender: "Sara Cohen" });
-    const create = vi.fn().mockResolvedValue({
-      data: { id: 88, name: "Sara Cohen" },
-    });
-    const { screen, dataProvider } = await renderDialog(item, [], { create });
-
-    await screen.getByLabelText("Name of the person").fill("Chaya");
-    await screen.getByLabelText("Phone number").fill("+1 (347) 555-0182");
-    await screen
-      .getByRole("switch", { name: "Make this person a shadchan" })
-      .click();
-    await screen.getByRole("button", { name: "File as a suggestion" }).click();
-
-    await expect
-      .poll(
-        () =>
-          (dataProvider.createShidduch as ReturnType<typeof vi.fn>).mock.calls
-            .length,
-      )
-      .toBeGreaterThan(0);
-    expect(create).toHaveBeenCalledWith("shadchanim", {
-      data: { name: "Sara Cohen" },
-    });
-    expect(dataProvider.createShidduch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        shadchan_id: 88,
-        suggested_by_name: "Sara Cohen",
-        suggested_by_phone: "+1 (347) 555-0182",
-      }),
-    );
-  });
-
-  it("does not create a shadchan when the promotion tick is left off", async () => {
-    const item = buildItem({ sender: "Sara Cohen" });
-    const create = vi.fn().mockResolvedValue({ data: {} });
-    const { screen, dataProvider } = await renderDialog(item, [], { create });
-
-    await screen.getByLabelText("Name of the person").fill("Chaya");
-    await screen.getByRole("button", { name: "File as a suggestion" }).click();
-
-    await expect
-      .poll(
-        () =>
-          (dataProvider.createShidduch as ReturnType<typeof vi.fn>).mock.calls
-            .length,
-      )
-      .toBeGreaterThan(0);
-    expect(create).not.toHaveBeenCalledWith("shadchanim", expect.anything());
-    expect(dataProvider.createShidduch).toHaveBeenCalledWith(
-      expect.objectContaining({ shadchan_id: null }),
-    );
   });
 
   it("asks only for the approved details and has no auto-fill action", async () => {

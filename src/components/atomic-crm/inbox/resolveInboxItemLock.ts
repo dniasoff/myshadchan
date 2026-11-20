@@ -39,8 +39,6 @@ export type ResolutionInput =
       resolved_shidduchim_id?: Identifier;
       resume_draft?: ResumeDraft;
       resume_created?: boolean;
-      make_person_shadchan?: boolean;
-      shadchan_id?: Identifier | null;
       resume_transfer_path?: string;
       resume_transfer_size?: number;
       resume_transfer_state?: "pending" | "cleanup_pending" | "cleaned";
@@ -66,7 +64,6 @@ export type ResolutionInput =
       single_id?: Identifier;
       suggested_by_name?: string | null;
       suggested_by_phone?: string | null;
-      make_person_shadchan?: boolean;
       shadchan_id?: Identifier | null;
       resolved_shidduchim_id?: Identifier;
       resume_id?: Identifier;
@@ -200,11 +197,7 @@ function inputsAreCompatible(a: ResolutionInput, b: ResolutionInput): boolean {
   if (a.action !== b.action) return false;
   if (a.action === "dismiss" && b.action === "dismiss") return true;
   if (a.action === "new" && b.action === "new") {
-    return (
-      isEqual(a.input, b.input) &&
-      isEqual(a.resume_draft, b.resume_draft) &&
-      Boolean(a.make_person_shadchan) === Boolean(b.make_person_shadchan)
-    );
+    return isEqual(a.input, b.input) && isEqual(a.resume_draft, b.resume_draft);
   }
   if (a.action === "link" && b.action === "link") {
     return a.shidduchim_id === b.shidduchim_id;
@@ -219,8 +212,7 @@ function inputsAreCompatible(a: ResolutionInput, b: ResolutionInput): boolean {
       a.shidduchim_id === b.shidduchim_id &&
       a.single_id === b.single_id &&
       (a.suggested_by_name ?? null) === (b.suggested_by_name ?? null) &&
-      (a.suggested_by_phone ?? null) === (b.suggested_by_phone ?? null) &&
-      Boolean(a.make_person_shadchan) === Boolean(b.make_person_shadchan)
+      (a.suggested_by_phone ?? null) === (b.suggested_by_phone ?? null)
     );
   }
   return false;

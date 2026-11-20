@@ -1,4 +1,3 @@
-import { BooleanInput } from "@/components/admin/boolean-input";
 import { TextInput } from "@/components/admin/text-input";
 
 import {
@@ -19,6 +18,7 @@ export const SuggestedByFields = () => (
     </div>
     <TextInput
       source="suggested_by_name"
+      id="suggested_by_name"
       label="Suggested by"
       dir="auto"
       validate={validateSuggestedByName}
@@ -26,21 +26,20 @@ export const SuggestedByFields = () => (
     />
     <TextInput
       source="suggested_by_phone"
+      id="suggested_by_phone"
       label="Phone number"
       dir="ltr"
       inputMode="tel"
       autoComplete="tel"
-      aria-describedby="suggested-by-phone-hint"
-      helperText={false}
+      helperText={
+        <span
+          id="suggested_by_phone-description"
+          className="text-xs text-muted-foreground"
+        >
+          Optional. Use digits, spaces, +, dashes, or parentheses.
+        </span>
+      }
       validate={validateSuggestedByPhone}
-    />
-    <p id="suggested-by-phone-hint" className="text-xs text-muted-foreground">
-      Optional. Use digits, spaces, +, dashes, or parentheses.
-    </p>
-    <BooleanInput
-      source="make_person_shadchan"
-      label="Make this person a shadchan"
-      helperText="Leave this unchecked for a friend. No shadchan record is created."
     />
   </div>
 );

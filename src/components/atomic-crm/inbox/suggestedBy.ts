@@ -1,11 +1,8 @@
 import type { Identifier } from "ra-core";
 
-import type { CrmDataProvider } from "../providers/types";
-
 export type SuggestedByFormValues = {
   suggested_by_name?: unknown;
   suggested_by_phone?: unknown;
-  make_person_shadchan?: unknown;
   shadchan_id?: unknown;
 };
 
@@ -46,15 +43,12 @@ function identifierValue(value: unknown): Identifier | null {
   return typeof value === "string" || typeof value === "number" ? value : null;
 }
 
-/** Resolve the optional promotion only when the user explicitly ticks it. */
 export async function resolveSuggestedByValues(
-  _dataProvider: CrmDataProvider,
   values: SuggestedByFormValues,
 ): Promise<{
   suggestedByName: string | null;
   suggestedByPhone: string | null;
   shadchanId: Identifier | null;
-  makePersonShadchan: boolean;
 }> {
   const suggestedByName = textValue(values.suggested_by_name);
   const suggestedByPhone = textValue(values.suggested_by_phone);
@@ -64,8 +58,6 @@ export async function resolveSuggestedByValues(
     suggestedByName,
     suggestedByPhone,
     shadchanId: selectedShadchanId,
-    makePersonShadchan:
-      values.make_person_shadchan === true && selectedShadchanId == null,
   };
 }
 

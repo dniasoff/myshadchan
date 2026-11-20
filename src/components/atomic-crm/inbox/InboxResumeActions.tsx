@@ -229,7 +229,7 @@ export const InboxResumeActionsDialog = ({
     try {
       const suggestedBy =
         action === "new"
-          ? await resolveSuggestedByValues(dataProvider, {
+          ? await resolveSuggestedByValues({
               ...values,
               ...(isShadchanSourced ? { shadchan_id: lockedShadchanId } : {}),
             })
@@ -237,7 +237,6 @@ export const InboxResumeActionsDialog = ({
               suggestedByName: suggestedByNameFromInboxItem(item),
               suggestedByPhone: null,
               shadchanId: null,
-              makePersonShadchan: false,
             };
       const result = await resolveInboxResume(item, action, {
         shidduchimId: selectedSuggestion ?? undefined,
@@ -245,7 +244,6 @@ export const InboxResumeActionsDialog = ({
         shadchanId: suggestedBy.shadchanId,
         suggestedByName: suggestedBy.suggestedByName,
         suggestedByPhone: suggestedBy.suggestedByPhone,
-        makePersonShadchan: suggestedBy.makePersonShadchan,
       });
       if (result.outcome === "completed") {
         refresh();
@@ -313,7 +311,6 @@ export const InboxResumeActionsDialog = ({
             shadchan_id: lockedShadchanId ?? item.shadchan_id ?? undefined,
             suggested_by_name: suggestedByNameFromInboxItem(item) ?? "",
             suggested_by_phone: "",
-            make_person_shadchan: false,
           }}
         >
           {action === "attach" ? (

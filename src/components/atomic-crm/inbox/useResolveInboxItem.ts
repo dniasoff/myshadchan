@@ -21,7 +21,6 @@ import {
   unresolvedResumeReadAttempts,
 } from "../resumes/resumeReadRequest";
 import type { ResumeReadOutcome } from "../providers/commons/rereadWorkerClient";
-import { createShadchanInline } from "../shidduchim/createShadchanInline";
 import {
   acquireResolutionLock,
   conditionalInboxUpdate,
@@ -225,14 +224,12 @@ export function useResolveInboxItem() {
     item: InboxItem,
     input: CreateShidduchInput,
     draft?: ResumeDraft,
-    suggestedByOptions?: { makePersonShadchan?: boolean },
   ): Promise<Shidduch> => {
     const attemptId = generateAttemptId();
     const resolutionInput: ResolutionInput = {
       action: "new",
       input,
       resume_draft: draft,
-      make_person_shadchan: suggestedByOptions?.makePersonShadchan === true,
     };
     const lockedItem = await acquireResolutionLock(
       dataProvider,
@@ -259,46 +256,12 @@ export function useResolveInboxItem() {
       }
 
       let resolutionSnapshot = lockedItem;
-      let stashed = (resolutionSnapshot.resolution_input ?? {}) as Extract<
+      const stashed = (resolutionSnapshot.resolution_input ?? {}) as Extract<
         ResolutionInput,
         { action: "new" }
       > & {
         resolved_shidduchim_id?: Identifier;
-        shadchan_id?: Identifier | null;
       };
-
-      // Promotion is part of the owned, stashed resolution rather than a
-      // form-side create. The id is recorded before create/finalize, so a
-      // retry reuses the same shadchan after a later failure.
-      let effectiveInput = input;
-      if (stashed.make_person_shadchan === true && !stashed.shadchan_id) {
-        const name = input.suggested_by_name?.trim();
-        if (!name) {
-          throw new Error("Enter a name before making this person a shadchan");
-        }
-        const createShadchan = createShadchanInline(dataProvider);
-        if (!createShadchan) throw new Error("Couldn't create this shadchan");
-        const shadchan = await createShadchan(name);
-        if (shadchan?.id == null) {
-          throw new Error("Couldn't create this shadchan");
-        }
-        const current = await getCurrentResolutionItem(item);
-        resolutionSnapshot = await updateOwnedInboxResolution(
-          item,
-          {
-            resolution_input: {
-              ...(current?.resolution_input ?? resolutionInput),
-              shadchan_id: shadchan.id,
-            },
-          },
-          attemptId,
-        );
-        stashed = (resolutionSnapshot.resolution_input ??
-          resolutionInput) as typeof stashed;
-      }
-      if (stashed.shadchan_id != null) {
-        effectiveInput = { ...input, shadchan_id: stashed.shadchan_id };
-      }
 
       let created: Shidduch;
       if (stashed.resolved_shidduchim_id) {
@@ -307,7 +270,7 @@ export function useResolveInboxItem() {
         });
         created = data;
       } else {
-        created = await dataProvider.createShidduch(effectiveInput);
+        created = await dataProvider.createShidduch(input);
         // Stash the created id so a retry can skip createShidduch if the
         // finalize step fails. The suggestion is deliberately retained if
         // this CAS is lost or ambiguous: without an exact server receipt,
@@ -507,8 +470,8 @@ export function useResolveInboxItem() {
         item,
         finalizePayload("resolved", {
           resolved_shidduchim_id: created.id,
-          single_id: effectiveInput.single_id,
-          shadchan_id: effectiveInput.shadchan_id ?? null,
+          single_id: input.single_id,
+          shadchan_id: input.shadchan_id ?? null,
         }),
         attemptId,
       );
@@ -879,7 +842,6 @@ export function useResolveInboxItem() {
     shadchanId?: Identifier | null,
     suggestedByName?: string | null,
     suggestedByPhone?: string | null,
-    makePersonShadchan = false,
     attemptId = generateAttemptId(),
   ): Promise<InboxResumePreparation> => {
     const attachment = item.attachments?.find(isResumeDocument);
@@ -897,7 +859,6 @@ export function useResolveInboxItem() {
       shadchan_id?: Identifier | null;
       suggested_by_name?: string | null;
       suggested_by_phone?: string | null;
-      make_person_shadchan?: boolean;
     };
     const effectiveShadchanId = Object.prototype.hasOwnProperty.call(
       currentProgress,
@@ -909,8 +870,6 @@ export function useResolveInboxItem() {
       currentProgress.suggested_by_name ?? suggestedByName ?? null;
     const effectiveSuggestedByPhone =
       currentProgress.suggested_by_phone ?? suggestedByPhone ?? null;
-    const effectiveMakePersonShadchan =
-      currentProgress.make_person_shadchan ?? makePersonShadchan;
     const resolutionInput = {
       action:
         action === "new" ? ("resume_new" as const) : ("resume_attach" as const),
@@ -919,12 +878,9 @@ export function useResolveInboxItem() {
       ...(singleId == null ? {} : { single_id: singleId }),
       ...(action === "new"
         ? {
-            shadchan_id: effectiveMakePersonShadchan
-              ? null
-              : effectiveShadchanId,
+            shadchan_id: effectiveShadchanId,
             suggested_by_name: effectiveSuggestedByName,
             suggested_by_phone: effectiveSuggestedByPhone,
-            make_person_shadchan: effectiveMakePersonShadchan,
           }
         : {}),
     };
@@ -974,9 +930,7 @@ export function useResolveInboxItem() {
             throw new Error("Choose who this suggestion is for.");
           precreatedShidduch = await dataProvider.createShidduch({
             single_id: singleId,
-            shadchan_id: effectiveMakePersonShadchan
-              ? null
-              : effectiveShadchanId,
+            shadchan_id: effectiveShadchanId,
             name_en: null,
             suggested_by_name: effectiveSuggestedByName,
             suggested_by_phone: effectiveSuggestedByPhone,
@@ -1076,7 +1030,7 @@ export function useResolveInboxItem() {
       };
     }
 
-    let stashed = (lockedItem.resolution_input ?? {}) as Extract<
+    const stashed = (lockedItem.resolution_input ?? {}) as Extract<
       ResolutionInput,
       { action: "resume_new" | "resume_attach" }
     > & {
@@ -1092,7 +1046,6 @@ export function useResolveInboxItem() {
       resume_read_file_path?: string;
       resume_read_completed_file_path?: string;
       resume_read_pending_file_path?: string;
-      make_person_shadchan?: boolean;
     };
     let resumeFromProvenance: Resume | undefined;
     if (action === "new" && !stashed.resolved_shidduchim_id) {
@@ -1158,60 +1111,6 @@ export function useResolveInboxItem() {
         id: shidduchimId,
       });
       shidduch = data;
-    }
-
-    if (
-      action === "new" &&
-      stashed.make_person_shadchan === true &&
-      !stashed.shadchan_id
-    ) {
-      const name = (
-        stashed.suggested_by_name ?? effectiveSuggestedByName
-      )?.trim();
-      if (!name) {
-        throw new Error("Enter a name before making this person a shadchan");
-      }
-      const createShadchan = createShadchanInline(dataProvider);
-      if (!createShadchan) throw new Error("Couldn't create this shadchan");
-      const promotedShadchan = await createShadchan(name);
-      if (promotedShadchan?.id == null) {
-        throw new Error("Couldn't create this shadchan");
-      }
-      // Stash the id before touching the pre-created suggestion. If that
-      // later update fails, a retry can reuse this exact shadchan rather than
-      // creating a second one.
-      const current = await getCurrentResolutionItem(item);
-      const stashedItem = await updateOwnedInboxResolution(
-        item,
-        {
-          resolution_input: {
-            ...(current?.resolution_input ?? resolutionInput),
-            shadchan_id: promotedShadchan.id,
-          },
-        },
-        attemptId,
-      );
-      stashed = (stashedItem.resolution_input ??
-        resolutionInput) as typeof stashed;
-    }
-
-    if (
-      action === "new" &&
-      stashed.shadchan_id != null &&
-      String(shidduch.shadchan_id ?? "") !== String(stashed.shadchan_id)
-    ) {
-      const { data: linkedShidduch } = await dataProvider.update<Shidduch>(
-        "shidduchim",
-        {
-          id: shidduch.id,
-          data: { shadchan_id: stashed.shadchan_id },
-          previousData: shidduch,
-        },
-      );
-      shidduch = linkedShidduch ?? {
-        ...shidduch,
-        shadchan_id: stashed.shadchan_id,
-      };
     }
 
     let resume: Resume | undefined = preAttachedResume ?? resumeFromProvenance;
@@ -1385,7 +1284,6 @@ export function useResolveInboxItem() {
       suggestedByName?: string | null;
       suggestedByPhone?: string | null;
       shadchanId?: Identifier | null;
-      makePersonShadchan?: boolean;
     },
   ): Promise<InboxResumeProcessResult> => {
     const currentBeforeAttempt = await getCurrentResolutionItem(item).catch(
@@ -1415,7 +1313,6 @@ export function useResolveInboxItem() {
         options.shadchanId,
         options.suggestedByName,
         options.suggestedByPhone,
-        options.makePersonShadchan,
         attemptId,
       );
       let outcome: ResumeReadOutcome = "completed";
