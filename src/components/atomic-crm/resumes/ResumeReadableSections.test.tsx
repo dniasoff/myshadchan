@@ -1858,6 +1858,9 @@ describe("ResumeReadableSections", () => {
       });
 
       await expect
+        .element(screen.getByRole("heading", { name: "Easy-to-read resume" }))
+        .toBeInTheDocument();
+      await expect
         .element(
           screen.getByRole("button", {
             name: /^(Make it easy to read|Try again)$/,
