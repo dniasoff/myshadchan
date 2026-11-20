@@ -18,7 +18,9 @@ const optionsFromNew = (): PipelineStateOption[] =>
     isAllowed: def.value === "new" || def.group === "triage",
     isTerminal: def.value !== "new" && def.value !== "look_into",
     reason:
-      def.group === "decision" ? "Only reachable from Look-into." : undefined,
+      def.group === "decision"
+        ? "First move it to Look-into. Then you can mark it Yes, Unsure or No."
+        : undefined,
   }));
 
 /**
@@ -126,7 +128,10 @@ describe("PipelineStateOptions", () => {
     await expect.element(yes).not.toHaveAttribute("disabled");
     await expect
       .element(yes)
-      .toHaveAttribute("title", expect.stringContaining("Only reachable from"));
+      .toHaveAttribute(
+        "title",
+        expect.stringContaining("First move it to Look-into"),
+      );
 
     yes.element().focus();
     expect(document.activeElement).toBe(yes.element());
@@ -148,7 +153,13 @@ describe("PipelineStateOptions", () => {
 
     await expect.element(screen.getByText("Current stage")).toBeVisible();
     await expect
-      .element(screen.getByText("Only reachable from Look-into.").first())
+      .element(
+        screen
+          .getByText(
+            "First move it to Look-into. Then you can mark it Yes, Unsure or No.",
+          )
+          .first(),
+      )
       .toBeVisible();
   });
 });

@@ -12,8 +12,6 @@ import {
   type PipelineGroup,
 } from "./pipelineStates";
 
-const DECISION_STATES: PipelineState[] = ["yes", "unsure", "no"];
-
 /**
  * A pipeline state with zero outgoing edges in PIPELINE_TRANSITIONS (AC-9):
  * for_sure_not | yes | unsure | no today. Derived from the transition graph
@@ -35,10 +33,22 @@ export interface PipelineStateOption {
   reason?: string;
 }
 
-const reasonFor = (from: PipelineState, to: PipelineState): string =>
-  DECISION_STATES.includes(to)
-    ? "Only reachable from Look-into."
-    : `Not reachable from ${getPipelineStateDef(from)?.label ?? from}.`;
+export const reasonFor = (from: PipelineState): string => {
+  if (from === "look_into") {
+    return "You can't go back from Look-into. You can mark it Yes, Unsure or No.";
+  }
+  if (isTerminalPipelineState(from)) {
+    return `This is a final stage. It stays at ${getPipelineStateDef(from)?.label ?? from}.`;
+  }
+  return "First move it to Look-into. Then you can mark it Yes, Unsure or No.";
+};
+
+export interface ShidduchMoveReceipt {
+  id: Identifier;
+  from: PipelineState;
+  to: PipelineState;
+  movedAt: number;
+}
 
 /**
  * The pure decorated option table (AC-8), independent of any React/data-
@@ -61,10 +71,7 @@ export const buildPipelineStateOptions = (
       isCurrent,
       isAllowed,
       isTerminal: isTerminalPipelineState(def.value),
-      reason:
-        !isCurrent && !isAllowed
-          ? reasonFor(currentState, def.value)
-          : undefined,
+      reason: !isCurrent && !isAllowed ? reasonFor(currentState) : undefined,
     };
   });
 
@@ -111,11 +118,12 @@ export interface UseShidduchTransitionResult {
 export const useShidduchTransition = ({
   id,
   currentState,
-  name,
+  onMoved,
 }: {
   id: Identifier;
   currentState: PipelineState;
   name?: string | null;
+  onMoved?: (move: ShidduchMoveReceipt) => void;
 }): UseShidduchTransitionResult => {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
@@ -126,23 +134,19 @@ export const useShidduchTransition = ({
     if (to === currentState || pendingTo) return;
 
     if (!isValidTransition(currentState, to)) {
-      const fromDef = getPipelineStateDef(currentState);
-      const toDef = getPipelineStateDef(to);
-      const decisionHint = DECISION_STATES.includes(to)
-        ? " A decision (Yes / Unsure / No) can only be made from Look-into."
-        : "";
-      notify(
-        `Can't move ${name ?? "this shidduch"} from ${
-          fromDef?.label ?? currentState
-        } to ${toDef?.label ?? to}.${decisionHint}`,
-        { type: "warning" },
-      );
+      notify(reasonFor(currentState), { type: "warning" });
       return;
     }
 
     setPendingTo(to);
     try {
       await dataProvider.transitionShidduch(id, currentState, to, closeReason);
+      onMoved?.({
+        id,
+        from: currentState,
+        to,
+        movedAt: Date.now(),
+      });
       notify(`Moved to ${getPipelineStateDef(to)?.label ?? to}`, {
         type: "info",
       });

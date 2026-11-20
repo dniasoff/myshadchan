@@ -6,6 +6,7 @@ import {
   buildPipelineStateOptions,
   classifySelection,
   isTerminalPipelineState,
+  reasonFor,
 } from "./useShidduchTransition";
 
 /**
@@ -81,6 +82,31 @@ describe("buildPipelineStateOptions — the decorated seven-state table (AC-8)",
 
     // Assert
     expect(options.map((o) => o.state)).toEqual(ALL_STATES);
+  });
+});
+
+describe("reasonFor — plain explanations from the stage-undo copy", () => {
+  it("explains that New must go through Look-into first", () => {
+    expect(reasonFor("new")).toBe(
+      "First move it to Look-into. Then you can mark it Yes, Unsure or No.",
+    );
+  });
+
+  it("explains the one-way Look-into stage", () => {
+    expect(reasonFor("look_into")).toBe(
+      "You can't go back from Look-into. You can mark it Yes, Unsure or No.",
+    );
+  });
+
+  it("explains that each terminal stage stays final", () => {
+    expect(reasonFor("yes")).toBe("This is a final stage. It stays at Yes.");
+    expect(reasonFor("unsure")).toBe(
+      "This is a final stage. It stays at Unsure.",
+    );
+    expect(reasonFor("no")).toBe("This is a final stage. It stays at No.");
+    expect(reasonFor("for_sure_not")).toBe(
+      "This is a final stage. It stays at For-sure-not.",
+    );
   });
 });
 

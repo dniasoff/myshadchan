@@ -28,9 +28,9 @@ export interface TerminalMoveConfirmProps {
 /**
  * AC-9: the friction step every one of the five irreversible edges
  * (for_sure_not | yes | unsure | no) goes through before
- * `dataProvider.transitionShidduch` is ever called. There is no Undo —
- * `PIPELINE_TRANSITIONS` has zero reverse edges — so this dialog states that
- * plainly rather than implying one exists.
+ * `dataProvider.transitionShidduch` is ever called. The graph still has zero
+ * reverse edges, but the server-side Undo RPC can reverse the actor's latest
+ * move for ten seconds after confirmation.
  *
  * A bottom sheet (`components/ui/sheet.tsx`), not `components/ui/dialog.tsx`:
  * this is a confirmation step, not a record surface, so UX-DR3's dialog
@@ -75,7 +75,7 @@ export const TerminalMoveConfirm = ({
             Move {name ?? "this shidduch"} to {label}?
           </SheetTitle>
           <SheetDescription>
-            {label} is a final stage — there is no way to undo this move.
+            {label} is a final stage. You can Undo this move for 10 seconds.
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-1.5 px-4">

@@ -127,6 +127,21 @@ describe("ShidduchRow — RecordLink mention, Move as a sibling (AC-12)", () => 
     expect(pathname).toBe("/shidduchim");
   });
 
+  it("shows the final-stage explanation instead of a Move button for terminal rows", async () => {
+    const { screen, onMove } = await renderRow({ pipeline_state: "yes" });
+
+    await expect
+      .element(screen.getByText("Final stage", { exact: true }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("This is a final stage. It can't be moved."))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: /Move/ }))
+      .not.toBeInTheDocument();
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
   it("renders no state chip — the section is the state", async () => {
     // Arrange / Act
     const { screen } = await renderRow();

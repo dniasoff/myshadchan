@@ -17,16 +17,12 @@ import type { CrmDataProvider } from "../providers/types";
 import type { PipelineState, ShidduchSummary } from "../types";
 import { getShidduchimByState, type ShidduchimByState } from "./boardUtils";
 import { persistOrder } from "./persistOrder";
-import {
-  getPipelineStateDef,
-  isValidTransition,
-  PIPELINE_STATES,
-} from "./pipelineStates";
+import { isValidTransition, PIPELINE_STATES } from "./pipelineStates";
 import { ShidduchColumn } from "./ShidduchColumn";
 import { TerminalMoveConfirm } from "./TerminalMoveConfirm";
-import { isTerminalPipelineState } from "./useShidduchTransition";
-
-const DECISION_STATES: PipelineState[] = ["yes", "unsure", "no"];
+import { isTerminalPipelineState, reasonFor } from "./useShidduchTransition";
+import { UndoBar } from "./UndoBar";
+import { useShidduchUndo } from "./useShidduchUndo";
 
 interface PendingDrop {
   moved: ShidduchSummary;
@@ -48,6 +44,7 @@ export const ShidduchimListContent = () => {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const refresh = useRefresh();
+  const undoState = useShidduchUndo();
 
   const [byState, setByState] = useState<ShidduchimByState>(() =>
     getShidduchimByState([]),
@@ -87,6 +84,12 @@ export const ShidduchimListContent = () => {
           toState,
           closeReason,
         );
+        undoState.recordMove({
+          id: moved.id,
+          from: fromState,
+          to: toState,
+          movedAt: Date.now(),
+        });
       }
       // Persist per-column ordering with index-only updates (no state change,
       // so the transition trigger never fires).
@@ -129,17 +132,7 @@ export const ShidduchimListContent = () => {
     // Structurally reinforced by ShidduchColumn's own isDropDisabled — this
     // remains as a defence-in-depth check.
     if (fromState !== toState && !isValidTransition(fromState, toState)) {
-      const fromDef = getPipelineStateDef(fromState);
-      const toDef = getPipelineStateDef(toState);
-      const decisionHint = DECISION_STATES.includes(toState)
-        ? " A decision (Yes / Unsure / No) can only be made from Look-into."
-        : "";
-      notify(
-        `Can't move ${moved.name_en ?? "this shidduch"} from ${
-          fromDef?.label ?? fromState
-        } to ${toDef?.label ?? toState}.${decisionHint}`,
-        { type: "warning" },
-      );
+      notify(reasonFor(fromState), { type: "warning" });
       return;
     }
 
@@ -177,6 +170,7 @@ export const ShidduchimListContent = () => {
 
   return (
     <>
+      <UndoBar {...undoState} />
       {/* Task 8: "pipeline-board" now anchors ShidduchimViewSwitch's root
           (exists regardless of position), not this Board-only div. */}
       <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
