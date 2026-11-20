@@ -47,6 +47,14 @@ fi
 
 if [[ "$2" == "list" ]]; then
   list_count=$(increment_count "$LIST_COUNT_FILE")
+  if [[ "\${STUB_LIST_ERROR:-0}" == "1" ]]; then
+    printf '%s\n' 'temporary list failure with super-secret-token' >&2
+    exit 13
+  fi
+  if [[ "\${STUB_LIST_MALFORMED_JSON:-0}" == "1" ]]; then
+    printf '%s\n' 'not-json'
+    exit 0
+  fi
   if [[ "\${STUB_LIST_MISSING_ONCE:-0}" == "1" && "$list_count" == "1" ]]; then
     printf '%s\n' '{"items":[]}'
   else
@@ -85,6 +93,8 @@ function runPromotion({
   mode,
   failures = 0,
   listMissingOnce = false,
+  listError = false,
+  listMalformedJson = false,
   version = validVersion,
 }) {
   const directory = mkdtempSync(
@@ -110,6 +120,8 @@ function runPromotion({
         STUB_MODE: mode,
         STUB_FAILURES: String(failures),
         STUB_LIST_MISSING_ONCE: listMissingOnce ? "1" : "0",
+        STUB_LIST_ERROR: listError ? "1" : "0",
+        STUB_LIST_MALFORMED_JSON: listMalformedJson ? "1" : "0",
         PROMOTE_RETRY_BACKOFFS: "0,0,0,0,0",
       },
     },
@@ -215,5 +227,29 @@ describe("promote-worker-version.sh", () => {
     expect(deployCount).toBe(2);
     expect(listCount).toBe(2);
     expect(deployArgs).toEqual([`${version}@100`, `${version}@100`]);
+  });
+
+  it("fails on a visibility-list error without a second deploy", () => {
+    const { result, deployCount, listCount } = runPromotion({
+      mode: "100146",
+      failures: 1,
+      listError: true,
+    });
+
+    expect(result.status).toBe(13);
+    expect(deployCount).toBe(1);
+    expect(listCount).toBe(1);
+  });
+
+  it("fails on malformed visibility JSON without a second deploy", () => {
+    const { result, deployCount, listCount } = runPromotion({
+      mode: "100146",
+      failures: 1,
+      listMalformedJson: true,
+    });
+
+    expect(result.status).toBe(2);
+    expect(deployCount).toBe(1);
+    expect(listCount).toBe(1);
   });
 });
