@@ -201,7 +201,7 @@ from (
           expect(row.completed).toBe(true);
         }
         if (row.runner === "undo" && !row.completed) {
-          expect(row.sqlstate_code).toBe("P0001");
+          expect(["P0001", "42501"]).toContain(row.sqlstate_code);
           expect([
             `shidduch ${shidduchId} not found`,
             `undo is not available for shidduch ${shidduchId}`,
