@@ -8810,10 +8810,9 @@ begin
   v_member_id := public.current_member_id();
 
   -- A missing active context includes anonymous and pending memberships.  The
-  -- demo fence is shared with other customer writes: a clearing/expired demo
-  -- must not accept a stale browser undo.
+  -- demo fence below is shared with other customer writes: a clearing/expired
+  -- demo must not accept a stale browser undo.
   if v_account_id is null
-     or not public.demo_storage_write_fence(v_account_id)
      or (not v_service_role and (auth.uid() is null or v_role is null or v_role = 'single')) then
     raise exception 'undo is not available for shidduch %', p_id
       using errcode = 'insufficient_privilege';
@@ -8845,6 +8844,15 @@ begin
   from public.accounts a
   where a.id = v_shidduch_account_id
   for update;
+
+  -- demo_storage_write_fence() takes the account row FOR KEY SHARE.  It must
+  -- run after the parent-first locks above, otherwise undo can hold the
+  -- account key-share lock while account purge holds a shidduch row and waits
+  -- for the account row FOR UPDATE.
+  if not public.demo_storage_write_fence(v_account_id) then
+    raise exception 'undo is not available for shidduch %', p_id
+      using errcode = 'insufficient_privilege';
+  end if;
 
   select s.* into v_row
   from public.shidduchim s

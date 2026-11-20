@@ -95,11 +95,12 @@ function runPsqlScript(script: string): Promise<string> {
 describe("shidduch stage undo versus account purge", () => {
   if (bailIfDbUnreachable(error)) return;
 
-  it("completes either side of the parent-first race without deadlock", async () => {
-    const token = randomUUID().replaceAll("-", "");
-    const userId = randomUUID();
-    const resultTable = `stage_undo_race_${token}`;
-    const setup = await runPsqlScript(`
+  it("completes repeated parent-first races without deadlock", async () => {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const token = `${randomUUID().replaceAll("-", "")}_${attempt}`;
+      const userId = randomUUID();
+      const resultTable = `stage_undo_race_${token}`;
+      const setup = await runPsqlScript(`
 \\set ON_ERROR_STOP on
 begin;
 set local role postgres;
@@ -131,14 +132,14 @@ select public.transition_shidduch(:shidduch_id, 'new', 'look_into') as transitio
 \\pset columns 0
 select :account_id || ',' || :shidduch_id;
 `);
-    const fixture = setup
-      .split("\n")
-      .map((line) => line.trim())
-      .find((line) => /^\d+,\d+$/.test(line));
-    if (!fixture) throw new Error(`could not parse race fixture: ${setup}`);
-    const [accountId, shidduchId] = fixture.split(",");
+      const fixture = setup
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => /^\d+,\d+$/.test(line));
+      if (!fixture) throw new Error(`could not parse race fixture: ${setup}`);
+      const [accountId, shidduchId] = fixture.split(",");
 
-    const undo = runPsqlScript(`
+      const undo = runPsqlScript(`
 \\set ON_ERROR_STOP on
 begin;
 set local role authenticated;
@@ -154,7 +155,7 @@ end
 $$;
 commit;
 `);
-    const purge = runPsqlScript(`
+      const purge = runPsqlScript(`
 \\set ON_ERROR_STOP on
 begin;
 set local role authenticated;
@@ -171,9 +172,9 @@ $$;
 commit;
 `);
 
-    try {
-      await Promise.all([undo, purge]);
-      const report = await runPsqlScript(`
+      try {
+        await Promise.all([undo, purge]);
+        const report = await runPsqlScript(`
 \\set ON_ERROR_STOP on
 set role postgres;
 \\pset format unaligned
@@ -186,34 +187,35 @@ from (
   from public.${resultTable}
 ) r;
 `);
-      const rows = JSON.parse(report.trim()) as Array<{
-        runner: string;
-        completed: boolean;
-        sqlstate_code: string;
-        error_message: string;
-      }>;
-      expect(rows).toHaveLength(2);
-      for (const row of rows) {
-        expect(["undo", "purge"]).toContain(row.runner);
-        expect(row.sqlstate_code).not.toBe("40P01");
-        expect(row.sqlstate_code).not.toBe("57014");
-        if (row.runner === "purge") {
-          expect(row.completed).toBe(true);
+        const rows = JSON.parse(report.trim()) as Array<{
+          runner: string;
+          completed: boolean;
+          sqlstate_code: string;
+          error_message: string;
+        }>;
+        expect(rows).toHaveLength(2);
+        for (const row of rows) {
+          expect(["undo", "purge"]).toContain(row.runner);
+          expect(row.sqlstate_code).not.toBe("40P01");
+          expect(row.sqlstate_code).not.toBe("57014");
+          if (row.runner === "purge") {
+            expect(row.completed).toBe(true);
+          }
+          if (row.runner === "undo" && !row.completed) {
+            expect(["P0001", "42501"]).toContain(row.sqlstate_code);
+            expect([
+              `shidduch ${shidduchId} not found`,
+              `undo is not available for shidduch ${shidduchId}`,
+            ]).toContain(row.error_message);
+          }
         }
-        if (row.runner === "undo" && !row.completed) {
-          expect(["P0001", "42501"]).toContain(row.sqlstate_code);
-          expect([
-            `shidduch ${shidduchId} not found`,
-            `undo is not available for shidduch ${shidduchId}`,
-          ]).toContain(row.error_message);
-        }
-      }
-    } finally {
-      await runPsqlScript(`
+      } finally {
+        await runPsqlScript(`
 set role postgres;
 drop table if exists public.${resultTable};
 delete from public.accounts where id = ${accountId};
 `);
+      }
     }
   });
 });
