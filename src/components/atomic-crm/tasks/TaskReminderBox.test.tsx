@@ -190,8 +190,12 @@ describe("TaskReminderBox", () => {
     const { screen } = await renderBox([task], { update });
 
     await screen.getByRole("button", { name: "Edit" }).click();
-    const save = screen.getByRole("button", { name: "Save" });
-    await Promise.all([save.click(), save.click({ force: true })]);
+    const firstSave = screen.getByRole("button", { name: "Save" });
+    const secondSave = screen.getByRole("button", { name: "Save" });
+    await Promise.all([
+      firstSave.click({ force: true }),
+      secondSave.click({ force: true }),
+    ]);
     expect(update).toHaveBeenCalledTimes(1);
 
     await expect

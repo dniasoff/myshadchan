@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { page } from "@vitest/browser/context";
+import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import type { DataProvider } from "ra-core";
@@ -165,14 +165,17 @@ describe("Task — a tap on a nested control never completes the task", () => {
 });
 
 describe("Task — destructive actions are confirmed", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("asks before deleting a task from the Tasks page", async () => {
     const task = buildTask();
     const { screen, dataProvider } = await renderTask(task, [
       buildMember({ id: 1, is_self: true }),
     ]);
 
-    await screen.getByRole("button", { name: "task actions" }).click();
-    await screen.getByRole("menuitem", { name: "Delete" }).click();
+    await screen.getByRole("button", { name: "Delete" }).click();
 
     await expect
       .element(screen.getByRole("heading", { name: "Delete this task?" }))
@@ -192,9 +195,9 @@ describe("Task — destructive actions are confirmed", () => {
       [buildMember({ id: 1, is_self: true })],
       { delete: deleteTask },
     );
+    vi.useFakeTimers();
 
-    await screen.getByRole("button", { name: "task actions" }).click();
-    await screen.getByRole("menuitem", { name: "Delete" }).click();
+    await screen.getByRole("button", { name: "Delete" }).click();
     const confirmDelete = screen
       .getByRole("dialog")
       .getByRole("button", { name: "Delete" });
@@ -203,8 +206,135 @@ describe("Task — destructive actions are confirmed", () => {
     await expect
       .element(screen.getByRole("button", { name: "Undo" }))
       .toBeInTheDocument();
+    const undoStatus = screen.getByRole("status");
+    await expect.element(undoStatus).toBeInTheDocument();
+    expect(
+      undoStatus.getByRole("button", { name: "Undo" }).element(),
+    ).toHaveClass("min-h-11", "min-w-11");
 
-    await screen.getByRole("button", { name: "Close toast" }).click();
-    await expect.poll(() => deleteTask.mock.calls.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(deleteTask).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Task — keyboard and focus behavior", () => {
+  afterEach(async () => {
+    await page.viewport(DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height);
+  });
+
+  it("focuses the editor and returns focus to Edit when Escape cancels", async () => {
+    const task = buildTask();
+    const { screen } = await renderTask(task, [
+      buildMember({ id: 1, is_self: true }),
+    ]);
+    const edit = screen.getByRole("button", { name: "Edit" });
+
+    await edit.click();
+    await expect
+      .poll(
+        () =>
+          document.activeElement ===
+          screen.getByLabelText("Description").element(),
+      )
+      .toBe(true);
+
+    await userEvent.keyboard("{Escape}");
+    await expect
+      .poll(() => document.activeElement === edit.element())
+      .toBe(true);
+  });
+
+  it("returns focus to Edit when the mobile sheet is dismissed", async () => {
+    await page.viewport(MOBILE_VIEWPORT.width, MOBILE_VIEWPORT.height);
+    const task = buildTask();
+    const { screen } = await renderTask(task, [
+      buildMember({ id: 1, is_self: true }),
+    ]);
+    const edit = screen.getByRole("button", { name: "Edit" });
+
+    await edit.click();
+    await expect
+      .poll(
+        () =>
+          document.activeElement ===
+          screen.getByLabelText("Description").element(),
+      )
+      .toBe(true);
+
+    await userEvent.keyboard("{Escape}");
+    await expect
+      .poll(() => document.activeElement === edit.element())
+      .toBe(true);
+  });
+
+  it("cancels the delete confirmation with Escape and restores Delete focus", async () => {
+    const task = buildTask();
+    const { screen } = await renderTask(task, [
+      buildMember({ id: 1, is_self: true }),
+    ]);
+    const deleteButton = screen.getByRole("button", { name: "Delete" });
+
+    await deleteButton.click();
+    await userEvent.keyboard("{Escape}");
+    await expect
+      .poll(() => document.activeElement === deleteButton.element())
+      .toBe(true);
+  });
+
+  it("focuses the next visible row after a confirmed delete", async () => {
+    const first = buildTask({ id: 1, text: "First task" });
+    const second = buildTask({ id: 2, text: "Second task" });
+    const dataProvider = {
+      getList: vi.fn().mockResolvedValue({
+        data: [buildMember({ id: 1, is_self: true })],
+        total: 1,
+      }),
+      getOne: vi.fn().mockResolvedValue({ data: first }),
+      update: vi.fn().mockResolvedValue({ data: first }),
+      delete: vi.fn().mockResolvedValue({ data: first }),
+    } as unknown as DataProvider;
+    const screen = await render(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          i18nProvider={testI18nProvider}
+        >
+          <h2 data-tasks-list-heading tabIndex={-1}>
+            Tasks
+          </h2>
+          <Task task={first} />
+          <Task task={second} />
+          <Notification />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await screen.getByRole("button", { name: "Delete" }).nth(0).click();
+    const confirm = screen.getByRole("dialog").getByRole("button", {
+      name: "Delete",
+    });
+    await confirm.click();
+    const secondEdit = screen.getByRole("button", { name: "Edit" }).nth(1);
+    await expect
+      .poll(() => document.activeElement === secondEdit.element())
+      .toBe(true);
+  });
+
+  it("returns focus to the deleted row after Undo", async () => {
+    const task = buildTask();
+    const { screen } = await renderTask(task, [
+      buildMember({ id: 1, is_self: true }),
+    ]);
+    const edit = screen.getByRole("button", { name: "Edit" });
+
+    await screen.getByRole("button", { name: "Delete" }).click();
+    await screen
+      .getByRole("dialog")
+      .getByRole("button", { name: "Delete" })
+      .click();
+    await screen.getByRole("button", { name: "Undo" }).click();
+    await expect
+      .poll(() => document.activeElement === edit.element())
+      .toBe(true);
   });
 });

@@ -29,7 +29,11 @@ export const TaskListFilter = ({ tasks, title, isMobile }: TaskListProps) => {
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2">
+      <p
+        tabIndex={-1}
+        data-tasks-list-heading
+        className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         {title}
       </p>
       <ResourceContextProvider value="tasks">

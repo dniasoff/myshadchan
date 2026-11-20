@@ -13,15 +13,22 @@ import {
   useNotify,
   useRedirect,
   useResourceContext,
+  useSaveContext,
   useTranslate,
   type EditBaseProps,
   type FormProps,
   type RedirectionSideEffect,
 } from "ra-core";
-import { type ReactNode } from "react";
+import { type BaseSyntheticEvent, type ReactNode } from "react";
+import type { FieldValues } from "react-hook-form";
 import { cn } from "@/lib/utils";
 import { getEntityDescriptor } from "../entity360/registry";
 import { redirectToRecord } from "../entity360/routeConvention";
+
+export type EditSheetFormSubmit = (
+  values: FieldValues,
+  event?: BaseSyntheticEvent,
+) => boolean | void | Promise<boolean | void>;
 
 export interface EditSheetProps extends EditBaseProps {
   /**
@@ -53,6 +60,18 @@ export interface EditSheetProps extends EditBaseProps {
    * Optional actions to render in the sheet header, next to the title
    */
   headerActions?: ReactNode;
+
+  /**
+   * Optional actions rendered before Save in the sheet footer.
+   */
+  footerActions?: ReactNode;
+
+  /**
+   * Optional validated form submit handler. When provided, it replaces the
+   * default save-context submit, allowing a surface to claim a submission
+   * synchronously after react-hook-form validation has passed.
+   */
+  formOnSubmit?: EditSheetFormSubmit;
 }
 
 /**
@@ -94,6 +113,8 @@ export const EditSheet = ({
   mutationMode = "undoable",
   defaultValues,
   headerActions,
+  footerActions,
+  formOnSubmit,
   ...editBaseProps
 }: EditSheetProps) => {
   const resource = useResourceContext(editBaseProps);
@@ -152,40 +173,78 @@ export const EditSheet = ({
           mutationOptions={enhancedMutationOptions}
           mutationMode={mutationMode}
         >
-          <Form defaultValues={defaultValues} className="flex-1 flex flex-col">
-            <SheetHeader className="border-b">
-              <div
-                className={cn(
-                  "flex items-center gap-2",
-                  headerActions && "pr-12",
-                )}
-              >
-                <SheetTitle className="min-w-0 flex-1 truncate">
-                  <EditSheetTitle title={title} />
-                </SheetTitle>
-                {headerActions && (
-                  <div className="shrink-0">{headerActions}</div>
-                )}
-              </div>
-            </SheetHeader>
-
-            <div className="flex-1 overflow-y-auto flex flex-col gap-3 p-4">
-              {children}
-            </div>
-
-            {/* The sheet is anchored to `bottom-0`, so without the inset the
-             * primary action sits partly under an iPhone's home-indicator
-             * gesture area — `SheetFooter`'s own padding is a flat `p-4`.
-             * The app's mobile nav already folds the same
-             * `env(safe-area-inset-bottom)` in (`--mobile-nav-clearance` in
-             * `src/index.css`, `layout/MobileNavigation.tsx`). */}
-            <SheetFooter className="border-t flex flex-row w-full gap-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-              <SaveButton className="flex-1 h-12" />
-            </SheetFooter>
-          </Form>
+          <EditSheetForm
+            defaultValues={defaultValues}
+            formOnSubmit={formOnSubmit}
+            footerActions={footerActions}
+            headerActions={headerActions}
+            title={title}
+          >
+            {children}
+          </EditSheetForm>
         </EditBase>
       </SheetContent>
     </Sheet>
+  );
+};
+
+const EditSheetForm = ({
+  children,
+  defaultValues,
+  formOnSubmit,
+  footerActions,
+  headerActions,
+  title,
+}: {
+  children: ReactNode;
+  defaultValues?: FormProps["defaultValues"];
+  formOnSubmit?: EditSheetFormSubmit;
+  footerActions?: ReactNode;
+  headerActions?: ReactNode;
+  title?: ReactNode;
+}) => {
+  const saveContext = useSaveContext();
+  const handleSubmit: FormProps["onSubmit"] = async (
+    values: FieldValues,
+    event?: BaseSyntheticEvent,
+  ) => {
+    const shouldSave = await formOnSubmit?.(values, event);
+    if (shouldSave === false) return;
+    return saveContext?.save?.(values, event as never);
+  };
+
+  return (
+    <Form
+      defaultValues={defaultValues}
+      onSubmit={formOnSubmit ? handleSubmit : undefined}
+      className="flex-1 flex flex-col"
+    >
+      <SheetHeader className="border-b">
+        <div
+          className={cn("flex items-center gap-2", headerActions && "pr-12")}
+        >
+          <SheetTitle className="min-w-0 flex-1 truncate">
+            <EditSheetTitle title={title} />
+          </SheetTitle>
+          {headerActions && <div className="shrink-0">{headerActions}</div>}
+        </div>
+      </SheetHeader>
+
+      <div className="flex-1 overflow-y-auto flex flex-col gap-3 p-4">
+        {children}
+      </div>
+
+      {/* The sheet is anchored to `bottom-0`, so without the inset the
+       * primary action sits partly under an iPhone's home-indicator
+       * gesture area — `SheetFooter`'s own padding is a flat `p-4`.
+       * The app's mobile nav already folds the same
+       * `env(safe-area-inset-bottom)` in (`--mobile-nav-clearance` in
+       * `src/index.css`, `layout/MobileNavigation.tsx`). */}
+      <SheetFooter className="border-t flex flex-row w-full gap-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        {footerActions}
+        <SaveButton className="flex-1 h-12" />
+      </SheetFooter>
+    </Form>
   );
 };
 
