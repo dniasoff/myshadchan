@@ -10,6 +10,7 @@ import { QueryClient } from "@tanstack/react-query";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
+import { Notification } from "@/components/admin/notification";
 import type { MemberRole, MyContext, ShidduchSummary, Task } from "../types";
 import "./entityDescriptor";
 import {
@@ -73,6 +74,7 @@ const renderTodoBox = async (
   role: MemberRole,
   tasks: Task[] = [],
   overrides: Partial<DataProvider> = {},
+  withNotification = false,
 ) => {
   const queryClient = new QueryClient();
   queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, [contextFor(role)]);
@@ -93,6 +95,7 @@ const renderTodoBox = async (
       >
         <ShidduchTodoBox shidduch={buildShidduch()} />
         <NotificationProbe />
+        {withNotification ? <Notification /> : null}
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -356,6 +359,59 @@ describe("ShidduchTodoBox interactions", () => {
     await expect
       .element(notification)
       .not.toHaveTextContent("completion provider secret must never be shown");
+  });
+
+  it("reuses the reminder edit, confirmation, typed time, and Undo flow in the Overview To do box", async () => {
+    const task = buildTask({
+      id: 901,
+      text: "Call the family",
+      due_date: "2026-11-20T15:30:00Z",
+    });
+    const update = vi.fn().mockResolvedValue({ data: task });
+    const deleteTask = vi.fn().mockResolvedValue({ data: task });
+    const { screen } = await renderTodoBox(
+      "parent_admin",
+      [task],
+      {
+        update,
+        delete: deleteTask,
+      },
+      true,
+    );
+
+    await expect
+      .element(screen.getByRole("heading", { name: "To do" }))
+      .toBeInTheDocument();
+    await screen.getByRole("button", { name: "Edit" }).click();
+    await screen.getByLabelText("Edit time (optional)").fill("9pm");
+    await screen.getByRole("button", { name: "Save" }).click();
+
+    expect(update).toHaveBeenCalledWith(
+      "tasks",
+      expect.objectContaining({
+        id: 901,
+        data: expect.objectContaining({
+          due_date: new Date(2026, 10, 20, 21, 0).toISOString(),
+        }),
+      }),
+    );
+
+    await screen.getByRole("button", { name: "Delete" }).click();
+    await expect
+      .element(screen.getByRole("heading", { name: "Delete this task?" }))
+      .toBeInTheDocument();
+    await screen
+      .getByRole("dialog")
+      .getByRole("button", { name: "Delete" })
+      .click();
+    await expect
+      .element(screen.getByRole("button", { name: "Undo" }))
+      .toBeInTheDocument();
+    await screen.getByRole("button", { name: "Undo" }).click();
+    await expect
+      .element(screen.getByRole("button", { name: "Edit" }))
+      .toHaveFocus();
+    expect(deleteTask).not.toHaveBeenCalled();
   });
 
   it("fails closed for a single-role viewer and does not query tasks", async () => {

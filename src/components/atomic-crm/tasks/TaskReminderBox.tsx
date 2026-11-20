@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import {
   useCreate,
@@ -32,9 +38,16 @@ export type ReminderTargetType = "shidduch" | "shadchan";
 export interface TaskReminderBoxProps {
   targetType: ReminderTargetType;
   targetId: Identifier;
+  /** Use the same task interaction model for the shidduch Overview To do box. */
+  variant?: "reminder" | "todo";
+  headingAccessory?: ReactNode;
 }
 
-const TEXT_MAX_LENGTH = 500;
+export const TASK_REMINDER_TEXT_MAX_LENGTH = 500;
+export const TODO_ADD_ERROR_MESSAGE =
+  "Could not add the to do. Please try again.";
+export const TODO_COMPLETE_ERROR_MESSAGE =
+  "Could not complete the to do. Please try again.";
 const ADD_ERROR = "Could not add the reminder. Please try again.";
 const UPDATE_ERROR = "Could not update the reminder. Please try again.";
 const COMPLETE_ERROR = "Could not complete the reminder. Please try again.";
@@ -84,6 +97,8 @@ const isOverdue = (task: Task): boolean =>
 
 interface ReminderRowProps {
   task: Task;
+  itemLabel: "reminder" | "to do";
+  isToggling: boolean;
   onToggle: (task: Task) => Promise<boolean>;
   onChanged: () => void;
   onFocusAfterToggle: (taskId: string | null) => void;
@@ -94,6 +109,8 @@ interface ReminderRowProps {
 
 const ReminderRow = ({
   task,
+  itemLabel,
+  isToggling,
   onToggle,
   onChanged,
   onFocusAfterToggle,
@@ -156,7 +173,7 @@ const ReminderRow = ({
     },
     onError: () => {
       actionGuardRef.current = null;
-      notify("Could not delete the reminder. Please try again.", {
+      notify(`Could not delete the ${itemLabel}. Please try again.`, {
         type: "error",
       });
     },
@@ -253,7 +270,7 @@ const ReminderRow = ({
             ref={editTextRef}
             id={`reminder-${String(task.id)}-edit-text`}
             value={editText}
-            maxLength={TEXT_MAX_LENGTH}
+            maxLength={TASK_REMINDER_TEXT_MAX_LENGTH}
             onChange={(event) => setEditText(event.target.value)}
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -326,7 +343,7 @@ const ReminderRow = ({
             checked={false}
             data-task-id={String(task.id)}
             aria-label={`Mark ${task.text} complete`}
-            disabled={isDeleting}
+            disabled={isDeleting || isToggling}
             onCheckedChange={() => void handleToggle()}
             className="relative mt-1 min-h-4 min-w-4 before:absolute before:-inset-3.5 before:content-['']"
           />
@@ -403,7 +420,19 @@ const ReminderRow = ({
 export const TaskReminderBox = ({
   targetType,
   targetId,
+  variant = "reminder",
+  headingAccessory,
 }: TaskReminderBoxProps): ReactElement | null => {
+  const isTodo = variant === "todo";
+  const heading = isTodo ? "To do" : "Reminders";
+  const itemLabel = isTodo ? "to do" : "reminder";
+  const itemLabelPlural = isTodo ? "to dos" : "reminders";
+  const loadingLabel = isTodo ? "to dos" : "reminders";
+  const addButtonLabel = isTodo ? "Add to do" : "Add reminder";
+  const addedStatus = isTodo ? "To do added" : "Reminder added";
+  const completedStatus = isTodo ? "To do completed" : "Reminder completed";
+  const addError = isTodo ? TODO_ADD_ERROR_MESSAGE : ADD_ERROR;
+  const completeError = isTodo ? TODO_COMPLETE_ERROR_MESSAGE : COMPLETE_ERROR;
   const { role, isPending: isRolePending } = useViewerRole();
   const canSee = isTodoBoxVisible(role, isRolePending);
   const notify = useNotify();
@@ -554,7 +583,7 @@ export const TaskReminderBox = ({
     const trimmedText = text.trim();
     if (
       trimmedText === "" ||
-      trimmedText.length > TEXT_MAX_LENGTH ||
+      trimmedText.length > TASK_REMINDER_TEXT_MAX_LENGTH ||
       isCreating ||
       !normaliseAddTime()
     )
@@ -581,11 +610,11 @@ export const TaskReminderBox = ({
       setDate("");
       setTime("");
       setTimeError("");
-      setStatusMessage("Reminder added");
+      setStatusMessage(addedStatus);
       textInputRef.current?.focus();
       refresh();
     } catch {
-      notify(ADD_ERROR, { type: "error" });
+      notify(addError, { type: "error" });
     }
   };
 
@@ -605,10 +634,10 @@ export const TaskReminderBox = ({
         },
         { returnPromise: true },
       );
-      setStatusMessage("Reminder completed");
+      setStatusMessage(completedStatus);
       refresh();
     } catch {
-      notify(COMPLETE_ERROR, { type: "error" });
+      notify(completeError, { type: "error" });
       return false;
     } finally {
       const remaining = new Set(pendingTaskIds);
@@ -623,14 +652,17 @@ export const TaskReminderBox = ({
       aria-labelledby={`${inputPrefix}heading`}
       className="rounded-2xl border border-border bg-card p-5 shadow-sm"
     >
-      <h2
-        ref={headingRef}
-        tabIndex={-1}
-        id={`${inputPrefix}heading`}
-        className="font-display text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        Reminders
-      </h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2
+          ref={headingRef}
+          tabIndex={-1}
+          id={`${inputPrefix}heading`}
+          className="font-display text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          {heading}
+        </h2>
+        {headingAccessory}
+      </div>
       <p
         role="status"
         aria-live="polite"
@@ -646,12 +678,12 @@ export const TaskReminderBox = ({
             <Label htmlFor={`${inputPrefix}text`}>What do I need to do?</Label>
             <span
               className={
-                text.length > TEXT_MAX_LENGTH
+                text.length > TASK_REMINDER_TEXT_MAX_LENGTH
                   ? "text-xs text-destructive"
                   : "text-xs text-muted-foreground"
               }
             >
-              {text.length}/{TEXT_MAX_LENGTH}
+              {text.length}/{TASK_REMINDER_TEXT_MAX_LENGTH}
             </span>
           </div>
           <Input
@@ -660,7 +692,7 @@ export const TaskReminderBox = ({
             value={text}
             onChange={(event) => setText(event.target.value)}
             aria-label="What do I need to do?"
-            maxLength={TEXT_MAX_LENGTH}
+            maxLength={TASK_REMINDER_TEXT_MAX_LENGTH}
             placeholder="What do I need to do?"
             dir="auto"
             className="min-h-11"
@@ -744,28 +776,30 @@ export const TaskReminderBox = ({
           disabled={text.trim() === "" || isCreating}
           onClick={() => void handleAdd()}
         >
-          Add reminder
+          {addButtonLabel}
         </Button>
       </div>
 
       <ul ref={listRef} className="mt-5 flex flex-col">
         {isTasksPending ? (
           <li className="py-3 text-sm text-muted-foreground" aria-busy="true">
-            Loading reminders…
+            Loading {loadingLabel}…
           </li>
         ) : error ? (
           <li className="py-3 text-sm text-destructive" role="alert">
-            Could not load the reminders.
+            Could not load the {itemLabelPlural}.
           </li>
         ) : tasks.length === 0 ? (
           <li className="py-3 text-sm text-muted-foreground">
-            No open reminders
+            No open {itemLabelPlural}
           </li>
         ) : (
           tasks.map((task, index) => (
             <ReminderRow
               key={String(task.id)}
               task={task}
+              itemLabel={itemLabel}
+              isToggling={pendingTaskIds.has(String(task.id))}
               onToggle={handleToggle}
               onChanged={refresh}
               onFocusAfterToggle={setFocusAfterCompletion}
