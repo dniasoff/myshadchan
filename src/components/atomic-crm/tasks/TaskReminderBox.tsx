@@ -447,6 +447,7 @@ export const TaskReminderBox = ({
   const [pendingTaskIds, setPendingTaskIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const pendingTaskIdsRef = useRef(new Set<string>());
   const [focusAfterCompletion, setFocusAfterCompletion] = useState<
     string | null | undefined
   >(undefined);
@@ -620,10 +621,9 @@ export const TaskReminderBox = ({
 
   const handleToggle = async (task: Task): Promise<boolean> => {
     const taskId = String(task.id);
-    if (pendingTaskIds.has(taskId)) return false;
-    const next = new Set(pendingTaskIds);
-    next.add(taskId);
-    setPendingTaskIds(next);
+    if (pendingTaskIdsRef.current.has(taskId)) return false;
+    pendingTaskIdsRef.current.add(taskId);
+    setPendingTaskIds(new Set(pendingTaskIdsRef.current));
     try {
       await update(
         "tasks",
@@ -640,9 +640,8 @@ export const TaskReminderBox = ({
       notify(completeError, { type: "error" });
       return false;
     } finally {
-      const remaining = new Set(pendingTaskIds);
-      remaining.delete(taskId);
-      setPendingTaskIds(remaining);
+      pendingTaskIdsRef.current.delete(taskId);
+      setPendingTaskIds(new Set(pendingTaskIdsRef.current));
     }
     return true;
   };

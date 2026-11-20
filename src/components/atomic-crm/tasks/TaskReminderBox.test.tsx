@@ -203,6 +203,46 @@ describe("TaskReminderBox", () => {
       .toBeInTheDocument();
   });
 
+  it("keeps concurrent completion guards independent when promises settle out of order", async () => {
+    const firstTask = buildTask({ id: 20, text: "Call the first family" });
+    const secondTask = buildTask({ id: 21, text: "Call the second family" });
+    const taskById = new Map([
+      [20, firstTask],
+      [21, secondTask],
+    ]);
+    const resolvers = new Map<number, () => void>();
+    const update = vi.fn().mockImplementation(
+      (_resource: string, params: { id: number }) =>
+        new Promise<{ data: Task }>((resolve) => {
+          resolvers.set(params.id, () =>
+            resolve({ data: taskById.get(params.id)! }),
+          );
+        }),
+    );
+    const { screen } = await renderBox([firstTask, secondTask], { update });
+    const firstCheckbox = screen.getByRole("checkbox", {
+      name: "Mark Call the first family complete",
+    });
+    const secondCheckbox = screen.getByRole("checkbox", {
+      name: "Mark Call the second family complete",
+    });
+
+    await firstCheckbox.click();
+    await secondCheckbox.click();
+    expect(update).toHaveBeenCalledTimes(2);
+    await expect.element(firstCheckbox).toBeDisabled();
+    await expect.element(secondCheckbox).toBeDisabled();
+
+    resolvers.get(20)?.();
+    await expect.element(firstCheckbox).not.toBeDisabled();
+    await expect.element(secondCheckbox).toBeDisabled();
+    await secondCheckbox.click({ force: true });
+    expect(update).toHaveBeenCalledTimes(2);
+
+    resolvers.get(21)?.();
+    await expect.element(secondCheckbox).not.toBeDisabled();
+  });
+
   it("focuses the stable heading after delete and the restored Edit button after Undo", async () => {
     const task = buildTask({ id: 12 });
     const { screen } = await renderBox([task]);
