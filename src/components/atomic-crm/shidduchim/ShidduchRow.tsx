@@ -9,6 +9,7 @@ import { ShidduchRowLifecycleActions } from "./ShidduchLifecycleActions";
 import { getPipelineStateDef } from "./pipelineStates";
 import { ShidduchTodoMarker } from "./ShidduchTodoMarker";
 import { getTransientSuggestionName } from "./transientSuggestionDisplay";
+import { isTerminalPipelineState } from "./useShidduchTransition";
 
 export interface ShidduchRowProps {
   shidduch: ShidduchSummary;
@@ -66,6 +67,7 @@ export const ShidduchRow = ({
     .filter(Boolean)
     .join(" · ");
   const catchCount = shidduch.catch_count ?? 0;
+  const isTerminal = isTerminalPipelineState(shidduch.pipeline_state);
 
   return (
     <div
@@ -132,16 +134,27 @@ export const ShidduchRow = ({
           />
         ) : null
       ) : (
-        <div className="flex w-full gap-2 sm:w-auto sm:shrink-0">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="min-h-11 min-w-0 flex-1 sm:flex-none"
-            onClick={onMove}
-          >
-            ⇄ Move
-          </Button>
+        <div className="flex w-full flex-col items-start gap-1 sm:w-auto sm:shrink-0 sm:items-end">
+          {isTerminal ? (
+            <>
+              <span className="text-xs font-medium text-muted-foreground">
+                Final stage
+              </span>
+              <span className="text-xs text-muted-foreground">
+                This is a final stage. It can't be moved.
+              </span>
+            </>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-11 min-w-0 flex-1 sm:flex-none"
+              onClick={onMove}
+            >
+              ⇄ Move
+            </Button>
+          )}
           {canManageLifecycle ? (
             <ShidduchRowLifecycleActions
               record={shidduch}

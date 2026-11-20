@@ -4,11 +4,13 @@ import type { Identifier } from "ra-core";
 import type { PipelineState } from "../types";
 import { PipelineStateOptions } from "./PipelineStateOptions";
 import { TerminalMoveConfirm } from "./TerminalMoveConfirm";
+import { UndoBar } from "./UndoBar";
 import type { PipelineStateOption } from "./useShidduchTransition";
 import {
   classifySelection,
   useShidduchTransition,
 } from "./useShidduchTransition";
+import { useShidduchUndo } from "./useShidduchUndo";
 
 /**
  * The state-transition control (Screen 18 body). Renders all 7 states via
@@ -39,10 +41,12 @@ export const ShidduchStateControl = ({
   currentState: PipelineState;
   name?: string | null;
 }) => {
+  const undoState = useShidduchUndo();
   const { options, pendingTo, move } = useShidduchTransition({
     id,
     currentState,
     name,
+    onMoved: undoState.recordMove,
   });
   const [confirmState, setConfirmState] = useState<PipelineState | null>(null);
 
@@ -69,6 +73,7 @@ export const ShidduchStateControl = ({
   return (
     <section
       data-tour="state-control"
+      data-shidduch-id={String(id)}
       className="rounded-2xl border border-border bg-card p-5 shadow-sm"
     >
       <h3 className="mb-3 font-display text-lg font-semibold">
@@ -80,6 +85,7 @@ export const ShidduchStateControl = ({
         onSelect={handleSelect}
         orientation="row"
       />
+      <UndoBar {...undoState} />
       <TerminalMoveConfirm
         toState={confirmState}
         name={name}

@@ -14,6 +14,8 @@ import { PIPELINE_STATES } from "./pipelineStates";
 import { ShidduchMoveSheet } from "./ShidduchMoveSheet";
 import { ShidduchRowSkeleton } from "./ShidduchRow";
 import { canManageShidduchLifecycle } from "./shidduchLifecycle";
+import { UndoBar } from "./UndoBar";
+import { useShidduchUndo } from "./useShidduchUndo";
 
 export interface ShidduchimPipelineListProps {
   view: "list" | "cards";
@@ -86,6 +88,7 @@ export const ShidduchimPipelineList = ({
   const canManageLifecycle = !rolePending && canManageShidduchLifecycle(role);
   const [moveTarget, setMoveTarget] = useState<ShidduchSummary | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const undoState = useShidduchUndo();
 
   const shidduchim = (data ?? []) as ShidduchSummary[];
   const hasSearchTerm = Boolean(
@@ -130,6 +133,7 @@ export const ShidduchimPipelineList = ({
   return (
     <div className="flex flex-col gap-4">
       <PipelineJumpBar counts={counts} />
+      <UndoBar {...undoState} />
       <EntityListView
         resource="shidduchim"
         viewMode={view}
@@ -145,6 +149,7 @@ export const ShidduchimPipelineList = ({
         id={moveTarget?.id ?? 0}
         currentState={moveTarget?.pipeline_state ?? "new"}
         name={moveTarget?.name_en}
+        onMoved={undoState.recordMove}
       />
     </div>
   );

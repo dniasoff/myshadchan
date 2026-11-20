@@ -84,6 +84,7 @@ export const ShidduchCardContent = ({
   return (
     <div
       className="cursor-pointer"
+      data-shidduch-id={String(shidduch.id)}
       data-tour={tourAnchor ? "pipeline-card" : undefined}
       {...provided?.draggableProps}
       {...provided?.dragHandleProps}

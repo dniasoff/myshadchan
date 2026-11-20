@@ -228,6 +228,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/useShidduchUndo.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/useShidduchTransition.ts",
           "type": "registry:component"
         },
@@ -281,6 +285,10 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/boardUtils.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/UndoBar.tsx",
           "type": "registry:component"
         },
         {

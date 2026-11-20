@@ -168,6 +168,12 @@ revoke all on table public.pipeline_transitions from anon;
 grant select on table public.pipeline_transitions to authenticated;
 grant all on table public.pipeline_transitions to service_role;
 
+revoke all on table public.shidduch_stage_transitions,
+  public.shidduch_stage_undo_context from public, anon, authenticated;
+grant select on table public.shidduch_stage_transitions to authenticated;
+grant all on table public.shidduch_stage_transitions to service_role;
+grant all on table public.shidduch_stage_undo_context to service_role;
+
 -- View grant (summary read path)
 revoke all on table public.shidduchim_summary from anon;
 grant all on table public.shidduchim_summary to authenticated;
@@ -311,6 +317,12 @@ grant execute on function public.is_single_visible_state(public.pipeline_state) 
 revoke all on function public.enforce_pipeline_transition() from public, anon;
 grant execute on function public.enforce_pipeline_transition() to authenticated;
 grant execute on function public.enforce_pipeline_transition() to service_role;
+
+revoke all on function public.record_shidduch_stage_transition() from public, anon, authenticated;
+
+revoke all on function public.undo_shidduch(bigint) from public, anon;
+grant execute on function public.undo_shidduch(bigint) to authenticated;
+grant execute on function public.undo_shidduch(bigint) to service_role;
 
 revoke all on function public.set_account_id_default() from public, anon;
 grant execute on function public.set_account_id_default() to authenticated;

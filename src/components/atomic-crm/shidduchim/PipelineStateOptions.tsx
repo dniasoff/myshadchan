@@ -47,6 +47,9 @@ export const PipelineStateOptions = ({
   orientation = "list",
 }: PipelineStateOptionsProps) => {
   const isRow = orientation === "row";
+  const explanation = options.find(
+    (option) => !option.isCurrent && !option.isAllowed,
+  )?.reason;
 
   return (
     <div
@@ -89,6 +92,14 @@ export const PipelineStateOptions = ({
           </div>
         );
       })}
+      {isRow && explanation ? (
+        <p className="flex items-start gap-2 text-xs text-muted-foreground">
+          <span aria-hidden="true" className="shrink-0 text-sm leading-none">
+            ⓘ
+          </span>
+          <span>{explanation}</span>
+        </p>
+      ) : null}
     </div>
   );
 };
@@ -124,10 +135,9 @@ const PipelineStateOptionRow = ({
     <button
       type="button"
       aria-label={ariaLabel}
-      // In row form the secondary line is dropped for height, so the reason
-      // an illegal destination is illegal ("Only reachable from Look-into.")
-      // must still be reachable by pointer — it is already in `aria-label`
-      // for assistive tech either way.
+      // Keep the same plain reason in the title as in the touch-visible
+      // explanation below the row chips; this gives pointer users a useful
+      // affordance when the explanation is below the fold.
       title={isRow ? (ariaLabel ?? undefined) : undefined}
       // AC-8: aria-disabled, never the native `disabled` attribute — an
       // illegal row must stay focusable and stay in the accessibility tree.
@@ -166,10 +176,9 @@ const PipelineStateOptionRow = ({
           {/* Terminal destinations are marked "· final" BEFORE the tap (AC-8). */}
           {option.isTerminal ? " · final" : ""}
         </span>
-        {/* The secondary line is what makes the list form tall, so the row
-            form drops it. Nothing is lost that a reader needs: "Current
-            stage" is already carried by the check mark and `aria-current`,
-            and the reason moves to `title` + `aria-label` above. */}
+        {/* The current-stage line remains list-only; the row form carries the
+            current marker through the check and aria-current, and renders one
+            shared plain explanation below all chips. */}
         {isRow ? null : option.isCurrent ? (
           <span className="block text-xs text-muted-foreground">
             Current stage

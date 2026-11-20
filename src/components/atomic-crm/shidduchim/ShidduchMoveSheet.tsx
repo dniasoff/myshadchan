@@ -13,7 +13,10 @@ import { StateChip } from "../misc/StateChip";
 import type { PipelineState } from "../types";
 import { PipelineStateOptions } from "./PipelineStateOptions";
 import { TerminalMoveConfirm } from "./TerminalMoveConfirm";
-import type { PipelineStateOption } from "./useShidduchTransition";
+import type {
+  PipelineStateOption,
+  ShidduchMoveReceipt,
+} from "./useShidduchTransition";
 import {
   classifySelection,
   useShidduchTransition,
@@ -25,6 +28,7 @@ export interface ShidduchMoveSheetProps {
   id: Identifier;
   currentState: PipelineState;
   name?: string | null;
+  onMoved?: (move: ShidduchMoveReceipt) => void;
 }
 
 /**
@@ -43,11 +47,13 @@ export const ShidduchMoveSheet = ({
   id,
   currentState,
   name,
+  onMoved,
 }: ShidduchMoveSheetProps) => {
   const { options, pendingTo, move } = useShidduchTransition({
     id,
     currentState,
     name,
+    onMoved,
   });
   const [confirmState, setConfirmState] = useState<PipelineState | null>(null);
 

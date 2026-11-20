@@ -47,6 +47,10 @@ create or replace trigger enforce_shidduch_transition
     before update on public.shidduchim
     for each row execute function public.enforce_pipeline_transition();
 
+create or replace trigger record_shidduch_stage_transition
+    after update of pipeline_state on public.shidduchim
+    for each row execute function public.record_shidduch_stage_transition();
+
 -- Shidduchim: block creating a row straight into a decision state (AD-4
 -- invariant 1 defense-in-depth) and server-set account_id on insert (AD-1).
 create or replace trigger set_shidduchim_account_id

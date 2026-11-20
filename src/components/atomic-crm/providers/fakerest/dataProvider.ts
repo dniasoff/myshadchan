@@ -389,6 +389,20 @@ export const createDataProvider = ({
     }
   >();
   let nextShidduchStoragePurgeId = 1;
+  // FakeRest has no trigger-backed history table, so retain the same narrow
+  // server-owned undo receipt in this provider session. A later transition
+  // replaces it, and the method below enforces the actor/current-state/window
+  // checks before restoring the prior row values.
+  const shidduchUndoMoves = new Map<
+    string,
+    {
+      actorUserId: string;
+      from: PipelineState;
+      to: PipelineState;
+      closeReason: string | null;
+      movedAt: number;
+    }
+  >();
 
   // Resume tab (Story 5.3): the same in-memory "bytes" idea, kept in its own
   // map (a different bucket, `documents`, in the real backend) — see
@@ -2851,6 +2865,7 @@ export const createDataProvider = ({
       to: PipelineState,
       closeReason?: string,
     ): Promise<Shidduch> => {
+      const caller = await requireCallerMembership();
       const { data: current } = await baseDataProvider.getOne("shidduchim", {
         id,
       });
@@ -2880,6 +2895,42 @@ export const createDataProvider = ({
         },
         previousData: current,
       });
+      shidduchUndoMoves.set(String(id), {
+        actorUserId: caller.userId,
+        from,
+        to,
+        closeReason: current.close_reason ?? null,
+        movedAt: Date.now(),
+      });
+      return data as Shidduch;
+    },
+    undoShidduch: async (id: Identifier): Promise<Shidduch> => {
+      const caller = await requireCallerMembership();
+      const { data: current } = await baseDataProvider.getOne("shidduchim", {
+        id,
+      });
+      const move = shidduchUndoMoves.get(String(id));
+      const age = move ? Date.now() - move.movedAt : Infinity;
+      if (
+        !current ||
+        caller.membership.role === "single" ||
+        move == null ||
+        move.actorUserId !== caller.userId ||
+        String(current.pipeline_state) !== String(move.to) ||
+        age > 15_000
+      ) {
+        throw new Error(`undo is not available for shidduch ${id}`);
+      }
+      await assertCanEditShidduch(current, current);
+      const { data } = await baseDataProvider.update("shidduchim", {
+        id,
+        data: {
+          pipeline_state: move.from,
+          close_reason: move.closeReason,
+        },
+        previousData: current,
+      });
+      shidduchUndoMoves.delete(String(id));
       return data as Shidduch;
     },
     // Append a redt (same or different shadchan, new date) — FakeRest mirror of

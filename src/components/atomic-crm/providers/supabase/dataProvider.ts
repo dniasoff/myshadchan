@@ -757,6 +757,20 @@ export const getDataProviderWithCustomMethods = () => {
       const row = Array.isArray(data) ? data[0] : data;
       return row as Shidduch;
     },
+    // The server-side reverse door for the latest stage move. The database
+    // derives the actor, account, and transition window; the client sends
+    // only the suggestion id and treats the RPC as the authority.
+    async undoShidduch(id: Identifier): Promise<Shidduch> {
+      const { data, error } = await getSupabaseClient().rpc("undo_shidduch", {
+        p_id: id,
+      });
+      if (error) {
+        console.error("undoShidduch.error", error);
+        throw new Error(error.message || "Could not undo this stage move");
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return row as Shidduch;
+    },
     /** Manager-only lifecycle RPCs. Account and role are always derived by the
      * database; these methods intentionally do not accept either as input. */
     async archiveShidduch(id: Identifier): Promise<void> {

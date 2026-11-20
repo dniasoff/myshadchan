@@ -6,6 +6,7 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type { PipelineState } from "../types";
 import { ShidduchMoveSheet } from "./ShidduchMoveSheet";
+import type { ShidduchMoveReceipt } from "./useShidduchTransition";
 
 /** `\b` after the label avoids "No" matching "Not-sure"'s row by prefix. */
 const stateButton = (
@@ -20,6 +21,7 @@ const renderSheet = (
       typeof vi.fn<(...args: unknown[]) => Promise<unknown>>
     >;
     onOpenChange?: ReturnType<typeof vi.fn<(open: boolean) => void>>;
+    onMoved?: (move: ShidduchMoveReceipt) => void;
   } = {},
 ) => {
   const transitionShidduch =
@@ -43,6 +45,7 @@ const renderSheet = (
               id={7}
               currentState={currentState}
               name="Chaya Cohen"
+              onMoved={overrides.onMoved}
             />
           </CoreAdminContext>
         </TestMemoryRouter>,
@@ -96,7 +99,7 @@ describe("ShidduchMoveSheet — two-tap Move surface (AC-8)", () => {
     await expect.element(yesRow).toHaveAttribute("aria-disabled", "true");
     await expect
       .element(yesRow)
-      .toHaveTextContent(/Only reachable from Look-into/);
+      .toHaveTextContent(/First move it to Look-into/);
 
     // Act
     yesRow.element().focus();
@@ -141,6 +144,27 @@ describe("ShidduchMoveSheet — two-tap Move surface (AC-8)", () => {
       undefined,
     );
     expect(harness.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("reports the successful move receipt for the Undo bar", async () => {
+    // Arrange
+    const onMoved = vi.fn();
+    const harness = renderSheet("new", { onMoved });
+    const screen = await harness.render();
+
+    // Act
+    await stateButton(screen, "Look-into").click();
+
+    // Assert — the receipt is emitted only after the provider accepts the move.
+    await expect.poll(() => onMoved.mock.calls.length).toBe(1);
+    expect(onMoved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 7,
+        from: "new",
+        to: "look_into",
+        movedAt: expect.any(Number),
+      }),
+    );
   });
 
   it("opens the terminal confirm — never transitionShidduch directly — for a terminal destination", async () => {
