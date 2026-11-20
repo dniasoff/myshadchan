@@ -13,10 +13,12 @@ export interface ShadchanReminderSummary {
 }
 
 export const SHADCHAN_REMINDER_PAGE_SIZE = 500;
+export const MAX_REMINDER_PAGES = 20;
 
 /**
  * Fetch every open reminder for the visible shadchan ids in one account-scoped
- * provider query sequence. The provider applies the active account RLS scope;
+ * provider query sequence. The provider applies the active-account visibility
+ * boundary (Postgres RLS in production, with the same filter in FakeRest);
  * pagination continues until the complete result is known so a large account
  * cannot silently lose a marker.
  */
@@ -41,12 +43,14 @@ export const fetchAllOpenShadchanReminders = async (
 
     if (
       result.data.length === 0 ||
-      (result.total != null && tasks.length >= result.total) ||
       result.data.length < SHADCHAN_REMINDER_PAGE_SIZE
     ) {
       return tasks;
     }
 
+    if (page >= MAX_REMINDER_PAGES) {
+      throw new Error("Could not load all reminder indicators safely.");
+    }
     page += 1;
   }
 };

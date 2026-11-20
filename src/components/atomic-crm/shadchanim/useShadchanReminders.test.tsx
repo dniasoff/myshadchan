@@ -9,6 +9,7 @@ import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import type { MemberRole, MyContext, Task } from "../types";
 import {
   fetchAllOpenShadchanReminders,
+  MAX_REMINDER_PAGES,
   summarizeOpenShadchanReminders,
   useShadchanReminders,
 } from "./useShadchanReminders";
@@ -85,6 +86,37 @@ describe("useShadchanReminders", () => {
       page: 2,
       perPage: 500,
     });
+  });
+
+  it("does not trust an underreported total when a page is full", async () => {
+    const getList = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: Array.from({ length: 500 }, (_, id) => task({ id })),
+        total: 1,
+      })
+      .mockResolvedValueOnce({ data: [task({ id: 501 })], total: 1 });
+
+    await fetchAllOpenShadchanReminders(
+      { getList } as unknown as DataProvider as never,
+      ["1"],
+    );
+
+    expect(getList).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails safely when a provider repeats full pages without a total", async () => {
+    const fullPage = Array.from({ length: 500 }, (_, id) => task({ id }));
+    const getList = vi.fn().mockResolvedValue({ data: fullPage });
+
+    await expect(
+      fetchAllOpenShadchanReminders(
+        { getList } as unknown as DataProvider as never,
+        ["1"],
+      ),
+    ).rejects.toThrow("Could not load all reminder indicators safely.");
+
+    expect(getList).toHaveBeenCalledTimes(MAX_REMINDER_PAGES);
   });
 
   it("skips the task query for a single-role viewer", async () => {

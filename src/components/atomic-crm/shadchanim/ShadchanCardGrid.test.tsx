@@ -1,7 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { page } from "vitest/browser";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import type * as RaCore from "ra-core";
+
+import "@/index.css";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 
@@ -89,6 +92,10 @@ const renderGrid = () =>
   );
 
 describe("ShadchanCardGrid — gates on the shidduchim count query, not just the shadchanim list (F5)", () => {
+  afterEach(async () => {
+    await page.viewport(1280, 720);
+  });
+
   beforeEach(() => {
     useShadchanNotesMock.mockImplementation(() => ({
       notesByShadchanId: new Map(),
@@ -203,6 +210,50 @@ describe("ShadchanCardGrid — gates on the shidduchim count query, not just the
     await expect
       .element(screen.getByRole("link", { name: "2 reminders" }))
       .toHaveAttribute("href", "/shadchanim/1/tasks");
+  });
+
+  it("keeps reminder-only and note-plus-reminder actions in one stable phone footer", async () => {
+    await page.viewport(390, 844);
+    useGetListMock.mockReturnValue({ data: [], isPending: false });
+    useShadchanNotesMock.mockReturnValue({
+      notesByShadchanId: new Map([["2", { ...NOTE, target_id: 2 }]]),
+      isPending: false,
+      error: null,
+    });
+    useShadchanRemindersMock.mockReturnValue({
+      remindersByShadchanId: new Map([
+        ["1", { count: 1 }],
+        ["2", { count: 2 }],
+      ]),
+      isPending: false,
+      error: null,
+    });
+
+    const screen = await renderGrid();
+    const cards = screen.getByTestId("shadchan-card");
+    const actionGroups = screen.getByTestId("shadchan-card-actions");
+
+    await expect.element(cards.nth(0)).toBeInTheDocument();
+    await expect.element(cards.nth(1)).toBeInTheDocument();
+    await expect.element(actionGroups.nth(0)).toHaveClass("min-h-11");
+    await expect.element(actionGroups.nth(1)).toHaveClass("min-h-11");
+    expect(cards.nth(0).element().scrollWidth).toBeLessThanOrEqual(
+      cards.nth(0).element().clientWidth,
+    );
+    expect(cards.nth(1).element().scrollWidth).toBeLessThanOrEqual(
+      cards.nth(1).element().clientWidth,
+    );
+    await expect
+      .element(screen.getByRole("link", { name: "1 reminder" }))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByRole("button", { name: "Open note for Moshe Adler" }),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("link", { name: "2 reminders" }))
+      .toBeInTheDocument();
   });
 
   it("renders the real per-shadchan shidduchim counts once the count query resolves", async () => {

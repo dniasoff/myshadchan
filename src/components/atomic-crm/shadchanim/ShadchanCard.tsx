@@ -59,6 +59,7 @@ export const ShadchanCard = ({
 
   return (
     <Card
+      data-testid="shadchan-card"
       className="ql-enter gap-0 p-4 shadow-sm transition-[box-shadow,transform] duration-[160ms]
         ease-[var(--ease-out)] hover:-translate-y-0.5 hover:shadow-md"
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
@@ -100,8 +101,9 @@ export const ShadchanCard = ({
             ) : null}
           </div>
         </div>
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-border pt-2.5">
+      </RecordLink>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-border pt-2.5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
           <ResponsivenessChip value={shadchan.responsiveness} />
           {phoneMatch ? (
             <span className="text-[11.5px] tabular-nums text-muted-foreground">
@@ -116,15 +118,16 @@ export const ShadchanCard = ({
             Open file
           </span>
         </div>
-      </RecordLink>
-      {note || reminderCount > 0 ? (
-        <div className="mt-1 flex flex-wrap justify-end gap-1">
+        <div
+          data-testid="shadchan-card-actions"
+          className="flex min-h-11 shrink-0 items-center gap-1"
+        >
           {reminderCount > 0 ? (
             <ShadchanReminderAction shadchan={shadchan} count={reminderCount} />
           ) : null}
           {note ? <ShadchanNoteAction shadchan={shadchan} note={note} /> : null}
         </div>
-      ) : null}
+      </div>
     </Card>
   );
 };
