@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   resolveSuggestedByValues,
+  suggestedByPhoneForName,
   suggestedByPhoneHref,
   validateSuggestedByName,
   validateSuggestedByPhone,
@@ -32,5 +33,14 @@ describe("SuggestedByFields", () => {
     expect(suggestedByPhoneHref("+1 (347) 555-0182")).toBe("tel:+13475550182");
     expect(suggestedByPhoneHref("javascript:")).toBeNull();
     expect(validateSuggestedByPhone(" ")).toBeUndefined();
+  });
+
+  it("only carries a phone when the Suggested-by name is valid", () => {
+    expect(suggestedByPhoneForName(" Sara Cohen ", " +1 347-555-0182 ")).toBe(
+      "+1 347-555-0182",
+    );
+    expect(suggestedByPhoneForName("Sara\u0000Cohen", "555-0100")).toBeNull();
+    expect(suggestedByPhoneForName("Sara Cohen", "x".repeat(41))).toBeNull();
+    expect(suggestedByPhoneForName("", "555-0100")).toBeNull();
   });
 });

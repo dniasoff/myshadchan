@@ -29,9 +29,13 @@ import { createShadchanInline } from "../shidduchim/createShadchanInline";
 import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
 import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
 import { SuggestedByFields } from "./SuggestedByFields";
-import { resolveSuggestedByValues } from "./suggestedBy";
+import {
+  resolveSuggestedByValues,
+  suggestedByPhoneForName,
+} from "./suggestedBy";
 import {
   suggestedByNameFromInboxItem,
+  suggestedByPhoneFromInboxItem,
   useResolveInboxItem,
 } from "./useResolveInboxItem";
 
@@ -372,16 +376,22 @@ export const ShareTarget = () => {
     try {
       const item = await getOrCreateInboxItem();
       const suggestedBy = await resolveSuggestedByValues(values);
+      const suggestedByName =
+        suggestedBy.suggestedByName ?? suggestedByNameFromInboxItem(item);
       const input: CreateShidduchInput = {
         single_id: resolvedSingleId,
         shadchan_id: suggestedBy.shadchanId,
-        suggested_by_name:
-          suggestedBy.suggestedByName ?? suggestedByNameFromInboxItem(item),
+        suggested_by_name: suggestedByName,
         // ShareTarget has no capture-time From field today. If a future or
         // resumed item already carries a phone, preserve it; otherwise the
         // filing field remains genuinely optional rather than invented.
         suggested_by_phone:
-          suggestedBy.suggestedByPhone ?? item.sender_phone ?? null,
+          suggestedBy.suggestedByName != null
+            ? suggestedByPhoneForName(
+                suggestedByName,
+                suggestedBy.suggestedByPhone,
+              )
+            : suggestedByPhoneFromInboxItem(item),
         origin: "channel",
         initial_state: "new",
         visibility: "shared",

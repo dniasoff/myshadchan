@@ -377,6 +377,41 @@ const renderProbe = async (
 };
 
 describe("resume-first Inbox resolution", () => {
+  it("carries the Inbox phone into the resume stash only with a safe sender", async () => {
+    const item = buildItem({
+      sender: "Miriam Cohen",
+      sender_phone: " +1 555 0100 ",
+    });
+    const { screen, dataProvider, createShidduch } = await renderProbe(
+      item,
+      {},
+      "new",
+      { name: "Miriam Cohen", phone: " +1 555 0100 " },
+    );
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:completed:99:true"))
+      .toBeInTheDocument();
+
+    expect(createShidduch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        suggested_by_name: "Miriam Cohen",
+        suggested_by_phone: "+1 555 0100",
+      }),
+    );
+    expect(dataProvider.update).toHaveBeenCalledWith(
+      "inbox_items",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          resolution_input: expect.objectContaining({
+            suggested_by_phone: "+1 555 0100",
+          }),
+        }),
+      }),
+    );
+  });
+
   it("persists suggested-by fields in the lock stash and new suggestion", async () => {
     const item = buildItem({ sender: "Miriam Cohen" });
     const { screen, dataProvider, createShidduch } = await renderProbe(

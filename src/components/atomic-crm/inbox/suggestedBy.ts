@@ -39,6 +39,24 @@ function textValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
+/**
+ * A phone is meaningful only alongside a valid Suggested-by name. Keep the
+ * pair safe at every filing boundary, including legacy Inbox defaults and
+ * values recovered from resolution_input after a retry.
+ */
+export function suggestedByPhoneForName(
+  name: unknown,
+  phone: unknown,
+): string | null {
+  const normalizedName = textValue(name);
+  if (!normalizedName || validateSuggestedByName(normalizedName)) return null;
+  const normalizedPhone = textValue(phone);
+  if (!normalizedPhone || validateSuggestedByPhone(normalizedPhone)) {
+    return null;
+  }
+  return normalizedPhone;
+}
+
 function identifierValue(value: unknown): Identifier | null {
   return typeof value === "string" || typeof value === "number" ? value : null;
 }

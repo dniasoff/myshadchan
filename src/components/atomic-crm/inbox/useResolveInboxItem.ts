@@ -21,6 +21,7 @@ import {
   unresolvedResumeReadAttempts,
 } from "../resumes/resumeReadRequest";
 import type { ResumeReadOutcome } from "../providers/commons/rereadWorkerClient";
+import { suggestedByPhoneForName } from "./suggestedBy";
 import {
   acquireResolutionLock,
   conditionalInboxUpdate,
@@ -103,6 +104,18 @@ export function suggestedByNameFromInboxItem(
     return null;
   }
   return sender;
+}
+
+export function suggestedByPhoneFromInboxItem(
+  item: Pick<
+    InboxItem,
+    "sender" | "sender_needs_confirmation" | "sender_phone"
+  >,
+): string | null {
+  return suggestedByPhoneForName(
+    suggestedByNameFromInboxItem(item),
+    item.sender_phone,
+  );
 }
 
 function findResumeFile(
@@ -226,9 +239,23 @@ export function useResolveInboxItem() {
     draft?: ResumeDraft,
   ): Promise<Shidduch> => {
     const attemptId = generateAttemptId();
+    const normalizedSuggestedByPhone = suggestedByPhoneForName(
+      input.suggested_by_name,
+      input.suggested_by_phone,
+    );
+    // Preserve the optional-field shape when no phone was supplied. Existing
+    // stashes may predate sender_phone and retry compatibility is structural.
+    const filingInput: CreateShidduchInput =
+      normalizedSuggestedByPhone === null &&
+      !Object.prototype.hasOwnProperty.call(input, "suggested_by_phone")
+        ? input
+        : {
+            ...input,
+            suggested_by_phone: normalizedSuggestedByPhone,
+          };
     const resolutionInput: ResolutionInput = {
       action: "new",
-      input,
+      input: filingInput,
       resume_draft: draft,
     };
     const lockedItem = await acquireResolutionLock(
@@ -270,7 +297,7 @@ export function useResolveInboxItem() {
         });
         created = data;
       } else {
-        created = await dataProvider.createShidduch(input);
+        created = await dataProvider.createShidduch(filingInput);
         // Stash the created id so a retry can skip createShidduch if the
         // finalize step fails. The suggestion is deliberately retained if
         // this CAS is lost or ambiguous: without an exact server receipt,
@@ -470,8 +497,8 @@ export function useResolveInboxItem() {
         item,
         finalizePayload("resolved", {
           resolved_shidduchim_id: created.id,
-          single_id: input.single_id,
-          shadchan_id: input.shadchan_id ?? null,
+          single_id: filingInput.single_id,
+          shadchan_id: filingInput.shadchan_id ?? null,
         }),
         attemptId,
       );
@@ -868,8 +895,10 @@ export function useResolveInboxItem() {
       : (shadchanId ?? null);
     const effectiveSuggestedByName =
       currentProgress.suggested_by_name ?? suggestedByName ?? null;
-    const effectiveSuggestedByPhone =
-      currentProgress.suggested_by_phone ?? suggestedByPhone ?? null;
+    const effectiveSuggestedByPhone = suggestedByPhoneForName(
+      effectiveSuggestedByName,
+      currentProgress.suggested_by_phone ?? suggestedByPhone,
+    );
     const resolutionInput = {
       action:
         action === "new" ? ("resume_new" as const) : ("resume_attach" as const),
@@ -1078,8 +1107,10 @@ export function useResolveInboxItem() {
             name_en: null,
             suggested_by_name:
               stashed.suggested_by_name ?? effectiveSuggestedByName,
-            suggested_by_phone:
+            suggested_by_phone: suggestedByPhoneForName(
+              stashed.suggested_by_name ?? effectiveSuggestedByName,
               stashed.suggested_by_phone ?? effectiveSuggestedByPhone,
+            ),
             origin: item.source === "shadchan" ? "shadchan" : "channel",
             initial_state: "new",
             visibility: "shared",
