@@ -431,21 +431,28 @@ export function ResumeReadableSections({
             />
             <div>
               <p className="font-medium">
-                This resume is not easy to read yet. Tap "Make it easy to read"
-                to fill in the details.
+                This resume is not easy to read yet. Tap "Try again" to fill in
+                the details.
               </p>
               {isAutomaticallyReadableResume(newestFile) ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="mt-4"
-                  disabled={isReading}
-                  onClick={() => void readResume(resume.id, newestFile)}
-                >
-                  {isReading
-                    ? "Making it easy to read…"
-                    : "Make it easy to read"}
-                </Button>
+                isReading ? (
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className="mt-4 flex min-h-11 items-center text-muted-foreground"
+                  >
+                    {RESUME_AUTO_READ_COPY.reading}
+                  </p>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-4"
+                    onClick={() => void readResume(resume.id, newestFile)}
+                  >
+                    Try again
+                  </Button>
+                )
               ) : (
                 <p className="mt-1 text-muted-foreground">
                   {RESUME_AUTO_READ_COPY.unsupported}
@@ -493,7 +500,7 @@ export function ResumeReadableSections({
             ) : null}
           </>
         )}
-        {feedback ? (
+        {feedback && !isReading ? (
           <p
             role="status"
             aria-live="polite"

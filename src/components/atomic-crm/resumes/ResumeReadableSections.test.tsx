@@ -1532,7 +1532,7 @@ describe("ResumeReadableSections", () => {
     });
 
     const button = screen.getByRole("button", {
-      name: "Make it easy to read",
+      name: "Try again",
       exact: true,
     });
     await expect.element(button).toBeInTheDocument();
@@ -1546,8 +1546,11 @@ describe("ResumeReadableSections", () => {
       }),
     );
     await expect
-      .element(screen.getByRole("button", { name: "Making it easy to read…" }))
-      .toBeDisabled();
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Making it easy to read. Please wait.");
+    await expect
+      .element(screen.getByRole("button", { name: "Try again", exact: true }))
+      .not.toBeInTheDocument();
 
     resolve?.("completed");
     await expect
@@ -1575,11 +1578,46 @@ describe("ResumeReadableSections", () => {
     });
 
     await screen
-      .getByRole("button", { name: "Make it easy to read", exact: true })
+      .getByRole("button", { name: "Try again", exact: true })
       .click();
     await expect
       .element(screen.getByRole("status"))
       .toHaveTextContent("We could not find details in this resume.");
+    await expect
+      .element(screen.getByRole("button", { name: "Try again", exact: true }))
+      .toBeInTheDocument();
+  });
+
+  it("shows a retry and the existing reason after a failed read", async () => {
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const readResume = vi.fn().mockResolvedValue("failed");
+    const { screen } = await renderSections({
+      canRead: true,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      files: [file],
+      sections: { learningHistory: [], references: [] },
+      withLinks: false,
+      readResume,
+    });
+
+    await screen
+      .getByRole("button", { name: "Try again", exact: true })
+      .click();
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent(
+        "Could not make this resume easy to read. The file was saved; you can try again.",
+      );
+    await expect
+      .element(screen.getByRole("button", { name: "Try again", exact: true }))
+      .toBeInTheDocument();
   });
 
   it("shows the static provider-busy outcome in the Easy-to-read card", async () => {
@@ -1602,7 +1640,7 @@ describe("ResumeReadableSections", () => {
     });
 
     await screen
-      .getByRole("button", { name: "Make it easy to read", exact: true })
+      .getByRole("button", { name: "Try again", exact: true })
       .click();
     await expect
       .element(screen.getByRole("status"))
@@ -1656,7 +1694,7 @@ describe("ResumeReadableSections", () => {
       });
 
       const button = screen.getByRole("button", {
-        name: "Make it easy to read",
+        name: "Try again",
         exact: true,
       });
       await expect.element(button).toBeInTheDocument();
@@ -1695,7 +1733,11 @@ describe("ResumeReadableSections", () => {
       .element(screen.getByText("No sections were found in this resume."))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("button", { name: "Make it easy to read" }))
+      .element(
+        screen.getByRole("button", {
+          name: /^(Make it easy to read|Try again)$/,
+        }),
+      )
       .not.toBeInTheDocument();
     expect(readResume).not.toHaveBeenCalled();
   });
@@ -1723,12 +1765,12 @@ describe("ResumeReadableSections", () => {
     await expect
       .element(
         screen.getByText(
-          'This resume is not easy to read yet. Tap "Make it easy to read" to fill in the details.',
+          'This resume is not easy to read yet. Tap "Try again" to fill in the details.',
         ),
       )
       .toBeInTheDocument();
     const button = screen.getByRole("button", {
-      name: "Make it easy to read",
+      name: "Try again",
       exact: true,
     });
     await expect.element(button).toBeInTheDocument();
@@ -1759,7 +1801,11 @@ describe("ResumeReadableSections", () => {
       .element(screen.getByRole("heading", { name: "Easy-to-read resume" }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("button", { name: "Make it easy to read" }))
+      .element(
+        screen.getByRole("button", {
+          name: /^(Make it easy to read|Try again)$/,
+        }),
+      )
       .not.toBeInTheDocument();
     expect(readResume).not.toHaveBeenCalled();
   });
@@ -1812,7 +1858,11 @@ describe("ResumeReadableSections", () => {
       });
 
       await expect
-        .element(screen.getByRole("button", { name: "Make it easy to read" }))
+        .element(
+          screen.getByRole("button", {
+            name: /^(Make it easy to read|Try again)$/,
+          }),
+        )
         .not.toBeInTheDocument();
       expect(readResume).not.toHaveBeenCalled();
     },
@@ -1846,7 +1896,11 @@ describe("ResumeReadableSections", () => {
     });
 
     await expect
-      .element(screen.getByRole("button", { name: "Make it easy to read" }))
+      .element(
+        screen.getByRole("button", {
+          name: /^(Make it easy to read|Try again)$/,
+        }),
+      )
       .not.toBeInTheDocument();
     expect(readResume).not.toHaveBeenCalled();
     pendingResumeFileDeletes.clear();
