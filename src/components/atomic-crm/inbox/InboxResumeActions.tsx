@@ -184,9 +184,7 @@ export const InboxResumeActionsDialog = ({
     useGetList<ShidduchSummary>(
       "shidduchim",
       {
-        filter: debouncedSearch.trim()
-          ? { q: debouncedSearch.trim(), "archived_at@is": null }
-          : { "archived_at@is": null },
+        filter: debouncedSearch.trim() ? { q: debouncedSearch.trim() } : {},
         pagination: { page: 1, perPage: 50 },
         sort: { field: "created_at", order: "DESC" },
       },
@@ -236,7 +234,7 @@ export const InboxResumeActionsDialog = ({
             })
           : {
               suggestedByName: suggestedByNameFromInboxItem(item),
-              suggestedByPhone: null,
+              suggestedByPhone: item.sender_phone ?? null,
               shadchanId: null,
             };
       const result = await resolveInboxResume(item, action, {
@@ -311,7 +309,7 @@ export const InboxResumeActionsDialog = ({
           defaultValues={{
             shadchan_id: lockedShadchanId ?? item.shadchan_id ?? undefined,
             suggested_by_name: suggestedByNameFromInboxItem(item) ?? "",
-            suggested_by_phone: "",
+            suggested_by_phone: item.sender_phone ?? "",
           }}
         >
           {action === "attach" ? (

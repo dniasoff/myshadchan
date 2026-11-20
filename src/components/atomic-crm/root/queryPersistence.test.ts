@@ -112,7 +112,14 @@ describe("React Query persistence privacy boundary", () => {
           sort: { field: "created_at", order: "DESC" },
           filter: { status: "unresolved" },
           meta: {
-            columns: ["id", "created_at", "sender", "status", "attachments"],
+            columns: [
+              "id",
+              "created_at",
+              "sender",
+              "sender_phone",
+              "status",
+              "attachments",
+            ],
             resumeInboxPicker: true,
           },
         },
@@ -122,6 +129,7 @@ describe("React Query persistence privacy boundary", () => {
           {
             id: 44,
             raw_text: "private Inbox message",
+            sender_phone: "+1 347 555 0182",
             attachments: [
               {
                 path: "1/inbox/44/resume.pdf",
@@ -167,6 +175,7 @@ describe("React Query persistence privacy boundary", () => {
     expect(JSON.stringify(persisted)).not.toContain("Private Reference");
     expect(JSON.stringify(persisted)).not.toContain("555 0101");
     expect(JSON.stringify(persisted)).not.toContain("private Inbox message");
+    expect(JSON.stringify(persisted)).not.toContain("347 555 0182");
     expect(JSON.stringify(persisted)).not.toContain("private interaction note");
     expect(JSON.stringify(persisted)).not.toContain("signed.example");
     expect(JSON.stringify(persisted)).not.toContain("private.pdf");

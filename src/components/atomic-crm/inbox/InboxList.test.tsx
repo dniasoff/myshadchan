@@ -118,6 +118,16 @@ describe("InboxList — delete and undo", () => {
     await page.viewport(1280, 720);
   });
 
+  it("shows a captured sender phone in the Inbox card", async () => {
+    const { screen } = await renderInboxList([
+      { ...UNRESOLVED_ITEM, sender_phone: "+1 347-555-0182" },
+    ]);
+
+    await expect
+      .element(screen.getByText("· +1 347-555-0182", { exact: true }))
+      .toBeInTheDocument();
+  });
+
   it("hides the item immediately and restores it without calling final delete on Undo", async () => {
     const { screen, deleteInboxItem } = await renderInboxList([
       UNRESOLVED_ITEM,

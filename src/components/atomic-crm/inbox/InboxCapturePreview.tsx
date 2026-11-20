@@ -61,6 +61,11 @@ export const InboxCapturePreview = ({ item }: { item: InboxItem }) => {
         ) : item.sender ? (
           <span className="normal-case">· {item.sender}</span>
         ) : null}
+        {item.sender_phone ? (
+          <span className="normal-case" dir="ltr">
+            · {item.sender_phone}
+          </span>
+        ) : null}
       </div>
       {item.subject ? (
         <p className="text-sm font-semibold">{item.subject}</p>
