@@ -158,7 +158,7 @@ describe("shidduchimDescriptor — the real medical tab's visibleTo (Story 5.5, 
 });
 
 describe("shidduchimDescriptor — tab strip order (Story 5.6, AC 1 / AC 2; Story 7.1 appends Discussions)", () => {
-  it("renders all eleven canonical tabs, Files after Medical, External links after Diligence, and Discussions last", async () => {
+  it("renders all twelve canonical tabs, Original resume after Overview, and Discussions last", async () => {
     // Act — the rendered strip, not the descriptor literal (Task 5's own
     // instruction): a parent_admin sees every tab, including the
     // parent_admin/self_manager-gated Medical tab.
@@ -174,6 +174,7 @@ describe("shidduchimDescriptor — tab strip order (Story 5.6, AC 1 / AC 2; Stor
       .map((element) => element.textContent?.trim());
     expect(names).toEqual([
       "Overview",
+      "Original resume",
       "Resume",
       "Photo",
       "Medical",
@@ -305,7 +306,7 @@ describe("shidduchimDescriptor — the real diligence/external-links/files/notes
     },
   );
 
-  it("a single viewer still sees the dignity-floor tabs (Overview, Resume, Photo)", async () => {
+  it("a single viewer still sees the dignity-floor tabs (Overview, Original resume, Resume, Photo)", async () => {
     // Act
     const { screen } = await renderShidduchShow("single");
 
@@ -314,7 +315,10 @@ describe("shidduchimDescriptor — the real diligence/external-links/files/notes
       .element(screen.getByRole("tab", { name: "Overview" }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("tab", { name: "Resume" }))
+      .element(screen.getByRole("tab", { name: "Resume", exact: true }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("tab", { name: "Original resume" }))
       .toBeInTheDocument();
     await expect
       .element(screen.getByRole("tab", { name: "Photo" }))

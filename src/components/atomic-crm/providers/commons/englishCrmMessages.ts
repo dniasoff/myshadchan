@@ -662,6 +662,7 @@ export const englishCrmMessages = {
     entity360: {
       tab: {
         overview: "Overview",
+        "original-resume": "Original resume",
         activity: "Activity",
         notes: "Notes",
         tasks: "Tasks",

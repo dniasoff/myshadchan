@@ -46,6 +46,7 @@ const FIXTURE_RESOURCE = "tab-overflow-fixture";
 const SHIDDUCH_TABS: Entity360TabsProps["tabs"] = (
   [
     "overview",
+    "original-resume",
     "resume",
     "photo",
     "medical",
@@ -56,7 +57,6 @@ const SHIDDUCH_TABS: Entity360TabsProps["tabs"] = (
     "tasks",
     "activity",
     "discussions",
-    "related",
   ] as const
 ).map((key) => ({ key, render: () => <div /> }));
 
@@ -294,5 +294,16 @@ describe("Entity360TabStrip — twelve tabs, phone viewport (scrolls)", () => {
         );
       })
       .toBe(true);
+  });
+
+  it("shows a decorative More hint while keeping the tab links keyboard reachable", async () => {
+    const { screen, list } = await renderStrip({
+      containerWidthPx: PHONE_VIEWPORT.width,
+    });
+
+    const hint = screen.getByText("More ›").element();
+    expect(hint.getAttribute("aria-hidden")).toBe("true");
+    expect(hint.closest('[data-slot="tabs-list"]')).toBeNull();
+    expect(linksIn(list)).toHaveLength(SHIDDUCH_TABS.length);
   });
 });

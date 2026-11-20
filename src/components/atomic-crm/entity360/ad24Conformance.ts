@@ -209,6 +209,7 @@ export const NO_BROWSE_SURFACE_ENTITIES: Record<string, string> = {
 export const CANONICAL_TAB_SETS: Partial<Record<string, readonly TabKey[]>> = {
   shidduchim: [
     "overview",
+    "original-resume",
     "resume",
     "photo",
     "medical",

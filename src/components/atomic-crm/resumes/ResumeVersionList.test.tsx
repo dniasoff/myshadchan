@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { userEvent } from "vitest/browser";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 
 import { Notification } from "@/components/admin/notification";
@@ -7,7 +8,10 @@ import { Notification } from "@/components/admin/notification";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type { Resume, ResumeFileVersion } from "../types";
-import { ResumeVersionList } from "./ResumeVersionList";
+import {
+  ResumeVersionList,
+  type ResumeVersionListProps,
+} from "./ResumeVersionList";
 
 /**
  * Story 5.3's falsifiable claims for `ResumeVersionList`: loading/empty/
@@ -50,6 +54,12 @@ const renderList = async (
   shidduchimId: number,
   dataProviderOverrides: Partial<CrmDataProvider> = {},
   canReread = false,
+  listProps: Partial<
+    Pick<
+      ResumeVersionListProps,
+      "presentation" | "emptyActionHref" | "shownFileKey" | "onShow"
+    >
+  > = {},
 ) => {
   const dataProvider = buildDataProvider(dataProviderOverrides);
 
@@ -59,7 +69,11 @@ const renderList = async (
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <ResumeVersionList shidduchimId={shidduchimId} canReread={canReread} />
+        <ResumeVersionList
+          shidduchimId={shidduchimId}
+          canReread={canReread}
+          {...listProps}
+        />
         <Notification />
       </CoreAdminContext>
     </TestMemoryRouter>,
@@ -154,6 +168,71 @@ describe("ResumeVersionList — newest-first ordering (AC 1)", () => {
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain("newer.pdf");
     expect(items[1].textContent).toContain("older.pdf");
+  });
+});
+
+describe("ResumeVersionList — original-resume picker", () => {
+  it("offers newest-first versions with 12-hour times and preserves the action row", async () => {
+    const older = buildVersion({
+      path: "1/resumes/1/older-picker.pdf",
+      filename: "older-picker.pdf",
+      uploaded_at: "2026-01-01T09:34:00Z",
+    });
+    const newer = buildVersion({
+      path: "1/resumes/1/newer-picker.pdf",
+      filename: "newer-picker.pdf",
+      uploaded_at: "2026-02-01T21:34:00Z",
+    });
+    const getList = vi.fn().mockResolvedValue({
+      data: [buildResumeRow({ files: [older, newer] })],
+      total: 1,
+    });
+    const onShow = vi.fn();
+
+    const { screen } = await renderList(98765, { getList }, false, {
+      presentation: "picker",
+      onShow,
+    });
+
+    const picker = screen.getByRole("combobox", { name: "Version" });
+    await expect.element(picker).toBeInTheDocument();
+    const options = picker.element().querySelectorAll("option");
+    expect(options[0].textContent).toContain("newer-picker.pdf");
+    expect(options[0].textContent).toContain("9:34 PM");
+    expect(options[1].textContent).toContain("older-picker.pdf");
+    expect(options[1].textContent).toContain("9:34 AM");
+    expect(screen.container.querySelectorAll("li")).toHaveLength(1);
+    await expect
+      .element(
+        screen.getByRole("button", { name: "Download newer-picker.pdf" }),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Show older-picker.pdf" }))
+      .not.toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      picker,
+      options[1].getAttribute("value") as string,
+    );
+    expect(onShow).toHaveBeenCalledWith(older);
+  });
+
+  it("uses the Original resume empty state and links back to the Resume tab", async () => {
+    const getList = vi.fn().mockResolvedValue({ data: [], total: 0 });
+    const { screen } = await renderList(7, { getList }, false, {
+      presentation: "picker",
+      emptyActionHref: "/shidduchim/7/resume",
+    });
+
+    await expect
+      .element(screen.getByText("No resume yet."))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Add one on the Resume tab."))
+      .toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "Go to the Resume tab" });
+    expect(link.element().getAttribute("href")).toBe("/shidduchim/7/resume");
   });
 });
 

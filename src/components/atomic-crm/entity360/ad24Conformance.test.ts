@@ -129,7 +129,7 @@ const codesOf = (violations: Ad24Violation[]): Ad24ViolationCode[] =>
   violations.map((v) => v.code);
 
 // The 5-1 shidduch tab set (5-1-shidduch-360-as-a-page.md AC 2): five real
-// tabs, the remaining five canonical keys declared as pending. Reused by
+// tabs, the remaining canonical keys declared as pending. Reused by
 // several tests below as "the shape that must never be flagged".
 const FIVE_ONE_SHIDDUCH_TABS: TabKey[] = [
   "overview",
@@ -143,6 +143,7 @@ const FIVE_ONE_SHIDDUCH_TABS: TabKey[] = [
 // complete against TODAY's canonical row — CANONICAL_TAB_SETS is read
 // directly by findAd24Violations, not overridable per test.
 const FIVE_ONE_SHIDDUCH_PENDING: TabKey[] = [
+  "original-resume",
   "resume",
   "photo",
   "medical",
@@ -330,6 +331,7 @@ describe("findAd24Violations — one it per Ad24ViolationCode (AC 1)", () => {
             tab("activity"),
           ],
           pendingTabs: [
+            "original-resume",
             "resume",
             "photo",
             "medical",

@@ -1,6 +1,7 @@
 import type { EntityDescriptor } from "../entity360/entityDescriptor";
 import { registerEntityDescriptor } from "../entity360/registry";
 import { PhotoTab } from "../resumes/PhotoTab";
+import { OriginalResumeTab } from "../resumes/OriginalResumeTab";
 import { ResumeTab } from "../resumes/ResumeTab";
 import { ExternalLinksTab } from "./ExternalLinksTab";
 import { MedicalTab } from "./MedicalTab";
@@ -118,6 +119,7 @@ export const shidduchimDescriptor: EntityDescriptor<ShidduchSummary> = {
   rightRail: ShidduchRightRail,
   tabs: [
     { key: "overview", render: () => <ShidduchOverviewTab /> },
+    { key: "original-resume", render: () => <OriginalResumeTab /> },
     { key: "resume", render: () => <ResumeTab /> },
     { key: "photo", render: () => <PhotoTab /> },
     {

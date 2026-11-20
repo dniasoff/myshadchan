@@ -61,7 +61,11 @@ function providerFor(files: ResumeFileVersion[], resumeId = 1) {
   return { dataProvider, signResumeFileUrl };
 }
 
-const renderDocument = async (files: ResumeFileVersion[], resumeId = 1) => {
+const renderDocument = async (
+  files: ResumeFileVersion[],
+  resumeId = 1,
+  presentation: "list" | "picker" = "list",
+) => {
   const { dataProvider, signResumeFileUrl } = providerFor(files, resumeId);
   const screen = await render(
     <TestMemoryRouter>
@@ -69,7 +73,7 @@ const renderDocument = async (files: ResumeFileVersion[], resumeId = 1) => {
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <ResumeDocument shidduchimId={resumeId} />
+        <ResumeDocument shidduchimId={resumeId} presentation={presentation} />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -118,6 +122,39 @@ describe("ResumeDocument — the resume is on the page, not behind a click", () 
       .poll(() => paintedPageFor("newest-a.pdf"), { timeout: 15000 })
       .toBe(true);
     expect(paintedPageFor("older-a.pdf")).toBe(false);
+  });
+
+  it("keeps one shared preview when the Original resume picker switches versions", async () => {
+    stubFetchWithPdf();
+    const older = version({
+      path: "p/picker-older.pdf",
+      filename: "picker-older.pdf",
+      uploaded_at: "2026-01-01T00:00:00Z",
+    });
+    const newer = version({
+      path: "p/picker-newer.pdf",
+      filename: "picker-newer.pdf",
+      uploaded_at: "2026-06-01T00:00:00Z",
+    });
+
+    const { screen } = await renderDocument([older, newer], 1, "picker");
+    await expect
+      .poll(() => paintedPageFor("picker-newer.pdf"), { timeout: 15000 })
+      .toBe(true);
+
+    const picker = screen.getByRole("combobox", { name: "Version" });
+    const olderOption = picker
+      .element()
+      .querySelectorAll("option")[1]
+      .getAttribute("value") as string;
+    await userEvent.selectOptions(picker, olderOption);
+
+    await expect
+      .poll(() => paintedPageFor("picker-older.pdf"), { timeout: 15000 })
+      .toBe(true);
+    expect(
+      document.querySelectorAll('canvas[aria-label*="— page 1"]').length,
+    ).toBe(1);
   });
 
   it("asks for the viewing form of the URL, so it renders instead of downloading", async () => {
