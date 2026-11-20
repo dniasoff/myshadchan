@@ -1287,6 +1287,8 @@ export const createDataProvider = ({
         account_id: caller.membership.account_id,
         single_id: input.single_id,
         shadchan_id: input.shadchan_id ?? null,
+        suggested_by_name: input.suggested_by_name ?? null,
+        suggested_by_phone: input.suggested_by_phone ?? null,
         name_en: input.name_en ?? null,
         name_he: input.name_he ?? null,
         father_en: input.father_en ?? null,

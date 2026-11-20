@@ -208,7 +208,7 @@ const buildAttachment = (
 describe("InboxResolveDialog — origin selection (AC-4)", () => {
   it("a non-shadchan-sourced item resolves with origin: 'channel' and an unlocked shadchan_id field", async () => {
     // Arrange
-    const item = buildItem({ source: "email" });
+    const item = buildItem({ source: "email", sender: "Miriam Cohen" });
     const { screen, dataProvider } = await renderDialog(item);
 
     // Assert the field is not locked before submitting.
@@ -229,7 +229,11 @@ describe("InboxResolveDialog — origin selection (AC-4)", () => {
       )
       .toBeGreaterThan(0);
     expect(dataProvider.createShidduch).toHaveBeenCalledWith(
-      expect.objectContaining({ origin: "channel" }),
+      expect.objectContaining({
+        origin: "channel",
+        suggested_by_name: "Miriam Cohen",
+        suggested_by_phone: null,
+      }),
     );
   });
 

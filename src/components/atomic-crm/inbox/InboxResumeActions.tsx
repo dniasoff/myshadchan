@@ -19,6 +19,7 @@ import { RESUME_AUTO_READ_COPY } from "../resumes/resumeAutoReadHelpers";
 import {
   hasResumeDocumentAttachment,
   isResumeDocument,
+  suggestedByNameFromInboxItem,
   type InboxResumeAction,
   useResolveInboxItem,
 } from "./useResolveInboxItem";
@@ -197,6 +198,8 @@ export const InboxResumeActionsDialog = ({
       const result = await resolveInboxResume(item, action, {
         shidduchimId: selectedSuggestion ?? undefined,
         singleId: selectedSingle ?? undefined,
+        suggestedByName: suggestedByNameFromInboxItem(item),
+        suggestedByPhone: null,
       });
       if (result.outcome === "completed") {
         refresh();

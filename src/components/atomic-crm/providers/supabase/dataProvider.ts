@@ -172,6 +172,8 @@ const createShidduchViaRpc = async (
   const { data, error } = await getSupabaseClient().rpc("create_shidduch", {
     p_single_id: input.single_id,
     p_shadchan_id: input.shadchan_id ?? null,
+    p_suggested_by_name: input.suggested_by_name ?? null,
+    p_suggested_by_phone: input.suggested_by_phone ?? null,
     p_name_en: input.name_en ?? null,
     p_name_he: input.name_he ?? null,
     p_father_en: input.father_en ?? null,

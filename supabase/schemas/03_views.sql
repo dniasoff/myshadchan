@@ -131,7 +131,9 @@ select
     coalesce(max(cat.catch_count), 0) as catch_count,
     s.person_gender,
     s.kohen_status,
-    s.archived_at
+    s.archived_at,
+    s.suggested_by_name,
+    s.suggested_by_phone
 from public.shidduchim s
     left join public.shadchanim sh on sh.id = s.shadchan_id
     left join public.singles c on c.id = s.single_id

@@ -3387,7 +3387,7 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."create_shidduch"("p_single_id" bigint, "p_shadchan_id" bigint DEFAULT NULL::bigint, "p_name_en" "text" DEFAULT NULL::"text", "p_name_he" "text" DEFAULT NULL::"text", "p_father_en" "text" DEFAULT NULL::"text", "p_father_he" "text" DEFAULT NULL::"text", "p_mother_en" "text" DEFAULT NULL::"text", "p_mother_he" "text" DEFAULT NULL::"text", "p_dob" "date" DEFAULT NULL::"date", "p_background" "text" DEFAULT NULL::"text", "p_marital_status" "text" DEFAULT NULL::"text", "p_existing_children_note" "text" DEFAULT NULL::"text", "p_seminary_en" "text" DEFAULT NULL::"text", "p_seminary_he" "text" DEFAULT NULL::"text", "p_shul_en" "text" DEFAULT NULL::"text", "p_shul_he" "text" DEFAULT NULL::"text", "p_location_en" "text" DEFAULT NULL::"text", "p_location_he" "text" DEFAULT NULL::"text", "p_age" integer DEFAULT NULL::integer, "p_height" "text" DEFAULT NULL::"text", "p_origin" "text" DEFAULT 'manual'::"text", "p_initial_state" "public"."pipeline_state" DEFAULT 'new'::"public"."pipeline_state", "p_visibility" "text" DEFAULT 'shared'::"text", "p_redt_date" "date" DEFAULT NULL::"date", "p_person_gender" "text" DEFAULT NULL::"text", "p_kohen_status" "text" DEFAULT 'unknown'::"text") RETURNS SETOF "public"."shidduchim"
+CREATE OR REPLACE FUNCTION "public"."create_shidduch"("p_single_id" bigint, "p_shadchan_id" bigint DEFAULT NULL::bigint, "p_name_en" "text" DEFAULT NULL::"text", "p_name_he" "text" DEFAULT NULL::"text", "p_father_en" "text" DEFAULT NULL::"text", "p_father_he" "text" DEFAULT NULL::"text", "p_mother_en" "text" DEFAULT NULL::"text", "p_mother_he" "text" DEFAULT NULL::"text", "p_dob" "date" DEFAULT NULL::"date", "p_background" "text" DEFAULT NULL::"text", "p_marital_status" "text" DEFAULT NULL::"text", "p_existing_children_note" "text" DEFAULT NULL::"text", "p_seminary_en" "text" DEFAULT NULL::"text", "p_seminary_he" "text" DEFAULT NULL::"text", "p_shul_en" "text" DEFAULT NULL::"text", "p_shul_he" "text" DEFAULT NULL::"text", "p_location_en" "text" DEFAULT NULL::"text", "p_location_he" "text" DEFAULT NULL::"text", "p_age" integer DEFAULT NULL::integer, "p_height" "text" DEFAULT NULL::"text", "p_origin" "text" DEFAULT 'manual'::"text", "p_initial_state" "public"."pipeline_state" DEFAULT 'new'::"public"."pipeline_state", "p_visibility" "text" DEFAULT 'shared'::"text", "p_redt_date" "date" DEFAULT NULL::"date", "p_person_gender" "text" DEFAULT NULL::"text", "p_kohen_status" "text" DEFAULT 'unknown'::"text", "p_suggested_by_name" "text" DEFAULT NULL::"text", "p_suggested_by_phone" "text" DEFAULT NULL::"text") RETURNS SETOF "public"."shidduchim"
     SECURITY DEFINER
     LANGUAGE "plpgsql"
     SET "search_path" TO ''
@@ -3447,7 +3447,7 @@ begin
     age, height,
     pipeline_state, first_suggested_by, first_suggested_at, redt_date,
     origin, owner_member_id, visibility,
-    person_gender, kohen_status
+    person_gender, kohen_status, suggested_by_name, suggested_by_phone
   ) values (
     v_account_id, p_single_id, p_shadchan_id,
     p_name_en, p_name_he,
@@ -3458,7 +3458,7 @@ begin
     p_age, p_height,
     p_initial_state, p_shadchan_id, v_redt_date, v_redt_date,
     p_origin, v_owner_member_id, p_visibility,
-    p_person_gender, p_kohen_status
+    p_person_gender, p_kohen_status, p_suggested_by_name, p_suggested_by_phone
   )
   returning id into v_id;
 
@@ -7895,7 +7895,9 @@ CREATE OR REPLACE FUNCTION "public"."shidduch_row"("p_shidduchim_id" bigint) RET
     s.mother_he,
     s.kohen_status,
     s.person_gender,
-    s.archived_at
+    s.archived_at,
+    s.suggested_by_name,
+    s.suggested_by_phone
   from public.shidduchim s
   where s.id = p_shidduchim_id;
 $$;

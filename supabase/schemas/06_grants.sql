@@ -532,9 +532,9 @@ revoke all on function public.shidduch_diligence_progress(bigint) from anon;
 grant execute on function public.shidduch_diligence_progress(bigint) to authenticated;
 grant execute on function public.shidduch_diligence_progress(bigint) to service_role;
 
-revoke all on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date, text, text) from public, anon;
-grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date, text, text) to authenticated;
-grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date, text, text) to service_role;
+revoke all on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date, text, text, text, text) from public, anon;
+grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date, text, text, text, text) to authenticated;
+grant execute on function public.create_shidduch(bigint, bigint, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, text, integer, text, text, public.pipeline_state, text, date, text, text, text, text) to service_role;
 
 revoke all on function public.transition_shidduch(bigint, public.pipeline_state, public.pipeline_state, text) from public, anon;
 grant execute on function public.transition_shidduch(bigint, public.pipeline_state, public.pipeline_state, text) to authenticated;
@@ -847,7 +847,9 @@ grant select (
     mother_en,
     mother_he,
     person_gender,
-    kohen_status
+    kohen_status,
+    suggested_by_name,
+    suggested_by_phone
 ) on table public.shidduchim to authenticated;
 
 revoke all on table public.resumes from anon, authenticated;

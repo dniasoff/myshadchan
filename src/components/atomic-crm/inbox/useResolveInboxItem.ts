@@ -76,6 +76,35 @@ export function hasResumeDocumentAttachment(item: InboxItem): boolean {
   return item.attachments?.some(isResumeDocument) ?? false;
 }
 
+/**
+ * A confirmed Inbox sender is the non-shadchan referrer for a suggestion.
+ * Keep this normalization local to the filing paths: the value is persisted
+ * as data, never logged or placed in a URL/storage key. Unconfirmed, blank,
+ * email-like, unsafe, and overlong legacy values remain unset so the DB check
+ * constraints cannot reject an otherwise valid Inbox filing.
+ */
+export function suggestedByNameFromInboxItem(
+  item: Pick<InboxItem, "sender" | "sender_needs_confirmation">,
+): string | null {
+  if (item.sender_needs_confirmation) return null;
+  const sender = item.sender?.trim();
+  const hasControlCharacter = sender
+    ? [...sender].some((character) => {
+        const codePoint = character.charCodeAt(0);
+        return codePoint <= 0x1f || codePoint === 0x7f;
+      })
+    : false;
+  if (
+    !sender ||
+    sender.includes("@") ||
+    sender.length > 200 ||
+    hasControlCharacter
+  ) {
+    return null;
+  }
+  return sender;
+}
+
 function findResumeFile(
   resume: Resume,
   itemId: Identifier,
@@ -808,19 +837,14 @@ export function useResolveInboxItem() {
     action: InboxResumeAction,
     shidduchimId?: Identifier,
     singleId?: Identifier,
+    suggestedByName?: string | null,
+    suggestedByPhone?: string | null,
     attemptId = generateAttemptId(),
   ): Promise<InboxResumePreparation> => {
     const attachment = item.attachments?.find(isResumeDocument);
     if (!attachment) {
       throw new Error("Add a resume file first.");
     }
-    const resolutionInput = {
-      action:
-        action === "new" ? ("resume_new" as const) : ("resume_attach" as const),
-      attachment_path: attachment.path,
-      ...(shidduchimId == null ? {} : { shidduchim_id: shidduchimId }),
-      ...(singleId == null ? {} : { single_id: singleId }),
-    };
     let precreatedShidduch: Shidduch | undefined;
     let preAttachedResume: Resume | undefined;
     let preAttachedFile: ResumeFileVersion | undefined;
@@ -829,6 +853,25 @@ export function useResolveInboxItem() {
       resolved_shidduchim_id?: Identifier;
       resume_id?: Identifier;
       resume_file_path?: string;
+      suggested_by_name?: string | null;
+      suggested_by_phone?: string | null;
+    };
+    const effectiveSuggestedByName =
+      currentProgress.suggested_by_name ?? suggestedByName ?? null;
+    const effectiveSuggestedByPhone =
+      currentProgress.suggested_by_phone ?? suggestedByPhone ?? null;
+    const resolutionInput = {
+      action:
+        action === "new" ? ("resume_new" as const) : ("resume_attach" as const),
+      attachment_path: attachment.path,
+      ...(shidduchimId == null ? {} : { shidduchim_id: shidduchimId }),
+      ...(singleId == null ? {} : { single_id: singleId }),
+      ...(action === "new"
+        ? {
+            suggested_by_name: effectiveSuggestedByName,
+            suggested_by_phone: effectiveSuggestedByPhone,
+          }
+        : {}),
     };
     const assertTargetMatchesSelection = (target: Shidduch): void => {
       if (
@@ -877,6 +920,8 @@ export function useResolveInboxItem() {
           precreatedShidduch = await dataProvider.createShidduch({
             single_id: singleId,
             name_en: null,
+            suggested_by_name: effectiveSuggestedByName,
+            suggested_by_phone: effectiveSuggestedByPhone,
             origin: item.source === "shadchan" ? "shadchan" : "channel",
             initial_state: "new",
             visibility: "shared",
@@ -1015,6 +1060,10 @@ export function useResolveInboxItem() {
           shidduch = await dataProvider.createShidduch({
             single_id: singleId,
             name_en: null,
+            suggested_by_name:
+              stashed.suggested_by_name ?? effectiveSuggestedByName,
+            suggested_by_phone:
+              stashed.suggested_by_phone ?? effectiveSuggestedByPhone,
             origin: item.source === "shadchan" ? "shadchan" : "channel",
             initial_state: "new",
             visibility: "shared",
@@ -1213,7 +1262,12 @@ export function useResolveInboxItem() {
   const resolveInboxResume = async (
     item: InboxItem,
     action: InboxResumeAction,
-    options: { shidduchimId?: Identifier; singleId?: Identifier },
+    options: {
+      shidduchimId?: Identifier;
+      singleId?: Identifier;
+      suggestedByName?: string | null;
+      suggestedByPhone?: string | null;
+    },
   ): Promise<InboxResumeProcessResult> => {
     const currentBeforeAttempt = await getCurrentResolutionItem(item).catch(
       () => undefined,
@@ -1239,6 +1293,8 @@ export function useResolveInboxItem() {
         action,
         options.shidduchimId,
         options.singleId,
+        options.suggestedByName,
+        options.suggestedByPhone,
         attemptId,
       );
       let outcome: ResumeReadOutcome = "completed";
