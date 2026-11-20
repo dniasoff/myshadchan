@@ -496,7 +496,7 @@ describe("ResumeReadableSections", () => {
     const { screen } = await renderSections({ withLinks: false });
 
     await expect
-      .element(screen.getByRole("heading", { name: "Easy-to-read resume" }))
+      .element(screen.getByRole("heading", { name: "Resume details" }))
       .toBeInTheDocument();
     await expect
       .element(screen.getByText("Personal details"))
@@ -802,7 +802,7 @@ describe("ResumeReadableSections", () => {
     const { screen } = await renderSections({ canViewReferences: false });
 
     await expect
-      .element(screen.getByText("Easy-to-read resume"))
+      .element(screen.getByText("Resume details"))
       .toBeInTheDocument();
     await expect
       .element(screen.getByText("Personal details"))
@@ -1937,7 +1937,7 @@ describe("ResumeReadableSections", () => {
     });
 
     await expect
-      .element(screen.getByRole("heading", { name: "Easy-to-read resume" }))
+      .element(screen.getByRole("heading", { name: "Resume details" }))
       .toBeInTheDocument();
     await expect
       .element(
@@ -1997,7 +1997,7 @@ describe("ResumeReadableSections", () => {
       });
 
       await expect
-        .element(screen.getByRole("heading", { name: "Easy-to-read resume" }))
+        .element(screen.getByRole("heading", { name: "Resume details" }))
         .toBeInTheDocument();
       await expect
         .element(
