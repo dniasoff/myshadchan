@@ -383,7 +383,9 @@ export const ShareTarget = () => {
         visibility: "shared",
         redt_date: item.created_at.split("T")[0],
       };
-      await resolveAsNewShidduch(item, input);
+      await resolveAsNewShidduch(item, input, undefined, {
+        makePersonShadchan: suggestedBy.makePersonShadchan,
+      });
       notify(
         translate("crm.inbox.share.saved", { _: "Filed as a suggestion" }),
         {
@@ -572,7 +574,7 @@ export const ShareTarget = () => {
           <ReferenceInput
             source="shadchan_id"
             reference="shadchanim"
-            filter={{ "archived_at@is": null }}
+            filter={{}}
           >
             <AutocompleteInput
               label={translate("crm.inbox.share.shadchanLabel", {

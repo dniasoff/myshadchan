@@ -31,10 +31,7 @@ import { INBOX_PRIMARY_CTA_CLASS } from "./inboxMeta";
 import { InboxResumeActionsDialog } from "./InboxResumeActions";
 import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
 import { SuggestedByFields } from "./SuggestedByFields";
-import {
-  resolveSuggestedByValues,
-  suggestedByDefaultName,
-} from "./suggestedBy";
+import { resolveSuggestedByValues } from "./suggestedBy";
 import {
   hasResumeDocumentAttachment,
   suggestedByNameFromInboxItem,
@@ -164,7 +161,6 @@ const LegacyInboxResolveDialog = ({
       {
         filter: {
           connection_id: item.connection_id,
-          "archived_at@is": null,
         },
         pagination: PAGE_ONE,
         sort: SORT_BY_ID,
@@ -219,6 +215,7 @@ const LegacyInboxResolveDialog = ({
               sections: null,
             }
           : undefined,
+        { makePersonShadchan: suggestedBy.makePersonShadchan },
       );
       notify("Filed as a suggestion", { type: "info" });
       refresh();
@@ -308,7 +305,7 @@ const LegacyInboxResolveDialog = ({
             defaultValues={{
               single_id: item.single_id ?? undefined,
               shadchan_id: lockedShadchanId ?? item.shadchan_id ?? undefined,
-              suggested_by_name: suggestedByDefaultName(item.sender),
+              suggested_by_name: suggestedByNameFromInboxItem(item) ?? "",
               suggested_by_phone: "",
               make_person_shadchan: false,
               initial_state: "new",
@@ -319,7 +316,7 @@ const LegacyInboxResolveDialog = ({
               <ReferenceInput
                 source="shadchan_id"
                 reference="shadchanim"
-                filter={{ "archived_at@is": null }}
+                filter={{}}
               >
                 <fieldset
                   disabled={isShadchanSourced}

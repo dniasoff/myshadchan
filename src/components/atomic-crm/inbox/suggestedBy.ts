@@ -1,7 +1,6 @@
 import type { Identifier } from "ra-core";
 
 import type { CrmDataProvider } from "../providers/types";
-import { createShadchanInline } from "../shidduchim/createShadchanInline";
 
 export type SuggestedByFormValues = {
   suggested_by_name?: unknown;
@@ -10,13 +9,33 @@ export type SuggestedByFormValues = {
   shadchan_id?: unknown;
 };
 
-const PHONE_PATTERN = /^[0-9+()\s-]*$/;
+function hasControlCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const codePoint = character.charCodeAt(0);
+    return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f);
+  });
+}
+
+export function validateSuggestedByName(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length > 200) return "Use 200 characters or fewer for a name";
+  if (hasControlCharacter(trimmed)) {
+    return "Use ordinary characters for a name";
+  }
+  return undefined;
+}
 
 export function validateSuggestedByPhone(value: unknown): string | undefined {
   if (typeof value !== "string" || value.trim() === "") return undefined;
-  return PHONE_PATTERN.test(value)
-    ? undefined
-    : "Use digits, spaces, +, dashes, or parentheses for a phone number";
+  const trimmed = value.trim();
+  if (trimmed.length > 40) {
+    return "Use 40 characters or fewer for a phone number";
+  }
+  if (hasControlCharacter(trimmed)) {
+    return "Use ordinary characters for a phone number";
+  }
+  return undefined;
 }
 
 function textValue(value: unknown): string | null {
@@ -29,46 +48,32 @@ function identifierValue(value: unknown): Identifier | null {
 
 /** Resolve the optional promotion only when the user explicitly ticks it. */
 export async function resolveSuggestedByValues(
-  dataProvider: CrmDataProvider,
+  _dataProvider: CrmDataProvider,
   values: SuggestedByFormValues,
 ): Promise<{
   suggestedByName: string | null;
   suggestedByPhone: string | null;
   shadchanId: Identifier | null;
+  makePersonShadchan: boolean;
 }> {
   const suggestedByName = textValue(values.suggested_by_name);
   const suggestedByPhone = textValue(values.suggested_by_phone);
   const selectedShadchanId = identifierValue(values.shadchan_id);
 
-  if (values.make_person_shadchan === true && selectedShadchanId == null) {
-    if (!suggestedByName) {
-      throw new Error("Enter a name before making this person a shadchan");
-    }
-    const createShadchan = createShadchanInline(dataProvider);
-    if (!createShadchan) {
-      throw new Error("Couldn't create this shadchan");
-    }
-    const shadchan = await createShadchan(suggestedByName);
-    if (shadchan?.id == null) {
-      throw new Error("Couldn't create this shadchan");
-    }
-    return {
-      suggestedByName,
-      suggestedByPhone,
-      shadchanId: shadchan.id,
-    };
-  }
-
   return {
     suggestedByName,
     suggestedByPhone,
     shadchanId: selectedShadchanId,
+    makePersonShadchan:
+      values.make_person_shadchan === true && selectedShadchanId == null,
   };
 }
 
-/** Keep the field's initial value consistent with the existing Inbox sender. */
-export function suggestedByDefaultName(
-  value: string | null | undefined,
-): string {
-  return value?.trim() ?? "";
+/** Keep a persisted phone value display-friendly while making its link safe. */
+export function suggestedByPhoneHref(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return null;
+  return `tel:${trimmed.startsWith("+") ? "+" : ""}${digits}`;
 }

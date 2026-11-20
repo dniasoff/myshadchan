@@ -36,10 +36,7 @@ import {
 } from "./useResolveInboxItem";
 import { ResolutionClaimLostError } from "./resolveInboxItemLock";
 import { rememberTransientSuggestionName } from "../shidduchim/transientSuggestionDisplay";
-import {
-  resolveSuggestedByValues,
-  suggestedByDefaultName,
-} from "./suggestedBy";
+import { resolveSuggestedByValues } from "./suggestedBy";
 import { SuggestedByFields } from "./SuggestedByFields";
 import type { SuggestedByFormValues } from "./suggestedBy";
 
@@ -156,7 +153,6 @@ export const InboxResumeActionsDialog = ({
       {
         filter: {
           connection_id: item.connection_id,
-          "archived_at@is": null,
         },
         pagination: { page: 1, perPage: 1 },
         sort: { field: "id", order: "ASC" },
@@ -241,6 +237,7 @@ export const InboxResumeActionsDialog = ({
               suggestedByName: suggestedByNameFromInboxItem(item),
               suggestedByPhone: null,
               shadchanId: null,
+              makePersonShadchan: false,
             };
       const result = await resolveInboxResume(item, action, {
         shidduchimId: selectedSuggestion ?? undefined,
@@ -248,6 +245,7 @@ export const InboxResumeActionsDialog = ({
         shadchanId: suggestedBy.shadchanId,
         suggestedByName: suggestedBy.suggestedByName,
         suggestedByPhone: suggestedBy.suggestedByPhone,
+        makePersonShadchan: suggestedBy.makePersonShadchan,
       });
       if (result.outcome === "completed") {
         refresh();
@@ -313,7 +311,7 @@ export const InboxResumeActionsDialog = ({
           mode="onBlur"
           defaultValues={{
             shadchan_id: lockedShadchanId ?? item.shadchan_id ?? undefined,
-            suggested_by_name: suggestedByDefaultName(item.sender),
+            suggested_by_name: suggestedByNameFromInboxItem(item) ?? "",
             suggested_by_phone: "",
             make_person_shadchan: false,
           }}
@@ -411,7 +409,7 @@ export const InboxResumeActionsDialog = ({
               <ReferenceInput
                 source="shadchan_id"
                 reference="shadchanim"
-                filter={{ "archived_at@is": null }}
+                filter={{}}
               >
                 <fieldset
                   disabled={isShadchanSourced}

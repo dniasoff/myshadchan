@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { CrmDataProvider } from "../providers/types";
 import {
   resolveSuggestedByValues,
+  suggestedByPhoneHref,
+  validateSuggestedByName,
   validateSuggestedByPhone,
 } from "./suggestedBy";
 
@@ -21,14 +23,13 @@ describe("SuggestedByFields", () => {
       suggestedByName: "Sara Cohen",
       suggestedByPhone: "+1 (347) 555-0182",
       shadchanId: null,
+      makePersonShadchan: false,
     });
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("creates a shadchan only for the explicit promotion", async () => {
-    const create = vi.fn().mockResolvedValue({
-      data: { id: 88, name: "Sara Cohen" },
-    });
+  it("records promotion intent without creating before the resolver owns the item", async () => {
+    const create = vi.fn();
     const dataProvider = { create } as unknown as CrmDataProvider;
 
     await expect(
@@ -40,16 +41,22 @@ describe("SuggestedByFields", () => {
     ).resolves.toEqual({
       suggestedByName: "Sara Cohen",
       suggestedByPhone: "347-555-0182",
-      shadchanId: 88,
+      shadchanId: null,
+      makePersonShadchan: true,
     });
-    expect(create).toHaveBeenCalledWith("shadchanim", {
-      data: { name: "Sara Cohen" },
-    });
+    expect(create).not.toHaveBeenCalled();
   });
 
-  it("rejects phone punctuation that cannot be safely understood as a phone", () => {
-    expect(validateSuggestedByPhone("347.555.0182")).toContain("Use digits");
-    expect(validateSuggestedByPhone("+1 (347) 555-0182")).toBeUndefined();
+  it("matches the database length/control checks and sanitizes tel targets", () => {
+    expect(validateSuggestedByPhone("347.555.0182")).toBeUndefined();
+    expect(validateSuggestedByPhone("javascript:")).toBeUndefined();
+    expect(validateSuggestedByPhone("x".repeat(41))).toContain("40");
+    expect(validateSuggestedByPhone("347\n555")).toContain("ordinary");
+    expect(validateSuggestedByName("x".repeat(201))).toContain("200");
+    expect(validateSuggestedByName("Sara\u0000Cohen")).toContain("ordinary");
+    expect(validateSuggestedByName("שרה כהן")).toBeUndefined();
+    expect(suggestedByPhoneHref("+1 (347) 555-0182")).toBe("tel:+13475550182");
+    expect(suggestedByPhoneHref("javascript:")).toBeNull();
     expect(validateSuggestedByPhone(" ")).toBeUndefined();
   });
 });

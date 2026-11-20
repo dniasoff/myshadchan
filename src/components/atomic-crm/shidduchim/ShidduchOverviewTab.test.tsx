@@ -74,9 +74,7 @@ describe("ShidduchOverviewTab To-do placement", () => {
     expect(layout?.children[1]).toBe(todo);
     await expect.element(screen.getByText("Mrs Klein")).toBeInTheDocument();
     const phone = screen.getByRole("link", { name: "+1 (347) 555-0182" });
-    await expect
-      .element(phone)
-      .toHaveAttribute("href", "tel:+1 (347) 555-0182");
+    await expect.element(phone).toHaveAttribute("href", "tel:+13475550182");
     await expect.element(screen.getByText("Suggested by")).toBeInTheDocument();
   });
 

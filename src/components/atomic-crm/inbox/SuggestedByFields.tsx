@@ -1,7 +1,10 @@
 import { BooleanInput } from "@/components/admin/boolean-input";
 import { TextInput } from "@/components/admin/text-input";
 
-import { validateSuggestedByPhone } from "./suggestedBy";
+import {
+  validateSuggestedByName,
+  validateSuggestedByPhone,
+} from "./suggestedBy";
 
 /**
  * The From block is shared by Inbox, resume-first filing, and ShareTarget.
@@ -18,6 +21,7 @@ export const SuggestedByFields = () => (
       source="suggested_by_name"
       label="Suggested by"
       dir="auto"
+      validate={validateSuggestedByName}
       helperText={false}
     />
     <TextInput

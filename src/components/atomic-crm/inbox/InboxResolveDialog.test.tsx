@@ -440,7 +440,7 @@ describe("InboxResolveDialog — attachment links are re-signed at click time (r
 });
 
 describe("InboxResolveDialog — confirm details", () => {
-  it("shows the From fields, defaults the sender, and excludes archived shadchanim", async () => {
+  it("shows the From fields, defaults the safe sender, and does not query pre-migration archived_at", async () => {
     const item = buildItem({ sender: "Sara Cohen" });
     const { screen, dataProvider } = await renderDialog(item);
 
@@ -455,15 +455,16 @@ describe("InboxResolveDialog — confirm details", () => {
         screen.getByRole("switch", { name: "Make this person a shadchan" }),
       )
       .toBeInTheDocument();
-    await expect
-      .poll(() =>
-        (dataProvider.getList as ReturnType<typeof vi.fn>).mock.calls.some(
-          ([resource, params]) =>
-            resource === "shadchanim" &&
-            params.filter?.["archived_at@is"] === null,
-        ),
-      )
-      .toBe(true);
+    expect(
+      (dataProvider.getList as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([resource, params]) =>
+          resource === "shadchanim" &&
+          Object.prototype.hasOwnProperty.call(
+            params.filter ?? {},
+            "archived_at@is",
+          ),
+      ),
+    ).toBe(false);
   });
 
   it("creates and links a shadchan only when the promotion tick is selected", async () => {

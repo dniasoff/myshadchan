@@ -2,6 +2,7 @@ import type { Identifier } from "ra-core";
 import { useGetList, useRecordContext } from "ra-core";
 
 import type { Redt, Shadchan, ShidduchSummary } from "../types";
+import { suggestedByPhoneHref } from "../inbox/suggestedBy";
 import { RedtHistorySection } from "./RedtHistorySection";
 import { ShidduchCatchSection } from "./ShidduchCatchSection";
 import { ShidduchFactsCard } from "./ShidduchFactsCard";
@@ -78,7 +79,10 @@ export const ShidduchOverviewTab = () => {
                   : null}
                 {record.suggested_by_phone?.trim() ? (
                   <a
-                    href={`tel:${record.suggested_by_phone.trim()}`}
+                    href={
+                      suggestedByPhoneHref(record.suggested_by_phone) ??
+                      undefined
+                    }
                     className="underline decoration-dotted underline-offset-2"
                   >
                     {record.suggested_by_phone.trim()}
