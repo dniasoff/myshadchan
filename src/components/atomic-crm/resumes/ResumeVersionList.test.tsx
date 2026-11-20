@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { page } from "@vitest/browser/context";
 import { userEvent } from "vitest/browser";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 
@@ -168,6 +169,36 @@ describe("ResumeVersionList — newest-first ordering (AC 1)", () => {
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain("newer.pdf");
     expect(items[1].textContent).toContain("older.pdf");
+  });
+});
+
+describe("ResumeVersionList — narrow filename layout", () => {
+  afterEach(async () => {
+    await page.viewport(1280, 720);
+  });
+
+  it("wraps a long RTL filename instead of clipping it at phone width", async () => {
+    await page.viewport(390, 844);
+    const filename = "קורות_חיים_של_רבקה_".repeat(8) + ".pdf";
+    const getList = vi.fn().mockResolvedValue({
+      data: [
+        buildResumeRow({
+          files: [buildVersion({ filename, path: "1/resumes/1/rtl.pdf" })],
+        }),
+      ],
+      total: 1,
+    });
+
+    const { screen } = await renderList(1, { getList });
+    await expect.element(screen.getByText(filename)).toBeInTheDocument();
+    const filenameSpan = screen.getByText(filename).element();
+    const filenameParagraph = filenameSpan.parentElement;
+
+    expect(filenameSpan.getAttribute("dir")).toBe("auto");
+    expect(filenameParagraph).not.toBeNull();
+    expect(filenameParagraph!.classList).toContain("min-w-0");
+    expect(filenameParagraph!.classList).toContain("break-words");
+    expect(filenameParagraph!.classList).toContain("whitespace-normal");
   });
 });
 

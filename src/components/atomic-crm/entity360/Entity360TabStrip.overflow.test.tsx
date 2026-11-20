@@ -297,6 +297,7 @@ describe("Entity360TabStrip — twelve tabs, phone viewport (scrolls)", () => {
   });
 
   it("shows a decorative More hint while keeping the tab links keyboard reachable", async () => {
+    await page.viewport(PHONE_VIEWPORT.width, PHONE_VIEWPORT.height);
     const { screen, list } = await renderStrip({
       containerWidthPx: PHONE_VIEWPORT.width,
     });
@@ -304,6 +305,9 @@ describe("Entity360TabStrip — twelve tabs, phone viewport (scrolls)", () => {
     const hint = screen.getByText("More ›").element();
     expect(hint.getAttribute("aria-hidden")).toBe("true");
     expect(hint.closest('[data-slot="tabs-list"]')).toBeNull();
+    expect(hint.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      list.getBoundingClientRect().top + 1,
+    );
     expect(linksIn(list)).toHaveLength(SHIDDUCH_TABS.length);
   });
 });

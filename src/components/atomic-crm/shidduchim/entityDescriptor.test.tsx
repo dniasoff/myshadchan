@@ -30,7 +30,7 @@ import { EntityShow } from "../entity360/EntityShow";
 // denial mechanism itself (a viewer without the allowed role never sees a
 // restricted tab or triggers its render) is already proven once, in general,
 // by `entity360/EntityShow.permissions.test.tsx`.
-import "./entityDescriptor";
+import { shidduchimDescriptor } from "./entityDescriptor";
 
 /**
  * Story 5.5, AC 2 / AC 5: `shidduchimDescriptor`'s real `medical` tab entry
@@ -186,6 +186,15 @@ describe("shidduchimDescriptor — tab strip order (Story 5.6, AC 1 / AC 2; Stor
       "Activity",
       "Discussions",
     ]);
+  });
+
+  it("keeps Original resume visibility in parity with Resume's dignity floor", () => {
+    const tabs = shidduchimDescriptor.tabs ?? [];
+    const originalResume = tabs.find((tab) => tab.key === "original-resume");
+    const resume = tabs.find((tab) => tab.key === "resume");
+
+    expect(originalResume?.visibleTo).toBe(resume?.visibleTo);
+    expect(originalResume?.visibleTo).toBeUndefined();
   });
 });
 

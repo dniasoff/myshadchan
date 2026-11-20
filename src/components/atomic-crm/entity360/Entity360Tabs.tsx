@@ -177,7 +177,7 @@ export function Entity360TabStrip({
 
   return (
     <Tabs value={activeKey}>
-      <div className="relative min-w-0">
+      <div className="relative min-w-0 max-sm:flex max-sm:flex-col max-sm:items-stretch">
         {/*
          * Wraps from `sm` up; scrolls below it. Which one is right turns
          * entirely on the input device, so it is a breakpoint and not a
@@ -212,7 +212,7 @@ export function Entity360TabStrip({
          */}
         <TabsList
           ref={listRef}
-          className="h-auto w-full justify-start gap-1 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:overflow-y-hidden sm:flex-wrap"
+          className="h-auto w-full justify-start gap-1 max-sm:min-w-0 max-sm:flex-none max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:overflow-y-hidden sm:flex-wrap"
         >
           {tabs.map((tab) => (
             <TabsTrigger
@@ -229,7 +229,7 @@ export function Entity360TabStrip({
         </TabsList>
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 end-0 hidden items-center bg-gradient-to-l from-background via-background/90 px-2 text-xs text-muted-foreground max-sm:flex"
+          className="pointer-events-none absolute inset-y-0 end-0 hidden items-center bg-gradient-to-l from-background via-background/90 px-2 text-xs text-muted-foreground max-sm:static max-sm:order-first max-sm:flex max-sm:self-end"
         >
           More ›
         </span>

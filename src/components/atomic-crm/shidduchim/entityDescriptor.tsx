@@ -96,9 +96,12 @@ import type { ShidduchSummary } from "../types";
  * notes and activity), so hiding the now-permanently-empty tab is the same
  * "no dead shell" rule as `tasks`, not a new one. `medical` keeps its own,
  * narrower Story 5.5 allow-list unchanged (it already excludes `single`).
- * `overview`, `resume`, `photo` and `shidduchim` — `shidduchim` has no tab
- * here, `tasks` already restricted — stay unrestricted: they are the
- * dignity floor Story 6.2 built (AD-3).
+ * `overview`, `original-resume`, `resume`, `photo` and `shidduchim` —
+ * `shidduchim` has no tab here, `tasks` already restricted — stay
+ * unrestricted: they are the dignity floor Story 6.2 built (AD-3).
+ * Original resume deliberately has the same unrestricted visibility as Resume:
+ * it is the original-file view of that same dignity-floor surface, including
+ * for the single role.
  *
  * Story 7.1 appends `discussions`, in canonical position (the last row of
  * `CANONICAL_TAB_SETS.shidduchim`, `entity360/ad24Conformance.ts`), the same
