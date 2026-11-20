@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
+import { QueryClient } from "@tanstack/react-query";
 import {
   CoreAdminContext,
   RecordContextProvider,
@@ -80,6 +81,7 @@ function renderSections({
   hebrewChaim = false,
   latency = 0,
   readResume,
+  queryClient,
 }: {
   canViewReferences?: boolean;
   canRead?: boolean;
@@ -92,6 +94,7 @@ function renderSections({
   hebrewChaim?: boolean;
   latency?: number;
   readResume?: CrmDataProvider["readResume"];
+  queryClient?: QueryClient;
 } = {}) {
   const db = generateData();
   if (hebrewChaim) {
@@ -142,6 +145,7 @@ function renderSections({
     <TestMemoryRouter>
       <CoreAdminContext
         dataProvider={dataProvider}
+        queryClient={queryClient}
         i18nProvider={testI18nProvider}
       >
         <RecordContextProvider value={fixtureRecord}>
@@ -1705,7 +1709,7 @@ describe("ResumeReadableSections", () => {
     },
   );
 
-  it("does not offer a paid empty-state read after a terminal marker", async () => {
+  it("offers a retry after a terminal marker when parsed content is empty", async () => {
     const file = {
       path: "1/resumes/1/current.pdf",
       filename: "current.pdf",
@@ -1714,7 +1718,7 @@ describe("ResumeReadableSections", () => {
       mime_type: "application/pdf",
       size: 10,
     };
-    const readResume = vi.fn();
+    const readResume = vi.fn().mockResolvedValue("empty");
     const { screen } = await renderSections({
       canRead: true,
       fixtureRecord: { id: 1 } as ShidduchSummary,
@@ -1732,13 +1736,150 @@ describe("ResumeReadableSections", () => {
     await expect
       .element(screen.getByText("No sections were found in this resume."))
       .toBeInTheDocument();
+    const button = screen.getByRole("button", {
+      name: "Try again",
+      exact: true,
+    });
+    await expect.element(button).toBeInTheDocument();
+    await button.click();
     await expect
-      .element(
-        screen.getByRole("button", {
-          name: /^(Make it easy to read|Try again)$/,
-        }),
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("We could not find details in this resume.");
+    await expect
+      .element(screen.getByRole("button", { name: "Try again", exact: true }))
+      .toBeInTheDocument();
+    expect(readResume).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeId: 9001, mode: "fill_empty" }),
+    );
+  });
+
+  it("keeps the terminal-marker retry after refresh refetches empty content", async () => {
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const fixtureRecord = { id: 1 } as ShidduchSummary;
+    const sections: Record<string, unknown> = {
+      learningHistory: [],
+      references: [],
+      additionalSections: [] as unknown[],
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    const readResume = vi.fn().mockImplementation(async () => {
+      sections.schemaVersion = 4;
+      return "empty";
+    });
+    const { screen, getList } = await renderSections({
+      canRead: true,
+      fixtureRecord,
+      files: [file],
+      sections,
+      withLinks: false,
+      readResume,
+      queryClient,
+    });
+
+    await expect
+      .element(screen.getByRole("button", { name: "Try again", exact: true }))
+      .toBeInTheDocument();
+    await screen
+      .getByRole("button", { name: "Try again", exact: true })
+      .click();
+    await expect.poll(() => readResume.mock.calls.length).toBeGreaterThan(0);
+    await expect
+      .poll(
+        () =>
+          getList.mock.calls.filter(([resource]) => resource === "resumes")
+            .length,
       )
+      .toBeGreaterThan(1);
+    await expect
+      .element(screen.getByRole("button", { name: "Try again", exact: true }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("We could not find details in this resume.");
+  });
+
+  it("hides retry when a terminal marker has usable parsed content", async () => {
+    const file = {
+      path: "1/resumes/1/current.pdf",
+      filename: "current.pdf",
+      uploaded_at: "2026-11-15T12:00:00.000Z",
+      uploaded_by: 7,
+      mime_type: "application/pdf",
+      size: 10,
+    };
+    const readResume = vi.fn();
+    const { screen } = await renderSections({
+      canRead: true,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      files: [file],
+      sections: {
+        learningHistory: [{ label: "Yeshiva", value: "Torah learning" }],
+        references: [],
+        additionalSections: [],
+        schemaVersion: 4,
+      },
+      withLinks: false,
+      readResume,
+    });
+
+    await expect
+      .element(screen.getByRole("heading", { name: "Learning history" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Try again", exact: true }))
       .not.toBeInTheDocument();
+    expect(readResume).not.toHaveBeenCalled();
+  });
+
+  it("offers retry when usable content may belong to an older file", async () => {
+    const files = [
+      {
+        path: "1/resumes/1/newer.pdf",
+        filename: "newer.pdf",
+        uploaded_at: "2026-11-16T12:00:00.000Z",
+        uploaded_by: 7,
+        mime_type: "application/pdf",
+        size: 10,
+      },
+      {
+        path: "1/resumes/1/older.pdf",
+        filename: "older.pdf",
+        uploaded_at: "2026-11-15T12:00:00.000Z",
+        uploaded_by: 7,
+        mime_type: "application/pdf",
+        size: 10,
+      },
+    ];
+    const readResume = vi.fn();
+    const { screen } = await renderSections({
+      canRead: true,
+      fixtureRecord: { id: 1 } as ShidduchSummary,
+      files,
+      sections: {
+        learningHistory: [{ label: "Yeshiva", value: "Torah learning" }],
+        references: [],
+        additionalSections: [],
+        schemaVersion: 4,
+      },
+      withLinks: false,
+      readResume,
+    });
+
+    await expect
+      .element(screen.getByRole("heading", { name: "Learning history" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Try again", exact: true }))
+      .toBeInTheDocument();
     expect(readResume).not.toHaveBeenCalled();
   });
 

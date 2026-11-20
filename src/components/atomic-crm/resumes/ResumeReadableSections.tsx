@@ -395,18 +395,24 @@ export function ResumeReadableSections({
       (links?.length ?? 0) > 0 ||
       areLinksPending);
   const hasReadableContent = readableGroups.length > 0 || hasReferenceContent;
-  const hasReadMarker =
-    typeof resume.sections === "object" &&
-    resume.sections !== null &&
-    !Array.isArray(resume.sections) &&
-    Object.prototype.hasOwnProperty.call(resume.sections, "schemaVersion");
+  const hasParsedContent =
+    sections.learningHistory.length > 0 ||
+    sections.references.length > 0 ||
+    displayAdditionalSections.length > 0;
+  // Resume rows do not persist the file identity used by the parser. Keep
+  // retry reachable when versions exist, because parsed content may belong to
+  // an older file; the trade-off is an unnecessary retry after a newest-file
+  // read until file-identity metadata is available.
+  const hasUsableReadForNewestFile =
+    visibleResumeFiles.length === 1 && hasParsedContent;
   const referenceRows = canViewReferences
     ? buildReferenceRows(sections.references, links ?? [])
     : [];
   const canOfferRead =
     canRead &&
     newestFile != null &&
-    (isUnread || (!hasReadableContent && !hasReadMarker));
+    isAutomaticallyReadableResume(newestFile) &&
+    (isUnread || !hasUsableReadForNewestFile);
 
   return (
     <Card className={cn("gap-0 overflow-hidden rounded-2xl", className)}>
