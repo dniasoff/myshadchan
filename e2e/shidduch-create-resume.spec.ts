@@ -174,11 +174,19 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   await expect(page).toHaveURL(/#\/shidduchim$/);
   await expect(page.getByText("Leah Edited")).toBeVisible();
 
-  await page.goto(`${APP_URL}/#/shidduchim/${created.id}/resume`);
+  // The original-file row lives on the full-page Original resume tab. Keep
+  // the easy-read assertions below on the Resume tab, whose layout remains
+  // separate from the original-file viewer.
+  await page.goto(`${APP_URL}/#/shidduchim/${created.id}/original-resume`);
   await expect(page.getByText("resume.pdf")).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Original resume" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Make it easy to read" }),
+  ).toHaveCount(0);
+
+  await page.goto(`${APP_URL}/#/shidduchim/${created.id}/resume`);
   await expect(
     page.getByRole("heading", { name: "Resume details" }),
   ).toBeAttached();
