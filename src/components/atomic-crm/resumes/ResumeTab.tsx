@@ -5,13 +5,11 @@ import type { ShidduchSummary } from "../types";
 import { useViewerRole } from "../entity360/useViewerRole";
 import { ResumeUpload } from "./ResumeUpload";
 import { ResumeInboxPicker } from "./ResumeInboxPicker";
-import { ResumeDocument } from "./ResumeDocument";
 import { ResumeReadableSections } from "./ResumeReadableSections";
 import {
   canRereadResume,
   canViewResumeReferences,
 } from "./resumeReferenceVisibility";
-import { canDeleteResumeFile as canDeleteResumeFileForRole } from "./resumeFileDelete";
 import { canPickResumeFromInbox } from "./resumeInbox";
 
 /**
@@ -35,7 +33,6 @@ export function ResumeTab(): ReactNode {
   // Fail closed while the active context is settling.
   const canViewReferences = canViewResumeReferences(role, isRolePending);
   const canReread = canRereadResume(role, isRolePending);
-  const canDelete = canDeleteResumeFileForRole(role, isRolePending);
   const canPickInboxResume = canPickResumeFromInbox(role, isRolePending);
   const targetLabel =
     record.name_en?.trim() ||
@@ -45,26 +42,8 @@ export function ResumeTab(): ReactNode {
     "this suggestion";
 
   return (
-    <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-      <section
-        aria-labelledby="resume-original-heading"
-        className="flex min-w-0 flex-col gap-4 rounded-2xl border p-4 sm:p-6 lg:col-start-1 lg:row-start-1"
-      >
-        <div>
-          <h2 id="resume-original-heading" className="text-xl font-semibold">
-            Original resume
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Keep the file exactly as it was uploaded.
-          </p>
-        </div>
-        <ResumeDocument
-          shidduchimId={record.id}
-          canReread={canReread}
-          canDelete={canDelete}
-        />
-      </section>
-      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start lg:col-start-1 lg:row-start-2">
+    <div className="flex min-w-0 flex-col gap-6">
+      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
         <ResumeUpload shidduchimId={record.id} autoRead={canReread} />
         {canPickInboxResume ? (
           <ResumeInboxPicker
@@ -78,7 +57,6 @@ export function ResumeTab(): ReactNode {
         record={record}
         canViewReferences={canViewReferences}
         canRead={canReread}
-        className="lg:col-start-2 lg:row-span-2 lg:row-start-1"
       />
     </div>
   );

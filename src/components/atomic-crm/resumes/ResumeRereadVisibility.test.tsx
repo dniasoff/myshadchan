@@ -13,7 +13,9 @@ import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import { createDataProvider } from "../providers/fakerest/dataProvider";
 import generateData from "../providers/fakerest/dataGenerator";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
+import "../shidduchim/entityDescriptor";
 import type { MyContext, Resume, ShidduchSummary } from "../types";
+import { OriginalResumeTab } from "./OriginalResumeTab";
 import { ResumeTab } from "./ResumeTab";
 
 const version = {
@@ -28,6 +30,7 @@ const version = {
 async function renderForRole(
   role: MyContext["role"] | "pending" | "undefined",
   files = [version],
+  surface: "resume" | "original" = "resume",
 ) {
   const db = generateData();
   db.resumes = [
@@ -73,7 +76,7 @@ async function renderForRole(
         i18nProvider={testI18nProvider}
       >
         <RecordContextProvider value={{ id: 1 } as unknown as ShidduchSummary}>
-          <ResumeTab />
+          {surface === "original" ? <OriginalResumeTab /> : <ResumeTab />}
         </RecordContextProvider>
         <Notification />
       </CoreAdminContext>
@@ -87,7 +90,6 @@ describe("Resume easy-to-read role gate", () => {
     "%s sees no per-file manual read button and cannot call the mutation",
     async (role) => {
       const { screen, readResume } = await renderForRole(role);
-      await expect.element(screen.getByText("demo.pdf")).toBeVisible();
       await expect
         .element(screen.getByRole("button", { name: "Make it easy to read" }))
         .not.toBeInTheDocument();
@@ -98,7 +100,7 @@ describe("Resume easy-to-read role gate", () => {
   it.each(["parent_admin", "self_manager"] as const)(
     "%s sees the file row but no per-file manual read button",
     async (role) => {
-      const { screen } = await renderForRole(role);
+      const { screen } = await renderForRole(role, [version], "original");
       await expect
         .element(
           screen.getByRole("button", {
@@ -157,9 +159,11 @@ describe("Resume easy-to-read role gate", () => {
       path: "1/resumes/1/legacy.doc",
       mime_type: "application/msword",
     };
-    const { screen, readResume } = await renderForRole("parent_admin", [
-      legacyDoc,
-    ]);
+    const { screen, readResume } = await renderForRole(
+      "parent_admin",
+      [legacyDoc],
+      "original",
+    );
 
     await expect
       .element(screen.getByText("This file type cannot be read automatically."))

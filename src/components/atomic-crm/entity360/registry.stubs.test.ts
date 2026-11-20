@@ -57,6 +57,7 @@ const CASES: StubCase[] = [
     buildRecordPath: "/shidduchim/1",
     tabs: [
       "overview",
+      "original-resume",
       "resume",
       "photo",
       "medical",

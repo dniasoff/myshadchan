@@ -15,6 +15,7 @@
  */
 export const TAB_KEYS = [
   "overview",
+  "original-resume",
   "activity",
   "notes",
   "tasks",
@@ -44,6 +45,7 @@ export type TabKey = (typeof TAB_KEYS)[number];
  */
 export const TAB_LABELS: Record<TabKey, string> = {
   overview: "Overview",
+  "original-resume": "Original resume",
   activity: "Activity",
   notes: "Notes",
   tasks: "Tasks",

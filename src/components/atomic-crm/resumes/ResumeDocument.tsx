@@ -65,7 +65,12 @@ const EMBED_HEIGHT =
  * doc comment).
  */
 export function ResumeDocument(
-  subject: ResumeSubject & { canDelete?: boolean; canReread?: boolean },
+  subject: ResumeSubject & {
+    canDelete?: boolean;
+    canReread?: boolean;
+    presentation?: "list" | "picker";
+    emptyActionHref?: string;
+  },
 ): ReactElement | null {
   const { data } = useGetList<Resume>("resumes", {
     filter: resumeSubjectFilter(subject),
@@ -124,6 +129,8 @@ export function ResumeDocument(
                 setSelectedFileKey(resumeFileDeleteKey(resumeId ?? "", version))
             : undefined
         }
+        presentation={subject.presentation}
+        emptyActionHref={subject.emptyActionHref}
       />
     </div>
   );

@@ -760,6 +760,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/resumes/OriginalResumeTab.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/reminders/useReminders.ts",
           "type": "registry:component"
         },

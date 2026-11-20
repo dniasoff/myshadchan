@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
+import { format } from "date-fns";
+import { Link } from "react-router";
 import {
   useDataProvider,
   useGetList,
@@ -63,8 +65,31 @@ function ResumeListSkeleton(): ReactElement {
 
 /** AC 3 — no `resumes` row yet, or a row with an empty `files` array: the
  * SAME empty state either way, and it renders no fabricated content. */
-function ResumeEmpty(): ReactElement {
+function ResumeEmpty({
+  presentation,
+  emptyActionHref,
+}: {
+  presentation: "list" | "picker";
+  emptyActionHref?: string;
+}): ReactElement {
   const translate = useTranslate();
+  if (presentation === "picker") {
+    return (
+      <div className="flex flex-col items-start gap-3">
+        <div>
+          <p className="text-sm font-medium">No resume yet.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Add one on the Resume tab.
+          </p>
+        </div>
+        {emptyActionHref ? (
+          <Button asChild type="button" className="min-h-11">
+            <Link to={emptyActionHref}>Go to the Resume tab</Link>
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div>
       <p className="text-sm text-muted-foreground">
@@ -76,6 +101,55 @@ function ResumeEmpty(): ReactElement {
         Choose the resume file (PDF or Word; a photo of a resume also works).
         Profile pictures go on the Photos tab.
       </p>
+    </div>
+  );
+}
+
+function formatVersionPickerDate(uploadedAt: string): string {
+  const date = new Date(uploadedAt);
+  if (Number.isNaN(date.getTime())) return uploadedAt;
+  return format(date, "d MMM yyyy, h:mm a");
+}
+
+function VersionPicker({
+  resumeId,
+  versions,
+  selectedFileKey,
+  onChange,
+}: {
+  resumeId: Resume["id"];
+  versions: ResumeFileVersion[];
+  selectedFileKey: string;
+  onChange: (version: ResumeFileVersion) => void;
+}): ReactElement | null {
+  if (versions.length < 2) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor="resume-version-picker" className="text-sm font-medium">
+        Version
+      </label>
+      <select
+        id="resume-version-picker"
+        className="min-h-11 w-full rounded-md border border-input bg-background px-3 text-sm sm:max-w-md"
+        value={selectedFileKey}
+        onChange={(event) => {
+          const version = versions.find(
+            (candidate) =>
+              resumeFileDeleteKey(resumeId, candidate) === event.target.value,
+          );
+          if (version) onChange(version);
+        }}
+      >
+        {versions.map((version) => {
+          const key = resumeFileDeleteKey(resumeId, version);
+          return (
+            <option key={key} value={key}>
+              {version.filename} ·{" "}
+              {formatVersionPickerDate(version.uploaded_at)}
+            </option>
+          );
+        })}
+      </select>
     </div>
   );
 }
@@ -149,7 +223,7 @@ function ResumeVersionRow({
       aria-current={isShown ? "true" : undefined}
     >
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">
+        <p className="min-w-0 break-words whitespace-normal text-sm font-medium">
           <span dir="auto" title={version.filename}>
             {version.filename}
           </span>
@@ -226,6 +300,10 @@ export type ResumeVersionListProps = ResumeSubject & {
   canReread?: boolean;
   /** Only parent_admin/self_manager may see the per-file Delete action. */
   canDelete?: boolean;
+  /** `picker` shows one selected file and keeps the rest in a Version select. */
+  presentation?: "list" | "picker";
+  /** Destination for the picker empty state. */
+  emptyActionHref?: string;
 };
 
 export function ResumeVersionList({
@@ -233,6 +311,8 @@ export function ResumeVersionList({
   onShow,
   canReread = false,
   canDelete = false,
+  presentation = "list",
+  emptyActionHref,
   ...subject
 }: ResumeVersionListProps): ReactElement {
   const dataProvider = useDataProvider<CrmDataProvider>();
@@ -513,6 +593,15 @@ export function ResumeVersionList({
   const visibleVersions = versions.filter(
     (version) => !pendingKeys.has(resumeFileDeleteKey(resumeId ?? "", version)),
   );
+  const selectedVersion =
+    visibleVersions.find(
+      (version) =>
+        resumeFileDeleteKey(resumeId ?? "", version) === shownFileKey,
+    ) ?? visibleVersions[0];
+  const versionsToRender =
+    presentation === "picker" && selectedVersion
+      ? [selectedVersion]
+      : visibleVersions;
 
   if (isPending) return <ResumeListSkeleton />;
   if (error) return <ResumeError />;
@@ -522,59 +611,82 @@ export function ResumeVersionList({
     : "";
   const content =
     visibleVersions.length === 0 ? (
-      <ResumeEmpty />
+      <ResumeEmpty
+        presentation={presentation}
+        emptyActionHref={emptyActionHref}
+      />
     ) : (
-      <ul className="flex flex-col gap-3">
-        {visibleVersions.map((version) => (
-          <ResumeVersionRow
-            key={resumeFileDeleteKey(resumeId ?? "", version)}
-            version={version}
-            isShown={
-              resumeFileDeleteKey(resumeId ?? "", version) === shownFileKey
-            }
-            onShow={onShow}
-            canReread={
-              canReread &&
-              resumeId != null &&
-              resumeFileDeleteKey(resumeId ?? "", version) ===
-                resumeFileDeleteKey(
-                  resumeId ?? "",
-                  visibleVersions[0] ?? version,
-                )
-            }
-            canDelete={canDelete}
-            isReadInProgress={readInProgressKeys.has(
-              resumeFileDeleteKey(resumeId ?? "", version),
+      <div className="flex flex-col gap-3">
+        {presentation === "picker" ? (
+          <VersionPicker
+            resumeId={resumeId ?? ""}
+            versions={visibleVersions}
+            selectedFileKey={resumeFileDeleteKey(
+              resumeId ?? "",
+              selectedVersion ?? visibleVersions[0],
             )}
-            onDelete={requestDelete}
-            deleteButtonRef={(element) => {
-              const key = resumeFileDeleteKey(resumeId ?? "", version);
-              if (element) deleteButtonRefs.current.set(key, element);
-              else deleteButtonRefs.current.delete(key);
-            }}
+            onChange={onShow ?? (() => undefined)}
           />
-        ))}
-      </ul>
+        ) : null}
+        <ul className="flex flex-col gap-3">
+          {versionsToRender.map((version) => (
+            <ResumeVersionRow
+              key={resumeFileDeleteKey(resumeId ?? "", version)}
+              version={version}
+              isShown={
+                resumeFileDeleteKey(resumeId ?? "", version) === shownFileKey
+              }
+              onShow={presentation === "picker" ? undefined : onShow}
+              canReread={
+                canReread &&
+                resumeId != null &&
+                resumeFileDeleteKey(resumeId ?? "", version) ===
+                  resumeFileDeleteKey(
+                    resumeId ?? "",
+                    visibleVersions[0] ?? version,
+                  )
+              }
+              canDelete={canDelete}
+              isReadInProgress={readInProgressKeys.has(
+                resumeFileDeleteKey(resumeId ?? "", version),
+              )}
+              onDelete={requestDelete}
+              deleteButtonRef={(element) => {
+                const key = resumeFileDeleteKey(resumeId ?? "", version);
+                if (element) deleteButtonRefs.current.set(key, element);
+                else deleteButtonRefs.current.delete(key);
+              }}
+            />
+          ))}
+        </ul>
+      </div>
     );
 
   return (
     <section
-      aria-labelledby="resume-files-heading"
+      aria-labelledby={
+        presentation === "picker" ? undefined : "resume-files-heading"
+      }
+      aria-label={
+        presentation === "picker" ? "Original resume file" : undefined
+      }
       className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:p-6"
     >
-      <div>
-        <h2
-          ref={headingRef}
-          id="resume-files-heading"
-          tabIndex={-1}
-          className="text-lg font-semibold"
-        >
-          Resume files
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Files attached to this suggestion.
-        </p>
-      </div>
+      {presentation === "list" ? (
+        <div>
+          <h2
+            ref={headingRef}
+            id="resume-files-heading"
+            tabIndex={-1}
+            className="text-lg font-semibold"
+          >
+            Resume files
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Files attached to this suggestion.
+          </p>
+        </div>
+      ) : null}
       {canDelete && readInProgressKeys.size > 0 ? (
         <p role="status" className="text-xs text-muted-foreground">
           Please wait: this resume is being made easy to read.

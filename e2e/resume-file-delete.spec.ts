@@ -42,7 +42,8 @@ test.describe("Resume file delete ownership", () => {
     await expect(pageB.getByRole("link", { name: "Shidduchim" })).toBeVisible();
 
     // Both pages have now booted the authenticated shell while Web Locks are
-    // available. Force the fallback only before either Resume-tab navigation;
+    // available. Force the fallback only before either Original resume-tab
+    // navigation;
     // hiding locks during auth startup strands a page on the Suspense loader.
     for (const tab of [page, pageB]) {
       await tab.evaluate(() => {
@@ -71,7 +72,10 @@ test.describe("Resume file delete ownership", () => {
     });
 
     try {
-      const resumeUrl = `${APP_URL}/#/shidduchim/${shidduch.id}/resume`;
+      // Original-file rows and their Delete action live on the full-page
+      // Original resume tab; keep both pages on that tab for this Web Locks
+      // test.
+      const resumeUrl = `${APP_URL}/#/shidduchim/${shidduch.id}/original-resume`;
       await page.goto(resumeUrl);
       await pageB.goto(resumeUrl);
       await expect(page.getByText("resume.pdf", { exact: true })).toBeVisible();

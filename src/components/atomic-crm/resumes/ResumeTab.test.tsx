@@ -50,26 +50,18 @@ describe("ResumeTab — real FakeRest round trip (AC 1 / AC 2 / AC 3)", () => {
       </TestMemoryRouter>,
     );
 
-    await expect
-      .element(screen.getByText("No resume attached"))
-      .toBeInTheDocument();
-
-    const originalHeading = screen
-      .getByRole("heading", { name: "Original resume", exact: true })
-      .element();
     const attachButton = screen
       .getByRole("button", { name: "Attach resume", exact: true })
       .element();
-    expect(
-      originalHeading.compareDocumentPosition(attachButton) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(attachButton).toBeTruthy();
+    await expect
+      .element(screen.getByRole("button", { name: "Full screen" }))
+      .not.toBeInTheDocument();
 
     // Act
     await screen.getByLabelText("Attach resume").upload(file);
 
     // Assert
-    await expect.element(screen.getByText("resume-v1.pdf")).toBeInTheDocument();
     const { data: persisted } = await dataProvider.getList<Resume>("resumes", {
       filter: { shidduchim_id: 12345 },
       pagination: { page: 1, perPage: 10 },
@@ -85,8 +77,6 @@ describe("ResumeTab — real FakeRest round trip (AC 1 / AC 2 / AC 3)", () => {
     });
     await screen.getByLabelText("Attach resume").upload(secondFile);
 
-    await expect.element(screen.getByText("resume-v2.pdf")).toBeInTheDocument();
-    await expect.element(screen.getByText("resume-v1.pdf")).toBeInTheDocument();
     const { data: afterSecond } = await dataProvider.getList<Resume>(
       "resumes",
       {
