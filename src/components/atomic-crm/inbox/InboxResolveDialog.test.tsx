@@ -270,6 +270,17 @@ describe("InboxResolveDialog — the locked shadchan_id field (AC-3)", () => {
       buildShadchan({ id: 55 }),
     ]);
 
+    await expect
+      .poll(() =>
+        (dataProvider.getList as ReturnType<typeof vi.fn>).mock.calls.some(
+          ([resource, params]) =>
+            resource === "shadchanim" &&
+            params.filter?.connection_id === 7 &&
+            params.filter?.["archived_at@is"] === null,
+        ),
+      )
+      .toBe(true);
+
     // Assert
     await expect
       .element(screen.getByRole("combobox", { name: "Who is the shadchan?" }))
@@ -440,7 +451,7 @@ describe("InboxResolveDialog — attachment links are re-signed at click time (r
 });
 
 describe("InboxResolveDialog — confirm details", () => {
-  it("shows the From fields, defaults the safe sender, and does not query pre-migration archived_at", async () => {
+  it("shows the From fields and filters the shadchan picker to active rows", async () => {
     const item = buildItem({ sender: "Sara Cohen" });
     const { screen, dataProvider } = await renderDialog(item);
 
@@ -450,16 +461,15 @@ describe("InboxResolveDialog — confirm details", () => {
     await expect
       .element(screen.getByLabelText("Phone number"))
       .toBeInTheDocument();
-    expect(
-      (dataProvider.getList as ReturnType<typeof vi.fn>).mock.calls.some(
-        ([resource, params]) =>
-          resource === "shadchanim" &&
-          Object.prototype.hasOwnProperty.call(
-            params.filter ?? {},
-            "archived_at@is",
-          ),
-      ),
-    ).toBe(false);
+    await expect
+      .poll(() =>
+        (dataProvider.getList as ReturnType<typeof vi.fn>).mock.calls.some(
+          ([resource, params]) =>
+            resource === "shadchanim" &&
+            params.filter?.["archived_at@is"] === null,
+        ),
+      )
+      .toBe(true);
   });
 
   it("asks only for the approved details and has no auto-fill action", async () => {

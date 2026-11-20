@@ -19,11 +19,13 @@ import type {
   MemberRole,
   MyContext,
   Resume,
+  ShidduchSummary,
   Task,
 } from "../types";
 import { buildEntityRoutes } from "../entity360/buildEntityRoutes";
 import { buildTabPath } from "../entity360/entityPaths";
 import { EntityShow } from "../entity360/EntityShow";
+import { ShidduchIdentityHeader } from "./entityDescriptorRegions";
 // Side-effect import — registers the REAL shidduchimDescriptor, exactly like
 // `<entity>/index.ts` does at boot. This file proves the real registered
 // object's `medical` tab wiring, not a synthetic fixture — the generic
@@ -61,6 +63,7 @@ const renderShidduchShow = async (
   const shidduchId = db.shidduchim[0].id;
   configureDb(db, shidduchId);
   const dataProvider = createDataProvider({ db, latency: 0, silent: true });
+  const getList = vi.spyOn(dataProvider, "getList");
   const contexts = role ? [contextFor(role)] : [];
   dataProvider.getMyContexts = vi.fn().mockResolvedValue(contexts);
   const queryClient = new QueryClient();
@@ -87,7 +90,7 @@ const renderShidduchShow = async (
     </TestMemoryRouter>,
   );
 
-  return { screen };
+  return { screen, dataProvider, getList };
 };
 
 describe("shidduchimDescriptor — the real medical tab's visibleTo (Story 5.5, AC 2)", () => {
@@ -210,6 +213,35 @@ describe("shidduchimDescriptor — Overview education card", () => {
     expect(overviewText).not.toContain("Schools & seminaries");
     expect(overviewText).not.toContain("Add a school");
     expect(overviewText).not.toContain("Add school");
+  });
+});
+
+describe("shidduchimDescriptor — archived shadchan read paths", () => {
+  it("filters archived shadchanim out of the identity header lookup", async () => {
+    const dataProvider = {
+      getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    };
+    const record = generateData().shidduchim[0] as ShidduchSummary;
+
+    await render(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={dataProvider as never}
+          i18nProvider={testI18nProvider}
+        >
+          <ShidduchIdentityHeader record={record} />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await vi.waitFor(() =>
+      expect(dataProvider.getList).toHaveBeenCalledWith(
+        "shadchanim",
+        expect.objectContaining({
+          filter: { "archived_at@is": null },
+        }),
+      ),
+    );
   });
 });
 

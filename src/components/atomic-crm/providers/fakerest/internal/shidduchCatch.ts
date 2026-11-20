@@ -153,7 +153,9 @@ export async function catchShidduch(
       sort: { field: "id", order: "ASC" },
     }),
     baseDataProvider.getList<Shadchan>("shadchanim", {
-      filter: {},
+      // SQL catch_shidduch masks an archived shadchan's name. Fetch only
+      // active rows here so the FakeRest panel cannot leak that name.
+      filter: { "archived_at@is": null },
       pagination: PAGE_ALL,
       sort: { field: "id", order: "ASC" },
     }),

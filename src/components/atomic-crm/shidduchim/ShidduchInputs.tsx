@@ -75,14 +75,12 @@ export const ShidduchInputs = ({
    * be LOCKED at all — a separate question from whether we know a value to
    * lock it TO. The two used to be conflated (disabled iff
    * `lockedShadchanId != null`): when `InboxResolveDialog.tsx`'s linked-
-   * shadchanim lookup came back empty (the connection's book row deleted,
-   * or not yet created), the field fell open — unlocked and freely
-   * editable — for exactly the shadchan-sourced item AC-3 says must never
-   * be re-attributable. Proven over real JWTs: household A can
-   * `DELETE /shadchanim?connection_id=eq.N` (the table's own
-   * `FOR ALL`-scoped policy places no restriction on it) while the
-   * shadchan-sourced inbox item keeps its `connection_id` — nothing
-   * recreates the row, and the lock silently disappeared.
+   * shadchanim lookup came back empty (the connection's book row was purged by
+   * account deletion, or not yet created), the field fell open — unlocked and
+   * freely editable — for exactly the shadchan-sourced item AC-3 says must
+   * never be re-attributable. Direct authenticated DELETE on shadchanim is
+   * now revoked and no `FOR ALL` policy permits it; manager deletion is an
+   * archive RPC, while account deletion remains the service-role purge path.
    *
    * Callers now pass this explicitly instead of relying on the ID's
    * nullability: `InboxResolveDialog.tsx` locks on `item.source ===
@@ -198,7 +196,11 @@ export const ShidduchInputs = ({
             disabled={isShadchanLocked}
             className="m-0 min-w-0 border-0 p-0"
           >
-            <ReferenceInput source="shadchan_id" reference="shadchanim">
+            <ReferenceInput
+              source="shadchan_id"
+              reference="shadchanim"
+              filter={{ "archived_at@is": null }}
+            >
               <AutocompleteInput
                 label="Shadchan"
                 onCreate={onCreateShadchan}

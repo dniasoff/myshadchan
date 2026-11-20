@@ -571,7 +571,7 @@ export const ShareTarget = () => {
           <ReferenceInput
             source="shadchan_id"
             reference="shadchanim"
-            filter={{}}
+            filter={{ "archived_at@is": null }}
           >
             <AutocompleteInput
               label={translate("crm.inbox.share.shadchanLabel", {

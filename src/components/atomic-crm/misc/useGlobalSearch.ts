@@ -197,7 +197,7 @@ export function useGlobalSearch(query: string): UseGlobalSearchResult {
         sort: { field: "name_en", order: "ASC" },
       }),
       dataProvider.getList<Shadchan>("shadchanim", {
-        filter: { q: trimmed },
+        filter: { q: trimmed, "archived_at@is": null },
         pagination: { page: 1, perPage: PER_GROUP_LIMIT },
         sort: { field: "name", order: "ASC" },
       }),

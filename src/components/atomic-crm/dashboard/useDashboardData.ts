@@ -45,6 +45,7 @@ export const useDashboardData = (): DashboardData => {
     );
 
   const { total: totalShadchanim } = useGetList("shadchanim", {
+    filter: { "archived_at@is": null },
     pagination: { page: 1, perPage: 1 },
   });
 

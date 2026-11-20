@@ -244,6 +244,7 @@ export function SendToShadchanDialog({
   } = useGetList<Shadchan>(
     "shadchanim",
     {
+      filter: { "archived_at@is": null },
       pagination: { page: 1, perPage: 100 },
       sort: { field: "name", order: "ASC" },
     },

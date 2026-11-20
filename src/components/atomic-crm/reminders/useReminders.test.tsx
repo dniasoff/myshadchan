@@ -130,3 +130,50 @@ describe("useReminders — snooze() with no due date (Epic 12 review fix, R6)", 
     expect(newDueDateMs).toBeLessThan(after + 2 * 24 * 60 * 60 * 1000);
   });
 });
+
+describe("useReminders — archived shadchan targets", () => {
+  it("does not render an open task when its archived shadchan is hidden by the provider", async () => {
+    const dataProvider = {
+      getList: vi.fn().mockImplementation(async (resource: string) =>
+        resource === "tasks"
+          ? {
+              data: [
+                {
+                  id: 11,
+                  type: "call",
+                  text: "Archived shadchan task",
+                  due_date: "2020-01-01T00:00:00.000Z",
+                  target_type: "shadchan",
+                  target_id: 71,
+                },
+              ],
+              total: 1,
+            }
+          : { data: [], total: 0 },
+      ),
+      getMany: vi.fn().mockResolvedValue({ data: [] }),
+    } as unknown as DataProvider;
+
+    let hookResult: UseRemindersResult | undefined;
+    const Probe = () => {
+      hookResult = useReminders("everyone");
+      return null;
+    };
+
+    await render(
+      <TestMemoryRouter>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          authProvider={buildAuthProvider()}
+          i18nProvider={testI18nProvider}
+        >
+          <Probe />
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await vi.waitFor(() => expect(hookResult?.isPending).toBe(false));
+    expect(hookResult?.overdue).toEqual([]);
+    expect(hookResult?.upcoming).toEqual([]);
+  });
+});

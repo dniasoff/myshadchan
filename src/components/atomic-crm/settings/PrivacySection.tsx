@@ -30,6 +30,8 @@ export const PrivacySection = () => {
     pagination: { page: 1, perPage: 1 },
   });
   const { total: shadchanimTotal } = useGetList<Shadchan>("shadchanim", {
+    // Privacy totals cover every record held for export/account deletion;
+    // archived shadchanim remain retained data even though active UI lists hide them.
     pagination: { page: 1, perPage: 1 },
   });
   const { total: referencesTotal } = useGetList<Reference>("references", {

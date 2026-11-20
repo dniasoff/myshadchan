@@ -11,6 +11,7 @@ import type { Shadchan } from "../types";
 import { ShadchanHeader } from "./ShadchanHeader";
 import { ShadchanStatsRow } from "./ShadchanStatsRow";
 import { ShadchanSuggestions } from "./ShadchanSuggestions";
+import { ShadchanLifecycleActions } from "./ShadchanLifecycleActions";
 
 /**
  * The region/tab adapters `shadchanim/entityDescriptor.tsx` assembles into
@@ -51,6 +52,7 @@ export const ShadchanStatBand = ({ record }: { record: Shadchan }) => (
 export const ShadchanActions = () => (
   <TopToolbar>
     <EditButton />
+    <ShadchanLifecycleActions />
   </TopToolbar>
 );
 

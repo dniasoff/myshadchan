@@ -97,7 +97,11 @@ export const RedtHistorySection = ({
           defaultValues={{ redt_date: new Date().toISOString().split("T")[0] }}
         >
           <div className="flex flex-col gap-3">
-            <ReferenceInput source="shadchan_id" reference="shadchanim">
+            <ReferenceInput
+              source="shadchan_id"
+              reference="shadchanim"
+              filter={{ "archived_at@is": null }}
+            >
               <AutocompleteInput label="Shadchan" helperText={false} />
             </ReferenceInput>
             <DateInput

@@ -357,6 +357,8 @@ export type Shadchan = {
    * `connections` row the household's consent created. Null for a
    * hand-entered shadchan the household has never connected with. */
   connection_id?: Identifier | null;
+  /** Null for active rows; archived shadchanim are hidden from active reads. */
+  archived_at?: string | null;
   created_at: string;
 } & Pick<RaRecord, "id">;
 

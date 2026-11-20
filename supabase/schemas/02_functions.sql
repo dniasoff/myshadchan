@@ -2014,21 +2014,43 @@ CREATE OR REPLACE FUNCTION "public"."add_redt"("p_shidduchim_id" bigint, "p_shad
     AS $$
 declare
   v_account_id bigint;
+  v_shidduch_id bigint;
+  v_shadchan_archived_at timestamp with time zone;
 begin
   v_account_id := public.current_context_id();
 
-  if not exists (
-    select 1 from public.shidduchim s
-    where s.id = p_shidduchim_id and s.account_id = v_account_id
-  ) then
+  -- Preserve the table RLS denial before taking a locking read. A single can
+  -- see this shidduch through its SELECT policy, but cannot lock it; the
+  -- explicit denial keeps that authorization contract ahead of the fence.
+  if public.current_member_role() = 'single' then
+    raise exception 'new row violates row-level security policy for table "redts"'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Lifecycle writers use one parent-first order: parent rows, account
+  -- advisory lock, then the shadchan row and child rows.
+  select s.id into v_shidduch_id
+  from public.shidduchim s
+  where s.id = p_shidduchim_id
+    and s.account_id = v_account_id
+  for share;
+
+  if not found then
     raise exception 'shidduch % not found in current account', p_shidduchim_id;
   end if;
 
-  if p_shadchan_id is not null and not exists (
-    select 1 from public.shadchanim s
-    where s.id = p_shadchan_id and s.account_id = v_account_id
-  ) then
-    raise exception 'shadchan % not found in current account', p_shadchan_id;
+  perform public.account_storage_lock(v_account_id);
+
+  if p_shadchan_id is not null then
+    select s.archived_at into v_shadchan_archived_at
+    from public.shadchanim s
+    where s.id = p_shadchan_id
+      and s.account_id = v_account_id
+    for share;
+
+    if not found or v_shadchan_archived_at is not null then
+      raise exception 'shadchan % not found in current account', p_shadchan_id;
+    end if;
   end if;
 
   insert into public.redts (account_id, shidduchim_id, shadchan_id, redt_date, note)
@@ -2709,7 +2731,7 @@ begin
       ps.single_id,
       c.first_name_en as single_first_name_en,
       c.first_name_he as single_first_name_he,
-      sh.name as shadchan_name
+      case when sh.archived_at is null then sh.name end as shadchan_name
     from public.match_identity(
       'shidduch',
       v_s.name_en,
@@ -2936,8 +2958,60 @@ CREATE OR REPLACE FUNCTION "public"."claim_due_task_notifications"("p_limit" int
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
+declare
+  v_account_id bigint;
+  v_shadchan_id bigint;
 begin
   perform public.enqueue_due_task_notifications();
+
+  -- Lifecycle lock order is account advisory fence -> shadchan row lock.
+  -- Archive/restore take the same locks before changing either the target or
+  -- its reminder rows. Holding the row share lock through this transaction
+  -- makes the active-target check below the pre-send linearization point.
+  for v_account_id in
+    select distinct tn2.account_id
+    from public.task_notifications tn2
+    where (
+      (
+        tn2.status = 'pending'
+        and (tn2.next_attempt_at is null or tn2.next_attempt_at <= now())
+      ) or (
+        tn2.status = 'sending'
+        and tn2.claimed_at < now() - interval '10 minutes'
+      )
+    )
+      and tn2.simulated is not true
+      and not public.demo_scope_is_simulated(tn2.account_id, null)
+    order by tn2.account_id
+  loop
+    perform public.account_storage_lock(v_account_id);
+    for v_shadchan_id in
+      select distinct t2.target_id
+      from public.task_notifications tn2
+      join public.tasks t2 on t2.id = tn2.task_id
+      where tn2.account_id = v_account_id
+        and (
+          (
+            tn2.status = 'pending'
+            and (tn2.next_attempt_at is null or tn2.next_attempt_at <= now())
+          ) or (
+            tn2.status = 'sending'
+            and tn2.claimed_at < now() - interval '10 minutes'
+          )
+        )
+        and tn2.simulated is not true
+        and not public.demo_scope_is_simulated(tn2.account_id, null)
+        and t2.target_type = 'shadchan'
+        and t2.target_id is not null
+      order by t2.target_id
+    loop
+      perform 1
+      from public.shadchanim sh
+      where sh.id = v_shadchan_id
+        and sh.account_id = v_account_id
+      for share;
+    end loop;
+  end loop;
 
   return query
   with claimed as (
@@ -2956,6 +3030,25 @@ begin
         )
         and tn2.simulated is not true
         and not public.demo_scope_is_simulated(tn2.account_id, null)
+        -- Re-check the target while setting `sending`, under the lifecycle
+        -- locks above; a row returned here is active at the send hand-off.
+        and (
+          not exists (
+            select 1
+            from public.tasks t2
+            where t2.id = tn2.task_id
+              and t2.target_type = 'shadchan'
+          )
+          or exists (
+            select 1
+            from public.tasks t2
+            join public.shadchanim sh on sh.id = t2.target_id
+            where t2.id = tn2.task_id
+              and t2.target_type = 'shadchan'
+              and sh.account_id = t2.account_id
+              and sh.archived_at is null
+          )
+        )
       order by tn2.created_at
       limit p_limit
       for update skip locked
@@ -3394,10 +3487,12 @@ CREATE OR REPLACE FUNCTION "public"."create_shidduch"("p_single_id" bigint, "p_s
     AS $$
 declare
   v_account_id bigint;
+  v_single_id bigint;
   v_owner_member_id bigint;
   v_id bigint;
   v_redt_date date;
   v_gender text;
+  v_shadchan_archived_at timestamp with time zone;
 begin
   v_account_id := public.current_context_id();
   if public.current_member_role() = 'single' then
@@ -3413,20 +3508,30 @@ begin
       using errcode = 'check_violation';
   end if;
 
-  -- Never cross the account boundary (AD-1): the single/shadchan must
-  -- belong to the caller's account.
-  if not exists (
-    select 1 from public.singles c
-    where c.id = p_single_id and c.account_id = v_account_id
-  ) then
+  -- Lifecycle writers use one parent-first order: parent rows, account
+  -- advisory lock, then the shadchan row and child rows.
+  select c.id into v_single_id
+  from public.singles c
+  where c.id = p_single_id
+    and c.account_id = v_account_id
+  for share;
+
+  if not found then
     raise exception 'single % not found in current account', p_single_id;
   end if;
 
-  if p_shadchan_id is not null and not exists (
-    select 1 from public.shadchanim s
-    where s.id = p_shadchan_id and s.account_id = v_account_id
-  ) then
-    raise exception 'shadchan % not found in current account', p_shadchan_id;
+  perform public.account_storage_lock(v_account_id);
+
+  if p_shadchan_id is not null then
+    select s.archived_at into v_shadchan_archived_at
+    from public.shadchanim s
+    where s.id = p_shadchan_id
+      and s.account_id = v_account_id
+    for share;
+
+    if not found or v_shadchan_archived_at is not null then
+      raise exception 'shadchan % not found in current account', p_shadchan_id;
+    end if;
   end if;
 
   select am.id into v_owner_member_id
@@ -4635,7 +4740,42 @@ CREATE OR REPLACE FUNCTION "public"."enqueue_due_task_notifications"("p_now" tim
     AS $$
 declare
   v_count integer;
+  v_account_id bigint;
+  v_shadchan_id bigint;
 begin
+  -- Lifecycle lock order is account advisory fence -> shadchan row lock.
+  -- Lock every due account before rebuilding candidates so archive cannot
+  -- commit a target transition in the middle of this enqueue operation.
+  for v_account_id in
+    select distinct t.account_id
+    from public.tasks t
+    where t.done_date is null
+      and t.due_date is not null
+      and t.due_date <= p_now
+      and 'email' = any (t.delivery_channels)
+    order by t.account_id
+  loop
+    perform public.account_storage_lock(v_account_id);
+    for v_shadchan_id in
+      select distinct t.target_id
+      from public.tasks t
+      where t.account_id = v_account_id
+        and t.done_date is null
+        and t.due_date is not null
+        and t.due_date <= p_now
+        and 'email' = any (t.delivery_channels)
+        and t.target_type = 'shadchan'
+        and t.target_id is not null
+      order by t.target_id
+    loop
+      perform 1
+      from public.shadchanim sh
+      where sh.id = v_shadchan_id
+        and sh.account_id = v_account_id
+      for share;
+    end loop;
+  end loop;
+
   with candidates as (
     select
       t.id as task_id,
@@ -4660,6 +4800,16 @@ begin
       and t.due_date is not null
       and t.due_date <= p_now
       and 'email' = any (t.delivery_channels)
+      and (
+        t.target_type <> 'shadchan'
+        or exists (
+          select 1
+          from public.shadchanim sh
+          where sh.id = t.target_id
+            and sh.account_id = t.account_id
+            and sh.archived_at is null
+        )
+      )
   ),
   inserted as (
     insert into public.task_notifications (account_id, task_id, channel, due_date, status, recipient_email, error, simulated, sent_at)
@@ -10817,8 +10967,14 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path TO ''
 AS $$
 begin
-  -- Account deletion uses parent rows (ascending id) -> advisory fence ->
-  -- account row. This is the single global order for storage writers.
+  -- Account deletion uses parent rows (singles, then shidduchim, ascending
+  -- id) -> advisory fence -> account row. This is the single global order
+  -- for storage writers.
+  perform 1
+  from public.singles
+  where account_id = p_account_id
+  order by id
+  for update;
   perform 1
   from public.shidduchim
   where account_id = p_account_id
@@ -10906,6 +11062,119 @@ begin
       and a.status = 'in_progress'
       and a.lease_expires_at > now()
   );
+end;
+$$;
+
+-- Shadchan lifecycle is archive-only. The row and all of its links remain
+-- restorable; active read paths and reminder label lookups exclude archived
+-- rows. The account advisory fence is taken before the shadchan row lock so
+-- this path shares the parent-first lifecycle order with account deletion.
+CREATE OR REPLACE FUNCTION public.archive_shadchan(p_id bigint)
+RETURNS SETOF public.shadchanim
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_row public.shadchanim;
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    raise exception 'archive_shadchan requires an owning manager'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  perform public.account_storage_lock(v_account_id);
+  select s.* into v_row
+  from public.shadchanim s
+  where s.id = p_id and s.account_id = v_account_id
+  for update;
+
+  if not found then
+    raise exception 'shadchan not found'
+      using errcode = 'P0002';
+  end if;
+  if v_row.archived_at is not null then
+    raise exception 'shadchan is already archived'
+      using errcode = 'check_violation';
+  end if;
+
+  update public.shadchanim
+  set archived_at = clock_timestamp()
+  where id = p_id and account_id = v_account_id;
+
+  -- Pending or leased reminder rows must not reach the mail worker while the
+  -- target is archived. Restore below changes these rows back to pending so
+  -- an Undo re-arms the same due task without creating a duplicate row.
+  update public.task_notifications tn
+  set status = 'skipped',
+      error = 'shadchan archived',
+      claimed_at = null,
+      next_attempt_at = null
+  from public.tasks t
+  where tn.task_id = t.id
+    and t.account_id = v_account_id
+    and t.target_type = 'shadchan'
+    and t.target_id = p_id
+    and tn.account_id = v_account_id
+    and tn.status in ('pending', 'sending');
+
+  return query select * from public.shadchanim
+  where id = p_id and account_id = v_account_id;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.restore_shadchan(p_id bigint)
+RETURNS SETOF public.shadchanim
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path TO ''
+AS $$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_row public.shadchanim;
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    raise exception 'restore_shadchan requires an owning manager'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  perform public.account_storage_lock(v_account_id);
+  select s.* into v_row
+  from public.shadchanim s
+  where s.id = p_id and s.account_id = v_account_id
+  for update;
+
+  if not found then
+    raise exception 'shadchan not found'
+      using errcode = 'P0002';
+  end if;
+
+  -- Restore is intentionally idempotent: a repeated Undo is a harmless
+  -- success, while an archive attempt above reports its already-archived
+  -- state clearly to the caller.
+  if v_row.archived_at is not null then
+    update public.shadchanim
+    set archived_at = null
+    where id = p_id and account_id = v_account_id;
+
+    update public.task_notifications tn
+    set status = 'pending',
+        error = null,
+        claimed_at = null,
+        next_attempt_at = null
+    from public.tasks t
+    where tn.task_id = t.id
+      and t.account_id = v_account_id
+      and t.target_type = 'shadchan'
+      and t.target_id = p_id
+      and tn.account_id = v_account_id
+      and tn.status = 'skipped'
+      and tn.error = 'shadchan archived';
+  end if;
+
+  return query select * from public.shadchanim
+  where id = p_id and account_id = v_account_id;
 end;
 $$;
 

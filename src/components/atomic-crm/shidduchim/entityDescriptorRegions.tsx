@@ -36,6 +36,7 @@ export const ShidduchIdentityHeader = ({
   record: ShidduchSummary;
 }) => {
   const { data: shadchanim } = useGetList<Shadchan>("shadchanim", {
+    filter: { "archived_at@is": null },
     pagination: { page: 1, perPage: 200 },
     sort: { field: "name", order: "ASC" },
   });
