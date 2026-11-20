@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import type { DataProvider } from "ra-core";
+import { QueryClient } from "@tanstack/react-query";
 
 import { testI18nProvider } from "../../providers/commons/i18nProvider";
+import { MY_CONTEXTS_QUERY_KEY } from "../../root/useMyContexts";
 import { ENTITY_TARGET_TYPES, type Task } from "../../types";
 import { TasksTab } from "./TasksTab";
 
@@ -34,15 +36,35 @@ const renderTasksTab = async (
 ) => {
   const dataProvider = {
     getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    getMyContexts: vi.fn().mockResolvedValue([
+      {
+        account_id: 1,
+        kind: "household",
+        name: "Fixture Household",
+        role: "parent_admin",
+        is_active: true,
+      },
+    ]),
     create: vi.fn().mockResolvedValue({ data: buildTask() }),
     update: vi.fn().mockResolvedValue({ data: buildTask() }),
     ...dataProviderOverrides,
   } as unknown as DataProvider;
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, [
+    {
+      account_id: 1,
+      kind: "household",
+      name: "Fixture Household",
+      role: "parent_admin",
+      is_active: true,
+    },
+  ]);
 
   const screen = await render(
     <TestMemoryRouter>
       <CoreAdminContext
         dataProvider={dataProvider}
+        queryClient={queryClient}
         i18nProvider={testI18nProvider}
       >
         <TasksTab
@@ -70,15 +92,24 @@ describe("TasksTab — one target type per test (AC 3a)", () => {
         { getList, create },
       );
       await screen
-        .getByPlaceholder("Add a task…")
+        .getByPlaceholder(
+          targetType === "shadchan" ? "What do I need to do?" : "Add a task…",
+        )
         .fill(`a task about ${targetType}`);
-      await screen.getByRole("button", { name: "Add task" }).click();
+      await screen
+        .getByRole("button", {
+          name: targetType === "shadchan" ? "Add reminder" : "Add task",
+        })
+        .click();
 
       // Assert — the read filter.
       expect(getList).toHaveBeenCalledWith(
         "tasks",
         expect.objectContaining({
-          filter: { target_type: targetType, target_id: 42 },
+          filter: expect.objectContaining({
+            target_type: targetType,
+            target_id: 42,
+          }),
           sort: { field: "due_date", order: "ASC" },
         }),
       );

@@ -1,12 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { MoreVertical } from "lucide-react";
-import {
-  useDeleteWithUndoController,
-  useNotify,
-  useTranslate,
-  useUpdate,
-} from "ra-core";
+import { useDeleteWithUndoController, useTranslate, useUpdate } from "ra-core";
 import { useEffect, useState } from "react";
+import { Confirm } from "@/components/admin/confirm";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -28,7 +24,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 export const Task = ({ task }: { task: TData }) => {
   const isMobile = useIsMobile();
   const { taskTypes } = useConfigurationContext();
-  const notify = useNotify();
   const translate = useTranslate();
   const queryClient = useQueryClient();
   // `TasksIterator.tsx`/`TasksListFilter.tsx` (out of this story's
@@ -43,6 +38,7 @@ export const Task = ({ task }: { task: TData }) => {
     task.member_id != null && !assigneesById.has(task.member_id);
 
   const [openEdit, setOpenEdit] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const handleCloseEdit = () => {
     setOpenEdit(false);
@@ -51,15 +47,10 @@ export const Task = ({ task }: { task: TData }) => {
   const [update, { isPending: isUpdatePending, isSuccess, variables }] =
     useUpdate();
   const { handleDelete } = useDeleteWithUndoController({
+    resource: "tasks",
     record: task,
     redirect: false,
-    mutationOptions: {
-      onSuccess() {
-        notify("resources.tasks.deleted", {
-          undoable: true,
-        });
-      },
-    },
+    successMessage: "Deleted. Undo is available for 10 seconds.",
   });
 
   const handleEdit = () => {
@@ -243,7 +234,7 @@ export const Task = ({ task }: { task: TData }) => {
             </DropdownMenuItem>
             <DropdownMenuItem
               className="cursor-pointer h-12 md:h-8 px-4 md:px-2 text-base md:text-sm"
-              onClick={handleDelete}
+              onClick={() => setConfirmDelete(true)}
             >
               {translate("ra.action.delete")}
             </DropdownMenuItem>
@@ -260,6 +251,18 @@ export const Task = ({ task }: { task: TData }) => {
       ) : (
         <TaskEdit taskId={task.id} open={openEdit} close={handleCloseEdit} />
       )}
+      <Confirm
+        isOpen={confirmDelete}
+        title="Delete this task?"
+        cancel="Cancel"
+        confirm="Delete"
+        confirmColor="warning"
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={(event) => {
+          setConfirmDelete(false);
+          handleDelete(event);
+        }}
+      />
     </>
   );
 };

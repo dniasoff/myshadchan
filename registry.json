@@ -84,6 +84,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/tasks/taskTime.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/tasks/assigneeLabel.ts",
           "type": "registry:component"
         },
@@ -109,6 +113,10 @@
         },
         {
           "path": "src/components/atomic-crm/tasks/TaskScopeToggle.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/tasks/TaskReminderBox.tsx",
           "type": "registry:component"
         },
         {

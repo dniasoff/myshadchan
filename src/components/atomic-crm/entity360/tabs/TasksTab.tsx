@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import { TaskAssigneeChip } from "../../tasks/TaskAssigneeChip";
 import { TaskAssigneeSelect } from "../../tasks/TaskAssigneeSelect";
+import { TaskReminderBox } from "../../tasks/TaskReminderBox";
 import { useTaskAssignees } from "../../tasks/useTaskAssignees";
 import type { Task } from "../../types";
 import type { UniversalTabProps } from "./types";
@@ -69,7 +70,7 @@ function TasksError(): ReactElement {
   );
 }
 
-export function TasksTab({
+function LegacyTasksTab({
   targetType,
   targetId,
 }: UniversalTabProps): ReactElement {
@@ -276,4 +277,17 @@ export function TasksTab({
       )}
     </div>
   );
+}
+
+/**
+ * Shadchan's existing `tasks` route is now the Reminders tab. Keep the
+ * universal Tasks tab implementation for the other entities so their routes
+ * and established labels remain unchanged; both paths still use the same
+ * `tasks` resource and target filter.
+ */
+export function TasksTab(props: UniversalTabProps): ReactElement {
+  if (props.targetType === "shadchan") {
+    return <TaskReminderBox targetType="shadchan" targetId={props.targetId} />;
+  }
+  return <LegacyTasksTab {...props} />;
 }

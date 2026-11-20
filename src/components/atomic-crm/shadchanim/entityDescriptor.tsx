@@ -66,6 +66,9 @@ export const shadchanimDescriptor: EntityDescriptor<Shadchan> = {
     { key: "notes", render: () => <ShadchanNotesTab /> },
     {
       key: "tasks",
+      // The shadchan's task surface is the user-facing Reminders tab; other
+      // entity task tabs retain the canonical Tasks label.
+      label: "Reminders",
       // Story 6.2 (AC 10): tasks is one of the tables RLS empties for a
       // single (05_policies.sql) — hide the now-permanently-empty tab
       // rather than leave it as a dead shell (visibleTo is an allow-list,

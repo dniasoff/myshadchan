@@ -158,3 +158,24 @@ describe("Task — a tap on a nested control never completes the task", () => {
     expect(dataProvider.update).not.toHaveBeenCalled();
   });
 });
+
+describe("Task — destructive actions are confirmed", () => {
+  it("asks before deleting a task from the Tasks page", async () => {
+    const task = buildTask();
+    const { screen, dataProvider } = await renderTask(task, [
+      buildMember({ id: 1, is_self: true }),
+    ]);
+
+    await screen.getByRole("button", { name: "task actions" }).click();
+    await screen.getByRole("menuitem", { name: "Delete" }).click();
+
+    await expect
+      .element(screen.getByRole("heading", { name: "Delete this task?" }))
+      .toBeInTheDocument();
+    await screen
+      .getByRole("dialog")
+      .getByRole("button", { name: "Cancel" })
+      .click();
+    expect(dataProvider.delete).not.toHaveBeenCalled();
+  });
+});
