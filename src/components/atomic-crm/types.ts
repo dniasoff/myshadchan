@@ -447,6 +447,8 @@ export type Shidduch = {
   account_id: Identifier;
   single_id: Identifier;
   shadchan_id?: Identifier | null;
+  suggested_by_name?: string | null;
+  suggested_by_phone?: string | null;
   name_en?: string | null;
   name_he?: string | null;
   father_en?: string | null;
@@ -566,6 +568,13 @@ export type ShidduchExternalLink = {
 export type CreateShidduchInput = {
   single_id: Identifier;
   shadchan_id?: Identifier | null;
+  /**
+   * A captured referrer who is not necessarily a shadchan. This is data only:
+   * the optional future "make this person a shadchan" surface must use the
+   * existing createShadchanInline path and pass its returned shadchan_id.
+   */
+  suggested_by_name?: string | null;
+  suggested_by_phone?: string | null;
   name_en?: string | null;
   name_he?: string | null;
   father_en?: string | null;

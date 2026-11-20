@@ -676,6 +676,28 @@ create table public.shidduchim (
     -- Story 5xr: soft archive marker. It is physically last so the declarative
     -- schema follows ALTER TABLE ADD COLUMN order and db diff converges.
     archived_at timestamp with time zone,
+    -- Suggested-by fields are appended so this declaration follows the
+    -- physical order created by ALTER TABLE (see COLUMN-ORDER TRAP above).
+    suggested_by_name text,
+    suggested_by_phone text,
+    constraint shidduchim_suggested_by_name_check check (
+        suggested_by_name is null
+        or (
+            suggested_by_name = btrim(suggested_by_name)
+            and suggested_by_name <> ''
+            and char_length(suggested_by_name) <= 200
+            and suggested_by_name !~ '[[:cntrl:]]'
+        )
+    ),
+    constraint shidduchim_suggested_by_phone_check check (
+        suggested_by_phone is null
+        or (
+            suggested_by_phone = btrim(suggested_by_phone)
+            and suggested_by_phone <> ''
+            and char_length(suggested_by_phone) <= 40
+            and suggested_by_phone !~ '[[:cntrl:]]'
+        )
+    ),
     constraint shidduchim_origin_check check (origin in ('channel', 'manual', 'shadchan')),
     constraint shidduchim_visibility_check check (
         visibility in ('shared', 'private_parent', 'private_single')

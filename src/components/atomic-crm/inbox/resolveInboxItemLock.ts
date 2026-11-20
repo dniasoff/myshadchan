@@ -62,6 +62,8 @@ export type ResolutionInput =
       attachment_path: string;
       shidduchim_id?: Identifier;
       single_id?: Identifier;
+      suggested_by_name?: string | null;
+      suggested_by_phone?: string | null;
       resolved_shidduchim_id?: Identifier;
       resume_id?: Identifier;
       resume_file_path?: string;
@@ -207,7 +209,9 @@ function inputsAreCompatible(a: ResolutionInput, b: ResolutionInput): boolean {
       a.action === b.action &&
       a.attachment_path === b.attachment_path &&
       a.shidduchim_id === b.shidduchim_id &&
-      a.single_id === b.single_id
+      a.single_id === b.single_id &&
+      (a.suggested_by_name ?? null) === (b.suggested_by_name ?? null) &&
+      (a.suggested_by_phone ?? null) === (b.suggested_by_phone ?? null)
     );
   }
   return false;

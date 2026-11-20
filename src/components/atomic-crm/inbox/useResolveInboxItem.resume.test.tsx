@@ -308,9 +308,13 @@ const buildDataProvider = (options: ResumeProviderOptions = {}) => {
 function Probe({
   item,
   action = "new",
+  suggestedByName,
+  suggestedByPhone,
 }: {
   item: InboxItem;
   action?: "new" | "attach";
+  suggestedByName?: string | null;
+  suggestedByPhone?: string | null;
 }) {
   const { resolveInboxResume } = useResolveInboxItem();
   const [result, setResult] = useState("idle");
@@ -323,6 +327,8 @@ function Probe({
           void resolveInboxResume(item, action, {
             singleId: action === "new" ? 5 : undefined,
             shidduchimId: action === "attach" ? 99 : undefined,
+            suggestedByName,
+            suggestedByPhone,
           })
             .then((outcome) =>
               setResult(
@@ -346,6 +352,7 @@ const renderProbe = async (
   item: InboxItem,
   options: ResumeProviderOptions = {},
   action: "new" | "attach" = "new",
+  suggestedBy: { name?: string | null; phone?: string | null } = {},
 ) => {
   const { dataProvider, ...state } = buildDataProvider({
     ...options,
@@ -357,7 +364,12 @@ const renderProbe = async (
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <Probe item={item} action={action} />
+        <Probe
+          item={item}
+          action={action}
+          suggestedByName={suggestedBy.name}
+          suggestedByPhone={suggestedBy.phone}
+        />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -365,6 +377,39 @@ const renderProbe = async (
 };
 
 describe("resume-first Inbox resolution", () => {
+  it("persists suggested-by fields in the lock stash and new suggestion", async () => {
+    const item = buildItem({ sender: "Miriam Cohen" });
+    const { screen, dataProvider, createShidduch } = await renderProbe(
+      item,
+      {},
+      "new",
+      { name: "Miriam Cohen", phone: "+1 555 0100" },
+    );
+
+    await screen.getByRole("button", { name: "resolve resume" }).click();
+    await expect
+      .element(screen.getByText("result:completed:99:true"))
+      .toBeInTheDocument();
+
+    expect(createShidduch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        suggested_by_name: "Miriam Cohen",
+        suggested_by_phone: "+1 555 0100",
+      }),
+    );
+    expect(dataProvider.update).toHaveBeenCalledWith(
+      "inbox_items",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          resolution_input: expect.objectContaining({
+            suggested_by_name: "Miriam Cohen",
+            suggested_by_phone: "+1 555 0100",
+          }),
+        }),
+      }),
+    );
+  });
+
   it("leaves a pre-lock attachment when ownership acquisition loses the race", async () => {
     const item = buildItem();
     const { screen, dataProvider, resumes, createShidduch } = await renderProbe(

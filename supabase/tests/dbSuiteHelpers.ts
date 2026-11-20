@@ -73,7 +73,7 @@ export function bailIfDbUnreachable(error: string | undefined): boolean {
 
   if (!isUnreachable) {
     throw new Error(
-      `Database suite failed (not a missing local stack — see the full error): ${firstLine}`,
+      `Database suite failed (not a missing local stack — see the full error): ${error}`,
     );
   }
 

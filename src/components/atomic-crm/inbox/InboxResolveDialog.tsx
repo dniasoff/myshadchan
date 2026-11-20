@@ -33,6 +33,7 @@ import { InboxResumeActionsDialog } from "./InboxResumeActions";
 import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
 import {
   hasResumeDocumentAttachment,
+  suggestedByNameFromInboxItem,
   useResolveInboxItem,
 } from "./useResolveInboxItem";
 import { hasResumeShapedAttachment } from "./useParseResume";
@@ -177,6 +178,8 @@ const LegacyInboxResolveDialog = ({
       const input: CreateShidduchInput = {
         single_id: values.single_id as Identifier,
         shadchan_id: (values.shadchan_id as Identifier) ?? null,
+        suggested_by_name: suggestedByNameFromInboxItem(item),
+        suggested_by_phone: null,
         name_en: readTextField(values.name_en)?.trim() || null,
         // Story 8.3 (AC-4): a shadchan-sourced item enters via
         // create_shidduch() with origin: 'shadchan', never 'channel' or

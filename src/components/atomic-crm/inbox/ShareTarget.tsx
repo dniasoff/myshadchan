@@ -28,7 +28,10 @@ import type {
 import { createShadchanInline } from "../shidduchim/createShadchanInline";
 import { INBOX_PRIMARY_CTA_CLASS, INBOX_SOURCE_META } from "./inboxMeta";
 import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
-import { useResolveInboxItem } from "./useResolveInboxItem";
+import {
+  suggestedByNameFromInboxItem,
+  useResolveInboxItem,
+} from "./useResolveInboxItem";
 
 /**
  * Story 10.1 (Task 1): must match `src/sw.ts`'s own copy of these three
@@ -369,6 +372,8 @@ export const ShareTarget = () => {
       const input: CreateShidduchInput = {
         single_id: resolvedSingleId,
         shadchan_id: (values.shadchan_id as Identifier | undefined) ?? null,
+        suggested_by_name: suggestedByNameFromInboxItem(item),
+        suggested_by_phone: null,
         origin: "channel",
         initial_state: "new",
         visibility: "shared",

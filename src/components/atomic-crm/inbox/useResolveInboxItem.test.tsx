@@ -13,7 +13,11 @@ import type {
   Resume,
   Shidduch,
 } from "../types";
-import { useResolveInboxItem, type ResumeDraft } from "./useResolveInboxItem";
+import {
+  suggestedByNameFromInboxItem,
+  useResolveInboxItem,
+  type ResumeDraft,
+} from "./useResolveInboxItem";
 
 /**
  * Story 10.1 (Task 5, AC 5/6/7) + Story 10.5 idempotency:
@@ -332,6 +336,27 @@ const buildResumeDraft = (
 });
 
 describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShidduch path)", () => {
+  it("derives only a confirmed, non-email sender as suggested-by name", () => {
+    expect(
+      suggestedByNameFromInboxItem({
+        sender: "  Miriam Cohen  ",
+        sender_needs_confirmation: false,
+      }),
+    ).toBe("Miriam Cohen");
+    expect(
+      suggestedByNameFromInboxItem({
+        sender: "miriam@example.test",
+        sender_needs_confirmation: false,
+      }),
+    ).toBeNull();
+    expect(
+      suggestedByNameFromInboxItem({
+        sender: "Miriam Cohen",
+        sender_needs_confirmation: true,
+      }),
+    ).toBeNull();
+  });
+
   it.each([
     ["resolveAsNewShidduch", "new"],
     ["resolveAsLinkToExisting", "linked"],
