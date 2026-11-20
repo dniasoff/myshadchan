@@ -10,7 +10,7 @@ import {
 import { MessageSquare, StickyNote } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Sheet,
   SheetContent,
@@ -415,19 +415,15 @@ export function ResumeReadableSections({
     (isUnread || !hasUsableReadForNewestFile);
 
   return (
-    <Card className={cn("gap-0 overflow-hidden rounded-2xl", className)}>
-      <CardHeader className="gap-1 border-b px-4 py-4 sm:px-6">
-        <h2 className="text-xl font-semibold">
-          {translate("crm.entity360.resume.readable.title", {
-            _: "Easy-to-read resume",
-          })}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {translate("crm.entity360.resume.readable.description", {
-            _: "Only sections with information are shown.",
-          })}
-        </p>
-      </CardHeader>
+    <Card
+      aria-labelledby="resume-details-heading"
+      className={cn("gap-0 overflow-hidden rounded-2xl", className)}
+    >
+      <h2 id="resume-details-heading" className="sr-only">
+        {translate("crm.entity360.resume.readable.title", {
+          _: "Resume details",
+        })}
+      </h2>
       <CardContent className="flex flex-col gap-0 px-4 py-0 sm:px-6">
         {canOfferRead && newestFile ? (
           <div className="my-5 flex items-start gap-3 rounded-xl border border-dashed p-4 text-sm">
@@ -437,8 +433,7 @@ export function ResumeReadableSections({
             />
             <div>
               <p className="font-medium">
-                This resume is not easy to read yet. Tap "Try again" to fill in
-                the details.
+                We couldn&apos;t read this resume yet. Tap Try again.
               </p>
               {isAutomaticallyReadableResume(newestFile) ? (
                 isReading ? (

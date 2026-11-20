@@ -820,7 +820,7 @@ export const englishCrmMessages = {
           confirm: "Make it easy to read",
         },
         readable: {
-          title: "Easy-to-read resume",
+          title: "Resume details",
           description: "Only sections with information are shown.",
           emptyTitle: "No sections were found in this resume.",
           emptyDescription:

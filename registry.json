@@ -232,6 +232,14 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/shidduchTodoSummary.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/shidduchTodo.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/shidduchLifecycle.ts",
           "type": "registry:component"
         },
@@ -297,6 +305,22 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/ShidduchimList.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchTodoSummaryContext.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchTodoSummary.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchTodoMarker.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchTodoBox.tsx",
           "type": "registry:component"
         },
         {
@@ -709,10 +733,6 @@
         },
         {
           "path": "src/components/atomic-crm/resumes/ResumeTab.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "src/components/atomic-crm/resumes/ResumeRereadControl.tsx",
           "type": "registry:component"
         },
         {

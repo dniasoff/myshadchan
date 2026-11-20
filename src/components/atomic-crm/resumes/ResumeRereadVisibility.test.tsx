@@ -84,7 +84,7 @@ async function renderForRole(
 
 describe("Resume easy-to-read role gate", () => {
   it.each(["single", "undefined", "pending"] as const)(
-    "%s sees no easy-to-read control and cannot call the mutation",
+    "%s sees no per-file manual read button and cannot call the mutation",
     async (role) => {
       const { screen, readResume } = await renderForRole(role);
       await expect.element(screen.getByText("demo.pdf")).toBeVisible();
@@ -96,7 +96,7 @@ describe("Resume easy-to-read role gate", () => {
   );
 
   it.each(["parent_admin", "self_manager"] as const)(
-    "%s sees the control in the file row",
+    "%s sees the file row but no per-file manual read button",
     async (role) => {
       const { screen } = await renderForRole(role);
       await expect
@@ -108,12 +108,17 @@ describe("Resume easy-to-read role gate", () => {
         )
         .toBeVisible();
       await expect
-        .element(screen.getByRole("button", { name: "Make it easy to read" }))
-        .toBeVisible();
+        .element(
+          screen.getByRole("button", {
+            name: "Make it easy to read",
+            exact: true,
+          }),
+        )
+        .not.toBeInTheDocument();
     },
   );
 
-  it("offers easy-to-read only on the newest row that the route reads", async () => {
+  it("keeps the card retry available for multiple versions without a row button", async () => {
     const older = {
       ...version,
       path: "1/resumes/1/older.pdf",
@@ -131,28 +136,18 @@ describe("Resume easy-to-read role gate", () => {
       newest,
     ]);
 
-    const rereadButtons = screen.getByRole("button", {
-      name: "Make it easy to read",
-    });
-    await expect.element(rereadButtons.first()).toBeVisible();
-    expect(rereadButtons.all()).toHaveLength(1);
-    const olderRow = screen.getByText("older.pdf").element().closest("li");
-    const newestRow = screen.getByText("newest.pdf").element().closest("li");
-    expect(olderRow?.textContent).not.toContain("Make it easy to read");
-    expect(newestRow?.textContent).toContain("Make it easy to read");
-
-    await screen.getByRole("button", { name: "Make it easy to read" }).click();
-    await screen
-      .getByRole("button", { name: "Make it easy to read" })
-      .last()
-      .click();
-    expect(readResume).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resumeId: 77,
-        mode: "fill_empty",
-        fileIdentity: newest.path,
-      }),
-    );
+    await expect
+      .element(
+        screen.getByRole("button", {
+          name: "Make it easy to read",
+          exact: true,
+        }),
+      )
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Try again", exact: true }))
+      .toBeVisible();
+    expect(readResume).not.toHaveBeenCalled();
   });
 
   it("shows a static unsupported message for legacy .doc files", async () => {

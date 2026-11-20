@@ -31,12 +31,10 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { formatTimelineDate } from "../entity360/tabs/interactionLabels";
 import type { CrmDataProvider } from "../providers/types";
 import type { Resume, ResumeFileVersion } from "../types";
-import { ResumeRereadControl } from "./ResumeRereadControl";
 import {
   isAutomaticallyReadableResume,
   RESUME_AUTO_READ_COPY,
 } from "./resumeAutoReadHelpers";
-import { isResumeUnread } from "./resumeReadableSections";
 import {
   clearPendingResumeFileDelete,
   RESUME_READ_STATE_CHANGED_EVENT,
@@ -103,23 +101,19 @@ function ResumeError(): ReactElement {
  * there is nothing to swap to, and a button that cannot change anything is
  * the same defect as pagination on a one-page list. */
 function ResumeVersionRow({
-  resumeId,
   version,
   isShown,
   onShow,
   canReread,
-  isUnread,
   canDelete,
   isReadInProgress,
   onDelete,
   deleteButtonRef,
 }: {
-  resumeId: Resume["id"];
   version: ResumeFileVersion;
   isShown: boolean;
   onShow?: (version: ResumeFileVersion) => void;
   canReread: boolean;
-  isUnread: boolean;
   canDelete: boolean;
   isReadInProgress: boolean;
   onDelete?: (version: ResumeFileVersion) => void;
@@ -205,13 +199,7 @@ function ResumeVersionRow({
             Delete
           </Button>
         ) : null}
-        {canReread && isAutomaticallyReadableResume(version) ? (
-          <ResumeRereadControl
-            resumeId={resumeId}
-            fileIdentity={version.path}
-            isUnread={isUnread}
-          />
-        ) : canReread ? (
+        {canReread && !isAutomaticallyReadableResume(version) ? (
           <p className="text-xs text-muted-foreground">
             {RESUME_AUTO_READ_COPY.unsupported}
           </p>
@@ -274,7 +262,6 @@ export function ResumeVersionList({
     () => sortResumeFilesNewestFirst(resumeFiles ?? []),
     [resumeFiles],
   );
-  const isUnread = data?.[0] != null && isResumeUnread(data[0]);
   const resumeId = data?.[0]?.id;
   const hydratedPending = usePendingResumeFileDeletes(resumeId, versions);
   useEffect(() => {
@@ -541,7 +528,6 @@ export function ResumeVersionList({
         {visibleVersions.map((version) => (
           <ResumeVersionRow
             key={resumeFileDeleteKey(resumeId ?? "", version)}
-            resumeId={resumeId ?? ""}
             version={version}
             isShown={
               resumeFileDeleteKey(resumeId ?? "", version) === shownFileKey
@@ -556,7 +542,6 @@ export function ResumeVersionList({
                   visibleVersions[0] ?? version,
                 )
             }
-            isUnread={isUnread}
             canDelete={canDelete}
             isReadInProgress={readInProgressKeys.has(
               resumeFileDeleteKey(resumeId ?? "", version),

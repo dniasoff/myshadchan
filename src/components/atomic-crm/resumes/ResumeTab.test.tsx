@@ -185,7 +185,7 @@ describe("ResumeTab — reference privacy gate", () => {
     role: MyContext["role"] | "pending" | "undefined",
   ) => {
     await expect
-      .element(screen.getByText("Easy-to-read resume"))
+      .element(screen.getByText("Resume details"))
       .toBeInTheDocument();
     await expect
       .element(screen.getByText("Personal details"))

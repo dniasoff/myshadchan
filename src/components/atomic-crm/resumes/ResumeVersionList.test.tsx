@@ -8,7 +8,6 @@ import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type { Resume, ResumeFileVersion } from "../types";
 import { ResumeVersionList } from "./ResumeVersionList";
-import { isResumeUnread } from "./resumeReadableSections";
 
 /**
  * Story 5.3's falsifiable claims for `ResumeVersionList`: loading/empty/
@@ -217,100 +216,35 @@ describe("ResumeVersionList — signed URL minted per click, never cached (AC 5)
   });
 });
 
-describe("ResumeVersionList — fill-empty read mode", () => {
-  it("uses fill-empty reads for both unread and already-read resumes", async () => {
-    const version = buildVersion();
-    const readResume = vi.fn().mockResolvedValue("completed");
-    const reReadResume = vi.fn().mockResolvedValue("completed");
-    const unreadRow = buildResumeRow({
-      sections: null,
-      extracted: null,
-      files: [version],
-    });
-    expect(isResumeUnread(unreadRow)).toBe(true);
-    const unreadGetList = vi.fn().mockResolvedValue({
-      data: [unreadRow],
-      total: 1,
-    });
-
-    const unread = await renderList(
-      1,
-      { getList: unreadGetList, readResume, reReadResume },
-      true,
-    );
-    await expect
-      .element(
-        unread.screen.getByRole("button", {
-          name: "Make it easy to read",
-          exact: true,
-        }),
-      )
-      .toBeInTheDocument();
-    await unread.screen
-      .getByRole("button", { name: "Make it easy to read", exact: true })
-      .click();
-    await unread.screen
-      .getByRole("button", { name: "Make it easy to read", exact: true })
-      .last()
-      .click();
-    await expect.poll(() => readResume.mock.calls.length).toBe(1);
-    expect(readResume).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resumeId: 1,
-        fileIdentity: version.path,
-        mode: "fill_empty",
-      }),
-    );
-    expect(reReadResume).not.toHaveBeenCalled();
-    unread.screen.unmount();
-
-    const readGetList = vi.fn().mockResolvedValue({
-      data: [
-        buildResumeRow({
-          sections: {
-            learningHistory: [],
-            references: [],
-            additionalSections: [],
-            schemaVersion: 4,
-          },
-          extracted: null,
-          files: [version],
+describe("ResumeVersionList — automatic reads only", () => {
+  it.each([
+    ["one version", [buildVersion()]],
+    [
+      "two versions",
+      [
+        buildVersion(),
+        buildVersion({
+          path: "1/resumes/1/newer-resume.pdf",
+          filename: "newer-resume.pdf",
+          uploaded_at: "2026-02-01T00:00:00Z",
         }),
       ],
-      total: 1,
-    });
-    const alreadyRead = await renderList(
-      1,
-      { getList: readGetList, readResume, reReadResume },
-      true,
-    );
-    await expect
-      .element(
-        alreadyRead.screen.getByRole("button", {
-          name: "Make it easy to read",
-          exact: true,
-        }),
-      )
-      .toBeInTheDocument();
-    expect(
-      alreadyRead.screen
-        .getByRole("button", { name: "Make it easy to read", exact: true })
-        .all(),
-    ).toHaveLength(1);
-    await alreadyRead.screen
-      .getByRole("button", { name: "Make it easy to read", exact: true })
-      .last()
-      .click();
-    await alreadyRead.screen
-      .getByRole("button", { name: "Make it easy to read", exact: true })
-      .last()
-      .click();
-    await expect.poll(() => readResume.mock.calls.length).toBe(2);
-    expect(readResume.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({ resumeId: 1, fileIdentity: version.path }),
-    );
-    expect(readResume.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({ mode: "fill_empty" }),
-    );
-  });
+    ],
+  ] as const)(
+    "shows no per-file manual read button for managers with %s",
+    async (_versionCount, files) => {
+      const readResume = vi.fn().mockResolvedValue("completed");
+      const getList = vi.fn().mockResolvedValue({
+        data: [buildResumeRow({ files: [...files] })],
+        total: 1,
+      });
+
+      const { screen } = await renderList(1, { getList, readResume }, true);
+
+      expect(screen.container.textContent).not.toContain(
+        "Make it easy to read",
+      );
+      expect(readResume).not.toHaveBeenCalled();
+    },
+  );
 });
