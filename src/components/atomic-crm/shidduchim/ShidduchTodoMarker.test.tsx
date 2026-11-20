@@ -3,19 +3,27 @@ import { render } from "vitest-browser-react";
 import { TestMemoryRouter } from "ra-core";
 
 import { ShidduchTodoMarker } from "./ShidduchTodoMarker";
-import { ShidduchTodoSummaryContext } from "./ShidduchTodoSummaryContext";
+import {
+  ShidduchTodoSummaryContext,
+  ShidduchTodoVisibilityContext,
+} from "./ShidduchTodoSummaryContext";
 
-const renderMarker = async (summary: {
-  count: number;
-  earliestDueDate: string | null;
-  hasOverdue: boolean;
-  isDueSoon: boolean;
-}) =>
+const renderMarker = async (
+  summary: {
+    count: number;
+    earliestDueDate: string | null;
+    hasOverdue: boolean;
+    isDueSoon: boolean;
+  },
+  visible = true,
+) =>
   render(
     <TestMemoryRouter>
-      <ShidduchTodoSummaryContext.Provider value={new Map([["42", summary]])}>
-        <ShidduchTodoMarker shidduchId={42} />
-      </ShidduchTodoSummaryContext.Provider>
+      <ShidduchTodoVisibilityContext.Provider value={visible}>
+        <ShidduchTodoSummaryContext.Provider value={new Map([["42", summary]])}>
+          <ShidduchTodoMarker shidduchId={42} />
+        </ShidduchTodoSummaryContext.Provider>
+      </ShidduchTodoVisibilityContext.Provider>
     </TestMemoryRouter>,
   );
 
@@ -57,5 +65,21 @@ describe("ShidduchTodoMarker", () => {
     });
 
     await expect.element(screen.getByText("No open to do")).toBeInTheDocument();
+  });
+
+  it("hides when the list-level role gate denies visibility", async () => {
+    const screen = await renderMarker(
+      {
+        count: 1,
+        earliestDueDate: "2026-11-16T09:00:00Z",
+        hasOverdue: false,
+        isDueSoon: true,
+      },
+      false,
+    );
+
+    await expect
+      .element(screen.getByLabelText(/to do/))
+      .not.toBeInTheDocument();
   });
 });

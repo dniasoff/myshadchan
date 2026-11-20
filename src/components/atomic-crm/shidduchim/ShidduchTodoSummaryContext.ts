@@ -2,9 +2,15 @@ import { createContext, useContext } from "react";
 
 import type { ShidduchTodoSummary } from "./shidduchTodoSummary";
 
+/** Visibility is decided once by the list-level role gate and inherited by rows. */
+export const ShidduchTodoVisibilityContext = createContext(false);
+
 export const ShidduchTodoSummaryContext = createContext<
   ReadonlyMap<string, ShidduchTodoSummary>
 >(new Map());
+
+export const useShidduchTodoVisibility = () =>
+  useContext(ShidduchTodoVisibilityContext);
 
 export const useShidduchTodoSummary = (
   shidduchId: string | number,

@@ -3,14 +3,20 @@ import { AlertCircle, CircleCheck, ListChecks } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import { formatTodoWhen } from "./shidduchTodo";
-import { useShidduchTodoSummary } from "./ShidduchTodoSummaryContext";
+import {
+  useShidduchTodoSummary,
+  useShidduchTodoVisibility,
+} from "./ShidduchTodoSummaryContext";
 
 export const ShidduchTodoMarker = ({
   shidduchId,
 }: {
   shidduchId: string | number;
 }) => {
+  const canSee = useShidduchTodoVisibility();
   const summary = useShidduchTodoSummary(shidduchId);
+  if (!canSee) return null;
+
   const label =
     summary.count === 0
       ? "No open to do"

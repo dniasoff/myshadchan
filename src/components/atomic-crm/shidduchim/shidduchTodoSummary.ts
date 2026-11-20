@@ -4,7 +4,42 @@ import {
   isDueTomorrow,
   isOverdue,
 } from "../tasks/tasksPredicate";
+import type { CrmDataProvider } from "../providers/types";
 import type { Task } from "../types";
+
+export const SHIDDUCH_TODO_PAGE_SIZE = 500;
+
+/** Fetch every matching page so a large list cannot silently lose its counts. */
+export const fetchAllOpenShidduchTasks = async (
+  dataProvider: CrmDataProvider,
+  shidduchIds: string[],
+): Promise<Task[]> => {
+  const tasks: Task[] = [];
+  let page = 1;
+
+  while (true) {
+    const result = await dataProvider.getList<Task>("tasks", {
+      filter: {
+        target_type: "shidduch",
+        "target_id@in": `(${shidduchIds.join(",")})`,
+        "done_date@is": null,
+      },
+      sort: { field: "due_date", order: "ASC" },
+      pagination: { page, perPage: SHIDDUCH_TODO_PAGE_SIZE },
+    });
+
+    tasks.push(...result.data);
+    if (
+      result.data.length === 0 ||
+      (result.total != null && tasks.length >= result.total) ||
+      result.data.length < SHIDDUCH_TODO_PAGE_SIZE
+    ) {
+      return tasks;
+    }
+
+    page += 1;
+  }
+};
 
 export interface ShidduchTodoSummary {
   count: number;

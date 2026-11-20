@@ -38,7 +38,22 @@ export const getQuickPickDate = (
 };
 
 export const buildTaskDueDate = (date: string, time?: string): string => {
-  const due = new Date(`${date}T${time || "00:00"}`);
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minutes] = (time || "23:59").split(":").map(Number);
+
+  // A date-only reminder is due at the end of that local calendar day. This
+  // keeps Today useful when it is created during the day and lets the sweep,
+  // Tasks tab, and DueRemindersCard compare the same instant. Constructing the
+  // date with local components also preserves the user's DST transition.
+  const due = new Date(
+    year,
+    month - 1,
+    day,
+    hours,
+    minutes,
+    time ? 0 : 59,
+    time ? 0 : 999,
+  );
   return due.toISOString();
 };
 

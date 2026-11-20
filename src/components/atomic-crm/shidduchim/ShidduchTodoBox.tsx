@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Link } from "react-router";
 import {
   useCreate,
@@ -28,6 +28,13 @@ export interface ShidduchTodoBoxProps {
   shidduch: ShidduchSummary;
 }
 
+/** UI safety limit for quick-add text; tasks.text has no narrower DB constraint. */
+export const TODO_TEXT_MAX_LENGTH = 500;
+export const TODO_ADD_ERROR_MESSAGE =
+  "Could not add the to do. Please try again.";
+export const TODO_COMPLETE_ERROR_MESSAGE =
+  "Could not complete the to do. Please try again.";
+
 export const ShidduchTodoBox = ({
   shidduch,
 }: ShidduchTodoBoxProps): ReactElement | null => {
@@ -40,7 +47,18 @@ export const ShidduchTodoBox = ({
   const [text, setText] = useState("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+  const [pendingTaskIds, setPendingTaskIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [focusAfterCompletion, setFocusAfterCompletion] = useState<{
+    taskId: string | null;
+  } | null>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
+  const textInputRef = useRef<HTMLInputElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const todoListRef = useRef<HTMLDivElement>(null);
+  const pendingTaskIdsRef = useRef(new Set<string>());
 
   const {
     data,
@@ -60,17 +78,47 @@ export const ShidduchTodoBox = ({
     { enabled: canSee },
   );
 
-  if (!canSee) return null;
-
-  const tasks = data ?? [];
+  const tasks = useMemo(() => data ?? [], [data]);
   const trimmedText = text.trim();
+
+  useEffect(() => {
+    if (focusAfterCompletion == null) return;
+
+    if (focusAfterCompletion.taskId == null) {
+      headingRef.current?.focus();
+      setFocusAfterCompletion(null);
+      return;
+    }
+
+    const nextCheckbox = Array.from(
+      todoListRef.current?.querySelectorAll<HTMLElement>("[data-task-id]") ??
+        [],
+    ).find(
+      (element) =>
+        element.getAttribute("data-task-id") === focusAfterCompletion.taskId,
+    );
+
+    if (nextCheckbox == null) return;
+
+    nextCheckbox.focus();
+    setFocusAfterCompletion(null);
+  }, [focusAfterCompletion, tasks]);
+
+  if (!canSee) return null;
 
   const handleQuickPick = (pick: TodoQuickPick) => {
     setDate(getQuickPickDate(pick));
   };
 
   const handleAdd = async () => {
-    if (trimmedText === "" || isCreating) return;
+    if (
+      trimmedText === "" ||
+      trimmedText.length > TODO_TEXT_MAX_LENGTH ||
+      isCreating
+    )
+      return;
+
+    setStatusMessage("");
 
     try {
       await create(
@@ -88,18 +136,22 @@ export const ShidduchTodoBox = ({
       setText("");
       setDate("");
       setTime("");
+      setStatusMessage("To do added");
+      textInputRef.current?.focus();
       refresh();
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Failed to add the to do",
-        {
-          type: "error",
-        },
-      );
+    } catch {
+      notify(TODO_ADD_ERROR_MESSAGE, { type: "error" });
     }
   };
 
   const handleToggle = async (task: Task) => {
+    const taskId = String(task.id);
+    if (pendingTaskIdsRef.current.has(taskId)) return;
+
+    pendingTaskIdsRef.current.add(taskId);
+    setPendingTaskIds(new Set(pendingTaskIdsRef.current));
+    setStatusMessage("");
+
     try {
       await update(
         "tasks",
@@ -110,19 +162,39 @@ export const ShidduchTodoBox = ({
         },
         { returnPromise: true },
       );
-      refresh();
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Failed to complete the to do",
-        { type: "error" },
+      const visibleTasks = tasks.slice(0, 5);
+      const taskIndex = visibleTasks.findIndex(
+        (visibleTask) => String(visibleTask.id) === taskId,
       );
+      const nextTask = taskIndex >= 0 ? visibleTasks[taskIndex + 1] : undefined;
+
+      setFocusAfterCompletion({
+        taskId: nextTask == null ? null : String(nextTask.id),
+      });
+      setStatusMessage("To do completed");
+      refresh();
+    } catch {
+      notify(TODO_COMPLETE_ERROR_MESSAGE, { type: "error" });
+    } finally {
+      pendingTaskIdsRef.current.delete(taskId);
+      setPendingTaskIds(new Set(pendingTaskIdsRef.current));
     }
   };
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+    <section
+      aria-labelledby="shidduch-todo-heading"
+      className="rounded-2xl border border-border bg-card p-5 shadow-sm"
+    >
       <div className="flex items-center justify-between gap-3">
-        <h3 className="font-display text-lg font-semibold">To do</h3>
+        <h3
+          ref={headingRef}
+          id="shidduch-todo-heading"
+          tabIndex={-1}
+          className="font-display text-lg font-semibold outline-none"
+        >
+          To do
+        </h3>
         <Link
           className="min-h-11 shrink-0 inline-flex items-center rounded-lg px-2 text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
           to={buildTabPath("shidduchim", shidduch.id, "tasks")}
@@ -130,15 +202,38 @@ export const ShidduchTodoBox = ({
           See all tasks
         </Link>
       </div>
+      <p
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {statusMessage}
+      </p>
 
       <div className="mt-4 flex flex-col gap-3">
         <div className="flex flex-col gap-2">
-          <Label htmlFor="shidduch-todo-text">What do I need to do?</Label>
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="shidduch-todo-text">What do I need to do?</Label>
+            <span
+              id="shidduch-todo-text-count"
+              className={
+                text.length > TODO_TEXT_MAX_LENGTH
+                  ? "text-xs text-destructive"
+                  : "text-xs text-muted-foreground"
+              }
+            >
+              {text.length}/{TODO_TEXT_MAX_LENGTH}
+            </span>
+          </div>
           <Input
+            ref={textInputRef}
             id="shidduch-todo-text"
             value={text}
             onChange={(event) => setText(event.target.value)}
             aria-label="What do I need to do?"
+            aria-describedby="shidduch-todo-text-count"
+            maxLength={TODO_TEXT_MAX_LENGTH}
             placeholder="What do I need to do?"
             dir="auto"
           />
@@ -214,14 +309,18 @@ export const ShidduchTodoBox = ({
         <Button
           type="button"
           className="min-h-11 self-start"
-          disabled={trimmedText === "" || isCreating}
+          disabled={
+            trimmedText === "" ||
+            trimmedText.length > TODO_TEXT_MAX_LENGTH ||
+            isCreating
+          }
           onClick={() => void handleAdd()}
         >
           Add to do
         </Button>
       </div>
 
-      <div className="mt-5 flex flex-col divide-y">
+      <div ref={todoListRef} className="mt-5 flex flex-col divide-y">
         {isTasksPending ? (
           <p className="py-3 text-sm text-muted-foreground" aria-busy="true">
             Loading to dos…
@@ -240,6 +339,8 @@ export const ShidduchTodoBox = ({
             >
               <Checkbox
                 checked={false}
+                data-task-id={String(task.id)}
+                disabled={pendingTaskIds.has(String(task.id))}
                 onCheckedChange={() => void handleToggle(task)}
                 aria-label={`Mark ${task.text} complete`}
               />

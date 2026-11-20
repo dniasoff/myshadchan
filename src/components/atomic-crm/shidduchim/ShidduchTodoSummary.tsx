@@ -1,9 +1,18 @@
-import { useMemo, type ReactNode } from "react";
-import { useGetList, useListContext } from "ra-core";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useDataProvider, useListContext } from "ra-core";
 
+import type { CrmDataProvider } from "../providers/types";
 import type { ShidduchSummary, Task } from "../types";
-import { ShidduchTodoSummaryContext } from "./ShidduchTodoSummaryContext";
-import { todoSummaryForTasks } from "./shidduchTodoSummary";
+import { useViewerRole } from "../entity360/useViewerRole";
+import { isTodoBoxVisible } from "./shidduchTodo";
+import {
+  ShidduchTodoSummaryContext,
+  ShidduchTodoVisibilityContext,
+} from "./ShidduchTodoSummaryContext";
+import {
+  fetchAllOpenShidduchTasks,
+  todoSummaryForTasks,
+} from "./shidduchTodoSummary";
 
 /**
  * One open-task query for the rows currently in the Shidduchim list. The
@@ -16,31 +25,53 @@ export const ShidduchTodoSummaryProvider = ({
   children: ReactNode;
 }) => {
   const { data } = useListContext<ShidduchSummary>();
+  const { role, isPending: isRolePending } = useViewerRole();
+  const canSee = isTodoBoxVisible(role, isRolePending);
+  const dataProvider = useDataProvider<CrmDataProvider>();
   const shidduchIds = useMemo(
     () =>
       Array.from(new Set((data ?? []).map((shidduch) => String(shidduch.id)))),
     [data],
   );
 
-  const { data: tasks } = useGetList<Task>(
-    "tasks",
-    {
-      filter: {
-        target_type: "shidduch",
-        "target_id@in": `(${shidduchIds.join(",")})`,
-        "done_date@is": null,
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const shidduchIdsKey = shidduchIds.join(",");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!canSee || shidduchIds.length === 0) {
+      setTasks([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setTasks([]);
+    void fetchAllOpenShidduchTasks(dataProvider, shidduchIds).then(
+      (loadedTasks) => {
+        if (!cancelled) setTasks(loadedTasks);
       },
-      sort: { field: "due_date", order: "ASC" },
-      pagination: { page: 1, perPage: 500 },
-    },
-    { enabled: shidduchIds.length > 0 },
+      () => {
+        if (!cancelled) setTasks([]);
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canSee, dataProvider, shidduchIds, shidduchIdsKey]);
+
+  const summaries = useMemo(
+    () => (canSee ? todoSummaryForTasks(tasks) : new Map()),
+    [canSee, tasks],
   );
 
-  const summaries = useMemo(() => todoSummaryForTasks(tasks ?? []), [tasks]);
-
   return (
-    <ShidduchTodoSummaryContext.Provider value={summaries}>
-      {children}
-    </ShidduchTodoSummaryContext.Provider>
+    <ShidduchTodoVisibilityContext.Provider value={canSee}>
+      <ShidduchTodoSummaryContext.Provider value={summaries}>
+        {children}
+      </ShidduchTodoSummaryContext.Provider>
+    </ShidduchTodoVisibilityContext.Provider>
   );
 };

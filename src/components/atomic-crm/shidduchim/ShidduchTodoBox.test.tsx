@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import { CoreAdminContext, TestMemoryRouter } from "ra-core";
+import {
+  CoreAdminContext,
+  TestMemoryRouter,
+  useNotificationContext,
+} from "ra-core";
 import type { DataProvider } from "ra-core";
 import { QueryClient } from "@tanstack/react-query";
 
@@ -14,8 +18,21 @@ import {
   getQuickPickDate,
   isTodoBoxVisible,
 } from "./shidduchTodo";
-import { ShidduchTodoBox } from "./ShidduchTodoBox";
+import {
+  ShidduchTodoBox,
+  TODO_ADD_ERROR_MESSAGE,
+  TODO_COMPLETE_ERROR_MESSAGE,
+  TODO_TEXT_MAX_LENGTH,
+} from "./ShidduchTodoBox";
 import { todoSummaryForTasks } from "./shidduchTodoSummary";
+
+const NotificationProbe = () => {
+  const { notifications } = useNotificationContext();
+  const latest = notifications.at(-1);
+  if (!latest) return null;
+
+  return <output data-testid="notification">{String(latest.message)}</output>;
+};
 
 let nextTaskId = 1;
 
@@ -75,6 +92,7 @@ const renderTodoBox = async (
         i18nProvider={testI18nProvider}
       >
         <ShidduchTodoBox shidduch={buildShidduch()} />
+        <NotificationProbe />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -109,6 +127,20 @@ describe("ShidduchTodoBox role gate and quick add helpers", () => {
     const due = buildTaskDueDate("2026-11-16", "15:30");
     expect(new Date(due).getHours()).toBe(15);
     expect(new Date(due).getMinutes()).toBe(30);
+  });
+
+  it("puts a date-only reminder at local end-of-day, including near midnight and DST dates", () => {
+    vi.setSystemTime(new Date(2026, 10, 16, 23, 59, 0));
+    const due = buildTaskDueDate("2026-11-16");
+    expect(new Date(due).getTime()).toBeGreaterThan(Date.now());
+    expect(new Date(due).getHours()).toBe(23);
+    expect(new Date(due).getMinutes()).toBe(59);
+    expect(new Date(due).getSeconds()).toBe(59);
+
+    const springDstDue = new Date(buildTaskDueDate("2026-03-08"));
+    const fallDstDue = new Date(buildTaskDueDate("2026-11-01"));
+    expect(springDstDue.getHours()).toBe(23);
+    expect(fallDstDue.getHours()).toBe(23);
   });
 
   it("summarizes only open shidduch tasks, so completed tasks cannot inflate a marker", () => {
@@ -155,6 +187,11 @@ describe("ShidduchTodoBox interactions", () => {
     await screen.getByLabelText("Time (optional)").fill("15:30");
     await addButton.click();
 
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("To do added");
+    await expect.element(textInput).toHaveFocus();
+
     expect(create).toHaveBeenCalledTimes(1);
     expect(create).toHaveBeenCalledWith("tasks", {
       data: {
@@ -167,6 +204,32 @@ describe("ShidduchTodoBox interactions", () => {
     const dueDate = create.mock.calls[0][1].data.due_date as string;
     expect(new Date(dueDate).getHours()).toBe(15);
     expect(new Date(dueDate).getMinutes()).toBe(30);
+  });
+
+  it("shows the visible 500-character limit and never submits longer text", async () => {
+    const create = vi.fn().mockResolvedValue({ data: buildTask() });
+    const { screen } = await renderTodoBox("shadchan", [], { create });
+    const textInput = screen.getByLabelText("What do I need to do?");
+
+    await expect
+      .element(textInput)
+      .toHaveAttribute("maxlength", String(TODO_TEXT_MAX_LENGTH));
+    await textInput.fill("x".repeat(TODO_TEXT_MAX_LENGTH));
+    await expect
+      .element(
+        screen.getByText(`${TODO_TEXT_MAX_LENGTH}/${TODO_TEXT_MAX_LENGTH}`),
+      )
+      .toBeInTheDocument();
+    await screen.getByRole("button", { name: "Add to do" }).click();
+
+    expect(create).toHaveBeenCalledWith(
+      "tasks",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          text: "x".repeat(TODO_TEXT_MAX_LENGTH),
+        }),
+      }),
+    );
   });
 
   it("completes an open task through the shared tasks resource", async () => {
@@ -184,6 +247,13 @@ describe("ShidduchTodoBox interactions", () => {
       })
       .click();
 
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("To do completed");
+    await expect
+      .element(screen.getByRole("heading", { name: "To do" }))
+      .toHaveFocus();
+
     expect(update).toHaveBeenCalledWith(
       "tasks",
       expect.objectContaining({
@@ -191,6 +261,94 @@ describe("ShidduchTodoBox interactions", () => {
         data: { done_date: expect.any(String) },
       }),
     );
+  });
+
+  it("moves focus to the next checkbox after completing a task", async () => {
+    const firstTask = buildTask({ id: 601, text: "First task" });
+    const secondTask = buildTask({ id: 602, text: "Second task" });
+    const update = vi.fn().mockResolvedValue({ data: firstTask });
+    const { screen } = await renderTodoBox(
+      "parent_admin",
+      [firstTask, secondTask],
+      {
+        update,
+      },
+    );
+
+    await screen
+      .getByRole("checkbox", { name: "Mark First task complete" })
+      .click();
+
+    await expect
+      .element(
+        screen.getByRole("checkbox", { name: "Mark Second task complete" }),
+      )
+      .toHaveFocus();
+  });
+
+  it("guards a completion checkbox from double submission while its update is pending", async () => {
+    let resolveUpdate: ((value: { data: Task }) => void) | undefined;
+    const task = buildTask({ id: 701, text: "Only once" });
+    const update = vi.fn().mockImplementation(
+      () =>
+        new Promise<{ data: Task }>((resolve) => {
+          resolveUpdate = resolve;
+        }),
+    );
+    const { screen } = await renderTodoBox("parent_admin", [task], { update });
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Mark Only once complete",
+    });
+
+    await checkbox.click();
+    checkbox
+      .element()
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(update).toHaveBeenCalledTimes(1);
+    await expect.element(checkbox).toBeDisabled();
+    resolveUpdate?.({ data: task });
+  });
+
+  it("uses fixed error copy instead of exposing a provider error message", async () => {
+    const create = vi
+      .fn()
+      .mockRejectedValue(new Error("provider secret must never be shown"));
+    const { screen } = await renderTodoBox("shadchan", [], { create });
+    await screen.getByLabelText("What do I need to do?").fill("Safe copy");
+    await screen.getByRole("button", { name: "Add to do" }).click();
+
+    const notification = screen.getByTestId("notification");
+    await expect
+      .element(notification)
+      .toHaveTextContent(TODO_ADD_ERROR_MESSAGE);
+    await expect
+      .element(notification)
+      .not.toHaveTextContent("provider secret must never be shown");
+  });
+
+  it("uses fixed error copy when completing instead of exposing a provider error message", async () => {
+    const task = buildTask({ id: 801, text: "Safe completion copy" });
+    const update = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("completion provider secret must never be shown"),
+      );
+    const { screen } = await renderTodoBox("shadchan", [task], { update });
+
+    await screen
+      .getByRole("checkbox", {
+        name: "Mark Safe completion copy complete",
+      })
+      .click();
+
+    const notification = screen.getByTestId("notification");
+    await expect
+      .element(notification)
+      .toHaveTextContent(TODO_COMPLETE_ERROR_MESSAGE);
+    await expect
+      .element(notification)
+      .not.toHaveTextContent("completion provider secret must never be shown");
   });
 
   it("fails closed for a single-role viewer and does not query tasks", async () => {
