@@ -865,7 +865,20 @@ create table public.inbox_items (
     -- would silently fabricate a value for a different question and could
     -- later get trusted on false grounds.
     sender_email extensions.citext,
+    -- Dec 2026: optional phone captured manually alongside the sender's name.
+    -- Appended at the physical TAIL (COLUMN-ORDER TRAP); service-role ingest
+    -- leaves it NULL because it has no capture-time phone source.
+    sender_phone text,
     constraint inbox_items_source_check check (source in ('whatsapp', 'sms', 'email', 'photo', 'upload', 'shadchan')),
+    constraint inbox_items_sender_phone_check check (
+        sender_phone is null
+        or (
+            sender_phone = btrim(sender_phone)
+            and sender_phone <> ''
+            and char_length(sender_phone) <= 40
+            and sender_phone !~ '[[:cntrl:]]'
+        )
+    ),
     -- Epic 11: `held` is an email-sourced item whose sender is not yet a
     -- known member or trusted address for the household (see
     -- `public.trusted_senders` below) — stored (never dropped) but kept out

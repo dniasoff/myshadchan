@@ -31,10 +31,14 @@ import { INBOX_PRIMARY_CTA_CLASS } from "./inboxMeta";
 import { InboxResumeActionsDialog } from "./InboxResumeActions";
 import { LinkToShidduchSearch } from "./LinkToShidduchSearch";
 import { SuggestedByFields } from "./SuggestedByFields";
-import { resolveSuggestedByValues } from "./suggestedBy";
+import {
+  resolveSuggestedByValues,
+  suggestedByPhoneForName,
+} from "./suggestedBy";
 import {
   hasResumeDocumentAttachment,
   suggestedByNameFromInboxItem,
+  suggestedByPhoneFromInboxItem,
   useResolveInboxItem,
 } from "./useResolveInboxItem";
 import { hasResumeShapedAttachment } from "./useParseResume";
@@ -180,12 +184,19 @@ const LegacyInboxResolveDialog = ({
     setIsBusy(true);
     try {
       const suggestedBy = await resolveSuggestedByValues(values);
+      const suggestedByName =
+        suggestedBy.suggestedByName ?? suggestedByNameFromInboxItem(item);
       const input: CreateShidduchInput = {
         single_id: values.single_id as Identifier,
         shadchan_id: suggestedBy.shadchanId,
-        suggested_by_name:
-          suggestedBy.suggestedByName ?? suggestedByNameFromInboxItem(item),
-        suggested_by_phone: suggestedBy.suggestedByPhone,
+        suggested_by_name: suggestedByName,
+        suggested_by_phone:
+          suggestedBy.suggestedByName != null
+            ? suggestedByPhoneForName(
+                suggestedByName,
+                suggestedBy.suggestedByPhone,
+              )
+            : suggestedByPhoneFromInboxItem(item),
         name_en: readTextField(values.name_en)?.trim() || null,
         // Story 8.3 (AC-4): a shadchan-sourced item enters via
         // create_shidduch() with origin: 'shadchan', never 'channel' or
@@ -306,7 +317,7 @@ const LegacyInboxResolveDialog = ({
               single_id: item.single_id ?? undefined,
               shadchan_id: lockedShadchanId ?? item.shadchan_id ?? undefined,
               suggested_by_name: suggestedByNameFromInboxItem(item) ?? "",
-              suggested_by_phone: "",
+              suggested_by_phone: suggestedByPhoneFromInboxItem(item) ?? "",
               initial_state: "new",
               redt_date: item.created_at?.split("T")[0],
             }}
