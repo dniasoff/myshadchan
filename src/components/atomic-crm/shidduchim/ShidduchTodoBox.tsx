@@ -191,7 +191,7 @@ export const ShidduchTodoBox = ({
           ref={headingRef}
           id="shidduch-todo-heading"
           tabIndex={-1}
-          className="font-display text-lg font-semibold outline-none"
+          className="font-display text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           To do
         </h3>

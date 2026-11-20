@@ -250,9 +250,16 @@ describe("ShidduchTodoBox interactions", () => {
     await expect
       .element(screen.getByRole("status"))
       .toHaveTextContent("To do completed");
+    const heading = screen.getByRole("heading", { name: "To do" });
+    await expect.element(heading).toHaveFocus();
     await expect
-      .element(screen.getByRole("heading", { name: "To do" }))
-      .toHaveFocus();
+      .element(heading)
+      .toHaveClass(
+        "focus-visible:ring-2",
+        "focus-visible:ring-ring",
+        "focus-visible:ring-offset-2",
+        "focus-visible:ring-offset-background",
+      );
 
     expect(update).toHaveBeenCalledWith(
       "tasks",
