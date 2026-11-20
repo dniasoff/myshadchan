@@ -91,6 +91,18 @@ describe("TaskReminderBox", () => {
     );
   });
 
+  it("associates the task text input with its target-specific character counter", async () => {
+    const { screen } = await renderBox();
+    const textInput = screen.getByLabelText("What do I need to do?");
+
+    await expect
+      .element(textInput)
+      .toHaveAttribute("aria-describedby", "reminder-shadchan-7-text-count");
+    await expect
+      .element(screen.getByText("0/500"))
+      .toHaveAttribute("id", "reminder-shadchan-7-text-count");
+  });
+
   it("rejects an invalid typed time instead of submitting a wrong due date", async () => {
     const create = vi.fn();
     const { screen } = await renderBox([], { create });
@@ -203,6 +215,46 @@ describe("TaskReminderBox", () => {
       .toBeInTheDocument();
   });
 
+  it("keeps concurrent completion guards independent when promises settle out of order", async () => {
+    const firstTask = buildTask({ id: 20, text: "Call the first family" });
+    const secondTask = buildTask({ id: 21, text: "Call the second family" });
+    const taskById = new Map([
+      [20, firstTask],
+      [21, secondTask],
+    ]);
+    const resolvers = new Map<number, () => void>();
+    const update = vi.fn().mockImplementation(
+      (_resource: string, params: { id: number }) =>
+        new Promise<{ data: Task }>((resolve) => {
+          resolvers.set(params.id, () =>
+            resolve({ data: taskById.get(params.id)! }),
+          );
+        }),
+    );
+    const { screen } = await renderBox([firstTask, secondTask], { update });
+    const firstCheckbox = screen.getByRole("checkbox", {
+      name: "Mark Call the first family complete",
+    });
+    const secondCheckbox = screen.getByRole("checkbox", {
+      name: "Mark Call the second family complete",
+    });
+
+    await firstCheckbox.click();
+    await secondCheckbox.click();
+    expect(update).toHaveBeenCalledTimes(2);
+    await expect.element(firstCheckbox).toBeDisabled();
+    await expect.element(secondCheckbox).toBeDisabled();
+
+    resolvers.get(20)?.();
+    await expect.element(firstCheckbox).not.toBeDisabled();
+    await expect.element(secondCheckbox).toBeDisabled();
+    await secondCheckbox.click({ force: true });
+    expect(update).toHaveBeenCalledTimes(2);
+
+    resolvers.get(21)?.();
+    await expect.element(secondCheckbox).not.toBeDisabled();
+  });
+
   it("focuses the stable heading after delete and the restored Edit button after Undo", async () => {
     const task = buildTask({ id: 12 });
     const { screen } = await renderBox([task]);
@@ -243,6 +295,38 @@ describe("TaskReminderBox", () => {
 
     await screen.getByRole("button", { name: "Close toast" }).click();
     await expect.poll(() => deleteTask.mock.calls.length).toBe(1);
+  });
+
+  it("keeps the delete Undo action available for the full ten-second window", async () => {
+    const task = buildTask({ id: 15 });
+    const deleteTask = vi.fn().mockResolvedValue({ data: task });
+    const { screen } = await renderBox([task], {
+      delete: deleteTask,
+    });
+    vi.useFakeTimers();
+
+    try {
+      await screen.getByRole("button", { name: "Delete" }).click();
+      await screen
+        .getByRole("dialog")
+        .getByRole("button", { name: "Delete" })
+        .click();
+      await expect
+        .element(screen.getByRole("button", { name: "Undo" }))
+        .toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(9_999);
+      await expect
+        .element(screen.getByRole("button", { name: "Undo" }))
+        .toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect
+        .element(screen.getByRole("button", { name: "Undo" }))
+        .not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("asks for confirmation before deleting and keeps the action word-labelled", async () => {
