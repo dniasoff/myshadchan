@@ -91,6 +91,18 @@ describe("TaskReminderBox", () => {
     );
   });
 
+  it("associates the task text input with its target-specific character counter", async () => {
+    const { screen } = await renderBox();
+    const textInput = screen.getByLabelText("What do I need to do?");
+
+    await expect
+      .element(textInput)
+      .toHaveAttribute("aria-describedby", "reminder-shadchan-7-text-count");
+    await expect
+      .element(screen.getByText("0/500"))
+      .toHaveAttribute("id", "reminder-shadchan-7-text-count");
+  });
+
   it("rejects an invalid typed time instead of submitting a wrong due date", async () => {
     const create = vi.fn();
     const { screen } = await renderBox([], { create });
@@ -283,6 +295,38 @@ describe("TaskReminderBox", () => {
 
     await screen.getByRole("button", { name: "Close toast" }).click();
     await expect.poll(() => deleteTask.mock.calls.length).toBe(1);
+  });
+
+  it("keeps the delete Undo action available for the full ten-second window", async () => {
+    const task = buildTask({ id: 15 });
+    const deleteTask = vi.fn().mockResolvedValue({ data: task });
+    const { screen } = await renderBox([task], {
+      delete: deleteTask,
+    });
+    vi.useFakeTimers();
+
+    try {
+      await screen.getByRole("button", { name: "Delete" }).click();
+      await screen
+        .getByRole("dialog")
+        .getByRole("button", { name: "Delete" })
+        .click();
+      await expect
+        .element(screen.getByRole("button", { name: "Undo" }))
+        .toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(9_999);
+      await expect
+        .element(screen.getByRole("button", { name: "Undo" }))
+        .toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect
+        .element(screen.getByRole("button", { name: "Undo" }))
+        .not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("asks for confirmation before deleting and keeps the action word-labelled", async () => {

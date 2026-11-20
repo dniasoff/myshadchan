@@ -159,6 +159,7 @@ const ReminderRow = ({
       notify("Deleted. Undo is available for 10 seconds.", {
         type: "info",
         undoable: true,
+        autoHideDuration: 10_000,
       });
     },
     onUndo: () => {
@@ -461,6 +462,7 @@ export const TaskReminderBox = ({
   const listRef = useRef<HTMLUListElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const inputPrefix = inputId(targetType, targetId, "");
+  const textCountId = `${inputPrefix}text-count`;
 
   const {
     data,
@@ -676,6 +678,7 @@ export const TaskReminderBox = ({
           <div className="flex items-center justify-between gap-3">
             <Label htmlFor={`${inputPrefix}text`}>What do I need to do?</Label>
             <span
+              id={textCountId}
               className={
                 text.length > TASK_REMINDER_TEXT_MAX_LENGTH
                   ? "text-xs text-destructive"
@@ -691,6 +694,7 @@ export const TaskReminderBox = ({
             value={text}
             onChange={(event) => setText(event.target.value)}
             aria-label="What do I need to do?"
+            aria-describedby={textCountId}
             maxLength={TASK_REMINDER_TEXT_MAX_LENGTH}
             placeholder="What do I need to do?"
             dir="auto"
