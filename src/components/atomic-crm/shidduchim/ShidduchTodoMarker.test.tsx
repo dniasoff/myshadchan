@@ -6,30 +6,57 @@ import { ShidduchTodoMarker } from "./ShidduchTodoMarker";
 import {
   ShidduchTodoSummaryContext,
   ShidduchTodoSummaryStatusContext,
+  type ShidduchTodoSummaryStatus,
   ShidduchTodoVisibilityContext,
 } from "./ShidduchTodoSummaryContext";
 
-const renderMarker = async (
-  summary: {
-    count: number;
-    earliestDueDate: string | null;
-    hasOverdue: boolean;
-    isDueSoon: boolean;
-  },
+type MarkerSummary = {
+  count: number;
+  earliestDueDate: string | null;
+  hasOverdue: boolean;
+  isDueSoon: boolean;
+};
+
+const summary: MarkerSummary = {
+  count: 0,
+  earliestDueDate: null,
+  hasOverdue: false,
+  isDueSoon: false,
+};
+
+const MarkerHarness = ({
+  status = "ready",
   visible = true,
+  markerSummary = summary,
+}: {
+  status?: ShidduchTodoSummaryStatus;
+  visible?: boolean;
+  markerSummary?: MarkerSummary;
+}) => (
+  <TestMemoryRouter>
+    <ShidduchTodoVisibilityContext.Provider value={visible}>
+      <ShidduchTodoSummaryStatusContext.Provider value={status}>
+        <ShidduchTodoSummaryContext.Provider
+          value={new Map([["42", markerSummary]])}
+        >
+          <ShidduchTodoMarker shidduchId={42} />
+        </ShidduchTodoSummaryContext.Provider>
+      </ShidduchTodoSummaryStatusContext.Provider>
+    </ShidduchTodoVisibilityContext.Provider>
+  </TestMemoryRouter>
+);
+
+const renderMarker = async (
+  markerSummary: MarkerSummary,
+  visible = true,
+  status: ShidduchTodoSummaryStatus = "ready",
 ) =>
   render(
-    <TestMemoryRouter>
-      <ShidduchTodoVisibilityContext.Provider value={visible}>
-        <ShidduchTodoSummaryStatusContext.Provider value="ready">
-          <ShidduchTodoSummaryContext.Provider
-            value={new Map([["42", summary]])}
-          >
-            <ShidduchTodoMarker shidduchId={42} />
-          </ShidduchTodoSummaryContext.Provider>
-        </ShidduchTodoSummaryStatusContext.Provider>
-      </ShidduchTodoVisibilityContext.Provider>
-    </TestMemoryRouter>,
+    <MarkerHarness
+      status={status}
+      visible={visible}
+      markerSummary={markerSummary}
+    />,
   );
 
 describe("ShidduchTodoMarker", () => {
@@ -85,6 +112,56 @@ describe("ShidduchTodoMarker", () => {
 
     await expect
       .element(screen.getByLabelText(/to do/))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps a stable slot while loading and when the summary resolves", async () => {
+    const screen = await renderMarker(summary, true, "loading");
+    const loadingSlot = screen.container.querySelector(
+      '[data-slot="shidduch-todo-marker-slot"]',
+    );
+
+    expect(loadingSlot).not.toBeNull();
+    expect(loadingSlot).toHaveClass("min-h-6");
+    expect(loadingSlot).toHaveAttribute("aria-hidden", "true");
+    await expect
+      .element(screen.getByText("No open to do"))
+      .not.toBeInTheDocument();
+
+    await screen.rerender(
+      <MarkerHarness
+        status="ready"
+        markerSummary={{
+          count: 1,
+          earliestDueDate: "2026-11-16T09:00:00Z",
+          hasOverdue: false,
+          isDueSoon: true,
+        }}
+      />,
+    );
+
+    const readySlot = screen.container.querySelector(
+      '[data-slot="shidduch-todo-marker-slot"]',
+    );
+    expect(readySlot).toBe(loadingSlot);
+    expect(readySlot).toHaveClass("min-h-6");
+    expect(readySlot).not.toHaveAttribute("aria-hidden");
+    await expect.element(screen.getByText(/1 to do ·/)).toBeInTheDocument();
+  });
+
+  it("reserves the slot and announces unavailable status on provider error", async () => {
+    const screen = await renderMarker(summary, true, "error");
+    const slot = screen.container.querySelector(
+      '[data-slot="shidduch-todo-marker-slot"]',
+    );
+
+    expect(slot).not.toBeNull();
+    expect(slot).toHaveClass("min-h-6");
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("To do status unavailable");
+    await expect
+      .element(screen.getByText("No open to do"))
       .not.toBeInTheDocument();
   });
 });

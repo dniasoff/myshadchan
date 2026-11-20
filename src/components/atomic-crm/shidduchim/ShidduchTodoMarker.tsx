@@ -17,7 +17,31 @@ export const ShidduchTodoMarker = ({
   const canSee = useShidduchTodoVisibility();
   const status = useShidduchTodoSummaryStatus();
   const summary = useShidduchTodoSummary(shidduchId);
-  if (!canSee || status !== "ready") return null;
+  if (!canSee) return null;
+
+  const slotClassName = "mt-1 flex min-h-6 max-w-full items-center";
+
+  if (status === "loading") {
+    return (
+      <span
+        data-slot="shidduch-todo-marker-slot"
+        className={slotClassName}
+        aria-hidden="true"
+      />
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <span data-slot="shidduch-todo-marker-slot" className={slotClassName}>
+        <span role="status" aria-live="polite" className="sr-only">
+          To do status unavailable
+        </span>
+      </span>
+    );
+  }
+
+  if (status !== "ready") return null;
 
   const label =
     summary.count === 0
@@ -28,27 +52,29 @@ export const ShidduchTodoMarker = ({
   const isAmber = summary.count > 0 && !summary.hasOverdue && summary.isDueSoon;
 
   return (
-    <span
-      aria-label={label}
-      data-slot="shidduch-todo-marker"
-      className={cn(
-        "mt-1 inline-flex max-w-full items-center gap-1 truncate rounded-full px-2 py-0.5 text-[11px] font-medium",
-        summary.hasOverdue
-          ? "bg-destructive/10 text-destructive"
-          : isAmber
-            ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
-            : "bg-muted text-muted-foreground",
-      )}
-    >
-      {summary.hasOverdue ? (
-        <AlertCircle className="size-3 shrink-0" aria-hidden="true" />
-      ) : summary.count > 0 ? (
-        <ListChecks className="size-3 shrink-0" aria-hidden="true" />
-      ) : (
-        <CircleCheck className="size-3 shrink-0" aria-hidden="true" />
-      )}
-      <span className="truncate" dir="auto">
-        {label}
+    <span data-slot="shidduch-todo-marker-slot" className={slotClassName}>
+      <span
+        aria-label={label}
+        data-slot="shidduch-todo-marker"
+        className={cn(
+          "inline-flex max-w-full items-center gap-1 truncate rounded-full px-2 py-0.5 text-[11px] font-medium",
+          summary.hasOverdue
+            ? "bg-destructive/10 text-destructive"
+            : isAmber
+              ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+              : "bg-muted text-muted-foreground",
+        )}
+      >
+        {summary.hasOverdue ? (
+          <AlertCircle className="size-3 shrink-0" aria-hidden="true" />
+        ) : summary.count > 0 ? (
+          <ListChecks className="size-3 shrink-0" aria-hidden="true" />
+        ) : (
+          <CircleCheck className="size-3 shrink-0" aria-hidden="true" />
+        )}
+        <span className="truncate" dir="auto">
+          {label}
+        </span>
       </span>
     </span>
   );
