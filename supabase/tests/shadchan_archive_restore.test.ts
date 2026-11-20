@@ -491,7 +491,7 @@ from add_redt_purge_race_result \\gset
       "P0001",
     );
     expect(extractOutputValue(addRedtOutput, "ADD_REDT_PURGE_ERROR")).toBe(
-      "shadchan " + fixture.shadchanId + " not found in current account",
+      "shidduch " + fixture.shidduchId + " not found in current account",
     );
   });
 
@@ -541,7 +541,7 @@ from create_purge_race_result \\gset
       "P0001",
     );
     expect(extractOutputValue(createOutput, "CREATE_PURGE_ERROR")).toBe(
-      "shadchan " + fixture.shadchanId + " not found in current account",
+      "single " + fixture.singleId + " not found in current account",
     );
   });
 });
