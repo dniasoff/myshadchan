@@ -148,5 +148,8 @@ select 'suggested-by grants are readable by authenticated',
     and has_column_privilege('authenticated', 'public.shidduchim', 'suggested_by_phone', 'SELECT'),
   'column SELECT privileges';
 
-select json_agg(results order by name) from results;
+\pset format unaligned
+\pset tuples_only on
+\pset columns 0
+select json_agg(row_to_json(results) order by name) from results;
 rollback;

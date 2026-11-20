@@ -34,9 +34,13 @@ function runSuite(): { checks: Check[]; error?: string } {
       ? { checks: JSON.parse(reportLine) as Check[] }
       : { checks: [], error: `no report emitted:\n${stdout.slice(-2000)}` };
   } catch (error) {
+    const stderr =
+      error && typeof error === "object" && "stderr" in error
+        ? String((error as { stderr?: unknown }).stderr ?? "")
+        : "";
     return {
       checks: [],
-      error: error instanceof Error ? error.message : String(error),
+      error: `${error instanceof Error ? error.message : String(error)}${stderr ? `\n${stderr}` : ""}`,
     };
   }
 }
