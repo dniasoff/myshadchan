@@ -507,13 +507,14 @@ declare
   v_grant public.child_grants;
   v_grantee_account_id bigint := public.current_context_id();
   v_target_account_id bigint;
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
   v_grantee_kind text;
   v_member_role text;
 begin
   select * into v_grant
   from public.child_grants
-  where token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex')
-  for update;
+  where token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex');
 
   if not found or v_grant.status <> 'pending' or v_grant.expires_at <= now() then
     raise exception 'This child grant is invalid, expired, or has already been used.'
@@ -539,7 +540,58 @@ begin
 
   select account_id into v_target_account_id
   from public.singles
-  where id = v_grant.target_single_id;
+  where id = v_grant.target_single_id
+  for share;
+
+  v_lock_accounts := array[
+    v_grant.proposer_account_id,
+    v_target_account_id,
+    v_grantee_account_id
+  ];
+  for v_lock_account_id in
+    select distinct account_id
+    from unnest(v_lock_accounts) requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+
+  -- The plain read above only identifies the parent and endpoint accounts.
+  -- Re-read the child row after the ordered account locks so a concurrent
+  -- revoke, acceptance, or endpoint change cannot be overwritten.
+  select * into v_grant
+  from public.child_grants
+  where token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex')
+  for update;
+
+  if not found or v_grant.status <> 'pending' or v_grant.expires_at <= now() then
+    raise exception 'This child grant is invalid, expired, or has already been used.'
+      using errcode = 'check_violation';
+  end if;
+
+  select account_id into v_target_account_id
+  from public.singles
+  where id = v_grant.target_single_id
+  for share;
+
+  if v_grantee_account_id is null or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_grantee_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+  ) then
+    raise exception 'accept_child_grant requires an active membership of the current context'
+      using errcode = 'insufficient_privilege';
+  end if;
+  perform public.demo_assert_registered_actor(v_grantee_account_id, auth.uid(), 'child grant acceptance');
+
+  select kind into v_grantee_kind from public.accounts where id = v_grantee_account_id;
+  if v_grantee_kind not in ('household', 'shadchanus') then
+    raise exception 'a child grant can only be accepted by a household or shadchanus context'
+      using errcode = 'check_violation';
+  end if;
 
   perform public.demo_assert_same_active_run(
     array[v_grant.proposer_account_id, v_target_account_id, v_grantee_account_id],
@@ -3218,6 +3270,8 @@ declare
   v_proposer_kind text;
   v_token text;
   v_single public.singles;
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
   v_member_role text;
 begin
   -- Validated early, ahead of the authorization checks below: a malformed
@@ -3253,7 +3307,32 @@ begin
   select * into v_single
   from public.singles
   where id = p_target_single_id
-    and account_id = v_proposer_account_id;
+    and account_id = v_proposer_account_id
+  for share;
+
+  if not found then
+    raise exception 'single % not found in this household', p_target_single_id
+      using errcode = 'check_violation';
+  end if;
+
+  v_lock_accounts := array[v_proposer_account_id, v_single.account_id];
+  for v_lock_account_id in
+    select distinct account_id
+    from unnest(v_lock_accounts) requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+
+  -- Re-read the target parent after the ordered endpoint locks.  The child
+  -- grant trigger will take KEY SHARE on these same accounts during INSERT.
+  select * into v_single
+  from public.singles
+  where id = p_target_single_id
+    and account_id = v_proposer_account_id
+  for share;
 
   if not found then
     raise exception 'single % not found in this household', p_target_single_id
@@ -7586,9 +7665,47 @@ CREATE OR REPLACE FUNCTION "public"."revoke_child_grant"("p_grant_id" bigint) RE
 declare
   v_grant public.child_grants;
   v_actor_account_id bigint := public.current_context_id();
+  v_target_account_id bigint;
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
 begin
   select * into v_grant from public.child_grants where id = p_grant_id;
 
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_grant.proposer_account_id
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found', p_grant_id;
+  end if;
+
+  select account_id into v_target_account_id
+  from public.singles
+  where id = v_grant.target_single_id
+  for share;
+  v_lock_accounts := array[
+    v_grant.proposer_account_id,
+    v_grant.grantee_account_id,
+    v_grant.severed_by_account_id,
+    v_target_account_id,
+    v_actor_account_id
+  ];
+  for v_lock_account_id in
+    select distinct account_id
+    from unnest(v_lock_accounts) requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+
+  select * into v_grant from public.child_grants where id = p_grant_id for update;
   if not found
      or v_actor_account_id is null
      or v_actor_account_id <> v_grant.proposer_account_id
@@ -7987,10 +8104,48 @@ CREATE OR REPLACE FUNCTION "public"."sever_child_grant"("p_grant_id" bigint) RET
 declare
   v_grant public.child_grants;
   v_actor_account_id bigint := public.current_context_id();
+  v_target_account_id bigint;
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
   v_member_role text;
 begin
   select * into v_grant from public.child_grants where id = p_grant_id;
 
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id not in (v_grant.proposer_account_id, v_grant.grantee_account_id)
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found', p_grant_id;
+  end if;
+
+  select account_id into v_target_account_id
+  from public.singles
+  where id = v_grant.target_single_id
+  for share;
+  v_lock_accounts := array[
+    v_grant.proposer_account_id,
+    v_grant.grantee_account_id,
+    v_grant.severed_by_account_id,
+    v_target_account_id,
+    v_actor_account_id
+  ];
+  for v_lock_account_id in
+    select distinct account_id
+    from unnest(v_lock_accounts) requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+
+  select * into v_grant from public.child_grants where id = p_grant_id for update;
   if not found
      or v_actor_account_id is null
      or v_actor_account_id not in (v_grant.proposer_account_id, v_grant.grantee_account_id)
@@ -8799,6 +8954,8 @@ declare
   v_member_id bigint;
   v_service_role boolean;
   v_shidduch_account_id bigint;
+  v_shidduch_single_id bigint;
+  v_lock_account_id bigint;
   v_row public.shidduchim;
   v_transition public.shidduch_stage_transitions;
   v_latest public.shidduch_stage_transitions;
@@ -8810,16 +8967,16 @@ begin
   v_member_id := public.current_member_id();
 
   -- A missing active context includes anonymous and pending memberships.  The
-  -- demo fence is shared with other customer writes: a clearing/expired demo
-  -- must not accept a stale browser undo.
+  -- demo fence below is shared with other customer writes: a clearing/expired
+  -- demo must not accept a stale browser undo.
   if v_account_id is null
-     or not public.demo_storage_write_fence(v_account_id)
      or (not v_service_role and (auth.uid() is null or v_role is null or v_role = 'single')) then
     raise exception 'undo is not available for shidduch %', p_id
       using errcode = 'insufficient_privilege';
   end if;
 
-  select s.account_id into v_shidduch_account_id
+  select s.account_id, s.single_id
+  into v_shidduch_account_id, v_shidduch_single_id
   from public.shidduchim s
   where s.id = p_id;
 
@@ -8827,9 +8984,14 @@ begin
     raise exception 'shidduch % not found', p_id;
   end if;
 
-  -- Match account_storage_cleanup_fence(): all parent rows (singles, then
-  -- shidduchim in id order), then the account advisory fence, then the account
-  -- row. This single global order prevents undo/delete deadlocks.
+  -- Match account_storage_cleanup_fence(): all target-account parent rows
+  -- (singles, then shidduchim in id order) come before any account lock. This
+  -- preserves the purge/undo order. Once those parents are held, take every
+  -- account involved by this shidduch (the caller, owner, and all accepted
+  -- grant endpoints for its target single) in ascending id order. The FOR
+  -- UPDATE account lock is the strongest mode needed by either side, so the
+  -- later demo fence's FOR KEY SHARE is re-entrant and cannot create an
+  -- owner/caller/grant-endpoint lock cycle.
   perform 1
   from public.singles
   where account_id = v_shidduch_account_id
@@ -8840,11 +9002,47 @@ begin
   where account_id = v_shidduch_account_id
   order by id
   for update;
-  perform public.account_storage_lock(v_shidduch_account_id);
-  perform 1
-  from public.accounts a
-  where a.id = v_shidduch_account_id
-  for update;
+
+  for v_lock_account_id in
+    select lock_account_id
+    from (
+      select v_shidduch_account_id as lock_account_id
+      union all
+      select v_account_id
+      union all
+      select g.proposer_account_id
+      from public.child_grants g
+      where g.target_single_id = v_shidduch_single_id
+        and g.status = 'accepted'
+      union all
+      select g.grantee_account_id
+      from public.child_grants g
+      where g.target_single_id = v_shidduch_single_id
+        and g.status = 'accepted'
+      union all
+      select g.severed_by_account_id
+      from public.child_grants g
+      where g.target_single_id = v_shidduch_single_id
+        and g.status = 'accepted'
+    ) as lock_accounts(lock_account_id)
+    where lock_account_id is not null
+    group by lock_account_id
+    order by lock_account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+    perform 1
+    from public.accounts a
+    where a.id = v_lock_account_id
+    for update;
+  end loop;
+
+  -- demo_storage_write_fence() takes the caller account row FOR KEY SHARE. It
+  -- runs after the parent-first locks and after both account rows are already
+  -- held FOR UPDATE, so it cannot invert the deterministic account order.
+  if not public.demo_storage_write_fence(v_account_id) then
+    raise exception 'undo is not available for shidduch %', p_id
+      using errcode = 'insufficient_privilege';
+  end if;
 
   select s.* into v_row
   from public.shidduchim s
@@ -9018,6 +9216,9 @@ CREATE OR REPLACE FUNCTION "public"."update_child_grant_access"("p_grant_id" big
 declare
   v_grant public.child_grants;
   v_actor_account_id bigint := public.current_context_id();
+  v_target_account_id bigint;
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
 begin
   if p_access_level not in ('read', 'comment', 'edit') then
     raise exception 'access_level must be one of read, comment, edit (got %)', p_access_level
@@ -9026,6 +9227,41 @@ begin
 
   select * into v_grant from public.child_grants where id = p_grant_id;
 
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_grant.proposer_account_id
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found', p_grant_id;
+  end if;
+
+  select account_id into v_target_account_id
+  from public.singles
+  where id = v_grant.target_single_id
+  for share;
+  v_lock_accounts := array[
+    v_grant.proposer_account_id,
+    v_grant.grantee_account_id,
+    v_grant.severed_by_account_id,
+    v_target_account_id,
+    v_actor_account_id
+  ];
+  for v_lock_account_id in
+    select distinct account_id
+    from unnest(v_lock_accounts) requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+
+  select * into v_grant from public.child_grants where id = p_grant_id for update;
   if not found
      or v_actor_account_id is null
      or v_actor_account_id <> v_grant.proposer_account_id
@@ -10615,12 +10851,46 @@ declare
   v_new_grant public.child_grants;
   v_actor_account_id bigint := public.current_context_id();
   v_target_account_id bigint;
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
   v_run_id bigint;
   v_token text;
 begin
+  select * into v_old_grant from public.child_grants where id = p_grant_id;
+  select account_id into v_target_account_id
+  from public.singles where id = v_old_grant.target_single_id for share;
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_old_grant.proposer_account_id
+     or v_target_account_id is null
+     or not exists (
+       select 1 from public.account_members am
+       where am.account_id = v_actor_account_id and am.user_id = auth.uid()
+         and am.status = 'active' and am.role in ('parent_admin', 'self_manager')
+     ) then
+    raise exception 'child grant % not found or not authorized to re-grant', p_grant_id;
+  end if;
+
+  v_lock_accounts := array[
+    v_old_grant.proposer_account_id,
+    v_old_grant.grantee_account_id,
+    v_old_grant.severed_by_account_id,
+    v_target_account_id,
+    v_actor_account_id
+  ];
+  for v_lock_account_id in
+    select distinct account_id
+    from unnest(v_lock_accounts) requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+
   select * into v_old_grant from public.child_grants where id = p_grant_id for update;
   select account_id into v_target_account_id
-  from public.singles where id = v_old_grant.target_single_id;
+  from public.singles where id = v_old_grant.target_single_id for share;
   if not found
      or v_actor_account_id is null
      or v_actor_account_id <> v_old_grant.proposer_account_id
@@ -11212,10 +11482,70 @@ RETURNS boolean
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path TO ''
 AS $$
+declare
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
 begin
   -- Account deletion uses parent rows (singles, then shidduchim, ascending
-  -- id) -> advisory fence -> account row. This is the single global order
-  -- for storage writers.
+  -- id) -> every related account's advisory fence in ascending account-id
+  -- order -> every related account row in that same order. In particular,
+  -- collect child-grant endpoints before taking any account row: the delete
+  -- trigger takes KEY SHARE on those endpoints, so taking only the caller's
+  -- row first can deadlock with an accepted-edit undo.
+  select array_agg(lock_account_id order by lock_account_id)
+  into v_lock_accounts
+  from (
+    select distinct lock_account_id
+    from (
+      select p_account_id as lock_account_id
+      union all
+      select g.proposer_account_id
+      from public.child_grants g
+      where g.proposer_account_id = p_account_id
+         or g.grantee_account_id = p_account_id
+         or g.severed_by_account_id = p_account_id
+         or exists (
+           select 1
+           from public.singles s
+           where s.id = g.target_single_id
+             and s.account_id = p_account_id
+         )
+      union all
+      select g.grantee_account_id
+      from public.child_grants g
+      where g.proposer_account_id = p_account_id
+         or g.grantee_account_id = p_account_id
+         or g.severed_by_account_id = p_account_id
+         or exists (
+           select 1
+           from public.singles s
+           where s.id = g.target_single_id
+             and s.account_id = p_account_id
+         )
+      union all
+      select g.severed_by_account_id
+      from public.child_grants g
+      where g.proposer_account_id = p_account_id
+         or g.grantee_account_id = p_account_id
+         or g.severed_by_account_id = p_account_id
+         or exists (
+           select 1
+           from public.singles s
+           where s.id = g.target_single_id
+             and s.account_id = p_account_id
+         )
+      union all
+      select s.account_id
+      from public.child_grants g
+      join public.singles s on s.id = g.target_single_id
+      where g.proposer_account_id = p_account_id
+         or g.grantee_account_id = p_account_id
+         or g.severed_by_account_id = p_account_id
+         or s.account_id = p_account_id
+    ) endpoint_accounts
+    where lock_account_id is not null
+  ) ordered_accounts;
+
   perform 1
   from public.singles
   where account_id = p_account_id
@@ -11226,7 +11556,13 @@ begin
   where account_id = p_account_id
   order by id
   for update;
-  perform public.account_storage_lock(p_account_id);
+  for v_lock_account_id in
+    select unnest(coalesce(v_lock_accounts, array[]::bigint[]))
+    order by 1
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
   if not exists (select 1 from public.accounts where id = p_account_id) then
     return true;
   end if;
