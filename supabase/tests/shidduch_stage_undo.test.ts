@@ -740,7 +740,7 @@ select :account_a || ',' || :account_b || ',' || :grant_id;
 
     // Hold the higher endpoint account first. The purge then reports its
     // actual wait on that row before the mutator starts. Releasing the
-    // blocker after the mutator is also waiting makes the old child-row-first
+    // blocker after the mutator is also waiting makes the old grant-row-first
     // order form a deterministic cycle; account-first locking must serialize.
     const blocker = runPsqlInteractiveUntil(
       `\\set ON_ERROR_STOP on
