@@ -756,7 +756,7 @@ select id from public.accounts where id = ${accountB} for update;
     const releaseBlocker = () => {
       if (blockerReleased) return;
       blockerReleased = true;
-      blocker.send("commit;\\n\\q\\n");
+      blocker.send("commit;\n\\q\n");
       blocker.end();
     };
 
