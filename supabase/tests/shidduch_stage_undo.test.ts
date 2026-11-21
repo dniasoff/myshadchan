@@ -730,9 +730,9 @@ commit;
 select :account_a || ',' || :account_b || ',' || :grant_id;
 `);
     const fixture = setup
-      .split("\\n")
+      .split("\n")
       .map((line) => line.trim())
-      .find((line) => /^(\\d+,){2}\\d+$/.test(line));
+      .find((line) => /^(\d+,){2}\d+$/.test(line));
     if (!fixture) {
       throw new Error(`could not parse grant/purge fixture: ${setup}`);
     }
