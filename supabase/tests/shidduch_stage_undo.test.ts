@@ -198,6 +198,28 @@ function runPsqlInteractiveUntil(
   };
 }
 
+async function waitForDatabaseLockWait(applicationName: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const report = await runPsqlScript(`
+set role postgres;
+\\pset format unaligned
+\\pset tuples_only on
+\\pset columns 0
+select exists (
+  select 1
+  from pg_stat_activity
+  where application_name = '${applicationName}'
+    and state = 'active'
+    and wait_event_type = 'Lock'
+);
+`);
+    if (report.trim() === "t") return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`timed out waiting for ${applicationName} to wait on a lock`);
+}
+
 describe("shidduch stage undo versus account purge", () => {
   if (bailIfDbUnreachable(error)) return;
 
@@ -651,6 +673,173 @@ from (
       }
     } finally {
       releaseGate();
+      await runPsqlScript(`
+set role postgres;
+drop table if exists public.${resultTable};
+delete from public.accounts where id in (${accountA}, ${accountB});
+delete from auth.users where id in ('${userA}', '${userB}');
+`);
+    }
+  });
+
+  it("serializes an accepted-edit mutator with account purge", async () => {
+    const token = `${randomUUID().replaceAll("-", "")}_grant_purge`;
+    const userA = randomUUID();
+    const userB = randomUUID();
+    const resultTable = `stage_undo_grant_purge_${token}`;
+    const blockerApp = `stage_undo_blocker_${token}`;
+    const purgeApp = `stage_undo_purge_${token}`;
+    const mutatorApp = `stage_undo_mutator_${token}`;
+    const setup = await runPsqlScript(`
+\\set ON_ERROR_STOP on
+begin;
+set local role postgres;
+insert into auth.users (id, instance_id, aud, role, email)
+values
+  ('${userA}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '${userA}@test.invalid'),
+  ('${userB}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '${userB}@test.invalid');
+insert into public.accounts (name) values ('stage grant purge A ${token}') returning id as account_a \\gset
+insert into public.accounts (name) values ('stage grant purge B ${token}') returning id as account_b \\gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:account_a, '${userA}', 'parent_admin', 'active') returning id as member_a \\gset
+insert into public.account_members (account_id, user_id, role, status)
+values (:account_b, '${userB}', 'parent_admin', 'active') returning id as member_b \\gset
+insert into public.member_state (user_id, active_account_id)
+values ('${userA}', :account_a), ('${userB}', :account_b)
+on conflict (user_id) do update set active_account_id = excluded.active_account_id;
+insert into public.singles (account_id, first_name_en)
+values (:account_b, 'Grant purge target') returning id as single_b \\gset
+insert into public.child_grants
+  (proposer_account_id, target_single_id, token_hash, status, expires_at,
+   grantee_account_id, accepted_at, access_level)
+values
+  (:account_b, :single_b, 'stage-undo-grant-purge-${token}', 'accepted',
+   now() + interval '30 days', :account_a, now(), 'edit')
+returning id as grant_id \\gset
+create table public.${resultTable} (
+  runner text primary key,
+  completed boolean not null,
+  sqlstate_code text,
+  error_message text
+);
+grant insert on public.${resultTable} to authenticated;
+commit;
+\\pset format unaligned
+\\pset tuples_only on
+\\pset columns 0
+select :account_a || ',' || :account_b || ',' || :grant_id;
+`);
+    const fixture = setup
+      .split("\\n")
+      .map((line) => line.trim())
+      .find((line) => /^(\\d+,){2}\\d+$/.test(line));
+    if (!fixture) {
+      throw new Error(`could not parse grant/purge fixture: ${setup}`);
+    }
+    const [accountA, accountB, grantId] = fixture.split(",");
+
+    // Hold the higher endpoint account first. The purge then reports its
+    // actual wait on that row before the mutator starts. Releasing the
+    // blocker after the mutator is also waiting makes the old child-row-first
+    // order form a deterministic cycle; account-first locking must serialize.
+    const blocker = runPsqlInteractiveUntil(
+      `\\set ON_ERROR_STOP on
+begin;
+set local role postgres;
+set local application_name = '${blockerApp}';
+select id from public.accounts where id = ${accountB} for update;
+\\echo GRANT_PURGE_BLOCKER_READY
+`,
+      "GRANT_PURGE_BLOCKER_READY",
+    );
+    let blockerReleased = false;
+    const releaseBlocker = () => {
+      if (blockerReleased) return;
+      blockerReleased = true;
+      blocker.send("commit;\\n\\q\\n");
+      blocker.end();
+    };
+
+    let purge: Promise<string> | undefined;
+    let mutator: Promise<string> | undefined;
+    try {
+      await blocker.ready;
+      purge = runPsqlScript(`
+\\set ON_ERROR_STOP on
+begin;
+set local role authenticated;
+set local application_name = '${purgeApp}';
+set local statement_timeout = '5s';
+set request.jwt.claims = '{"sub":"${userA}","role":"authenticated"}';
+do $$
+begin
+  perform public.delete_account_data(${accountA}, '${userA}'::uuid, false);
+  insert into public.${resultTable} values ('purge', true, null, null);
+exception when others then
+  insert into public.${resultTable} values ('purge', false, sqlstate, sqlerrm);
+end
+$$;
+commit;
+`);
+      await waitForDatabaseLockWait(purgeApp);
+
+      mutator = runPsqlScript(`
+\\set ON_ERROR_STOP on
+begin;
+set local role authenticated;
+set local application_name = '${mutatorApp}';
+set local statement_timeout = '5s';
+set request.jwt.claims = '{"sub":"${userB}","role":"authenticated"}';
+do $$
+begin
+  perform public.update_child_grant_access(${grantId}, 'read');
+  insert into public.${resultTable} values ('mutator', true, null, null);
+exception when others then
+  insert into public.${resultTable} values ('mutator', false, sqlstate, sqlerrm);
+end
+$$;
+commit;
+`);
+      await waitForDatabaseLockWait(mutatorApp);
+      releaseBlocker();
+      await Promise.all([purge, mutator]);
+
+      const report = await runPsqlScript(`
+\\set ON_ERROR_STOP on
+set role postgres;
+\\pset format unaligned
+\\pset tuples_only on
+\\pset columns 0
+select json_agg(row_to_json(r) order by r.runner)
+from (
+  select runner, completed, coalesce(sqlstate_code, '') as sqlstate_code,
+         coalesce(error_message, '') as error_message
+  from public.${resultTable}
+) r;
+`);
+      const rows = JSON.parse(report.trim()) as Array<{
+        runner: string;
+        completed: boolean;
+        sqlstate_code: string;
+        error_message: string;
+      }>;
+      expect(rows).toHaveLength(2);
+      const purgeRow = rows.find((row) => row.runner === "purge");
+      const mutatorRow = rows.find((row) => row.runner === "mutator");
+      expect(purgeRow?.completed).toBe(true);
+      expect(mutatorRow?.completed).toBe(false);
+      expect(mutatorRow?.sqlstate_code).not.toBe("40P01");
+      expect(mutatorRow?.sqlstate_code).not.toBe("57014");
+      expect(mutatorRow?.error_message).toBe(
+        `child grant ${grantId} not found`,
+      );
+    } finally {
+      releaseBlocker();
+      await Promise.allSettled(
+        [blocker.done, purge, mutator].filter(
+          (promise): promise is Promise<string> => promise !== undefined,
+        ),
+      );
       await runPsqlScript(`
 set role postgres;
 drop table if exists public.${resultTable};
