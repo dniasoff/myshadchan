@@ -352,8 +352,7 @@ declare
 begin
   select * into v_grant
   from public.child_grants
-  where token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex')
-  ;
+  where token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex');
 
   if not found or v_grant.status <> 'pending' or v_grant.expires_at <= now() then
     raise exception 'This child grant is invalid, expired, or has already been used.'
@@ -455,6 +454,428 @@ begin
   returning * into v_grant;
 
   return v_grant;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."create_child_grant"("p_target_single_id" bigint, "p_grantee_email" "text", "p_access_level" "text" DEFAULT 'read'::"text") RETURNS "text"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_proposer_account_id bigint := public.current_context_id();
+  v_proposer_kind text;
+  v_token text;
+  v_single public.singles;
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
+  v_member_role text;
+begin
+  -- Validated early, ahead of the authorization checks below: a malformed
+  -- access_level is a caller bug, not an authorization question, and the
+  -- CHECK constraint on child_grants would otherwise report it as an opaque
+  -- constraint-violation instead of this clear message.
+  if p_access_level not in ('read', 'comment', 'edit') then
+    raise exception 'access_level must be one of read, comment, edit (got %)', p_access_level
+      using errcode = 'check_violation';
+  end if;
+
+  -- Caller must be an active member of the current context with owning role
+  if v_proposer_account_id is null or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_proposer_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'create_child_grant requires an active parent_admin or self_manager membership of the current context'
+      using errcode = 'insufficient_privilege';
+  end if;
+  perform public.demo_assert_registered_actor(v_proposer_account_id, auth.uid(), 'child grant creation');
+
+  -- Current context must be a household (grants are household-to-household)
+  select kind into v_proposer_kind from public.accounts where id = v_proposer_account_id;
+  if v_proposer_kind <> 'household' then
+    raise exception 'grants can only be proposed from a household context'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Target single must exist and belong to the proposer's account
+  select * into v_single
+  from public.singles
+  where id = p_target_single_id
+    and account_id = v_proposer_account_id
+  for share;
+
+  if not found then
+    raise exception 'single % not found in this household', p_target_single_id
+      using errcode = 'check_violation';
+  end if;
+
+  v_lock_accounts := array[v_proposer_account_id, v_single.account_id];
+  for v_lock_account_id in
+    select distinct account_id
+    from unnest(v_lock_accounts) requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+
+  -- Re-read the target parent after the ordered endpoint locks.  The child
+  -- grant trigger will take KEY SHARE on these same accounts during INSERT.
+  select * into v_single
+  from public.singles
+  where id = p_target_single_id
+    and account_id = v_proposer_account_id
+  for share;
+
+  if not found then
+    raise exception 'single % not found in this household', p_target_single_id
+      using errcode = 'check_violation';
+  end if;
+
+  -- Generate token and store hash
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
+
+  insert into public.child_grants (
+    proposer_account_id, target_single_id, token_hash, expires_at, access_level
+  ) values (
+    v_proposer_account_id, p_target_single_id,
+    encode(extensions.digest(v_token, 'sha256'), 'hex'),
+    now() + interval '7 days',
+    p_access_level
+  );
+
+  perform public.demo_register_seed_resource(
+    'child_grant',
+    (select id from public.child_grants
+     where token_hash = encode(extensions.digest(v_token, 'sha256'), 'hex')),
+    v_proposer_account_id
+  );
+
+  return v_token;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."revoke_child_grant"("p_grant_id" bigint) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_grant public.child_grants;
+  v_actor_account_id bigint := public.current_context_id();
+  v_target_account_id bigint;
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
+begin
+  select * into v_grant from public.child_grants where id = p_grant_id;
+
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_grant.proposer_account_id
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found', p_grant_id;
+  end if;
+
+  select account_id into v_target_account_id
+  from public.singles
+  where id = v_grant.target_single_id
+  for share;
+  v_lock_accounts := array[
+    v_grant.proposer_account_id,
+    v_grant.grantee_account_id,
+    v_grant.severed_by_account_id,
+    v_target_account_id,
+    v_actor_account_id
+  ];
+  for v_lock_account_id in
+    select distinct account_id
+    from unnest(v_lock_accounts) requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+
+  select * into v_grant from public.child_grants where id = p_grant_id for update;
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_grant.proposer_account_id
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found', p_grant_id;
+  end if;
+
+  if v_grant.status <> 'pending' then
+    raise exception 'child grant % is not pending (status %)', p_grant_id, v_grant.status
+      using errcode = 'check_violation';
+  end if;
+
+  update public.child_grants
+  set status = 'revoked', revoked_at = now()
+  where id = p_grant_id;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."sever_child_grant"("p_grant_id" bigint) RETURNS "public"."child_grants"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_grant public.child_grants;
+  v_actor_account_id bigint := public.current_context_id();
+  v_target_account_id bigint;
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
+  v_member_role text;
+begin
+  select * into v_grant from public.child_grants where id = p_grant_id;
+
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id not in (v_grant.proposer_account_id, v_grant.grantee_account_id)
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found', p_grant_id;
+  end if;
+
+  select account_id into v_target_account_id
+  from public.singles
+  where id = v_grant.target_single_id
+  for share;
+  v_lock_accounts := array[
+    v_grant.proposer_account_id,
+    v_grant.grantee_account_id,
+    v_grant.severed_by_account_id,
+    v_target_account_id,
+    v_actor_account_id
+  ];
+  for v_lock_account_id in
+    select distinct account_id
+    from unnest(v_lock_accounts) requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+
+  select * into v_grant from public.child_grants where id = p_grant_id for update;
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id not in (v_grant.proposer_account_id, v_grant.grantee_account_id)
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found', p_grant_id;
+  end if;
+
+  if v_grant.status <> 'accepted' then
+    raise exception 'child grant % is not accepted (status %)', p_grant_id, v_grant.status
+      using errcode = 'check_violation';
+  end if;
+
+  update public.child_grants
+  set status = 'severed', severed_at = now(), severed_by_account_id = v_actor_account_id
+  where id = p_grant_id
+  returning * into v_grant;
+
+  return v_grant;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."update_child_grant_access"("p_grant_id" bigint, "p_access_level" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_grant public.child_grants;
+  v_actor_account_id bigint := public.current_context_id();
+  v_target_account_id bigint;
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
+begin
+  if p_access_level not in ('read', 'comment', 'edit') then
+    raise exception 'access_level must be one of read, comment, edit (got %)', p_access_level
+      using errcode = 'check_violation';
+  end if;
+
+  select * into v_grant from public.child_grants where id = p_grant_id;
+
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_grant.proposer_account_id
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found', p_grant_id;
+  end if;
+
+  select account_id into v_target_account_id
+  from public.singles
+  where id = v_grant.target_single_id
+  for share;
+  v_lock_accounts := array[
+    v_grant.proposer_account_id,
+    v_grant.grantee_account_id,
+    v_grant.severed_by_account_id,
+    v_target_account_id,
+    v_actor_account_id
+  ];
+  for v_lock_account_id in
+    select distinct account_id
+    from unnest(v_lock_accounts) requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+
+  select * into v_grant from public.child_grants where id = p_grant_id for update;
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_grant.proposer_account_id
+     or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_actor_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+      and am.role in ('parent_admin', 'self_manager')
+  ) then
+    raise exception 'child grant % not found', p_grant_id;
+  end if;
+
+  if v_grant.status <> 'accepted' then
+    raise exception 'child grant % is not accepted (status %)', p_grant_id, v_grant.status
+      using errcode = 'check_violation';
+  end if;
+
+  update public.child_grants
+  set access_level = p_access_level
+  where id = p_grant_id;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."regrant_child_grant"("p_grant_id" bigint) RETURNS "text"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_old_grant public.child_grants;
+  v_new_grant public.child_grants;
+  v_actor_account_id bigint := public.current_context_id();
+  v_target_account_id bigint;
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
+  v_run_id bigint;
+  v_token text;
+begin
+  select * into v_old_grant from public.child_grants where id = p_grant_id;
+  select account_id into v_target_account_id
+  from public.singles where id = v_old_grant.target_single_id for share;
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_old_grant.proposer_account_id
+     or v_target_account_id is null
+     or not exists (
+       select 1 from public.account_members am
+       where am.account_id = v_actor_account_id and am.user_id = auth.uid()
+         and am.status = 'active' and am.role in ('parent_admin', 'self_manager')
+     ) then
+    raise exception 'child grant % not found or not authorized to re-grant', p_grant_id;
+  end if;
+
+  v_lock_accounts := array[
+    v_old_grant.proposer_account_id,
+    v_old_grant.grantee_account_id,
+    v_old_grant.severed_by_account_id,
+    v_target_account_id,
+    v_actor_account_id
+  ];
+  for v_lock_account_id in
+    select distinct account_id
+    from unnest(v_lock_accounts) requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+
+  select * into v_old_grant from public.child_grants where id = p_grant_id for update;
+  select account_id into v_target_account_id
+  from public.singles where id = v_old_grant.target_single_id for share;
+  if not found
+     or v_actor_account_id is null
+     or v_actor_account_id <> v_old_grant.proposer_account_id
+     or v_target_account_id is null
+     or not exists (
+       select 1 from public.account_members am
+       where am.account_id = v_actor_account_id and am.user_id = auth.uid()
+         and am.status = 'active' and am.role in ('parent_admin', 'self_manager')
+     ) then
+    raise exception 'child grant % not found or not authorized to re-grant', p_grant_id;
+  end if;
+  if v_old_grant.status not in ('severed', 'revoked', 'expired') then
+    raise exception 'child grant % cannot be re-granted (status %)', p_grant_id, v_old_grant.status
+      using errcode = 'check_violation';
+  end if;
+
+  -- An active demo regrant is an interaction on a manifest-owned graph.  The
+  -- actor and both endpoints must resolve to the same run before the new row
+  -- is inserted; the row and manifest receipt then commit together.
+  select dr.id into v_run_id
+  from public.demo_runs dr
+  join public.demo_run_accounts dra on dra.run_id = dr.id
+  where dr.status = 'active' and dra.account_id = v_actor_account_id
+  order by dr.id desc limit 1;
+  if v_run_id is not null then
+    perform public.demo_assert_same_active_run(
+      array[v_actor_account_id, v_old_grant.proposer_account_id, v_target_account_id],
+      'child grant re-grant'
+    );
+  end if;
+
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
+  insert into public.child_grants (
+    proposer_account_id, target_single_id, token_hash, expires_at, access_level
+  ) values (
+    v_old_grant.proposer_account_id, v_old_grant.target_single_id,
+    encode(extensions.digest(v_token, 'sha256'), 'hex'), now() + interval '7 days',
+    v_old_grant.access_level
+  ) returning * into v_new_grant;
+  if v_run_id is not null then
+    insert into public.demo_run_resources (run_id, resource_type, resource_id)
+    values (v_run_id, 'child_grant', v_new_grant.id);
+  end if;
+  return v_token;
 end;
 $$;
 
