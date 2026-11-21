@@ -507,13 +507,15 @@ declare
   v_grant public.child_grants;
   v_grantee_account_id bigint := public.current_context_id();
   v_target_account_id bigint;
+  v_lock_account_id bigint;
+  v_lock_accounts bigint[];
   v_grantee_kind text;
   v_member_role text;
 begin
   select * into v_grant
   from public.child_grants
   where token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex')
-  for update;
+  ;
 
   if not found or v_grant.status <> 'pending' or v_grant.expires_at <= now() then
     raise exception 'This child grant is invalid, expired, or has already been used.'
@@ -539,7 +541,58 @@ begin
 
   select account_id into v_target_account_id
   from public.singles
-  where id = v_grant.target_single_id;
+  where id = v_grant.target_single_id
+  for share;
+
+  v_lock_accounts := array[
+    v_grant.proposer_account_id,
+    v_target_account_id,
+    v_grantee_account_id
+  ];
+  for v_lock_account_id in
+    select distinct account_id
+    from unnest(v_lock_accounts) requested(account_id)
+    where account_id is not null
+    order by account_id
+  loop
+    perform public.account_storage_lock(v_lock_account_id);
+  end loop;
+  perform public.demo_lock_account_axes(v_lock_accounts, 'update');
+
+  -- The plain read above only identifies the parent and endpoint accounts.
+  -- Re-read the child row after the ordered account locks so a concurrent
+  -- revoke, acceptance, or endpoint change cannot be overwritten.
+  select * into v_grant
+  from public.child_grants
+  where token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex')
+  for update;
+
+  if not found or v_grant.status <> 'pending' or v_grant.expires_at <= now() then
+    raise exception 'This child grant is invalid, expired, or has already been used.'
+      using errcode = 'check_violation';
+  end if;
+
+  select account_id into v_target_account_id
+  from public.singles
+  where id = v_grant.target_single_id
+  for share;
+
+  if v_grantee_account_id is null or not exists (
+    select 1 from public.account_members am
+    where am.account_id = v_grantee_account_id
+      and am.user_id = auth.uid()
+      and am.status = 'active'
+  ) then
+    raise exception 'accept_child_grant requires an active membership of the current context'
+      using errcode = 'insufficient_privilege';
+  end if;
+  perform public.demo_assert_registered_actor(v_grantee_account_id, auth.uid(), 'child grant acceptance');
+
+  select kind into v_grantee_kind from public.accounts where id = v_grantee_account_id;
+  if v_grantee_kind not in ('household', 'shadchanus') then
+    raise exception 'a child grant can only be accepted by a household or shadchanus context'
+      using errcode = 'check_violation';
+  end if;
 
   perform public.demo_assert_same_active_run(
     array[v_grant.proposer_account_id, v_target_account_id, v_grantee_account_id],
