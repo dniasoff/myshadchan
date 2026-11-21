@@ -62,34 +62,48 @@ const renderBox = async (
 };
 
 describe("TaskReminderBox", () => {
-  it("uses the Reminders copy and creates a local-time reminder from typed 12-hour input", async () => {
-    const create = vi.fn().mockResolvedValue({ data: buildTask() });
-    const { screen } = await renderBox([], { create });
+  it.each([
+    ["before 9:34 PM", new Date(2026, 10, 20, 12, 0)],
+    ["after 9:34 PM", new Date(2026, 10, 20, 22, 0)],
+  ])(
+    "uses the Reminders copy and creates a local-time reminder from typed 12-hour input (%s)",
+    async (_label, fixedNow) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(fixedNow);
+      try {
+        const create = vi.fn().mockResolvedValue({ data: buildTask() });
+        const { screen } = await renderBox([], { create });
 
-    await screen.getByLabelText("What do I need to do?").fill("Call at dinner");
-    await screen.getByRole("button", { name: "Tomorrow" }).click();
-    const time = screen.getByLabelText("Time (optional)");
-    await time.fill("934 pm");
-    await screen.getByLabelText("What do I need to do?").click();
+        await screen
+          .getByLabelText("What do I need to do?")
+          .fill("Call at dinner");
+        await screen.getByRole("button", { name: "Tomorrow" }).click();
+        const time = screen.getByLabelText("Time (optional)");
+        await time.fill("934 pm");
+        await screen.getByLabelText("What do I need to do?").click();
 
-    await expect.element(time).toHaveValue("9:34 PM");
-    await screen.getByRole("button", { name: "Add reminder" }).click();
+        await expect.element(time).toHaveValue("9:34 PM");
+        await screen.getByRole("button", { name: "Add reminder" }).click();
 
-    expect(create).toHaveBeenCalledWith(
-      "tasks",
-      expect.objectContaining({
-        data: expect.objectContaining({
-          target_type: "shadchan",
-          target_id: 7,
-          text: "Call at dinner",
-          due_date: expect.any(String),
-        }),
-      }),
-    );
-    expect(create.mock.calls[0][1].data.due_date).toBe(
-      new Date(2026, 10, 21, 21, 34).toISOString(),
-    );
-  });
+        expect(create).toHaveBeenCalledWith(
+          "tasks",
+          expect.objectContaining({
+            data: expect.objectContaining({
+              target_type: "shadchan",
+              target_id: 7,
+              text: "Call at dinner",
+              due_date: expect.any(String),
+            }),
+          }),
+        );
+        expect(create.mock.calls[0][1].data.due_date).toBe(
+          new Date(2026, 10, 21, 21, 34).toISOString(),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("associates the task text input with its target-specific character counter", async () => {
     const { screen } = await renderBox();
@@ -122,35 +136,39 @@ describe("TaskReminderBox", () => {
   });
 
   it("shows overdue reminders in red and edit re-arms the task with the typed time", async () => {
+    vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-11-21T12:00:00"));
-    const task = buildTask({
-      id: 9,
-      text: "Call the family",
-      due_date: "2026-11-20T15:30:00",
-    });
-    const update = vi.fn().mockResolvedValue({ data: task });
-    const { screen } = await renderBox([task], { update });
-
-    await expect
-      .element(screen.getByText(/Overdue/))
-      .toHaveClass("text-destructive");
-    await screen.getByRole("button", { name: "Edit" }).click();
-    await screen.getByLabelText("Edit time (optional)").fill("9 pm");
-    await screen.getByRole("button", { name: "Save" }).click();
-
-    expect(update).toHaveBeenCalledWith(
-      "tasks",
-      expect.objectContaining({
+    try {
+      const task = buildTask({
         id: 9,
-        data: expect.objectContaining({
-          text: "Call the family",
-          due_date: expect.any(String),
+        text: "Call the family",
+        due_date: "2026-11-20T15:30:00",
+      });
+      const update = vi.fn().mockResolvedValue({ data: task });
+      const { screen } = await renderBox([task], { update });
+
+      await expect
+        .element(screen.getByText(/Overdue/))
+        .toHaveClass("text-destructive");
+      await screen.getByRole("button", { name: "Edit" }).click();
+      await screen.getByLabelText("Edit time (optional)").fill("9 pm");
+      await screen.getByRole("button", { name: "Save" }).click();
+
+      expect(update).toHaveBeenCalledWith(
+        "tasks",
+        expect.objectContaining({
+          id: 9,
+          data: expect.objectContaining({
+            text: "Call the family",
+            due_date: expect.any(String),
+          }),
         }),
-      }),
-    );
-    const updatedDueDate = update.mock.calls[0][1].data.due_date as string;
-    expect(updatedDueDate).toBe(new Date(2026, 10, 20, 21, 0).toISOString());
-    vi.useRealTimers();
+      );
+      const updatedDueDate = update.mock.calls[0][1].data.due_date as string;
+      expect(updatedDueDate).toBe(new Date(2026, 10, 20, 21, 0).toISOString());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("moves focus into edit, cancels on Escape, and restores the Edit trigger", async () => {

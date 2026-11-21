@@ -133,6 +133,7 @@ describe("ShidduchTodoBox role gate and quick add helpers", () => {
   });
 
   it("puts a date-only reminder at local end-of-day, including near midnight and DST dates", () => {
+    vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 10, 16, 23, 59, 0));
     const due = buildTaskDueDate("2026-11-16");
     expect(new Date(due).getTime()).toBeGreaterThan(Date.now());
@@ -167,6 +168,7 @@ describe("ShidduchTodoBox role gate and quick add helpers", () => {
   });
 
   it("uses a weekday for a due-soon marker and a neutral date for later work", () => {
+    vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-11-16T12:00:00"));
     expect(formatTodoWhen("2026-11-16T18:00:00")).toBe("Today");
     expect(formatTodoWhen("2026-11-18T18:00:00")).toBe("Wednesday");
@@ -362,10 +364,11 @@ describe("ShidduchTodoBox interactions", () => {
   });
 
   it("reuses the reminder edit, confirmation, typed time, and Undo flow in the Overview To do box", async () => {
+    const initialDueDate = new Date(2026, 10, 20, 15, 30).toISOString();
     const task = buildTask({
       id: 901,
       text: "Call the family",
-      due_date: "2026-11-20T15:30:00Z",
+      due_date: initialDueDate,
     });
     const update = vi.fn().mockResolvedValue({ data: task });
     const deleteTask = vi.fn().mockResolvedValue({ data: task });
