@@ -73,6 +73,8 @@ type ShareFile = {
 };
 
 const FILE_DELETE_UNDO_MS = 10_000;
+const DOCUMENT_SLOT_UNAVAILABLE_MESSAGE =
+  "Can't check this right now - tap Retry.";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -181,6 +183,7 @@ function EmptySlot({
   canAdd,
   disabled,
   pending,
+  unavailableMessage,
   onAdd,
 }: {
   label: string;
@@ -188,6 +191,7 @@ function EmptySlot({
   canAdd: boolean;
   disabled?: boolean;
   pending?: boolean;
+  unavailableMessage?: string;
   onAdd: () => void;
 }): ReactElement {
   const actionLabel = label.startsWith("Papers")
@@ -198,7 +202,10 @@ function EmptySlot({
       <div>
         <p className="text-sm font-semibold">{label}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          {pending ? "Undo is available for 10 seconds." : "No file added yet."}
+          {unavailableMessage ??
+            (pending
+              ? "Undo is available for 10 seconds."
+              : "No file added yet.")}
         </p>
       </div>
       {canAdd ? (
@@ -207,7 +214,7 @@ function EmptySlot({
           variant="outline"
           className="mt-3 min-h-11 self-start md:min-h-11"
           aria-label={`Add ${slotName}`}
-          disabled={disabled}
+          disabled={disabled || unavailableMessage != null}
           onClick={onAdd}
         >
           {actionLabel}
@@ -922,6 +929,9 @@ export function ChildDocumentsPanel({
                 <DocumentSlot
                   label="Resume"
                   slotName="Resume"
+                  unavailableMessage={
+                    resumesError ? DOCUMENT_SLOT_UNAVAILABLE_MESSAGE : undefined
+                  }
                   file={
                     visibleResume
                       ? {
@@ -964,6 +974,11 @@ export function ChildDocumentsPanel({
                 <DocumentSlot
                   label="Picture"
                   slotName="Picture"
+                  unavailableMessage={
+                    resumesError || photosError
+                      ? DOCUMENT_SLOT_UNAVAILABLE_MESSAGE
+                      : undefined
+                  }
                   file={
                     visiblePhoto
                       ? {
@@ -1006,6 +1021,11 @@ export function ChildDocumentsPanel({
                       key={slot}
                       label={`Papers · ${index + 1} of ${MAX_CHILD_PAPERS}`}
                       slotName={`Paper ${index + 1}`}
+                      unavailableMessage={
+                        entityFilesError
+                          ? DOCUMENT_SLOT_UNAVAILABLE_MESSAGE
+                          : undefined
+                      }
                       file={
                         file
                           ? {
@@ -1178,6 +1198,7 @@ function DocumentSlot({
   canManage,
   disabled,
   pending,
+  unavailableMessage,
 }: {
   label: string;
   slotName: string;
@@ -1191,7 +1212,19 @@ function DocumentSlot({
   onForward: () => void;
   onDelete: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled: boolean;
+  unavailableMessage?: string;
 }): ReactElement {
+  if (unavailableMessage)
+    return (
+      <EmptySlot
+        label={label}
+        slotName={slotName}
+        canAdd={canAdd}
+        disabled
+        unavailableMessage={unavailableMessage}
+        onAdd={onAdd}
+      />
+    );
   if (!file)
     return (
       <EmptySlot

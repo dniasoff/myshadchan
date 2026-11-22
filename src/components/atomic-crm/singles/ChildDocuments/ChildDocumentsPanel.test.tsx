@@ -271,6 +271,9 @@ describe("ChildDocumentsPanel", () => {
       .element(screen.getByText("Resume is unavailable."))
       .toBeInTheDocument();
     await expect
+      .element(screen.getByRole("button", { name: "Add Resume" }))
+      .toBeDisabled();
+    await expect
       .element(screen.getByText("school-paper.pdf"))
       .toBeInTheDocument();
 
@@ -278,6 +281,32 @@ describe("ChildDocumentsPanel", () => {
     await expect
       .poll(() => vi.mocked(dataProvider.signEntityFileUrl).mock.calls.length)
       .toBe(1);
+  });
+
+  it("disables paper adds when the paper lookup fails", async () => {
+    const getList = vi.fn((resource: string) => {
+      if (resource === "entity_files_summary")
+        return Promise.reject(new Error("papers unavailable"));
+      if (resource === "resumes")
+        return Promise.resolve({ data: [resume], total: 1 });
+      if (resource === "resume_photos")
+        return Promise.resolve({ data: [photo], total: 1 });
+      return Promise.resolve({ data: [], total: 0 });
+    }) as unknown as CrmDataProvider["getList"];
+    const { screen } = await renderPanel(undefined, getList);
+
+    await expect
+      .element(screen.getByText("Papers are unavailable."))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Add Paper 1" }))
+      .toBeDisabled();
+    await expect
+      .element(screen.getByRole("button", { name: "Add Paper 2" }))
+      .toBeDisabled();
+    await expect
+      .element(screen.getByRole("button", { name: "Open Resume" }))
+      .not.toBeDisabled();
   });
 
   it("does not show Older files when no legacy rows exist", async () => {
