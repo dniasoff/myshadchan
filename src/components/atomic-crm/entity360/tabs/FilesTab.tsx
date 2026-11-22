@@ -191,6 +191,8 @@ function FileRowView({
   const notify = useNotify();
   const translate = useTranslate();
   const replaceInputRef = useRef<HTMLInputElement>(null);
+  const focusReturnRef = useRef<HTMLElement | null>(null);
+  const undoButtonRef = useRef<HTMLButtonElement>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
@@ -198,6 +200,17 @@ function FileRowView({
     token: string;
     until: number;
   } | null>(null);
+
+  const restoreFocus = () => {
+    window.setTimeout(() => {
+      if (focusReturnRef.current?.isConnected) {
+        focusReturnRef.current.focus();
+      } else if (undoButtonRef.current?.isConnected) {
+        undoButtonRef.current.focus();
+      }
+      focusReturnRef.current = null;
+    }, 0);
+  };
 
   useEffect(() => {
     if (!pendingDelete) return;
@@ -211,6 +224,7 @@ function FileRowView({
       } finally {
         setPendingDelete(null);
         onChanged();
+        restoreFocus();
       }
     }, remaining);
     return () => window.clearTimeout(timer);
@@ -254,8 +268,14 @@ function FileRowView({
           id: file.id,
           storagePath: file.storage_path,
         });
+        if (
+          typeof dataProvider.finalizeExpiredEntityFileDeletes === "function"
+        ) {
+          await dataProvider.finalizeExpiredEntityFileDeletes();
+        }
         setIsConfirmingDelete(false);
         onChanged();
+        restoreFocus();
         return;
       }
       const result = await dataProvider.softDeleteEntityFile({ id: file.id });
@@ -264,6 +284,9 @@ function FileRowView({
         token: result.delete_token,
         until: new Date(result.undo_until).getTime(),
       });
+      if (typeof dataProvider.finalizeExpiredEntityFileDeletes === "function") {
+        await dataProvider.finalizeExpiredEntityFileDeletes();
+      }
     } catch (error) {
       notify(
         error instanceof Error
@@ -283,7 +306,7 @@ function FileRowView({
   const handleReplace = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0];
     event.target.value = "";
-    if (!nextFile) return;
+    if (!nextFile || isBusy) return;
 
     setIsBusy(true);
     try {
@@ -342,7 +365,9 @@ function FileRowView({
   return (
     <li className="flex flex-col gap-2 border-b border-border pb-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium">{file.file_name}</p>
+        <p dir="auto" className="truncate text-sm font-medium">
+          {file.file_name}
+        </p>
         <p className="text-xs text-muted-foreground">
           {file.mime_type} · {formatFileSize(file.size_bytes)} ·{" "}
           {file.uploaded_by_name ??
@@ -412,7 +437,10 @@ function FileRowView({
           size="sm"
           className="text-destructive hover:text-destructive"
           disabled={isBusy}
-          onClick={() => setIsConfirmingDelete(true)}
+          onClick={(event) => {
+            focusReturnRef.current = event.currentTarget;
+            setIsConfirmingDelete(true);
+          }}
         >
           {translate("crm.entity360.files.delete", { _: "Delete" })}
         </Button>
@@ -443,23 +471,41 @@ function FileRowView({
         })}
         confirmColor="warning"
         onConfirm={handleDelete}
-        onClose={() => setIsConfirmingDelete(false)}
+        onClose={() => {
+          setIsConfirmingDelete(false);
+          restoreFocus();
+        }}
       />
       {pendingDelete ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 text-sm text-muted-foreground"
+        >
           <span>Deleted. Undo is available for 10 seconds.</span>
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="min-h-11"
+            ref={undoButtonRef}
             onClick={async () => {
-              await dataProvider.undoEntityFileDelete({
-                id: file.id,
-                deleteToken: pendingDelete.token,
-              });
-              setPendingDelete(null);
-              onChanged();
+              try {
+                await dataProvider.undoEntityFileDelete({
+                  id: file.id,
+                  deleteToken: pendingDelete.token,
+                });
+                setPendingDelete(null);
+                onChanged();
+                restoreFocus();
+              } catch (error) {
+                notify(
+                  error instanceof Error
+                    ? error.message
+                    : "Could not undo the deletion.",
+                  { type: "error" },
+                );
+              }
             }}
           >
             Undo
@@ -489,12 +535,23 @@ export function FilesTab({
       pagination: { page: 1, perPage: 50 },
     },
   );
+  useEffect(() => {
+    if (typeof dataProvider.finalizeExpiredEntityFileDeletes !== "function") {
+      return;
+    }
+    void dataProvider
+      .finalizeExpiredEntityFileDeletes()
+      .then(() => refresh())
+      .catch(() => {
+        // A cleanup outage does not make the existing file list unreadable.
+      });
+  }, [dataProvider, refresh, targetId, targetType]);
   const files = data ?? [];
 
   const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file) return;
+    if (!file || isUploading) return;
 
     setIsUploading(true);
     try {

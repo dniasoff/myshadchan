@@ -33,6 +33,8 @@ export type UploadEntityFileParams = {
   file: File;
   visibility?: EntityFileVisibility;
   slot?: ChildPaperSlot;
+  /** Existing row being replaced; excluded from the slot-occupancy check. */
+  excludeId?: Identifier;
 };
 
 /**
@@ -49,12 +51,34 @@ export async function uploadEntityFile(
   uploadedByMemberId: Identifier | null,
   params: UploadEntityFileParams,
 ): Promise<EntityFile> {
-  const { targetType, targetId, file, visibility, slot } = params;
+  const { targetType, targetId, file, visibility, slot, excludeId } = params;
   if (targetType === "single") {
     if (!slot)
       throw new Error("Choose an available paper slot before uploading.");
     const validationError = validateChildDocument(file);
     if (validationError) throw new Error(validationError);
+    const { data: existing } = await baseDataProvider.getList<EntityFile>(
+      "entity_files",
+      {
+        filter: { target_type: "single", target_id: targetId },
+        pagination: { page: 1, perPage: 100 },
+        sort: { field: "id", order: "ASC" },
+      },
+    );
+    const now = Date.now();
+    const active = existing.filter(
+      (candidate) =>
+        String(candidate.id) !== String(excludeId) &&
+        (candidate.deleted_at == null ||
+          (candidate.delete_undo_until != null &&
+            new Date(candidate.delete_undo_until).getTime() >= now)),
+    );
+    if (active.filter((candidate) => candidate.slot != null).length >= 2) {
+      throw new Error("You can store up to 2 papers.");
+    }
+    if (active.some((candidate) => candidate.slot === slot)) {
+      throw new Error("That paper slot is already in use.");
+    }
   }
   const ext = deriveExtension(file.name);
   const storagePath = `${accountId}/${targetType}/${targetId}/${crypto.randomUUID()}${ext}`;

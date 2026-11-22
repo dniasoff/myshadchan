@@ -5,6 +5,7 @@ import {
   type ResumeSubject,
 } from "../../resumes/resumeSubject";
 import type { ResumePhoto, ResumePhotoVisibility } from "../../types";
+import { validateChildPhoto } from "../../singles/ChildDocuments/childDocuments";
 import { getSupabaseClient } from "./supabase";
 
 /**
@@ -71,6 +72,8 @@ export async function uploadResumePhoto(
   params: UploadResumePhotoParams,
 ): Promise<ResumePhoto> {
   const { file, visibility = "shared", ...subject } = params;
+  const validationError = validateChildPhoto(file);
+  if (validationError) throw new Error(validationError);
   const accountId = await getCurrentAccountId();
   const ownerSegment = isSingleSubject(subject)
     ? `single-${subject.singleId}`

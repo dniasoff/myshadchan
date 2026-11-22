@@ -916,6 +916,8 @@ export type EntityFile = {
   visibility: EntityFileVisibility;
   slot?: "paper_1" | "paper_2" | null;
   deleted_at?: string | null;
+  delete_token?: string | null;
+  delete_undo_until?: string | null;
   uploaded_by_member_id?: Identifier | null;
   created_at: string;
 } & Pick<RaRecord, "id">;

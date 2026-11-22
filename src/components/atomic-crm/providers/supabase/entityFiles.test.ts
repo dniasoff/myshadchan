@@ -283,6 +283,7 @@ describe("replaceEntityFile — upload before swap", () => {
     upload.mockReset();
     remove.mockReset();
     rpc.mockReset();
+    rpc.mockResolvedValue({ data: 7, error: null });
     upload.mockResolvedValue({ error: null });
   });
 

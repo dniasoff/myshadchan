@@ -66,6 +66,7 @@ import {
   buildEntityFilesCleanupCallbacks,
   deleteEntityFile as deleteEntityFileImpl,
   finalizeEntityFileDelete as finalizeEntityFileDeleteImpl,
+  finalizeExpiredEntityFileDeletes as finalizeExpiredEntityFileDeletesImpl,
   replaceEntityFile as replaceEntityFileImpl,
   signEntityFileUrl as signEntityFileUrlImpl,
   softDeleteEntityFile as softDeleteEntityFileImpl,
@@ -1425,6 +1426,9 @@ export const getDataProviderWithCustomMethods = () => {
     },
     async finalizeEntityFileDelete(params: EntityFileDeleteTokenParams) {
       return finalizeEntityFileDeleteImpl(params);
+    },
+    async finalizeExpiredEntityFileDeletes(): Promise<number> {
+      return finalizeExpiredEntityFileDeletesImpl();
     },
     async replaceEntityFile(params: ReplaceEntityFileParams) {
       return replaceEntityFileImpl(params);

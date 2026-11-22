@@ -4,7 +4,8 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-import type { Single } from "../types";
+import type { MemberRole, Single } from "../types";
+import { useViewerRole } from "../entity360/useViewerRole";
 import { AddSingleLink } from "./AddSingleLink";
 import { SendToShadchanButton } from "./SendToShadchanDialog";
 import { ChildDocumentsPanel } from "../singles/ChildDocuments/ChildDocumentsPanel";
@@ -19,6 +20,19 @@ const singleLabel = (single: Single) =>
   [single.first_name_en, single.last_name_en].filter(Boolean).join(" ") ||
   `#${single.id}`;
 
+export function canViewChildDocuments(
+  role: MemberRole | undefined,
+  isRolePending: boolean,
+): boolean {
+  return (
+    !isRolePending &&
+    (role === "parent_admin" ||
+      role === "self_manager" ||
+      role === "helper" ||
+      role === "shadchan")
+  );
+}
+
 /** Greeting + the prominent single switcher that drives the whole dashboard. */
 export const DashboardHeader = ({
   singleList,
@@ -26,6 +40,8 @@ export const DashboardHeader = ({
   onSelectSingle,
 }: DashboardHeaderProps) => {
   const [documentsOpen, setDocumentsOpen] = useState(false);
+  const { role, isPending: isRolePending } = useViewerRole();
+  const canViewDocuments = canViewChildDocuments(role, isRolePending);
   const selected = singleList.find((single) => single.id === singleId);
   const nameEn = selected ? singleLabel(selected) : "";
 
@@ -49,18 +65,22 @@ export const DashboardHeader = ({
               singleOptions={singleList}
               onSingleChange={onSelectSingle}
             />
-            <Button
-              type="button"
-              className="min-h-11"
-              onClick={() => setDocumentsOpen(true)}
-            >
-              Documents
-            </Button>
-            <ChildDocumentsPanel
-              single={selected}
-              open={documentsOpen}
-              onOpenChange={setDocumentsOpen}
-            />
+            {canViewDocuments ? (
+              <>
+                <Button
+                  type="button"
+                  className="min-h-11"
+                  onClick={() => setDocumentsOpen(true)}
+                >
+                  Documents
+                </Button>
+                <ChildDocumentsPanel
+                  single={selected}
+                  open={documentsOpen}
+                  onOpenChange={setDocumentsOpen}
+                />
+              </>
+            ) : null}
           </>
         ) : null}
         {singleList.length > 1 ? (

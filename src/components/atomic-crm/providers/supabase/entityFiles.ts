@@ -59,7 +59,9 @@ export const ENTITY_FILE_VIEW_TTL_SECONDS = 3600;
  * module to wire the three methods below into the custom-methods overlay).
  */
 async function getCurrentAccountId(): Promise<number> {
-  const { data, error } = await getSupabaseClient().rpc("current_context_id");
+  const result = await getSupabaseClient().rpc("current_context_id");
+  const data = result?.data;
+  const error = result?.error;
   if (error || data == null) {
     throw new Error("Cannot resolve the account for this file upload");
   }
@@ -255,6 +257,14 @@ export async function finalizeEntityFileDelete(
   );
   if (error)
     throw new Error(error.message || "Failed to finish deleting the file");
+}
+
+export async function finalizeExpiredEntityFileDeletes(): Promise<number> {
+  const { data, error } = await getSupabaseClient().rpc(
+    "finalize_expired_entity_file_deletes",
+  );
+  if (error) throw new Error(error.message || "Failed to finish file cleanup");
+  return Number(data ?? 0);
 }
 
 /** Upload the replacement before the server swaps the old catalog row. */

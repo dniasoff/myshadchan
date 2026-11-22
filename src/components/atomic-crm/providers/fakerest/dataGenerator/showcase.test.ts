@@ -590,8 +590,9 @@ describe("FakeRest showcase fixture", () => {
     const uploaded = await provider.uploadEntityFile({
       targetType: "single",
       targetId: 1,
-      file: new File(["before-seed"], "before-seed.txt", {
-        type: "text/plain",
+      slot: "paper_1",
+      file: new File(["before-seed"], "before-seed.pdf", {
+        type: "application/pdf",
       }),
     });
     const revokeObjectUrl = vi

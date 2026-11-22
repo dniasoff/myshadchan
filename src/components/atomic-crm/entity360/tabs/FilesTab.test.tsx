@@ -202,7 +202,7 @@ describe("FilesTab — upload (AC 6b)", () => {
 });
 
 describe("FilesTab — replace (AC 6c)", () => {
-  it("deletes the old file then uploads the replacement, carrying forward its visibility", async () => {
+  it("uploads before deleting the old non-single file, carrying forward its visibility", async () => {
     // Arrange
     const existing = buildFileRow({
       id: 501,
@@ -240,8 +240,35 @@ describe("FilesTab — replace (AC 6c)", () => {
       file: newFile,
       visibility: "private_parent",
     });
-    // The delete must complete before the upload starts.
-    expect(calls).toEqual(["delete", "upload"]);
+    // The upload must complete before the delete starts. This keeps the old
+    // file available when the replacement upload fails; the same ordering is
+    // used by single targets through replaceEntityFile.
+    expect(calls).toEqual(["upload", "delete"]);
+  });
+
+  it("keeps the old non-single file when the replacement upload fails", async () => {
+    const existing = buildFileRow({
+      id: 502,
+      file_name: "old.pdf",
+      storage_path: "1/shidduch/1/old.pdf",
+    });
+    const getList = vi.fn().mockResolvedValue({ data: [existing], total: 1 });
+    const uploadEntityFile = vi
+      .fn()
+      .mockRejectedValue(new Error("replacement upload failed"));
+    const deleteEntityFile = vi.fn();
+    const newFile = new File(["v2"], "new.pdf", { type: "application/pdf" });
+
+    const { screen } = await renderFilesTab(
+      {},
+      { getList, uploadEntityFile, deleteEntityFile },
+    );
+    await screen.getByLabelText("Replace").upload(newFile);
+
+    await expect
+      .element(screen.getByText("replacement upload failed"))
+      .toBeInTheDocument();
+    expect(deleteEntityFile).not.toHaveBeenCalled();
   });
 });
 

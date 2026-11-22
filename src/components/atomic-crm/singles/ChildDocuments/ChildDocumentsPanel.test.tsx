@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 
@@ -11,6 +11,16 @@ import type {
   Single,
 } from "../../types";
 import { ChildDocumentsPanel } from "./ChildDocumentsPanel";
+
+const viewerRole = vi.hoisted(() => ({
+  role: "parent_admin" as
+    "parent_admin" | "self_manager" | "helper" | "shadchan" | "single",
+  isPending: false,
+}));
+
+vi.mock("../../entity360/useViewerRole", () => ({
+  useViewerRole: () => viewerRole,
+}));
 
 const single: Single = {
   id: 11,
@@ -90,7 +100,23 @@ function buildDataProvider(
     create: vi.fn(),
     delete: vi.fn(),
     uploadEntityFile: vi.fn(),
+    uploadResumeFile: vi.fn().mockResolvedValue(resume),
+    uploadResumePhoto: vi.fn().mockResolvedValue(photo),
+    signResumeFileUrl: vi.fn().mockResolvedValue("blob:resume"),
+    signResumePhotoUrl: vi.fn().mockResolvedValue("blob:photo"),
     signEntityFileUrl: vi.fn(),
+    hideResumePhoto: vi.fn(),
+    restoreResumePhoto: vi.fn(),
+    removeResumeFile: vi.fn(),
+    softDeleteEntityFile: vi.fn().mockResolvedValue({
+      id: paper.id,
+      delete_token: "paper-token",
+      undo_until: new Date(Date.now() + 10_000).toISOString(),
+    }),
+    undoEntityFileDelete: vi.fn(),
+    finalizeEntityFileDelete: vi.fn(),
+    finalizeExpiredEntityFileDeletes: vi.fn().mockResolvedValue(0),
+    replaceEntityFile: vi.fn().mockResolvedValue(paper),
   } as unknown as CrmDataProvider;
 }
 
@@ -110,6 +136,28 @@ async function renderPanel(entityFiles?: EntityFileSummary[]) {
 }
 
 describe("ChildDocumentsPanel", () => {
+  beforeEach(() => {
+    viewerRole.role = "parent_admin";
+    viewerRole.isPending = false;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 0,
+    });
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(navigator, "canShare", {
+      configurable: true,
+      value: undefined,
+    });
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("renders the three named slots, same-source files, and the legacy section", async () => {
     const { screen } = await renderPanel();
 
@@ -126,10 +174,25 @@ describe("ChildDocumentsPanel", () => {
       .toBeInTheDocument();
     await expect.element(screen.getByText("older-file.docx")).not.toBeVisible();
 
-    const controls = screen.container.querySelectorAll("button");
-    expect(controls.length).toBeGreaterThan(12);
-    for (const control of controls)
-      expect(control.className).toContain("min-h-11");
+    for (const name of [
+      "Open Resume",
+      "Replace Resume",
+      "Forward Resume",
+      "Delete Resume",
+      "Open Picture",
+      "Replace Picture",
+      "Forward Picture",
+      "Delete Picture",
+      "Open Paper 1",
+      "Replace Paper 1",
+      "Forward Paper 1",
+      "Delete Paper 1",
+      "Add Paper 2",
+    ]) {
+      await expect
+        .element(screen.getByRole("button", { name }))
+        .toBeInTheDocument();
+    }
   });
 
   it("does not show Older files when no legacy rows exist", async () => {
@@ -140,6 +203,251 @@ describe("ChildDocumentsPanel", () => {
       .toBeInTheDocument();
     await expect
       .element(screen.getByText(/Older files/))
+      .not.toBeInTheDocument();
+  });
+
+  it("uploads into an empty named paper slot and reserves the slot while busy", async () => {
+    const { dataProvider, screen } = await renderPanel([paper]);
+    const upload = screen.getByLabelText("Upload child document");
+    const file = new File(["paper"], "school.pdf", { type: "application/pdf" });
+
+    await screen.getByRole("button", { name: "Add Paper 2" }).click();
+    await upload.upload(file);
+
+    await expect
+      .poll(() => dataProvider.uploadEntityFile.mock.calls.length)
+      .toBe(1);
+    expect(dataProvider.uploadEntityFile).toHaveBeenCalledWith({
+      targetType: "single",
+      targetId: single.id,
+      file,
+      slot: "paper_2",
+    });
+  });
+
+  it("replaces a paper through the upload-before-swap provider method", async () => {
+    const { dataProvider, screen } = await renderPanel([paper]);
+    const upload = screen.getByLabelText("Upload child document");
+    const file = new File(["replacement"], "replacement.pdf", {
+      type: "application/pdf",
+    });
+
+    await screen.getByRole("button", { name: "Replace Paper 1" }).click();
+    await upload.upload(file);
+
+    await expect
+      .poll(() => dataProvider.replaceEntityFile.mock.calls.length)
+      .toBe(1);
+    expect(dataProvider.replaceEntityFile).toHaveBeenCalledWith({
+      oldId: paper.id,
+      targetType: "single",
+      targetId: single.id,
+      file,
+      slot: "paper_1",
+      visibility: paper.visibility,
+    });
+  });
+
+  it("confirms a paper delete, permits Undo, and finalizes after the deadline", async () => {
+    vi.useFakeTimers();
+    const { dataProvider, screen } = await renderPanel([paper]);
+
+    await screen.getByRole("button", { name: "Delete Paper 1" }).click();
+    await screen.getByRole("button", { name: "Delete file" }).click();
+    await expect
+      .poll(() => dataProvider.softDeleteEntityFile.mock.calls.length)
+      .toBe(1);
+    await expect
+      .element(screen.getByRole("button", { name: "Undo delete paper" }))
+      .toBeInTheDocument();
+    await screen.getByRole("button", { name: "Undo delete paper" }).click();
+    expect(dataProvider.undoEntityFileDelete).toHaveBeenCalledWith({
+      id: paper.id,
+      deleteToken: "paper-token",
+    });
+
+    await screen.getByRole("button", { name: "Delete Paper 1" }).click();
+    await screen.getByRole("button", { name: "Delete file" }).click();
+    await expect
+      .poll(() => dataProvider.softDeleteEntityFile.mock.calls.length)
+      .toBe(2);
+    vi.advanceTimersByTime(10_001);
+    await expect
+      .poll(() => dataProvider.finalizeEntityFileDelete.mock.calls.length)
+      .toBe(1);
+  });
+
+  it("keeps multiple Undo windows independent and reserves a pending slot", async () => {
+    vi.useFakeTimers();
+    const secondPaper = { ...paper, id: 57, slot: "paper_2" as const };
+    const { dataProvider, screen } = await renderPanel([paper, secondPaper]);
+    dataProvider.softDeleteEntityFile.mockImplementation(async ({ id }) => ({
+      id,
+      delete_token: `token-${id}`,
+      undo_until: new Date(Date.now() + 10_000).toISOString(),
+    }));
+
+    await screen.getByRole("button", { name: "Delete Paper 1" }).click();
+    await screen.getByRole("button", { name: "Delete file" }).click();
+    await screen.getByRole("button", { name: "Delete Paper 2" }).click();
+    await screen.getByRole("button", { name: "Delete file" }).click();
+
+    await expect
+      .element(screen.getByRole("button", { name: "Undo delete paper" }))
+      .toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Undo delete paper" }),
+    ).toHaveLength(2);
+    expect(
+      screen.getByRole("button", { name: "Replace Paper 1" }),
+    ).toBeDisabled();
+    expect(dataProvider.softDeleteEntityFile).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not issue two deletes when the confirmation is double-clicked", async () => {
+    let resolveDelete!: (value: {
+      id: number;
+      delete_token: string;
+      undo_until: string;
+    }) => void;
+    const softDelete = vi.fn(
+      () =>
+        new Promise<{ id: number; delete_token: string; undo_until: string }>(
+          (resolve) => {
+            resolveDelete = resolve;
+          },
+        ),
+    );
+    const { dataProvider, screen } = await renderPanel([paper]);
+    dataProvider.softDeleteEntityFile = softDelete;
+
+    await screen.getByRole("button", { name: "Delete Paper 1" }).click();
+    const confirm = screen.getByRole("button", { name: "Delete file" });
+    await confirm.click();
+    await confirm.click();
+    expect(softDelete).toHaveBeenCalledTimes(1);
+    resolveDelete({
+      id: paper.id as number,
+      delete_token: "paper-token",
+      undo_until: new Date(Date.now() + 10_000).toISOString(),
+    });
+  });
+
+  it("shows explicit desktop forwarding choices and never opens the file", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { screen } = await renderPanel([paper]);
+
+    await screen.getByRole("button", { name: "Forward Picture" }).click();
+    await expect
+      .element(screen.getByText("Download it, then attach it yourself."))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("link", { name: "Download" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("link", { name: "Email" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("link", { name: "WhatsApp" }))
+      .toBeInTheDocument();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("uses the touch share sheet only after a successful fetch", async () => {
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 1,
+    });
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: vi.fn().mockResolvedValue(undefined),
+    });
+    Object.defineProperty(navigator, "canShare", {
+      configurable: true,
+      value: vi.fn().mockReturnValue(true),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("file", { status: 200 })),
+    );
+    const { screen } = await renderPanel([paper]);
+
+    await screen.getByRole("button", { name: "Forward Picture" }).click();
+    await expect
+      .poll(
+        () => (navigator.share as ReturnType<typeof vi.fn>).mock.calls.length,
+      )
+      .toBe(1);
+  });
+
+  it("does not share an error response from the touch fetch", async () => {
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 1,
+    });
+    const share = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: share,
+    });
+    Object.defineProperty(navigator, "canShare", {
+      configurable: true,
+      value: vi.fn().mockReturnValue(true),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("nope", { status: 500 })),
+    );
+    const { screen } = await renderPanel([paper]);
+
+    await screen.getByRole("button", { name: "Forward Picture" }).click();
+    await expect.poll(() => share.mock.calls.length).toBe(0);
+    await expect
+      .element(screen.getByText("Download it, then attach it yourself."))
+      .not.toBeInTheDocument();
+  });
+
+  it("shows helper/shadchan read-only resume controls and paper controls", async () => {
+    viewerRole.role = "helper";
+    const { screen } = await renderPanel([paper]);
+
+    await expect
+      .element(screen.getByRole("button", { name: "Open Resume" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Forward Resume" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Replace Resume" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Delete Resume" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Replace Paper 1" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Delete Paper 1" }))
+      .toBeInTheDocument();
+  });
+
+  it("renders nothing for a single-role viewer", async () => {
+    viewerRole.role = "single";
+    const { screen } = await renderPanel();
+
+    await expect.element(screen.getByText("Documents")).not.toBeInTheDocument();
+  });
+
+  it("reports the four-file cap instead of pretending a slot is available", async () => {
+    const secondPaper = { ...paper, id: 57, slot: "paper_2" as const };
+    const { screen } = await renderPanel([paper, secondPaper]);
+
+    await expect.element(screen.getByText("4 of 4 used")).toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Add Paper 1" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Add Paper 2" }))
       .not.toBeInTheDocument();
   });
 });

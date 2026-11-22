@@ -18,6 +18,7 @@ import {
 } from "../../../resumes/resumeInbox";
 import type { InboxItem, MemberRole } from "../../../types";
 import type { Resume, ResumeFileVersion } from "../../../types";
+import { validateChildDocument } from "../../../singles/ChildDocuments/childDocuments";
 
 /**
  * The AD-10 mirror of `providers/supabase/resumes.ts` for demo mode.
@@ -181,6 +182,8 @@ export async function uploadResumeFile(
   params: UploadResumeFileParams,
 ): Promise<Resume> {
   const { file, ...subject } = params;
+  const validationError = validateChildDocument(file);
+  if (validationError) throw new Error(validationError);
   const ownerSegment = isSingleSubject(subject)
     ? `single-${subject.singleId}`
     : `${subject.shidduchimId}`;

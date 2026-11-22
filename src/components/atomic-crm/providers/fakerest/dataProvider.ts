@@ -60,6 +60,10 @@ import type {
 } from "../../types";
 import { ENTITY_TARGET_TYPES } from "../../types";
 import {
+  MAX_CHILD_PAPERS,
+  validateChildDocument,
+} from "../../singles/ChildDocuments/childDocuments";
+import {
   buildResumeInboxStoragePath,
   toResumeInboxPickerItem,
 } from "../../resumes/resumeInbox";
@@ -373,6 +377,7 @@ export const createDataProvider = ({
   // ./internal/entityFiles.ts. One map per createDataProvider() session, so
   // a fresh demo/test session never sees a previous one's blob URLs.
   const entityFileBlobUrls: EntityFileBlobUrls = new Map();
+  const finalizedEntityFileDeletes = new Set<string>();
 
   // Inbox captures use the private `attachments` bucket in production. The
   // demo keeps the same metadata shape and holds the bytes in object URLs.
@@ -718,6 +723,26 @@ export const createDataProvider = ({
     return { userId: caller.userId, membership: caller.membership };
   };
 
+  const assertEntityFileMutationRole = (role: AccountMember["role"]): void => {
+    if (
+      role !== "parent_admin" &&
+      role !== "self_manager" &&
+      role !== "helper" &&
+      role !== "shadchan"
+    ) {
+      throw new Error("entity file changes are not available to this role");
+    }
+  };
+
+  const requireEntityFileMutationMembership = async (): Promise<{
+    userId: string;
+    membership: AccountMember;
+  }> => {
+    const caller = await requireCallerMembership();
+    assertEntityFileMutationRole(caller.membership.role);
+    return caller;
+  };
+
   const getAcceptedGrantSingleIds = async (
     accountId: Identifier,
   ): Promise<Set<string>> => {
@@ -898,6 +923,29 @@ export const createDataProvider = ({
         accountMatches && (resource !== "shadchanim" || row.archived_at == null)
       );
     });
+    return pageRows(visible, params);
+  };
+
+  // `entity_files` is protected by account RLS in Postgres and the Files tab
+  // is unavailable to the `single` role. Keep both the raw catalog and the
+  // summary view on the same read boundary in FakeRest; custom lifecycle
+  // methods intentionally use the base provider so they can inspect a row
+  // before applying their own mutation checks.
+  const getVisibleEntityFileRows = async (params: any) => {
+    const caller = await resolveCallerMembership();
+    if (!caller?.membership || caller.membership.role === "single") {
+      return { data: [] as EntityFile[], total: 0 };
+    }
+    const { data: rows } = await baseDataProvider.getList<EntityFile>(
+      "entity_files",
+      {
+        ...params,
+        pagination: { page: 1, perPage: 10_000 },
+      },
+    );
+    const visible = rows.filter(
+      (row) => String(row.account_id) === String(caller.membership?.account_id),
+    );
     return pageRows(visible, params);
   };
 
@@ -1807,11 +1855,15 @@ export const createDataProvider = ({
       // Emulate entity_files_summary (Story 3.7 AD-10 FakeRest mirror) the
       // same way interactions_summary is emulated above.
       if (resource === "entity_files" || resource === "entity_files_summary") {
-        const { data, total } = await baseDataProvider.getList(
-          "entity_files",
-          params,
-        );
-        return { data: await enrichEntityFiles(data), total };
+        const { data } = await getVisibleEntityFileRows(params);
+        const visible =
+          resource === "entity_files_summary"
+            ? data.filter((row: EntityFile) => row.deleted_at == null)
+            : data;
+        return {
+          data: await enrichEntityFiles(visible),
+          total: visible.length,
+        };
       }
       // Story 12.3 (Task 2): "context_members" does NOT end in "_summary" —
       // the adapter's suffix strip would otherwise collapse
@@ -1970,7 +2022,18 @@ export const createDataProvider = ({
         return { data: enriched };
       }
       if (resource === "entity_files" || resource === "entity_files_summary") {
-        const { data } = await baseDataProvider.getOne("entity_files", params);
+        const { data: rows } = await getVisibleEntityFileRows({
+          filter: { id: params.id },
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "id", order: "ASC" },
+        });
+        const data = rows[0];
+        if (
+          !data ||
+          (resource === "entity_files_summary" && data.deleted_at != null)
+        ) {
+          throw new Error("Entity file not found");
+        }
         const [enriched] = await enrichEntityFiles([data]);
         return { data: enriched };
       }
@@ -2189,6 +2252,58 @@ export const createDataProvider = ({
           ),
         });
       }
+      if (resource === "entity_files") {
+        const data = params.data ?? {};
+        const accountId = data.account_id ?? (await resolveCurrentAccountId());
+        if (data.target_type === "single") {
+          const { membership } = await requireEntityFileMutationMembership();
+          if (String(accountId) !== String(membership.account_id)) {
+            throw new Error("entity file account context mismatch");
+          }
+          if (data.slot !== "paper_1" && data.slot !== "paper_2") {
+            throw new Error("Choose an available paper slot before uploading.");
+          }
+          const sizeBytes = Number(data.size_bytes);
+          const validationError = validateChildDocument({
+            name: String(data.file_name ?? ""),
+            size: sizeBytes,
+            type: String(data.mime_type ?? ""),
+          } as File);
+          if (validationError) throw new Error(validationError);
+          const { data: existing } = await baseDataProvider.getList<EntityFile>(
+            "entity_files",
+            {
+              filter: {
+                account_id: accountId,
+                target_type: "single",
+                target_id: data.target_id,
+              },
+              pagination: { page: 1, perPage: 100 },
+              sort: { field: "id", order: "ASC" },
+            },
+          );
+          const now = Date.now();
+          const active = existing.filter(
+            (candidate) =>
+              candidate.deleted_at == null ||
+              (candidate.delete_undo_until != null &&
+                new Date(candidate.delete_undo_until).getTime() >= now),
+          );
+          if (
+            active.filter((candidate) => candidate.slot != null).length >=
+            MAX_CHILD_PAPERS
+          ) {
+            throw new Error("You can store up to 2 papers.");
+          }
+          if (active.some((candidate) => candidate.slot === data.slot)) {
+            throw new Error("That paper slot is already in use.");
+          }
+        }
+        return baseDataProvider.create(resource, {
+          ...params,
+          data: { ...data, account_id: accountId },
+        });
+      }
       return baseDataProvider.create(resource, params);
     },
     async update(resource: string, params: any) {
@@ -2266,6 +2381,88 @@ export const createDataProvider = ({
             );
           }
         }
+      }
+      if (resource === "entity_files") {
+        const { data: current } = await baseDataProvider.getOne<EntityFile>(
+          "entity_files",
+          { id: params.id },
+        );
+        const next = { ...current, ...(params.data ?? {}) } as EntityFile;
+        if (current.target_type === "single" || next.target_type === "single") {
+          const { membership } = await requireEntityFileMutationMembership();
+          if (
+            String(current.account_id) !== String(membership.account_id) ||
+            String(next.account_id) !== String(membership.account_id)
+          ) {
+            throw new Error("entity file account context mismatch");
+          }
+        }
+        const touchesTargetGuard = [
+          "account_id",
+          "target_type",
+          "target_id",
+          "storage_path",
+          "file_name",
+          "mime_type",
+          "size_bytes",
+          "slot",
+        ].some((field) => params.data?.[field] !== undefined);
+        const legacyUnslottedUpdate =
+          current.target_type === "single" &&
+          current.slot == null &&
+          next.target_type === "single" &&
+          next.slot == null &&
+          String(next.account_id) === String(current.account_id) &&
+          String(next.target_id) === String(current.target_id) &&
+          next.storage_path === current.storage_path;
+        if (
+          touchesTargetGuard &&
+          next.target_type === "single" &&
+          !legacyUnslottedUpdate
+        ) {
+          if (next.slot !== "paper_1" && next.slot !== "paper_2") {
+            throw new Error("Choose an available paper slot before uploading.");
+          }
+          const validationError = validateChildDocument({
+            name: String(next.file_name ?? ""),
+            size: Number(next.size_bytes),
+            type: String(next.mime_type ?? ""),
+          } as File);
+          if (validationError) throw new Error(validationError);
+          const { data: existing } = await baseDataProvider.getList<EntityFile>(
+            "entity_files",
+            {
+              filter: {
+                account_id: next.account_id,
+                target_type: "single",
+                target_id: next.target_id,
+              },
+              pagination: { page: 1, perPage: 100 },
+              sort: { field: "id", order: "ASC" },
+            },
+          );
+          const now = Date.now();
+          const active = existing.filter(
+            (candidate) =>
+              String(candidate.id) !== String(params.id) &&
+              (candidate.deleted_at == null ||
+                (candidate.delete_undo_until != null &&
+                  new Date(candidate.delete_undo_until).getTime() >= now)),
+          );
+          if (
+            active.filter((candidate) => candidate.slot != null).length >=
+            MAX_CHILD_PAPERS
+          ) {
+            throw new Error("You can store up to 2 papers.");
+          }
+          if (active.some((candidate) => candidate.slot === next.slot)) {
+            throw new Error("That paper slot is already in use.");
+          }
+        }
+        return baseDataProvider.update(resource, {
+          ...params,
+          previousData: current,
+        });
       }
       return baseDataProvider.update(resource, params);
     },
@@ -3497,6 +3694,10 @@ export const createDataProvider = ({
         resolveCurrentAccountId(),
         resolveCallerMembership(),
       ]);
+      if (params.targetType === "single") {
+        if (!caller?.membership) throw new Error("No active account context");
+        assertEntityFileMutationRole(caller.membership.role);
+      }
       return uploadEntityFileImpl(
         baseDataProvider,
         entityFileBlobUrls,
@@ -3517,29 +3718,66 @@ export const createDataProvider = ({
     }): Promise<void> =>
       deleteEntityFileImpl(baseDataProvider, entityFileBlobUrls, params),
     softDeleteEntityFile: async (params: { id: Identifier }) => {
+      const { membership } = await requireEntityFileMutationMembership();
       const { data } = await baseDataProvider.getOne<EntityFile>(
         "entity_files",
         { id: params.id },
       );
+      if (
+        !data ||
+        String(data.account_id) !== String(membership.account_id) ||
+        data.target_type !== "single"
+      ) {
+        throw new Error("entity file not found");
+      }
+      if (data.deleted_at != null) {
+        throw new Error("The file is already being deleted.");
+      }
+      const deleteToken = crypto.randomUUID().replaceAll("-", "");
+      const undoUntil = new Date(Date.now() + 10_000).toISOString();
       await baseDataProvider.update("entity_files", {
         id: params.id,
-        data: { deleted_at: new Date().toISOString() },
+        data: {
+          deleted_at: new Date().toISOString(),
+          delete_token: deleteToken,
+          delete_undo_until: undoUntil,
+        },
         previousData: data,
       });
       return {
         id: params.id,
-        delete_token: crypto.randomUUID().replaceAll("-", ""),
-        undo_until: new Date(Date.now() + 10_000).toISOString(),
+        delete_token: deleteToken,
+        undo_until: undoUntil,
       };
     },
     undoEntityFileDelete: async (params: EntityFileDeleteTokenParams) => {
+      const { membership } = await requireEntityFileMutationMembership();
       const { data } = await baseDataProvider.getOne<EntityFile>(
         "entity_files",
         { id: params.id },
       );
+      if (
+        !data ||
+        String(data.account_id) !== String(membership.account_id) ||
+        data.target_type !== "single" ||
+        data.deleted_at == null ||
+        data.delete_token !== params.deleteToken
+      ) {
+        throw new Error("That undo request is no longer valid.");
+      }
+      if (
+        data.delete_undo_until == null ||
+        new Date(data.delete_undo_until).getTime() <= Date.now()
+      ) {
+        throw new Error("The 10-second Undo window has ended.");
+      }
       const result = await baseDataProvider.update<EntityFile>("entity_files", {
         id: params.id,
-        data: { deleted_at: null },
+        data: {
+          deleted_at: null,
+          delete_token: null,
+          delete_undo_until: null,
+        },
         previousData: data,
       });
       return result.data;
@@ -3548,29 +3786,97 @@ export const createDataProvider = ({
       id: Identifier;
       deleteToken: string;
     }) => {
-      await baseDataProvider.delete("entity_files", { id: params.id });
+      const { membership } = await requireEntityFileMutationMembership();
+      const receiptKey = `${String(params.id)}:${params.deleteToken}`;
+      let data: EntityFile;
+      try {
+        ({ data } = await baseDataProvider.getOne<EntityFile>("entity_files", {
+          id: params.id,
+        }));
+      } catch (error) {
+        if (finalizedEntityFileDeletes.has(receiptKey)) return;
+        throw error;
+      }
+      if (
+        String(data.account_id) !== String(membership.account_id) ||
+        data.target_type !== "single" ||
+        data.delete_token !== params.deleteToken ||
+        data.deleted_at == null
+      ) {
+        throw new Error("That delete request is no longer valid.");
+      }
+      if (
+        data.delete_undo_until == null ||
+        new Date(data.delete_undo_until).getTime() >= Date.now()
+      ) {
+        throw new Error("The 10-second Undo window has not ended.");
+      }
+      await deleteEntityFileImpl(baseDataProvider, entityFileBlobUrls, {
+        id: params.id,
+        storagePath: data.storage_path,
+      });
+      finalizedEntityFileDeletes.add(receiptKey);
+    },
+    finalizeExpiredEntityFileDeletes: async (): Promise<number> => {
+      const { membership } = await requireEntityFileMutationMembership();
+      const accountId = membership.account_id;
+      const { data } = await baseDataProvider.getList<EntityFile>(
+        "entity_files",
+        {
+          pagination: { page: 1, perPage: 10_000 },
+          sort: { field: "id", order: "ASC" },
+        },
+      );
+      const now = Date.now();
+      let finalized = 0;
+      for (const row of data) {
+        if (
+          String(row.account_id) !== String(accountId) ||
+          row.target_type !== "single" ||
+          row.deleted_at == null ||
+          row.delete_token == null ||
+          row.delete_undo_until == null ||
+          new Date(row.delete_undo_until).getTime() > now
+        ) {
+          continue;
+        }
+        await deleteEntityFileImpl(baseDataProvider, entityFileBlobUrls, {
+          id: row.id,
+          storagePath: row.storage_path,
+        });
+        finalizedEntityFileDeletes.add(`${String(row.id)}:${row.delete_token}`);
+        finalized += 1;
+      }
+      return finalized;
     },
     replaceEntityFile: async (params: ReplaceEntityFileParams) => {
       const [accountId, caller] = await Promise.all([
         resolveCurrentAccountId(),
         resolveCallerMembership(),
       ]);
+      if (!caller?.membership) throw new Error("No active account context");
+      assertEntityFileMutationRole(caller.membership.role);
       const replacement = await uploadEntityFileImpl(
         baseDataProvider,
         entityFileBlobUrls,
         accountId,
         caller?.membership?.id ?? null,
-        params,
+        { ...params, excludeId: params.oldId },
       );
       try {
         const { data: oldFile } = await baseDataProvider.getOne<EntityFile>(
           "entity_files",
           { id: params.oldId },
         );
-        await baseDataProvider.update("entity_files", {
+        if (
+          String(oldFile.account_id) !== String(accountId) ||
+          oldFile.target_type !== "single"
+        ) {
+          throw new Error("single paper not found");
+        }
+        await deleteEntityFileImpl(baseDataProvider, entityFileBlobUrls, {
           id: params.oldId,
-          data: { deleted_at: new Date().toISOString() },
-          previousData: oldFile,
+          storagePath: oldFile.storage_path,
         });
         return replacement;
       } catch (error) {

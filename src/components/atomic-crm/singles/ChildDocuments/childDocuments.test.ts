@@ -52,7 +52,9 @@ describe("child document policy", () => {
     );
   });
 
-  it("still accepts a browser file whose MIME type is blank when its safe extension is known", () => {
-    expect(validateChildDocument(file("paper.pdf", ""))).toBeNull();
+  it("rejects a browser file whose MIME type is blank", () => {
+    expect(validateChildDocument(file("paper.pdf", ""))).toContain(
+      "file type and extension",
+    );
   });
 });

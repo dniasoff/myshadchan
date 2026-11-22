@@ -33,11 +33,13 @@ returning id as single_b \gset
 
 create or replace function pg_temp.expect_resume_error(
   p_name text, p_path text, p_filename text, p_mime_type text,
-  p_size bigint, p_single_id bigint, p_expected text
+  p_size bigint, p_single_id bigint, p_expected_state text, p_expected text
 ) returns void
 language plpgsql
 as $fn$
-declare message text;
+declare
+  message text;
+  state text;
 begin
   begin
     perform public.add_resume_file(
@@ -45,42 +47,65 @@ begin
     );
     insert into results values (p_name, false, 'no exception');
   exception when others then
-    get stacked diagnostics message = message_text;
-    insert into results values (p_name, message like '%' || p_expected || '%', message);
+    get stacked diagnostics
+      message = message_text,
+      state = returned_sqlstate;
+    insert into results values (
+      p_name,
+      state = p_expected_state and message = p_expected,
+      format('SQLSTATE %s: %s', state, message)
+    );
   end;
 end
 $fn$;
 
 create or replace function pg_temp.expect_photo_error(
-  p_name text, p_path text, p_single_id bigint, p_size bigint, p_expected text
+  p_name text, p_path text, p_single_id bigint, p_size bigint,
+  p_expected_state text, p_expected text
 ) returns void
 language plpgsql
 as $fn$
-declare message text;
+declare
+  message text;
+  state text;
 begin
   begin
     perform public.add_resume_photo(p_path, null, p_single_id, 'shared', p_size);
     insert into results values (p_name, false, 'no exception');
   exception when others then
-    get stacked diagnostics message = message_text;
-    insert into results values (p_name, message like '%' || p_expected || '%', message);
+    get stacked diagnostics
+      message = message_text,
+      state = returned_sqlstate;
+    insert into results values (
+      p_name,
+      state = p_expected_state and message = p_expected,
+      format('SQLSTATE %s: %s', state, message)
+    );
   end;
 end
 $fn$;
 
 create or replace function pg_temp.expect_soft_delete_error(
-  p_name text, p_entity_file_id bigint, p_expected text
+  p_name text, p_entity_file_id bigint, p_expected_state text, p_expected text
 ) returns void
 language plpgsql
 as $fn$
-declare message text;
+declare
+  message text;
+  state text;
 begin
   begin
     perform public.soft_delete_entity_file(p_entity_file_id);
     insert into results values (p_name, false, 'no exception');
   exception when others then
-    get stacked diagnostics message = message_text;
-    insert into results values (p_name, message like '%' || p_expected || '%', message);
+    get stacked diagnostics
+      message = message_text,
+      state = returned_sqlstate;
+    insert into results values (
+      p_name,
+      state = p_expected_state and message = p_expected,
+      format('SQLSTATE %s: %s', state, message)
+    );
   end;
 end
 $fn$;
@@ -90,28 +115,42 @@ create or replace function pg_temp.expect_direct_delete_error(
 ) returns void
 language plpgsql
 as $fn$
-declare message text;
+declare
+  message text;
+  affected bigint;
+  state text;
 begin
   begin
     delete from public.entity_files where id = p_entity_file_id;
+    get diagnostics affected = row_count;
     insert into results values (
       p_name,
-      exists (select 1 from public.entity_files where id = p_entity_file_id),
-      'row remains protected by the single-document delete policy'
+      affected = 0,
+      format('SQLSTATE 00000: DELETE affected %s rows', affected)
     );
   exception when others then
-    get stacked diagnostics message = message_text;
-    insert into results values (p_name, true, message);
+    get stacked diagnostics
+      message = message_text,
+      state = returned_sqlstate;
+    insert into results values (
+      p_name,
+      false,
+      format('SQLSTATE %s: %s', state, message)
+    );
   end;
 end
 $fn$;
 
 create or replace function pg_temp.expect_paper_insert_error(
-  p_name text, p_account_id bigint, p_single_id bigint, p_path text, p_expected text
+  p_name text, p_account_id bigint, p_single_id bigint, p_path text,
+  p_filename text, p_mime_type text, p_size bigint, p_slot text,
+  p_expected_state text, p_expected text
 ) returns void
 language plpgsql
 as $fn$
-declare message text;
+declare
+  message text;
+  state text;
 begin
   begin
     insert into public.entity_files (
@@ -119,12 +158,72 @@ begin
       size_bytes, visibility, slot
     ) values (
       p_account_id, 'single', p_single_id, p_path,
-      'paper-3.pdf', 'application/pdf', 10, 'private_parent', 'paper_1'
+      p_filename, p_mime_type, p_size, 'private_parent', p_slot
     );
     insert into results values (p_name, false, 'no exception');
   exception when others then
-    get stacked diagnostics message = message_text;
-    insert into results values (p_name, message like '%' || p_expected || '%', message);
+    get stacked diagnostics
+      message = message_text,
+      state = returned_sqlstate;
+    insert into results values (
+      p_name,
+      state = p_expected_state and message = p_expected,
+      format('SQLSTATE %s: %s', state, message)
+    );
+  end;
+end
+$fn$;
+
+create or replace function pg_temp.expect_paper_update_error(
+  p_name text, p_entity_file_id bigint, p_filename text, p_mime_type text,
+  p_size bigint, p_expected_state text, p_expected text
+) returns void
+language plpgsql
+as $fn$
+declare
+  message text;
+  state text;
+begin
+  begin
+    update public.entity_files
+    set file_name = p_filename, mime_type = p_mime_type, size_bytes = p_size
+    where id = p_entity_file_id;
+    insert into results values (p_name, false, 'no exception');
+  exception when others then
+    get stacked diagnostics
+      message = message_text,
+      state = returned_sqlstate;
+    insert into results values (
+      p_name,
+      state = p_expected_state and message = p_expected,
+      format('SQLSTATE %s: %s', state, message)
+    );
+  end;
+end
+$fn$;
+
+create or replace function pg_temp.expect_undo_error(
+  p_name text, p_entity_file_id bigint, p_delete_token text,
+  p_expected_state text, p_expected text
+) returns void
+language plpgsql
+as $fn$
+declare
+  message text;
+  state text;
+begin
+  begin
+    perform public.undo_entity_file_delete(p_entity_file_id, p_delete_token);
+    insert into results values (p_name, false, 'no exception');
+  exception when others then
+    get stacked diagnostics
+      message = message_text,
+      state = returned_sqlstate;
+    insert into results values (
+      p_name,
+      state = p_expected_state and message = p_expected,
+      format('SQLSTATE %s: %s', state, message)
+    );
   end;
 end
 $fn$;
@@ -154,22 +253,25 @@ select pg_temp.expect_resume_error(
   'Resume rejects files over 8 MiB',
   :account_a::text || '/resumes/single-' || :single_a::text || '/too-large.pdf',
   'too-large.pdf', 'application/pdf', 8 * 1024 * 1024 + 1, :single_a,
-  '8 MiB'
+  '23514', 'resume file must be a PDF, Word, JPEG, or PNG no larger than 8 MiB'
 );
 select pg_temp.expect_resume_error(
   'Resume rejects unsupported MIME and extension',
   :account_a::text || '/resumes/single-' || :single_a::text || '/bad.txt',
-  'bad.txt', 'text/plain', 10, :single_a, 'PDF, Word, JPEG, or PNG'
+  'bad.txt', 'text/plain', 10, :single_a, '23514',
+  'resume file must be a PDF, Word, JPEG, or PNG no larger than 8 MiB'
 );
 select pg_temp.expect_photo_error(
   'Picture rejects files over 8 MiB',
   :account_a::text || '/photos/shared/single-' || :single_a::text || '/too-large.png',
-  :single_a, 8 * 1024 * 1024 + 1, '8 MiB'
+  :single_a, 8 * 1024 * 1024 + 1, '23514',
+  'picture must be no larger than 8 MiB'
 );
 select pg_temp.expect_photo_error(
   'Picture rejects non-JPEG/PNG paths',
   :account_a::text || '/photos/shared/single-' || :single_a::text || '/bad.gif',
-  :single_a, 10, 'JPEG or PNG'
+  :single_a, 10, '23514',
+  'picture must be a JPEG or PNG in the current account'
 );
 
 select * from public.add_resume_photo(
@@ -214,16 +316,120 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"3f311111-1111-1111-1111-111111111111","role":"authenticated"}';
 select public.set_active_context(:account_a);
 select pg_temp.expect_paper_insert_error(
+  'Parent admin direct INSERT rejects an unsupported MIME', :account_a, :single_a,
+  :account_a::text || '/single/' || :single_a::text || '/invalid-mime-uuid.exe',
+  'invalid-mime.exe', 'text/plain', 10, 'paper_1', '23514',
+  'single document MIME type is not allowed'
+);
+select pg_temp.expect_paper_insert_error(
+  'Parent admin direct INSERT rejects a mismatched extension', :account_a, :single_a,
+  :account_a::text || '/single/' || :single_a::text || '/invalid-extension-uuid.pdf',
+  'invalid-extension.doc', 'application/pdf', 10, 'paper_1', '23514',
+  'single document file extension does not match MIME type'
+);
+select pg_temp.expect_paper_insert_error(
+  'Parent admin direct INSERT rejects an oversized file', :account_a, :single_a,
+  :account_a::text || '/single/' || :single_a::text || '/invalid-size-uuid.pdf',
+  'invalid-size.pdf', 'application/pdf', 8 * 1024 * 1024 + 1, 'paper_1', '23514',
+  'single document size must be between 1 byte and 8 MiB'
+);
+select pg_temp.expect_paper_update_error(
+  'Parent admin direct UPDATE rejects an unsupported MIME', :paper_a_2,
+  'invalid-update.exe', 'text/plain', 10, '23514',
+  'single document MIME type is not allowed'
+);
+select pg_temp.expect_paper_update_error(
+  'Parent admin direct UPDATE rejects a mismatched extension', :paper_a_2,
+  'invalid-update.doc', 'application/pdf', 10, '23514',
+  'single document file extension does not match MIME type'
+);
+select pg_temp.expect_paper_update_error(
+  'Parent admin direct UPDATE rejects an oversized file', :paper_a_2,
+  'invalid-update.pdf', 'application/pdf', 8 * 1024 * 1024 + 1, '23514',
+  'single document size must be between 1 byte and 8 MiB'
+);
+set local role service_role;
+update public.account_members
+set role = 'helper'
+where account_id = :account_a
+  and user_id = '3f311111-1111-1111-1111-111111111111';
+set local role authenticated;
+select public.set_active_context(:account_a);
+select pg_temp.expect_paper_insert_error(
+  'Helper direct INSERT rejects an unsupported MIME', :account_a, :single_a,
+  :account_a::text || '/single/' || :single_a::text || '/helper-invalid-uuid.exe',
+  'helper-invalid.exe', 'text/plain', 10, 'paper_1', '23514',
+  'single document MIME type is not allowed'
+);
+select pg_temp.expect_paper_update_error(
+  'Helper direct UPDATE rejects an unsupported MIME', :paper_a_2,
+  'helper-invalid.exe', 'text/plain', 10, '23514',
+  'single document MIME type is not allowed'
+);
+set local role service_role;
+update public.account_members
+set role = 'shadchan'
+where account_id = :account_a
+  and user_id = '3f311111-1111-1111-1111-111111111111';
+set local role authenticated;
+select public.set_active_context(:account_a);
+select pg_temp.expect_paper_insert_error(
+  'Shadchan direct INSERT rejects a mismatched extension', :account_a, :single_a,
+  :account_a::text || '/single/' || :single_a::text || '/shadchan-invalid-uuid.pdf',
+  'shadchan-invalid.doc', 'application/pdf', 10, 'paper_1', '23514',
+  'single document file extension does not match MIME type'
+);
+select pg_temp.expect_paper_update_error(
+  'Shadchan direct UPDATE rejects an oversized file', :paper_a_2,
+  'shadchan-invalid.pdf', 'application/pdf', 8 * 1024 * 1024 + 1, '23514',
+  'single document size must be between 1 byte and 8 MiB'
+);
+set local role service_role;
+update public.account_members
+set role = 'parent_admin'
+where account_id = :account_a
+  and user_id = '3f311111-1111-1111-1111-111111111111';
+set local role authenticated;
+select public.set_active_context(:account_a);
+select pg_temp.expect_paper_insert_error(
   'A single cannot exceed two paper slots', :account_a, :single_a,
   :account_a::text || '/single/' || :single_a::text || '/paper-3-uuid.pdf',
+  'paper-3.pdf', 'application/pdf', 10, 'paper_1', '23514',
   'child document limit reached'
 );
 select pg_temp.expect_direct_delete_error(
   'Direct DELETE cannot bypass the child-document Undo window', :paper_a_2
 );
 
+select id as replacement_paper_id
+from public.replace_entity_file(
+  :paper_a_2,
+  :'account_a'::text || '/single/' || :'single_a'::text || '/paper-2-replaced-uuid.pdf',
+  'paper-2-replaced.pdf', 'application/pdf', 10, 'paper_2', 'private_parent'
+) \gset
+insert into results
+select 'Replace queues the old paper after the new row is installed',
+  not exists (select 1 from public.entity_files where id = :'paper_a_2')
+  and exists (
+    select 1 from public.entity_files
+    where id = :'replacement_paper_id' and slot = 'paper_2'
+  )
+  and exists (
+    select 1 from public.storage_purge_queue
+    where account_id = :'account_a'
+      and bucket = 'entity-files'
+      and storage_path = :'account_a'::text || '/single/' || :'single_a'::text || '/paper-2-uuid.pdf'
+  ),
+  null;
+
 select id as deleted_paper_id, delete_token as deleted_token
 from public.soft_delete_entity_file(:paper_a_1) \gset
+select pg_temp.expect_paper_insert_error(
+  'A paper slot remains reserved during the Undo window', :account_a, :single_a,
+  :account_a::text || '/single/' || :single_a::text || '/pending-slot-uuid.pdf',
+  'pending-slot.pdf', 'application/pdf', 10, 'paper_1', '23505',
+  'single paper slot is already in use'
+);
 insert into results
 select 'Delete soft-hides the paper and leaves its row before Undo expires',
   exists (select 1 from public.entity_files where id = :'deleted_paper_id' and deleted_at is not null)
@@ -247,6 +453,7 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"3f311111-1111-1111-1111-111111111111","role":"authenticated"}';
 select public.set_active_context(:account_a);
 select public.finalize_entity_file_delete(:finalized_paper_id, :'finalized_token');
+select public.finalize_entity_file_delete(:finalized_paper_id, :'finalized_token');
 insert into results
 select 'Finalize removes the row only after the Undo window and queues storage cleanup',
   not exists (select 1 from public.entity_files where id = :'finalized_paper_id')
@@ -257,16 +464,48 @@ select 'Finalize removes the row only after the Undo window and queues storage c
       and storage_path = :'account_a'::text || '/single/' || :'single_a'::text || '/paper-1-uuid.pdf'
   ),
   null;
+insert into public.entity_files (
+  account_id, target_type, target_id, storage_path, file_name, mime_type,
+  size_bytes, visibility, slot
+) values (
+  :'account_a', 'single', :'single_a',
+  :'account_a'::text || '/single/' || :'single_a'::text || '/expired-sweep-uuid.pdf',
+  'expired-sweep.pdf', 'application/pdf', 10, 'private_parent', 'paper_1'
+) returning id as swept_paper_id \gset
+select id as swept_delete_id, delete_token as swept_delete_token
+from public.soft_delete_entity_file(:swept_paper_id) \gset
+set local role service_role;
+update public.entity_files
+set delete_undo_until = now() - interval '1 second'
+where id = :'swept_paper_id';
+set local role authenticated;
+select public.set_active_context(:account_a);
+select pg_temp.expect_undo_error(
+  'Undo after the deadline is refused', :'swept_paper_id', :'swept_delete_token',
+  'P0002', 'entity file delete can no longer be undone'
+);
+select public.finalize_expired_entity_file_deletes();
+insert into results
+select 'Expired papers are finalized by the durable sweep while active papers remain',
+  not exists (select 1 from public.entity_files where id = :'swept_paper_id')
+  and exists (select 1 from public.entity_files where id = :'replacement_paper_id' and deleted_at is null)
+  and exists (
+    select 1 from public.storage_purge_queue
+    where account_id = :'account_a'
+      and bucket = 'entity-files'
+      and storage_path = :'account_a'::text || '/single/' || :'single_a'::text || '/expired-sweep-uuid.pdf'
+  ),
+  null;
 
 select pg_temp.expect_soft_delete_error(
-  'Cross-account paper delete is refused', :paper_b_1, 'entity file not found'
+  'Cross-account paper delete is refused', :paper_b_1, 'P0002', 'entity file not found'
 );
 
 set local request.jwt.claims = '{"sub":"3f322222-2222-2222-2222-222222222222","role":"authenticated"}';
 select public.set_active_context(:account_a);
 select pg_temp.expect_soft_delete_error(
-  'Single role cannot delete a paper', :paper_a_2,
-  'entity file changes are not available to this role'
+  'Single role cannot delete a paper', :replacement_paper_id,
+  '42501', 'entity file changes are not available to this role'
 );
 
 set local role postgres;

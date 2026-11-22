@@ -10,6 +10,7 @@ import type {
   ResumePhoto,
   ResumePhotoVisibility,
 } from "../../../types";
+import { validateChildPhoto } from "../../../singles/ChildDocuments/childDocuments";
 
 /**
  * The AD-10 mirror of `providers/supabase/resumePhotos.ts` for demo mode.
@@ -42,6 +43,8 @@ export async function uploadResumePhoto(
   params: UploadResumePhotoParams,
 ): Promise<ResumePhoto> {
   const { file, visibility = "shared", ...subject } = params;
+  const validationError = validateChildPhoto(file);
+  if (validationError) throw new Error(validationError);
   const ownerSegment = isSingleSubject(subject)
     ? `single-${subject.singleId}`
     : `${subject.shidduchimId}`;

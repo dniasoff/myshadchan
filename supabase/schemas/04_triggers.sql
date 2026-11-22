@@ -658,6 +658,7 @@ for each row execute function public.shidduch_delete_tombstone();
 -- service_role, which bypasses storage.objects RLS.
 drop trigger if exists validate_entity_files_shidduch_target on public.entity_files;
 create trigger validate_entity_files_shidduch_target
-before insert or update of account_id, target_type, target_id, storage_path, slot
+before insert or update of account_id, target_type, target_id, storage_path,
+  file_name, mime_type, size_bytes, slot
 on public.entity_files
 for each row execute function public.entity_files_target_guard();

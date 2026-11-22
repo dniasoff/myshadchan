@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent, MouseEvent, ReactElement } from "react";
 import { useDataProvider, useGetList, useNotify, useRefresh } from "ra-core";
 import type { Identifier } from "ra-core";
 
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/sheet";
 
 import type { CrmDataProvider } from "../../providers/types";
+import { useViewerRole } from "../../entity360/useViewerRole";
 import type {
   EntityFileSummary,
   Resume,
@@ -32,6 +33,7 @@ import {
   schedulePendingResumeFileDelete,
   type PendingResumeFileDelete,
 } from "../../resumes/resumeFileDelete";
+import { canDeleteResumeFile } from "../../resumes/resumeFileDelete";
 import {
   CHILD_DOCUMENT_ACCEPT,
   CHILD_DOCUMENT_MAX_SIZE_LABEL,
@@ -39,6 +41,7 @@ import {
   MAX_CHILD_DOCUMENTS,
   MAX_CHILD_PAPERS,
   validateChildDocument,
+  validateChildPhoto,
   type ChildPaperSlot,
 } from "./childDocuments";
 
@@ -57,6 +60,7 @@ type PendingDelete = {
   id: Identifier;
   token: string;
   until: number;
+  slot?: ChildPaperSlot;
 };
 
 type ShareFile = {
@@ -65,6 +69,22 @@ type ShareFile = {
 };
 
 const FILE_DELETE_UNDO_MS = 10_000;
+
+/** Native file sharing is intentionally limited to touch devices. Desktop
+ * users get explicit Download / Email / WhatsApp choices instead, because
+ * those channels require the user to attach the file themselves. */
+export function canUseNativeFileShare(): boolean {
+  if (typeof navigator === "undefined" || typeof window === "undefined") {
+    return false;
+  }
+  const isTouchDevice =
+    navigator.maxTouchPoints > 0 || "ontouchstart" in window;
+  return (
+    isTouchDevice &&
+    typeof navigator.share === "function" &&
+    typeof navigator.canShare === "function"
+  );
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -75,6 +95,10 @@ function formatBytes(bytes: number): string {
 function photoFileName(path: string): string {
   const tail = path.split("/").pop() ?? "picture.jpg";
   return tail.replace(/^[0-9a-f-]{20,}-/i, "") || "picture.jpg";
+}
+
+function photoMimeType(path: string): string {
+  return /\.png$/i.test(path) ? "image/png" : "image/jpeg";
 }
 
 function isWordFile(name: string, mimeType: string): boolean {
@@ -93,17 +117,21 @@ function displayName(single: Single): string {
 }
 
 function DocumentActions({
+  slotName,
+  canManage,
   disabled,
   onOpen,
   onReplace,
   onForward,
   onDelete,
 }: {
+  slotName: string;
+  canManage: boolean;
   disabled?: boolean;
   onOpen: () => void;
   onReplace: () => void;
   onForward: () => void;
-  onDelete: () => void;
+  onDelete: (event: MouseEvent<HTMLButtonElement>) => void;
 }): ReactElement {
   return (
     <div className="flex flex-wrap gap-2">
@@ -112,50 +140,66 @@ function DocumentActions({
         variant="outline"
         size="sm"
         className="min-h-11"
+        aria-label={`Open ${slotName}`}
         disabled={disabled}
         onClick={onOpen}
       >
         Open
       </Button>
+      {canManage ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="min-h-11"
+          aria-label={`Replace ${slotName}`}
+          disabled={disabled}
+          onClick={onReplace}
+        >
+          Replace
+        </Button>
+      ) : null}
       <Button
         type="button"
         variant="outline"
         size="sm"
         className="min-h-11"
-        disabled={disabled}
-        onClick={onReplace}
-      >
-        Replace
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="min-h-11"
+        aria-label={`Forward ${slotName}`}
         disabled={disabled}
         onClick={onForward}
       >
         Forward
       </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="min-h-11 text-destructive hover:text-destructive"
-        disabled={disabled}
-        onClick={onDelete}
-      >
-        Delete
-      </Button>
+      {canManage ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="min-h-11 text-destructive hover:text-destructive"
+          aria-label={`Delete ${slotName}`}
+          disabled={disabled}
+          onClick={onDelete}
+        >
+          Delete
+        </Button>
+      ) : null}
     </div>
   );
 }
 
 function EmptySlot({
   label,
+  slotName,
+  canAdd,
+  disabled,
+  pending,
   onAdd,
 }: {
   label: string;
+  slotName: string;
+  canAdd: boolean;
+  disabled?: boolean;
+  pending?: boolean;
   onAdd: () => void;
 }): ReactElement {
   const actionLabel = label.startsWith("Papers")
@@ -165,16 +209,22 @@ function EmptySlot({
     <div className="flex min-h-28 flex-col justify-between rounded-xl border border-dashed border-border bg-muted/20 p-3">
       <div>
         <p className="text-sm font-semibold">{label}</p>
-        <p className="mt-1 text-sm text-muted-foreground">No file added yet.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {pending ? "Undo is available for 10 seconds." : "No file added yet."}
+        </p>
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        className="mt-3 min-h-11 self-start"
-        onClick={onAdd}
-      >
-        {actionLabel}
-      </Button>
+      {canAdd ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-3 min-h-11 self-start"
+          aria-label={`Add ${slotName}`}
+          disabled={disabled}
+          onClick={onAdd}
+        >
+          {actionLabel}
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -191,19 +241,28 @@ export function ChildDocumentsPanel({
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const refresh = useRefresh();
+  const { role, isPending: isRolePending } = useViewerRole();
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadActiveRef = useRef(false);
+  const focusReturnRef = useRef<HTMLElement | null>(null);
+  const undoButtonRef = useRef<HTMLButtonElement>(null);
   const [uploadKind, setUploadKind] = useState<DocumentKind | null>(null);
   const [uploadSlot, setUploadSlot] = useState<ChildPaperSlot | null>(null);
   const [uploadReplaceTarget, setUploadReplaceTarget] =
     useState<ReplaceTarget>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(
-    null,
-  );
+  const [pendingDeletes, setPendingDeletes] = useState<
+    Map<string, PendingDelete>
+  >(() => new Map());
   const [shareFile, setShareFile] = useState<ShareFile | null>(null);
 
-  const { data: resumes } = useGetList<Resume>(
+  const {
+    data: resumes,
+    error: resumesError,
+    isPending: resumesPending,
+    refetch: refetchResumes,
+  } = useGetList<Resume>(
     "resumes",
     {
       filter: { single_id: single.id },
@@ -215,7 +274,12 @@ export function ChildDocumentsPanel({
   const resume = resumes?.[0];
   const latestResume =
     sortResumeFilesNewestFirst(resume?.files ?? [])[0] ?? null;
-  const { data: photos } = useGetList<ResumePhoto>(
+  const {
+    data: photos,
+    error: photosError,
+    isPending: photosPending,
+    refetch: refetchPhotos,
+  } = useGetList<ResumePhoto>(
     "resume_photos",
     {
       filter: { resume_id: resume?.id, hidden_at: null },
@@ -231,7 +295,12 @@ export function ChildDocumentsPanel({
       )[0] ?? null,
     [photos],
   );
-  const { data: entityFiles } = useGetList<EntityFileSummary>(
+  const {
+    data: entityFiles,
+    error: entityFilesError,
+    isPending: entityFilesPending,
+    refetch: refetchEntityFiles,
+  } = useGetList<EntityFileSummary>(
     "entity_files_summary",
     {
       filter: { target_type: "single", target_id: single.id },
@@ -245,38 +314,109 @@ export function ChildDocumentsPanel({
   );
   const olderFiles = (entityFiles ?? []).filter((file) => file.slot == null);
 
-  const visibleResume = pendingDelete?.kind === "resume" ? null : latestResume;
-  const visiblePhoto = pendingDelete?.kind === "picture" ? null : currentPhoto;
+  const documentsPending =
+    open &&
+    (resumesPending ||
+      entityFilesPending ||
+      (resume?.id != null && photosPending));
+  const documentsError = resumesError ?? entityFilesError ?? photosError;
+  const retryDocuments = () => {
+    void refetchResumes();
+    void refetchPhotos();
+    void refetchEntityFiles();
+  };
+  const sweepExpiredDeletes = useCallback(async () => {
+    if (typeof dataProvider.finalizeExpiredEntityFileDeletes !== "function") {
+      return;
+    }
+    try {
+      await dataProvider.finalizeExpiredEntityFileDeletes();
+      refresh();
+    } catch {
+      // A cleanup outage must not turn a readable document list into an error.
+    }
+  }, [dataProvider, refresh]);
+  const canManageResumePicture = canDeleteResumeFile(role, isRolePending);
+  const canManagePaper =
+    !isRolePending &&
+    (role === "parent_admin" ||
+      role === "self_manager" ||
+      role === "helper" ||
+      role === "shadchan");
+
+  const restoreFocus = () => {
+    window.setTimeout(() => {
+      const original = focusReturnRef.current;
+      if (original?.isConnected) {
+        original.focus();
+      } else if (undoButtonRef.current?.isConnected) {
+        undoButtonRef.current.focus();
+      }
+      focusReturnRef.current = null;
+    }, 0);
+  };
+
+  const hasPendingKind = (kind: DocumentKind) =>
+    [...pendingDeletes.values()].some((pending) => pending.kind === kind);
+  const visibleResume = hasPendingKind("resume") ? null : latestResume;
+  const visiblePhoto = hasPendingKind("picture") ? null : currentPhoto;
+  const pendingResume = hasPendingKind("resume") ? 1 : 0;
+  const pendingPicture = hasPendingKind("picture") ? 1 : 0;
+  const pendingPaperSlots = new Set(
+    [...pendingDeletes.values()]
+      .filter(
+        (pending): pending is PendingDelete & { slot: ChildPaperSlot } =>
+          pending.kind === "paper" && pending.slot != null,
+      )
+      .map((pending) => pending.slot),
+  );
+  const paperSlotsInUse = new Set([
+    ...papers.map((file) => file.slot),
+    ...pendingPaperSlots,
+  ]);
   const usedCount =
-    (visibleResume ? 1 : 0) + (visiblePhoto ? 1 : 0) + papers.length;
+    (visibleResume ? 1 : pendingResume) +
+    (visiblePhoto ? 1 : pendingPicture) +
+    paperSlotsInUse.size;
 
   useEffect(() => {
-    if (!pendingDelete) return;
-    const timer = window.setTimeout(
-      async () => {
-        try {
-          if (pendingDelete.kind === "paper") {
-            await dataProvider.finalizeEntityFileDelete({
-              id: pendingDelete.id,
-              deleteToken: pendingDelete.token,
+    const timers = [...pendingDeletes.entries()].map(([key, pending]) =>
+      window.setTimeout(
+        async () => {
+          try {
+            if (pending.kind === "paper") {
+              await dataProvider.finalizeEntityFileDelete({
+                id: pending.id,
+                deleteToken: pending.token,
+              });
+            }
+          } catch (error) {
+            notify(
+              error instanceof Error
+                ? error.message
+                : "Could not finish deleting the file.",
+              { type: "error" },
+            );
+          } finally {
+            setPendingDeletes((current) => {
+              const next = new Map(current);
+              next.delete(key);
+              return next;
             });
+            refresh();
+            restoreFocus();
           }
-        } catch (error) {
-          notify(
-            error instanceof Error
-              ? error.message
-              : "Could not finish deleting the file.",
-            { type: "error" },
-          );
-        } finally {
-          setPendingDelete(null);
-          refresh();
-        }
-      },
-      Math.max(0, pendingDelete.until - Date.now()),
+        },
+        Math.max(0, pending.until - Date.now()),
+      ),
     );
-    return () => window.clearTimeout(timer);
-  }, [dataProvider, notify, pendingDelete, refresh]);
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [dataProvider, notify, pendingDeletes, refresh]);
+
+  useEffect(() => {
+    if (!open) return;
+    void sweepExpiredDeletes();
+  }, [open, sweepExpiredDeletes]);
 
   const queueResumeDelete = async (
     resumeId: Identifier,
@@ -323,19 +463,36 @@ export function ChildDocumentsPanel({
     slot?: ChildPaperSlot,
     replaceTarget: ReplaceTarget = null,
   ) => {
+    if (isBusy || uploadKind != null || uploadActiveRef.current) return;
+    uploadActiveRef.current = true;
     setUploadKind(kind);
     setUploadSlot(slot ?? null);
     setUploadReplaceTarget(replaceTarget);
     window.setTimeout(() => inputRef.current?.click(), 0);
   };
 
+  const clearUploadState = () => {
+    uploadActiveRef.current = false;
+    setUploadKind(null);
+    setUploadSlot(null);
+    setUploadReplaceTarget(null);
+  };
+
   const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file || !uploadKind) return;
-    const validationError = validateChildDocument(file);
+    if (!file || !uploadKind) {
+      clearUploadState();
+      return;
+    }
+    if (isBusy) return;
+    const validationError =
+      uploadKind === "picture"
+        ? validateChildPhoto(file)
+        : validateChildDocument(file);
     if (validationError) {
       notify(validationError, { type: "error" });
+      clearUploadState();
       return;
     }
     setIsBusy(true);
@@ -382,9 +539,7 @@ export function ChildDocumentsPanel({
       );
     } finally {
       setIsBusy(false);
-      setUploadKind(null);
-      setUploadSlot(null);
-      setUploadReplaceTarget(null);
+      clearUploadState();
     }
   };
 
@@ -408,7 +563,7 @@ export function ChildDocumentsPanel({
       } else if (kind === "picture") {
         const photo = file as ResumePhoto;
         name = photoFileName(photo.path);
-        mimeType = "image/jpeg";
+        mimeType = photoMimeType(photo.path);
         url = await dataProvider.signResumePhotoUrl({
           storagePath: photo.path,
         });
@@ -450,7 +605,7 @@ export function ChildDocumentsPanel({
       } else if (kind === "picture") {
         const photo = file as ResumePhoto;
         name = photoFileName(photo.path);
-        mimeType = "image/jpeg";
+        mimeType = photoMimeType(photo.path);
         url = await dataProvider.signResumePhotoUrl({
           storagePath: photo.path,
         });
@@ -463,11 +618,11 @@ export function ChildDocumentsPanel({
           fileName: name,
         });
       }
-      const canShareFiles =
-        typeof navigator.share === "function" &&
-        typeof navigator.canShare === "function";
-      if (canShareFiles) {
+      if (canUseNativeFileShare()) {
         const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error("Could not download this file for sharing.");
+        }
         const payload = buildResumeSharePayload(await response.blob(), {
           filename: name,
           mime_type: mimeType,
@@ -477,7 +632,6 @@ export function ChildDocumentsPanel({
           return;
         }
       }
-      window.open(url, "_blank", "noopener,noreferrer");
       setShareFile({ name, url });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
@@ -489,7 +643,7 @@ export function ChildDocumentsPanel({
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget) return;
+    if (isBusy || !deleteTarget) return;
     setIsBusy(true);
     try {
       if (deleteTarget.kind === "resume") {
@@ -512,12 +666,14 @@ export function ChildDocumentsPanel({
           deleteTarget.file,
         );
         pendingResumeFileDeletes.set(key, marker);
-        setPendingDelete({
-          kind: "resume",
-          id: deleteTarget.resumeId,
-          token,
-          until: deadline,
-        });
+        setPendingDeletes((current) =>
+          new Map(current).set(`resume:${deleteTarget.file.path}`, {
+            kind: "resume",
+            id: deleteTarget.resumeId,
+            token,
+            until: deadline,
+          }),
+        );
         schedulePendingResumeFileDelete(marker, async () => {
           try {
             await dataProvider.removeResumeFile({
@@ -538,32 +694,42 @@ export function ChildDocumentsPanel({
             pendingResumeFileDeletes.delete(key);
             clearPendingResumeFileDelete(marker.token);
             refresh();
-            setPendingDelete((current) =>
-              current?.token === marker.token ? null : current,
-            );
+            setPendingDeletes((current) => {
+              const next = new Map(current);
+              next.delete(`resume:${marker.file.path}`);
+              return next;
+            });
+            restoreFocus();
           }
         });
       } else if (deleteTarget.kind === "picture") {
         await dataProvider.hideResumePhoto({ id: deleteTarget.photo.id });
-        setPendingDelete({
-          kind: "picture",
-          id: deleteTarget.photo.id,
-          token: "photo",
-          until: Date.now() + FILE_DELETE_UNDO_MS,
-        });
+        setPendingDeletes((current) =>
+          new Map(current).set(`picture:${deleteTarget.photo.id}`, {
+            kind: "picture",
+            id: deleteTarget.photo.id,
+            token: "photo",
+            until: Date.now() + FILE_DELETE_UNDO_MS,
+          }),
+        );
       } else {
         const result = await dataProvider.softDeleteEntityFile({
           id: deleteTarget.file.id,
         });
-        setPendingDelete({
-          kind: "paper",
-          id: deleteTarget.file.id,
-          token: result.delete_token,
-          until: new Date(result.undo_until).getTime(),
-        });
+        setPendingDeletes((current) =>
+          new Map(current).set(String(deleteTarget.file.id), {
+            kind: "paper",
+            id: deleteTarget.file.id,
+            token: result.delete_token,
+            until: new Date(result.undo_until).getTime(),
+            slot: deleteTarget.file.slot ?? undefined,
+          }),
+        );
       }
       setDeleteTarget(null);
+      await sweepExpiredDeletes();
       refresh();
+      restoreFocus();
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Could not delete this file.",
@@ -574,8 +740,10 @@ export function ChildDocumentsPanel({
     }
   };
 
-  const undoDelete = async () => {
-    if (!pendingDelete) return;
+  const undoDelete = async (key: string) => {
+    const pendingDelete = pendingDeletes.get(key);
+    if (isBusy || !pendingDelete) return;
+    setIsBusy(true);
     try {
       if (pendingDelete.kind === "resume") {
         pendingResumeFileDeletes.forEach((candidate, key) => {
@@ -592,13 +760,20 @@ export function ChildDocumentsPanel({
           deleteToken: pendingDelete.token,
         });
       }
-      setPendingDelete(null);
+      setPendingDeletes((current) => {
+        const next = new Map(current);
+        next.delete(key);
+        return next;
+      });
       refresh();
+      restoreFocus();
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Could not undo the deletion.",
         { type: "error" },
       );
+    } finally {
+      setIsBusy(false);
     }
   };
 
@@ -611,9 +786,14 @@ export function ChildDocumentsPanel({
     papers.find((file) => file.slot === slot);
   const resumeId = resume?.id;
 
+  if (isRolePending || role === "single") return <></>;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
+      <SheetContent
+        side="right"
+        className="w-full overflow-y-auto sm:max-w-xl [&>button]:min-h-11 [&>button]:min-w-11"
+      >
         <SheetHeader className="border-b border-border px-5 pb-4 pt-6 pr-14">
           <SheetTitle className="text-xl">Documents</SheetTitle>
           <SheetDescription>
@@ -621,199 +801,264 @@ export function ChildDocumentsPanel({
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-5 px-5 pb-8 pt-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-muted-foreground">
-                At most {MAX_CHILD_DOCUMENTS} files
-              </p>
-              <p className="text-base font-semibold">
-                {usedCount} of {MAX_CHILD_DOCUMENTS} used
-              </p>
-            </div>
-            <p className="max-w-[13rem] text-right text-xs text-muted-foreground">
-              PDF, Word, JPEG, or PNG · {CHILD_DOCUMENT_MAX_SIZE_LABEL} each
+          {documentsPending ? (
+            <p
+              role="status"
+              aria-busy="true"
+              className="text-sm text-muted-foreground"
+            >
+              Loading documents…
             </p>
-          </div>
+          ) : documentsError ? (
+            <div role="alert" className="flex flex-col gap-3 text-sm">
+              <p>Could not load documents. Your files are unchanged.</p>
+              <Button
+                type="button"
+                className="min-h-11 self-start"
+                onClick={retryDocuments}
+              >
+                Retry
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    At most {MAX_CHILD_DOCUMENTS} files
+                  </p>
+                  <p className="text-base font-semibold">
+                    {usedCount} of {MAX_CHILD_DOCUMENTS} used
+                  </p>
+                </div>
+                <p className="max-w-[13rem] text-right text-xs text-muted-foreground">
+                  PDF, Word, JPEG, or PNG · {CHILD_DOCUMENT_MAX_SIZE_LABEL} each
+                </p>
+              </div>
 
-          <section
-            className="grid gap-3 sm:grid-cols-2"
-            aria-label="Child document slots"
-          >
-            <DocumentSlot
-              label="Resume"
-              file={
-                visibleResume
-                  ? {
-                      name: visibleResume.filename,
-                      detail: formatBytes(visibleResume.size),
-                      kind: "resume" as const,
-                    }
-                  : null
-              }
-              onAdd={() => beginUpload("resume")}
-              onOpen={() =>
-                visibleResume && void openFile("resume", visibleResume)
-              }
-              onReplace={() =>
-                visibleResume &&
-                beginUpload("resume", undefined, {
-                  kind: "resume",
-                  file: visibleResume,
-                })
-              }
-              onForward={() =>
-                visibleResume && void forwardFile("resume", visibleResume)
-              }
-              onDelete={() =>
-                visibleResume &&
-                setDeleteTarget({
-                  kind: "resume",
-                  resumeId: resumeId!,
-                  file: visibleResume,
-                })
-              }
-              disabled={isBusy}
-            />
-            <DocumentSlot
-              label="Picture"
-              file={
-                visiblePhoto
-                  ? {
-                      name: photoFileName(visiblePhoto.path),
-                      detail: "Photo",
-                      kind: "picture" as const,
-                    }
-                  : null
-              }
-              onAdd={() => beginUpload("picture")}
-              onOpen={() =>
-                visiblePhoto && void openFile("picture", visiblePhoto)
-              }
-              onReplace={() =>
-                visiblePhoto &&
-                beginUpload("picture", undefined, {
-                  kind: "picture",
-                  photo: visiblePhoto,
-                })
-              }
-              onForward={() =>
-                visiblePhoto && void forwardFile("picture", visiblePhoto)
-              }
-              onDelete={() =>
-                visiblePhoto &&
-                setDeleteTarget({ kind: "picture", photo: visiblePhoto })
-              }
-              disabled={isBusy}
-            />
-            {(["paper_1", "paper_2"] as const).map((slot, index) => {
-              const file = paperFor(slot);
-              return (
+              <section
+                className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+                aria-label="Child document slots"
+              >
                 <DocumentSlot
-                  key={slot}
-                  label={`Papers · ${index + 1} of ${MAX_CHILD_PAPERS}`}
+                  label="Resume"
+                  slotName="Resume"
                   file={
-                    file
+                    visibleResume
                       ? {
-                          name: file.file_name,
-                          detail: formatBytes(file.size_bytes),
-                          kind: "paper" as const,
+                          name: visibleResume.filename,
+                          detail: formatBytes(visibleResume.size),
+                          kind: "resume" as const,
                         }
                       : null
                   }
-                  onAdd={() => beginUpload("paper", slot)}
-                  onOpen={() => file && void openFile("paper", file)}
-                  onReplace={() => file && replacePaper(file)}
-                  onForward={() => file && void forwardFile("paper", file)}
-                  onDelete={() =>
-                    file && setDeleteTarget({ kind: "paper", file })
+                  onAdd={() => beginUpload("resume")}
+                  onOpen={() =>
+                    visibleResume && void openFile("resume", visibleResume)
                   }
-                  disabled={isBusy}
+                  onReplace={() =>
+                    visibleResume &&
+                    beginUpload("resume", undefined, {
+                      kind: "resume",
+                      file: visibleResume,
+                    })
+                  }
+                  onForward={() =>
+                    visibleResume && void forwardFile("resume", visibleResume)
+                  }
+                  onDelete={(event) =>
+                    visibleResume &&
+                    (() => {
+                      focusReturnRef.current = event.currentTarget;
+                      setDeleteTarget({
+                        kind: "resume",
+                        resumeId: resumeId!,
+                        file: visibleResume,
+                      });
+                    })()
+                  }
+                  disabled={isBusy || uploadKind != null}
+                  canAdd={canManageResumePicture}
+                  canManage={canManageResumePicture}
                 />
-              );
-            })}
-          </section>
+                <DocumentSlot
+                  label="Picture"
+                  slotName="Picture"
+                  file={
+                    visiblePhoto
+                      ? {
+                          name: photoFileName(visiblePhoto.path),
+                          detail: "Photo",
+                          kind: "picture" as const,
+                        }
+                      : null
+                  }
+                  onAdd={() => beginUpload("picture")}
+                  onOpen={() =>
+                    visiblePhoto && void openFile("picture", visiblePhoto)
+                  }
+                  onReplace={() =>
+                    visiblePhoto &&
+                    beginUpload("picture", undefined, {
+                      kind: "picture",
+                      photo: visiblePhoto,
+                    })
+                  }
+                  onForward={() =>
+                    visiblePhoto && void forwardFile("picture", visiblePhoto)
+                  }
+                  onDelete={(event) =>
+                    visiblePhoto &&
+                    (() => {
+                      focusReturnRef.current = event.currentTarget;
+                      setDeleteTarget({ kind: "picture", photo: visiblePhoto });
+                    })()
+                  }
+                  disabled={isBusy || uploadKind != null}
+                  canAdd={canManageResumePicture}
+                  canManage={canManageResumePicture}
+                />
+                {(["paper_1", "paper_2"] as const).map((slot, index) => {
+                  const file = paperFor(slot);
+                  return (
+                    <DocumentSlot
+                      key={slot}
+                      label={`Papers · ${index + 1} of ${MAX_CHILD_PAPERS}`}
+                      slotName={`Paper ${index + 1}`}
+                      file={
+                        file
+                          ? {
+                              name: file.file_name,
+                              detail: formatBytes(file.size_bytes),
+                              kind: "paper" as const,
+                            }
+                          : null
+                      }
+                      onAdd={() => {
+                        if (!pendingPaperSlots.has(slot))
+                          beginUpload("paper", slot);
+                      }}
+                      onOpen={() => file && void openFile("paper", file)}
+                      onReplace={() => file && replacePaper(file)}
+                      onForward={() => file && void forwardFile("paper", file)}
+                      onDelete={(event) =>
+                        file &&
+                        (() => {
+                          focusReturnRef.current = event.currentTarget;
+                          setDeleteTarget({ kind: "paper", file });
+                        })()
+                      }
+                      disabled={
+                        isBusy ||
+                        uploadKind != null ||
+                        pendingPaperSlots.has(slot)
+                      }
+                      canAdd={canManagePaper}
+                      canManage={canManagePaper}
+                      pending={pendingPaperSlots.has(slot)}
+                    />
+                  );
+                })}
+              </section>
 
-          {olderFiles.length > 0 ? (
-            <details className="rounded-lg border border-border px-3 py-2">
-              <summary className="cursor-pointer py-1 text-sm font-medium">
-                Older files ({olderFiles.length})
-              </summary>
-              <ul className="mt-2 flex flex-col gap-2 border-t border-border pt-2">
-                {olderFiles.map((file) => (
-                  <li
-                    key={String(file.id)}
-                    className="flex items-center justify-between gap-2 text-sm"
+              {olderFiles.length > 0 ? (
+                <details className="rounded-lg border border-border px-3 py-2">
+                  <summary className="cursor-pointer py-1 text-sm font-medium">
+                    Older files ({olderFiles.length})
+                  </summary>
+                  <ul className="mt-2 flex flex-col gap-2 border-t border-border pt-2">
+                    {olderFiles.map((file) => (
+                      <li
+                        key={String(file.id)}
+                        className="flex items-center justify-between gap-2 text-sm"
+                      >
+                        <span dir="auto" className="min-w-0 truncate">
+                          {file.file_name}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="min-h-11"
+                          aria-label={`Open ${file.file_name}`}
+                          onClick={() => void openFile("paper", file)}
+                        >
+                          Open
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+
+              {[...pendingDeletes.entries()].map(([key, pending]) => (
+                <div
+                  key={key}
+                  role="status"
+                  aria-live="polite"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-900"
+                >
+                  <span>Deleted. Undo is available for 10 seconds.</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    ref={undoButtonRef}
+                    disabled={isBusy}
+                    aria-label={`Undo delete ${pending.kind}`}
+                    onClick={() => void undoDelete(key)}
                   >
-                    <span className="min-w-0 truncate">{file.file_name}</span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="min-h-11"
-                      onClick={() => void openFile("paper", file)}
+                    Undo
+                  </Button>
+                </div>
+              ))}
+              {shareFile ? (
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-3 text-sm">
+                  <p className="font-medium">
+                    {shareFile.name} is ready to share.
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    Download it, then attach it yourself.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <a
+                      className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm text-primary"
+                      href={shareFile.url}
+                      download={shareFile.name}
                     >
-                      Open
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
-
-          {pendingDelete ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-900">
-              <span>Deleted. Undo is available for 10 seconds.</span>
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-11"
-                onClick={() => void undoDelete()}
-              >
-                Undo
-              </Button>
-            </div>
-          ) : null}
-          {shareFile ? (
-            <div className="rounded-lg border border-border bg-muted/30 px-3 py-3 text-sm">
-              <p className="font-medium">{shareFile.name} is ready to share.</p>
-              <p className="mt-1 text-muted-foreground">
-                Download it, then attach it yourself.
+                      Download
+                    </a>
+                    <a
+                      className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm text-primary"
+                      href={`mailto:?subject=${encodeURIComponent(shareFile.name)}&body=${encodeURIComponent("Please attach the downloaded file.")}`}
+                    >
+                      Email
+                    </a>
+                    <a
+                      className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm text-primary"
+                      target="_blank"
+                      rel="noreferrer"
+                      href={`https://wa.me/?text=${encodeURIComponent(`Please attach ${shareFile.name} after downloading it.`)}`}
+                    >
+                      WhatsApp
+                    </a>
+                  </div>
+                </div>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                The Resume, Photo, and Files tabs show these same files. Nothing
+                is copied.
               </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <a
-                  className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm text-primary"
-                  href={shareFile.url}
-                  download={shareFile.name}
-                >
-                  Download
-                </a>
-                <a
-                  className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm text-primary"
-                  href={`mailto:?subject=${encodeURIComponent(shareFile.name)}&body=${encodeURIComponent("Please attach the downloaded file.")}`}
-                >
-                  Email
-                </a>
-                <a
-                  className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm text-primary"
-                  target="_blank"
-                  rel="noreferrer"
-                  href={`https://wa.me/?text=${encodeURIComponent(`Please attach ${shareFile.name} after downloading it.`)}`}
-                >
-                  WhatsApp
-                </a>
-              </div>
-            </div>
-          ) : null}
-          <p className="text-xs text-muted-foreground">
-            The Resume, Photo, and Files tabs show these same files. Nothing is
-            copied.
-          </p>
+            </>
+          )}
         </div>
         <input
           ref={inputRef}
           type="file"
           className="hidden"
+          aria-label="Upload child document"
           accept={CHILD_DOCUMENT_ACCEPT}
+          onCancel={clearUploadState}
           onChange={handleUpload}
         />
       </SheetContent>
@@ -825,7 +1070,10 @@ export function ChildDocumentsPanel({
         confirm="Delete file"
         confirmColor="warning"
         onConfirm={() => void confirmDelete()}
-        onClose={() => setDeleteTarget(null)}
+        onClose={() => {
+          setDeleteTarget(null);
+          restoreFocus();
+        }}
       />
     </Sheet>
   );
@@ -839,18 +1087,36 @@ function DocumentSlot({
   onReplace,
   onForward,
   onDelete,
+  slotName,
+  canAdd,
+  canManage,
   disabled,
+  pending,
 }: {
   label: string;
+  slotName: string;
+  canAdd: boolean;
+  canManage: boolean;
+  pending?: boolean;
   file: { name: string; detail: string; kind: DocumentKind } | null;
   onAdd: () => void;
   onOpen: () => void;
   onReplace: () => void;
   onForward: () => void;
-  onDelete: () => void;
+  onDelete: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled: boolean;
 }): ReactElement {
-  if (!file) return <EmptySlot label={label} onAdd={onAdd} />;
+  if (!file)
+    return (
+      <EmptySlot
+        label={label}
+        slotName={slotName}
+        canAdd={canAdd}
+        disabled={disabled}
+        pending={pending}
+        onAdd={onAdd}
+      />
+    );
   return (
     <div className="flex min-h-28 flex-col justify-between rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
       <div className="min-w-0">
@@ -859,13 +1125,15 @@ function DocumentSlot({
           <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-[10px] font-bold">
             {fileExtension(file.name)}
           </span>
-          <span className="min-w-0 truncate text-sm font-medium">
+          <span dir="auto" className="min-w-0 truncate text-sm font-medium">
             {file.name}
           </span>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">{file.detail}</p>
       </div>
       <DocumentActions
+        slotName={slotName}
+        canManage={canManage}
         disabled={disabled}
         onOpen={onOpen}
         onReplace={onReplace}
