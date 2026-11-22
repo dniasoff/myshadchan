@@ -443,9 +443,11 @@ returning id as legacy_single_file \gset
 set local session_replication_role = origin;
 set local role authenticated;
 
+set local role service_role;
 update public.entity_files
 set file_name = 'legacy-parent-renamed.pdf'
 where id = :legacy_single_file;
+set local role authenticated;
 
 insert into results (name, passed)
 select '(h) legacy NULL-slot single paths remain valid on unrelated updates',
