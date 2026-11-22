@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 import { DB_URL, bailIfDbUnreachable } from "./dbSuiteHelpers";
 
 const execFileAsync = promisify(execFile);
-const enabled = process.env.RUN_DB_RACE_TESTS === "1";
+const enabled =
+  process.env.RUN_DB_RACE_TESTS === "1" || Boolean(process.env.CI);
 const userId = randomUUID();
 const marker = `child-documents-race-${process.pid}-${Date.now()}`;
 const sqlLiteral = (value: string): string =>
@@ -46,6 +47,9 @@ async function runConcurrent(
 
 describe("child document slot race (opt-in)", () => {
   if (!enabled) {
+    if (process.env.CI) {
+      throw new Error("child documents race test must run in CI");
+    }
     it.skip("set RUN_DB_RACE_TESTS=1 to run the two-session database race", () => {});
     return;
   }
