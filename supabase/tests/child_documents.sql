@@ -522,7 +522,7 @@ insert into public.entity_files (
   size_bytes, visibility, slot
 ) values (
   :'account_a', 'single', :'single_a',
-  :'account_a'::text || '/single/' || :'single_a'::text || '/expired-sweep-uuid.pdf',
+  :'account_a'::text || '/single/' || :'single_a'::text || '/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.pdf',
   'expired-sweep.pdf', 'application/pdf', 10, 'private_parent', 'paper_1'
 ) returning id as swept_paper_id \gset
 select id as swept_delete_id, delete_token as swept_delete_token
@@ -546,7 +546,7 @@ select 'Expired papers are finalized by the durable sweep while active papers re
     select 1 from public.storage_purge_queue
     where account_id = :'account_a'
       and bucket = 'entity-files'
-      and storage_path = :'account_a'::text || '/single/' || :'single_a'::text || '/expired-sweep-uuid.pdf'
+      and storage_path = :'account_a'::text || '/single/' || :'single_a'::text || '/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.pdf'
   ),
   null;
 

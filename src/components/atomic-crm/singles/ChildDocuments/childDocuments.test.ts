@@ -7,6 +7,9 @@ import {
   validateChildDocument,
 } from "./childDocuments";
 
+const INVALID_CHILD_DOCUMENT_MESSAGE =
+  "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.";
+
 function file(name: string, type: string, size = 1): File {
   return new File([new Uint8Array(size)], name, { type });
 }
@@ -40,21 +43,21 @@ describe("child document policy", () => {
       validateChildDocument(
         file("paper.pdf", "application/pdf", CHILD_DOCUMENT_MAX_BYTES + 1),
       ),
-    ).toContain("8 MiB");
+    ).toBe(INVALID_CHILD_DOCUMENT_MESSAGE);
   });
 
   it("rejects unsupported types instead of relying on the picker filter", () => {
-    expect(validateChildDocument(file("paper.txt", "text/plain"))).toContain(
-      "PDF, Word, JPEG, or PNG",
+    expect(validateChildDocument(file("paper.txt", "text/plain"))).toBe(
+      INVALID_CHILD_DOCUMENT_MESSAGE,
     );
-    expect(validateChildDocument(file("paper.svg", "image/svg+xml"))).toContain(
-      "PDF, Word, JPEG, or PNG",
+    expect(validateChildDocument(file("paper.svg", "image/svg+xml"))).toBe(
+      INVALID_CHILD_DOCUMENT_MESSAGE,
     );
   });
 
   it("rejects a browser file whose MIME type is blank", () => {
-    expect(validateChildDocument(file("paper.pdf", ""))).toContain(
-      "file type and extension",
+    expect(validateChildDocument(file("paper.pdf", ""))).toBe(
+      INVALID_CHILD_DOCUMENT_MESSAGE,
     );
   });
 });

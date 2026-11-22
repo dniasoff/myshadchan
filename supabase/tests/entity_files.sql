@@ -425,8 +425,33 @@ end $$;
 insert into public.singles (first_name_en) values ('EF Purge Single')
 returning id as purge_single \gset
 
+-- Legacy single rows without a slot keep their historical paths.  The opaque
+-- key rule applies only to newly slotted paper rows.
+insert into public.entity_files (
+  target_type, target_id, storage_path, file_name, mime_type, size_bytes
+)
+select 'single', :purge_single,
+       value || '/single/' || :purge_single || '/legacy-parent-name.pdf',
+       'legacy-parent-name.pdf', 'application/pdf', 10
+from ids where name = 'acct_a'
+returning id as legacy_single_file \gset
+
+update public.entity_files
+set file_name = 'legacy-parent-renamed.pdf'
+where id = :legacy_single_file;
+
+insert into results (name, passed)
+select '(h) legacy NULL-slot single paths remain valid on unrelated updates',
+       exists (
+         select 1 from public.entity_files
+         where id = :legacy_single_file
+           and slot is null
+           and storage_path like '%/legacy-parent-name.pdf'
+           and file_name = 'legacy-parent-renamed.pdf'
+       );
+
 insert into public.entity_files (target_type, target_id, storage_path, file_name, mime_type, size_bytes, slot)
-select 'single', :purge_single, value || '/single/' || :purge_single || '/p.pdf', 'p.pdf', 'application/pdf', 10, 'paper_1'
+select 'single', :purge_single, value || '/single/' || :purge_single || '/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.pdf', 'p.pdf', 'application/pdf', 10, 'paper_1'
 from ids where name = 'acct_a';
 
 delete from public.singles where id = :purge_single;

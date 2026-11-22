@@ -77,7 +77,7 @@ from public.accounts where name = ${sqlLiteral(marker)};`);
     );
     run(`
 insert into public.entity_files (account_id, target_type, target_id, storage_path, file_name, mime_type, size_bytes, visibility, slot)
-values (${accountId}, 'single', ${singleId}, ${sqlLiteral(`${accountId}/single/${singleId}/paper-1.pdf`)}, 'paper-1.pdf', 'application/pdf', 10, 'private_parent', 'paper_1');`);
+values (${accountId}, 'single', ${singleId}, ${sqlLiteral(`${accountId}/single/${singleId}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.pdf`)}, 'paper-1.pdf', 'application/pdf', 10, 'private_parent', 'paper_1');`);
   } catch (error) {
     setupError = error instanceof Error ? error.message : String(error);
   }
@@ -91,7 +91,7 @@ set local request.jwt.claims = '{"sub":"${userId}","role":"authenticated"}';
 select public.set_active_context(${accountId});`;
     const insert = `${auth}
 insert into public.entity_files (account_id, target_type, target_id, storage_path, file_name, mime_type, size_bytes, visibility, slot)
-values (${accountId}, 'single', ${singleId}, ${sqlLiteral(`${accountId}/single/${singleId}/paper-2-${randomUUID()}.pdf`)}, 'paper-2.pdf', 'application/pdf', 10, 'private_parent', 'paper_2');`;
+values (${accountId}, 'single', ${singleId}, ${sqlLiteral(`${accountId}/single/${singleId}/${randomUUID()}.pdf`)}, 'paper-2.pdf', 'application/pdf', 10, 'private_parent', 'paper_2');`;
     const results = await Promise.all([
       runConcurrent(insert),
       runConcurrent(insert),
