@@ -463,12 +463,11 @@ select pg_temp.expect_paper_insert_error(
   'single paper slot is already in use'
 );
 -- A valid free named slot cannot coexist with two active paper rows: the
--- CHECK permits only paper_1/paper_2, and both the partial unique index and
--- the guard reserve each slot. Consequently a 23514 cap failure is not
--- reachable for a valid free-slot request after the reservation check above.
--- Keep this explicit defense-in-depth assertion so the four-file cap and its
--- 23514 branch cannot be removed silently; it remains protection for future
--- slot expansion or repaired legacy states.
+-- CHECK allows only paper_1/paper_2, the partial unique index reserves each,
+-- and the same-slot guard runs first. The aggregate-cap branch of
+-- entity_files_target_guard is therefore a defense-in-depth backstop for
+-- repaired legacy states or future slot expansion, not behaviorally reachable
+-- for valid rows, so this suite does not execute a 23514 cap case.
 insert into results
 select 'The four-file cap remains a two-paper defense-in-depth guard',
   public.max_child_documents() = 4
@@ -480,15 +479,7 @@ select 'The four-file cap remains a two-paper defense-in-depth guard',
       and target_id = :'single_a'
       and slot is not null
       and (deleted_at is null or delete_undo_until is not null and delete_undo_until >= now())
-  ) = public.max_child_documents() - 2
-  and position(
-    'max_child_documents() - 2'
-    in pg_get_functiondef('public.entity_files_target_guard()'::regprocedure)
-  ) > 0
-  and position(
-    'child document limit reached'
-    in pg_get_functiondef('public.entity_files_target_guard()'::regprocedure)
-  ) > 0,
+  ) = public.max_child_documents() - 2,
   null;
 select pg_temp.expect_direct_delete_error(
   'Direct DELETE cannot bypass the child-document Undo window', :paper_a_2

@@ -170,6 +170,10 @@
           "term": "child-document"
         },
         {
+          "file": "supabase/tests/child_documents.sql",
+          "term": "max_child_documents"
+        },
+        {
           "file": "supabase/tests/child_documents.test.ts",
           "term": "child_documents"
         },
