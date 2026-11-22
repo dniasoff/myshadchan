@@ -182,6 +182,19 @@ export async function uploadResumeFile(
   params: UploadResumeFileParams,
 ): Promise<Resume> {
   const { file, ...subject } = params;
+  if (isSingleSubject(subject)) {
+    const { data: targets } = await baseDataProvider.getList<{
+      id: Identifier;
+      account_id: Identifier;
+    }>("singles", {
+      filter: { id: subject.singleId },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    });
+    if (!targets[0] || String(targets[0].account_id) !== String(accountId)) {
+      throw new Error("single resume target is missing");
+    }
+  }
   const validationError = validateChildDocument(file);
   if (validationError) throw new Error(validationError);
   const ownerSegment = isSingleSubject(subject)

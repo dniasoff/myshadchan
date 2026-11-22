@@ -126,6 +126,54 @@
         "no key beyond resource/id/children/className/style",
         "\"resource\" | \"id\" | \"children\" | \"className\" | \"style\"",
         {
+          "file": "src/components/atomic-crm/entity360/tabs/FilesTab.tsx",
+          "term": "CHILD_DOCUMENT"
+        },
+        {
+          "file": "src/components/atomic-crm/entity360/tabs/FilesTab.tsx",
+          "term": "CHILD_PAPERS"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/supabase/entityFiles.ts",
+          "term": "CHILD_DOCUMENT"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/ChildDocumentsPanel.tsx",
+          "term": "CHILD_DOCUMENT"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/ChildDocumentsPanel.tsx",
+          "term": "CHILD_PAPERS"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.test.ts",
+          "term": "CHILD_DOCUMENT"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.test.ts",
+          "term": "CHILD_PAPERS"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.ts",
+          "term": "CHILD_DOCUMENT"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.ts",
+          "term": "CHILD_PAPERS"
+        },
+        {
+          "file": "supabase/tests/child_documents.sql",
+          "term": "child-document"
+        },
+        {
+          "file": "supabase/tests/child_documents.test.ts",
+          "term": "child_documents"
+        },
+        {
+          "file": "supabase/tests/child_documents_concurrency.test.ts",
+          "term": "child-documents"
+        },
+        {
           "file": "src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts",
           "term": "child_grants"
         },
@@ -359,6 +407,186 @@
         "Children.map",
         "Children.count",
         "Children.forEach",
+        {
+          "file": "src/components/atomic-crm/dashboard/DashboardHeader.test.tsx",
+          "term": "ChildDocuments"
+        },
+        {
+          "file": "src/components/atomic-crm/dashboard/DashboardHeader.test.tsx",
+          "term": "child"
+        },
+        {
+          "file": "src/components/atomic-crm/dashboard/DashboardHeader.tsx",
+          "term": "ChildDocuments"
+        },
+        {
+          "file": "src/components/atomic-crm/dashboard/DashboardHeader.tsx",
+          "term": "child"
+        },
+        {
+          "file": "src/components/atomic-crm/entity360/tabs/FilesTab.tsx",
+          "term": "ChildDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/entity360/tabs/FilesTab.tsx",
+          "term": "childDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/entity360/tabs/FilesTab.tsx",
+          "term": "CHILD_DOCUMENT"
+        },
+        {
+          "file": "src/components/atomic-crm/entity360/tabs/FilesTab.tsx",
+          "term": "CHILD_PAPERS"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/internal/entityFiles.ts",
+          "term": "ChildDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/internal/entityFiles.ts",
+          "term": "childDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/internal/entityFiles.ts",
+          "term": "ChildPaperSlot"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/internal/resumePhotos.ts",
+          "term": "ChildDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/internal/resumePhotos.ts",
+          "term": "childDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/internal/resumePhotos.ts",
+          "term": "ChildPhoto"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/internal/resumes.ts",
+          "term": "ChildDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/fakerest/internal/resumes.ts",
+          "term": "childDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/supabase/entityFiles.ts",
+          "term": "ChildDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/supabase/entityFiles.ts",
+          "term": "childDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/supabase/entityFiles.ts",
+          "term": "ChildPaperSlot"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/supabase/entityFiles.ts",
+          "term": "CHILD_DOCUMENT"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/supabase/resumePhotos.ts",
+          "term": "ChildDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/supabase/resumePhotos.ts",
+          "term": "childDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/supabase/resumePhotos.ts",
+          "term": "ChildPhoto"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/supabase/resumes.ts",
+          "term": "ChildDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/providers/supabase/resumes.ts",
+          "term": "childDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/ChildDocumentsPanel.test.tsx",
+          "term": "ChildDocuments"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/ChildDocumentsPanel.tsx",
+          "term": "ChildDocuments"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/ChildDocumentsPanel.tsx",
+          "term": "childDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/ChildDocumentsPanel.tsx",
+          "term": "ChildPaperSlot"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/ChildDocumentsPanel.tsx",
+          "term": "ChildDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/ChildDocumentsPanel.tsx",
+          "term": "ChildPhoto"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/ChildDocumentsPanel.tsx",
+          "term": "CHILD_DOCUMENT"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/ChildDocumentsPanel.tsx",
+          "term": "CHILD_PAPERS"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/ChildDocumentsPanel.tsx",
+          "term": "Child document"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocumentUtils.ts",
+          "term": "ChildDocuments"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.test.ts",
+          "term": "ChildDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.test.ts",
+          "term": "childDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.test.ts",
+          "term": "CHILD_DOCUMENT"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.test.ts",
+          "term": "CHILD_PAPERS"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.ts",
+          "term": "ChildDocument"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.ts",
+          "term": "ChildPaperSlot"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.ts",
+          "term": "ChildPhoto"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.ts",
+          "term": "CHILD_DOCUMENT"
+        },
+        {
+          "file": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.ts",
+          "term": "CHILD_PAPERS"
+        },
+        {
+          "file": "supabase/tests/child_documents.sql",
+          "term": "Child Documents"
+        },
         {
           "file": "src/components/atomic-crm/root/adminRouteBuilders.tsx",
           "term": "Children"

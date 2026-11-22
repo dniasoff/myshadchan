@@ -294,8 +294,10 @@ export async function replaceEntityFile(
         p_visibility: visibility ?? "shared",
       },
     );
-    if (error) throw error;
-    return (Array.isArray(data) ? data[0] : data) as EntityFile;
+    if (error) throw new Error(error.message || "Failed to replace the file");
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error("old row was not replaced");
+    return row as EntityFile;
   } catch (error) {
     await getSupabaseClient()
       .storage.from(ENTITY_FILES_BUCKET)

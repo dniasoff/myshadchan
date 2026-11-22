@@ -573,6 +573,20 @@ export const hydratePendingResumeFileDeletes = async (
   if (changed) notify();
 };
 
+export const hydrateAndSchedulePendingResumeFileDeletes = async (
+  resumeId: Identifier | undefined,
+  files: readonly ResumeFileVersion[],
+  onExpire: (marker: PendingResumeFileDelete) => Promise<void> | void,
+): Promise<void> => {
+  await hydratePendingResumeFileDeletes(resumeId, files);
+  for (const marker of pendingResumeFileDeletes.values()) {
+    if (resumeId == null || String(marker.resumeId) !== String(resumeId)) {
+      continue;
+    }
+    schedulePendingResumeFileDelete(marker, () => onExpire(marker));
+  }
+};
+
 export const usePendingResumeFileDeletes = (
   resumeId: Identifier | undefined,
   files: readonly ResumeFileVersion[],

@@ -7,16 +7,25 @@ function removeSummarySuffix(resource: string) {
     : resource;
 }
 
+function readResource(resource: string): string {
+  // entity_files_summary is emulated by the custom provider. Preserve its
+  // name so that getList/getOne can apply the view's deleted_at filter before
+  // the generic suffix adapter sees the request.
+  return resource === "entity_files_summary"
+    ? resource
+    : removeSummarySuffix(resource);
+}
+
 export function withSupabaseFilterAdapter<T extends DataProvider>(
   dataProvider: T,
 ): T {
   return {
     ...dataProvider,
     getOne(resource, params) {
-      return dataProvider.getOne(removeSummarySuffix(resource), params);
+      return dataProvider.getOne(readResource(resource), params);
     },
     getList(resource, params) {
-      return dataProvider.getList(removeSummarySuffix(resource), {
+      return dataProvider.getList(readResource(resource), {
         ...params,
         filter: transformFilter(params.filter),
       });

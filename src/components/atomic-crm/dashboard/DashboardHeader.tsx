@@ -1,14 +1,22 @@
 import type { Identifier } from "ra-core";
-import { useState } from "react";
+import { useDataProvider } from "ra-core";
+import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-import type { MemberRole, Single } from "../types";
+import type { Resume, Single } from "../types";
+import type { CrmDataProvider } from "../providers/types";
 import { useViewerRole } from "../entity360/useViewerRole";
 import { AddSingleLink } from "./AddSingleLink";
 import { SendToShadchanButton } from "./SendToShadchanDialog";
 import { ChildDocumentsPanel } from "../singles/ChildDocuments/ChildDocumentsPanel";
+import { canViewChildDocuments } from "../singles/ChildDocuments/childDocumentUtils";
+import {
+  clearPendingResumeFileDelete,
+  canDeleteResumeFile,
+  hydrateAndSchedulePendingResumeFileDeletes,
+} from "../resumes/resumeFileDelete";
 
 export interface DashboardHeaderProps {
   singleList: Single[];
@@ -20,19 +28,6 @@ const singleLabel = (single: Single) =>
   [single.first_name_en, single.last_name_en].filter(Boolean).join(" ") ||
   `#${single.id}`;
 
-export function canViewChildDocuments(
-  role: MemberRole | undefined,
-  isRolePending: boolean,
-): boolean {
-  return (
-    !isRolePending &&
-    (role === "parent_admin" ||
-      role === "self_manager" ||
-      role === "helper" ||
-      role === "shadchan")
-  );
-}
-
 /** Greeting + the prominent single switcher that drives the whole dashboard. */
 export const DashboardHeader = ({
   singleList,
@@ -40,10 +35,52 @@ export const DashboardHeader = ({
   onSelectSingle,
 }: DashboardHeaderProps) => {
   const [documentsOpen, setDocumentsOpen] = useState(false);
+  const dataProvider = useDataProvider<CrmDataProvider>();
   const { role, isPending: isRolePending } = useViewerRole();
   const canViewDocuments = canViewChildDocuments(role, isRolePending);
+  const canFinalizeResumeDeletes = canDeleteResumeFile(role, isRolePending);
   const selected = singleList.find((single) => single.id === singleId);
   const nameEn = selected ? singleLabel(selected) : "";
+
+  useEffect(() => {
+    if (!canFinalizeResumeDeletes || singleList.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      singleList.map(async (single) => {
+        try {
+          const { data } = await dataProvider.getList<Resume>("resumes", {
+            filter: { single_id: single.id },
+            pagination: { page: 1, perPage: 1 },
+            sort: { field: "id", order: "ASC" },
+          });
+          if (cancelled || data[0]?.id == null) return;
+          await hydrateAndSchedulePendingResumeFileDeletes(
+            data[0].id,
+            data[0].files ?? [],
+            async (marker) => {
+              try {
+                await dataProvider.removeResumeFile({
+                  resumeId: marker.resumeId,
+                  path: marker.file.path,
+                  size: marker.file.size,
+                  uploadedAt: marker.file.uploaded_at,
+                  deleteToken: marker.token,
+                });
+              } finally {
+                clearPendingResumeFileDelete(marker.token);
+              }
+            },
+          );
+        } catch {
+          // The dashboard still renders when a background cleanup hydration
+          // request is unavailable; the next mount retries it.
+        }
+      }),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [canFinalizeResumeDeletes, dataProvider, singleList]);
 
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -69,7 +106,7 @@ export const DashboardHeader = ({
               <>
                 <Button
                   type="button"
-                  className="min-h-11"
+                  className="min-h-11 md:min-h-11"
                   onClick={() => setDocumentsOpen(true)}
                 >
                   Documents

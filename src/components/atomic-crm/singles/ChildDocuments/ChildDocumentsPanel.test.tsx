@@ -105,16 +105,16 @@ function buildDataProvider(
     signResumeFileUrl: vi.fn().mockResolvedValue("blob:resume"),
     signResumePhotoUrl: vi.fn().mockResolvedValue("blob:photo"),
     signEntityFileUrl: vi.fn(),
-    hideResumePhoto: vi.fn(),
-    restoreResumePhoto: vi.fn(),
-    removeResumeFile: vi.fn(),
+    hideResumePhoto: vi.fn().mockResolvedValue(photo),
+    restoreResumePhoto: vi.fn().mockResolvedValue(photo),
+    removeResumeFile: vi.fn().mockResolvedValue(undefined),
     softDeleteEntityFile: vi.fn().mockResolvedValue({
       id: paper.id,
       delete_token: "paper-token",
       undo_until: new Date(Date.now() + 10_000).toISOString(),
     }),
-    undoEntityFileDelete: vi.fn(),
-    finalizeEntityFileDelete: vi.fn(),
+    undoEntityFileDelete: vi.fn().mockResolvedValue(paper),
+    finalizeEntityFileDelete: vi.fn().mockResolvedValue(undefined),
     finalizeExpiredEntityFileDeletes: vi.fn().mockResolvedValue(0),
     replaceEntityFile: vi.fn().mockResolvedValue(paper),
   } as unknown as CrmDataProvider;
@@ -132,6 +132,9 @@ async function renderPanel(entityFiles?: EntityFileSummary[]) {
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
+  if (vi.isFakeTimers()) {
+    await vi.runAllTimersAsync();
+  }
   return { dataProvider, screen };
 }
 
@@ -215,7 +218,7 @@ describe("ChildDocumentsPanel", () => {
     await upload.upload(file);
 
     await expect
-      .poll(() => dataProvider.uploadEntityFile.mock.calls.length)
+      .poll(() => vi.mocked(dataProvider.uploadEntityFile).mock.calls.length)
       .toBe(1);
     expect(dataProvider.uploadEntityFile).toHaveBeenCalledWith({
       targetType: "single",
@@ -236,7 +239,7 @@ describe("ChildDocumentsPanel", () => {
     await upload.upload(file);
 
     await expect
-      .poll(() => dataProvider.replaceEntityFile.mock.calls.length)
+      .poll(() => vi.mocked(dataProvider.replaceEntityFile).mock.calls.length)
       .toBe(1);
     expect(dataProvider.replaceEntityFile).toHaveBeenCalledWith({
       oldId: paper.id,
@@ -252,28 +255,50 @@ describe("ChildDocumentsPanel", () => {
     vi.useFakeTimers();
     const { dataProvider, screen } = await renderPanel([paper]);
 
-    await screen.getByRole("button", { name: "Delete Paper 1" }).click();
+    await screen
+      .getByRole("button", { name: "Delete Paper 1", exact: true })
+      .click();
     await screen.getByRole("button", { name: "Delete file" }).click();
     await expect
-      .poll(() => dataProvider.softDeleteEntityFile.mock.calls.length)
+      .poll(
+        () => vi.mocked(dataProvider.softDeleteEntityFile).mock.calls.length,
+      )
       .toBe(1);
     await expect
-      .element(screen.getByRole("button", { name: "Undo delete paper" }))
+      .element(
+        screen.getByRole("button", {
+          name: "Undo delete Paper 1: school-paper.pdf",
+        }),
+      )
       .toBeInTheDocument();
-    await screen.getByRole("button", { name: "Undo delete paper" }).click();
+    await screen
+      .getByRole("button", {
+        name: "Undo delete Paper 1: school-paper.pdf",
+      })
+      .click();
     expect(dataProvider.undoEntityFileDelete).toHaveBeenCalledWith({
       id: paper.id,
       deleteToken: "paper-token",
     });
 
-    await screen.getByRole("button", { name: "Delete Paper 1" }).click();
+    const deletePaper = screen.getByRole("button", {
+      name: "Delete Paper 1",
+      exact: true,
+    });
+    await expect.element(deletePaper).toBeEnabled();
+    await deletePaper.click();
     await screen.getByRole("button", { name: "Delete file" }).click();
     await expect
-      .poll(() => dataProvider.softDeleteEntityFile.mock.calls.length)
+      .poll(
+        () => vi.mocked(dataProvider.softDeleteEntityFile).mock.calls.length,
+      )
       .toBe(2);
     vi.advanceTimersByTime(10_001);
     await expect
-      .poll(() => dataProvider.finalizeEntityFileDelete.mock.calls.length)
+      .poll(
+        () =>
+          vi.mocked(dataProvider.finalizeEntityFileDelete).mock.calls.length,
+      )
       .toBe(1);
   });
 
@@ -281,23 +306,37 @@ describe("ChildDocumentsPanel", () => {
     vi.useFakeTimers();
     const secondPaper = { ...paper, id: 57, slot: "paper_2" as const };
     const { dataProvider, screen } = await renderPanel([paper, secondPaper]);
-    dataProvider.softDeleteEntityFile.mockImplementation(async ({ id }) => ({
-      id,
-      delete_token: `token-${id}`,
-      undo_until: new Date(Date.now() + 10_000).toISOString(),
-    }));
+    vi.mocked(dataProvider.softDeleteEntityFile).mockImplementation(
+      async ({ id }) => ({
+        id,
+        delete_token: `token-${id}`,
+        undo_until: new Date(Date.now() + 10_000).toISOString(),
+      }),
+    );
 
-    await screen.getByRole("button", { name: "Delete Paper 1" }).click();
+    await screen
+      .getByRole("button", { name: "Delete Paper 1", exact: true })
+      .click();
     await screen.getByRole("button", { name: "Delete file" }).click();
-    await screen.getByRole("button", { name: "Delete Paper 2" }).click();
+    await screen
+      .getByRole("button", { name: "Delete Paper 2", exact: true })
+      .click();
     await screen.getByRole("button", { name: "Delete file" }).click();
 
     await expect
-      .element(screen.getByRole("button", { name: "Undo delete paper" }))
+      .element(
+        screen.getByRole("button", {
+          name: "Undo delete Paper 1: school-paper.pdf",
+        }),
+      )
       .toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Undo delete paper" }),
-    ).toHaveLength(2);
+    await expect
+      .element(
+        screen.getByRole("button", {
+          name: "Undo delete Paper 2: school-paper.pdf",
+        }),
+      )
+      .toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Replace Paper 1" }),
     ).toBeDisabled();
@@ -321,10 +360,12 @@ describe("ChildDocumentsPanel", () => {
     const { dataProvider, screen } = await renderPanel([paper]);
     dataProvider.softDeleteEntityFile = softDelete;
 
-    await screen.getByRole("button", { name: "Delete Paper 1" }).click();
+    await screen
+      .getByRole("button", { name: "Delete Paper 1", exact: true })
+      .click();
     const confirm = screen.getByRole("button", { name: "Delete file" });
     await confirm.click();
-    await confirm.click();
+    await expect.element(confirm).toBeDisabled();
     expect(softDelete).toHaveBeenCalledTimes(1);
     resolveDelete({
       id: paper.id as number,
@@ -427,7 +468,9 @@ describe("ChildDocumentsPanel", () => {
       .element(screen.getByRole("button", { name: "Replace Paper 1" }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("button", { name: "Delete Paper 1" }))
+      .element(
+        screen.getByRole("button", { name: "Delete Paper 1", exact: true }),
+      )
       .toBeInTheDocument();
   });
 

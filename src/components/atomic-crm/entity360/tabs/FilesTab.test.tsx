@@ -52,6 +52,8 @@ const buildDataProvider = (
     uploadEntityFile: vi.fn().mockResolvedValue(buildFileRow()),
     signEntityFileUrl: vi.fn().mockResolvedValue("https://signed.example/x"),
     deleteEntityFile: vi.fn().mockResolvedValue(undefined),
+    finalizeEntityFileDelete: vi.fn().mockResolvedValue(undefined),
+    finalizeExpiredEntityFileDeletes: vi.fn().mockResolvedValue(0),
     ...overrides,
   }) as unknown as CrmDataProvider;
 
@@ -119,6 +121,9 @@ describe("FilesTab — loading, empty and error states (AC 6f)", () => {
     await expect.element(screen.getByRole("alert")).toBeInTheDocument();
     await expect
       .element(screen.getByText("Could not load the files."))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Retry" }))
       .toBeInTheDocument();
     await expect
       .element(screen.getByRole("button", { name: "Upload a file" }))
@@ -226,7 +231,7 @@ describe("FilesTab — replace (AC 6c)", () => {
       {},
       { getList, deleteEntityFile, uploadEntityFile },
     );
-    await screen.getByLabelText("Replace").upload(newFile);
+    await screen.getByLabelText("Replace", { exact: true }).upload(newFile);
 
     // Assert
     await expect.poll(() => uploadEntityFile.mock.calls.length).toBe(1);
@@ -263,7 +268,7 @@ describe("FilesTab — replace (AC 6c)", () => {
       {},
       { getList, uploadEntityFile, deleteEntityFile },
     );
-    await screen.getByLabelText("Replace").upload(newFile);
+    await screen.getByLabelText("Replace", { exact: true }).upload(newFile);
 
     await expect
       .element(screen.getByText("replacement upload failed"))
@@ -281,7 +286,7 @@ describe("FilesTab — delete (AC 6d)", () => {
 
     // Act
     const { screen } = await renderFilesTab({}, { getList, deleteEntityFile });
-    await screen.getByRole("button", { name: "Delete" }).click();
+    await screen.getByRole("button", { name: "Delete resume.pdf" }).click();
     await screen.getByRole("button", { name: "Delete file" }).click();
 
     // Assert
@@ -305,7 +310,7 @@ describe("FilesTab — delete (AC 6d)", () => {
 
     // Act
     const { screen } = await renderFilesTab({}, { getList, deleteEntityFile });
-    await screen.getByRole("button", { name: "Delete" }).click();
+    await screen.getByRole("button", { name: "Delete kesuba.pdf" }).click();
 
     // Assert — the question is on screen and names the file...
     await expect
@@ -314,7 +319,7 @@ describe("FilesTab — delete (AC 6d)", () => {
     await expect
       .element(
         screen.getByText(
-          "kesuba.pdf will be removed for everyone. This cannot be undone.",
+          "kesuba.pdf will be hidden for 10 seconds so you can Undo.",
         ),
       )
       .toBeInTheDocument();
@@ -323,6 +328,78 @@ describe("FilesTab — delete (AC 6d)", () => {
     // ...and backing out of it leaves the file alone.
     await screen.getByRole("button", { name: "Cancel" }).click();
     expect(deleteEntityFile).not.toHaveBeenCalled();
+  });
+
+  it("disables row replacement and deletion while a single Undo is pending", async () => {
+    const row = buildFileRow({
+      id: 78,
+      target_type: "single",
+      slot: "paper_1",
+      file_name: "paper.pdf",
+    });
+    const getList = vi.fn().mockResolvedValue({ data: [row], total: 1 });
+    const softDeleteEntityFile = vi.fn().mockResolvedValue({
+      delete_token: "delete-token",
+      undo_until: new Date(Date.now() + 10_000).toISOString(),
+    });
+
+    const { screen } = await renderFilesTab(
+      { targetType: "single" },
+      { getList, softDeleteEntityFile },
+    );
+    await screen.getByRole("button", { name: "Delete paper.pdf" }).click();
+    await screen.getByRole("button", { name: "Delete file" }).click();
+
+    await expect.poll(() => softDeleteEntityFile.mock.calls.length).toBe(1);
+    await expect
+      .element(screen.getByRole("button", { name: "Replace paper.pdf" }))
+      .toBeDisabled();
+    await expect
+      .element(
+        screen.getByRole("button", {
+          name: "Delete paper.pdf",
+          exact: true,
+        }),
+      )
+      .toBeDisabled();
+  });
+
+  it("only sends one Undo request when the Undo button is double-clicked", async () => {
+    const row = buildFileRow({
+      id: 79,
+      target_type: "single",
+      slot: "paper_1",
+      file_name: "paper.pdf",
+    });
+    const getList = vi.fn().mockResolvedValue({ data: [row], total: 1 });
+    const softDeleteEntityFile = vi.fn().mockResolvedValue({
+      delete_token: "delete-token",
+      undo_until: new Date(Date.now() + 10_000).toISOString(),
+    });
+    let resolveUndo: ((value: EntityFile) => void) | undefined;
+    const undoEntityFileDelete = vi.fn(
+      () =>
+        new Promise<EntityFile>((resolve) => {
+          resolveUndo = resolve;
+        }),
+    );
+
+    const { screen } = await renderFilesTab(
+      { targetType: "single" },
+      { getList, softDeleteEntityFile, undoEntityFileDelete },
+    );
+    await screen.getByRole("button", { name: "Delete paper.pdf" }).click();
+    await screen.getByRole("button", { name: "Delete file" }).click();
+    const undo = screen.getByRole("button", { name: "Undo delete paper.pdf" });
+    await expect.element(undo).toBeInTheDocument();
+    await undo.click();
+    await undo.click();
+
+    expect(undoEntityFileDelete).toHaveBeenCalledExactlyOnceWith({
+      id: 79,
+      deleteToken: "delete-token",
+    });
+    resolveUndo?.(row);
   });
 });
 

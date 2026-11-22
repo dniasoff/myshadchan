@@ -24,6 +24,27 @@ describe("FakeRest child document lifecycle", () => {
     const provider = createDataProvider({ latency: 0, silent: true });
     const single = await getSingle(provider);
 
+    await expect(
+      provider.uploadEntityFile({
+        targetType: "single",
+        targetId: "missing-single",
+        slot: "paper_1",
+        file: pdf("missing.pdf"),
+      }),
+    ).rejects.toThrow("entity file single target is missing");
+    await expect(
+      provider.uploadResumeFile({
+        singleId: "missing-single",
+        file: pdf("missing-resume.pdf"),
+      }),
+    ).rejects.toThrow("single resume target is missing");
+    await expect(
+      provider.uploadResumePhoto({
+        singleId: "missing-single",
+        file: new File(["photo"], "missing.jpg", { type: "image/jpeg" }),
+      }),
+    ).rejects.toThrow("single photo target is missing");
+
     await provider.uploadEntityFile({
       targetType: "single",
       targetId: single.id,
@@ -45,7 +66,9 @@ describe("FakeRest child document lifecycle", () => {
         slot: "paper_2",
         file: new File(["paper"], "paper.doc", { type: PDF }),
       }),
-    ).rejects.toThrow("file type and extension do not match");
+    ).rejects.toThrow(
+      "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.",
+    );
     await expect(
       provider.uploadEntityFile({
         targetType: "single",
@@ -62,13 +85,17 @@ describe("FakeRest child document lifecycle", () => {
         singleId: single.id,
         file: new File(["resume"], "resume.txt", { type: "text/plain" }),
       }),
-    ).rejects.toThrow("Choose a PDF, Word, JPEG, or PNG file.");
+    ).rejects.toThrow(
+      "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.",
+    );
     await expect(
       provider.uploadResumePhoto({
         singleId: single.id,
         file: new File(["photo"], "photo.gif", { type: "image/gif" }),
       }),
-    ).rejects.toThrow("Choose a PDF, Word, JPEG, or PNG file.");
+    ).rejects.toThrow(
+      "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.",
+    );
   });
 
   it("soft-deletes with an exact token, hides summary rows, and finalizes idempotently", async () => {
@@ -106,6 +133,9 @@ describe("FakeRest child document lifecycle", () => {
         }),
       );
       await expect(
+        provider.getOne("entity_files_summary", { id: file.id }),
+      ).rejects.toThrow("Entity file not found");
+      await expect(
         provider.uploadEntityFile({
           targetType: "single",
           targetId: single.id,
@@ -125,8 +155,11 @@ describe("FakeRest child document lifecycle", () => {
       });
 
       const deletedAgain = await provider.softDeleteEntityFile({ id: file.id });
+      const current = (await provider.getOne("entity_files", { id: file.id }))
+        .data;
       await provider.update("entity_files", {
         id: file.id,
+        previousData: current,
         data: { delete_undo_until: new Date(Date.now() - 1).toISOString() },
       });
       await provider.finalizeEntityFileDelete({
@@ -166,8 +199,12 @@ describe("FakeRest child document lifecycle", () => {
     const expiredDelete = await provider.softDeleteEntityFile({
       id: expired.id,
     });
+    const expiredRow = (
+      await provider.getOne("entity_files", { id: expired.id })
+    ).data;
     await provider.update("entity_files", {
       id: expired.id,
+      previousData: expiredRow,
       data: { delete_undo_until: new Date(Date.now() - 1).toISOString() },
     });
     const count = await provider.finalizeExpiredEntityFileDeletes();
@@ -224,6 +261,17 @@ describe("FakeRest child document lifecycle", () => {
       expect(
         (await provider.getOne("entity_files", { id: replacement.id })).data,
       ).toEqual(expect.objectContaining({ file_name: "new.pdf" }));
+
+      await provider.softDeleteEntityFile({ id: replacement.id });
+      await expect(
+        provider.replaceEntityFile({
+          oldId: replacement.id,
+          targetType: "single",
+          targetId: single.id,
+          slot: "paper_1",
+          file: pdf("while-undoable.pdf"),
+        }),
+      ).rejects.toThrow("The file is already being deleted.");
     } finally {
       revoke.mockRestore();
     }

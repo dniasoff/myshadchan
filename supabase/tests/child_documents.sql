@@ -18,12 +18,15 @@ delete from public.account_members;
 set local role service_role;
 insert into public.accounts (name, kind) values ('Child Documents A', 'household') returning id as account_a \gset
 insert into public.accounts (name, kind) values ('Child Documents B', 'household') returning id as account_b \gset
+insert into public.accounts (name, kind) values ('Child Documents Shadchan', 'shadchanus') returning id as account_c \gset
 insert into public.account_members (account_id, user_id, role, status)
 values (:account_a, '3f311111-1111-1111-1111-111111111111', 'parent_admin', 'active');
 insert into public.account_members (account_id, user_id, role, status)
 values (:account_b, '3f311111-1111-1111-1111-111111111111', 'parent_admin', 'active');
 insert into public.account_members (account_id, user_id, role, status)
 values (:account_a, '3f322222-2222-2222-2222-222222222222', 'single', 'active');
+insert into public.account_members (account_id, user_id, role, status)
+values (:account_c, '3f311111-1111-1111-1111-111111111111', 'shadchan', 'active');
 insert into public.singles (account_id, first_name_en, gender)
 values (:account_a, 'Child Documents A', 'female')
 returning id as single_a \gset
@@ -202,6 +205,32 @@ begin
 end
 $fn$;
 
+create or replace function pg_temp.expect_storage_insert_error(
+  p_name text, p_path text, p_expected_state text, p_expected text
+) returns void
+language plpgsql
+as $fn$
+declare
+  message text;
+  state text;
+begin
+  begin
+    insert into storage.objects (bucket_id, name, owner)
+    values ('entity-files', p_path, '3f311111-1111-1111-1111-111111111111');
+    insert into results values (p_name, false, 'no exception');
+  exception when others then
+    get stacked diagnostics
+      message = message_text,
+      state = returned_sqlstate;
+    insert into results values (
+      p_name,
+      state = p_expected_state and message = p_expected,
+      format('SQLSTATE %s: %s', state, message)
+    );
+  end;
+end
+$fn$;
+
 create or replace function pg_temp.expect_undo_error(
   p_name text, p_entity_file_id bigint, p_delete_token text,
   p_expected_state text, p_expected text
@@ -282,6 +311,14 @@ insert into results
 select 'Picture accepts PNG through the existing photo pipeline',
   exists (select 1 from public.resume_photos where resume_id = (select id from public.resumes where single_id = :'single_a') and path like '%/picture.png'),
   null;
+select * from public.add_resume_photo(
+  :'account_a'::text || '/photos/shared/single-' || :'single_a'::text || '/legacy-call.jpg',
+  null, :'single_a', 'shared'
+);
+insert into results
+select 'Picture accepts the legacy four-argument RPC shape',
+  exists (select 1 from public.resume_photos where resume_id = (select id from public.resumes where single_id = :'single_a') and path like '%/legacy-call.jpg'),
+  null;
 
 -- Paper slots are the two entity_files rows. The CHECK, partial unique index,
 -- and parent-row trigger together make the third slot race-safe and capped.
@@ -290,7 +327,7 @@ insert into public.entity_files (
   size_bytes, visibility, slot
 ) values (
   :'account_a', 'single', :'single_a',
-  :'account_a'::text || '/single/' || :'single_a'::text || '/paper-1-uuid.pdf',
+  :'account_a'::text || '/single/' || :'single_a'::text || '/11111111-1111-4111-8111-111111111111.pdf',
   'paper-1.pdf', 'application/pdf', 10, 'private_parent', 'paper_1'
 ) returning id as paper_a_1 \gset
 insert into public.entity_files (
@@ -298,7 +335,7 @@ insert into public.entity_files (
   size_bytes, visibility, slot
 ) values (
   :'account_a', 'single', :'single_a',
-  :'account_a'::text || '/single/' || :'single_a'::text || '/paper-2-uuid.pdf',
+  :'account_a'::text || '/single/' || :'single_a'::text || '/22222222-2222-4222-8222-222222222222.pdf',
   'paper-2.pdf', 'application/pdf', 10, 'private_parent', 'paper_2'
 ) returning id as paper_a_2 \gset
 select public.set_active_context(:account_b);
@@ -308,7 +345,7 @@ insert into public.entity_files (
   size_bytes, visibility, slot
 ) values (
   :'account_b', 'single', :'single_b',
-  :'account_b'::text || '/single/' || :'single_b'::text || '/paper-b-uuid.pdf',
+  :'account_b'::text || '/single/' || :'single_b'::text || '/33333333-3333-4333-8333-333333333333.pdf',
   'paper-b.pdf', 'application/pdf', 10, 'private_parent', 'paper_1'
 ) returning id as paper_b_1 \gset
 
@@ -317,19 +354,19 @@ set local request.jwt.claims = '{"sub":"3f311111-1111-1111-1111-111111111111","r
 select public.set_active_context(:account_a);
 select pg_temp.expect_paper_insert_error(
   'Parent admin direct INSERT rejects an unsupported MIME', :account_a, :single_a,
-  :account_a::text || '/single/' || :single_a::text || '/invalid-mime-uuid.exe',
-  'invalid-mime.exe', 'text/plain', 10, 'paper_1', '23514',
+  :account_a::text || '/single/' || :single_a::text || '/44444444-4444-4444-8444-444444444444.pdf',
+  'invalid-mime.pdf', 'text/plain', 10, 'paper_1', '23514',
   'single document MIME type is not allowed'
 );
 select pg_temp.expect_paper_insert_error(
   'Parent admin direct INSERT rejects a mismatched extension', :account_a, :single_a,
-  :account_a::text || '/single/' || :single_a::text || '/invalid-extension-uuid.pdf',
+  :account_a::text || '/single/' || :single_a::text || '/55555555-5555-4555-8555-555555555555.pdf',
   'invalid-extension.doc', 'application/pdf', 10, 'paper_1', '23514',
   'single document file extension does not match MIME type'
 );
 select pg_temp.expect_paper_insert_error(
   'Parent admin direct INSERT rejects an oversized file', :account_a, :single_a,
-  :account_a::text || '/single/' || :single_a::text || '/invalid-size-uuid.pdf',
+  :account_a::text || '/single/' || :single_a::text || '/66666666-6666-4666-8666-666666666666.pdf',
   'invalid-size.pdf', 'application/pdf', 8 * 1024 * 1024 + 1, 'paper_1', '23514',
   'single document size must be between 1 byte and 8 MiB'
 );
@@ -348,6 +385,37 @@ select pg_temp.expect_paper_update_error(
   'invalid-update.pdf', 'application/pdf', 8 * 1024 * 1024 + 1, '23514',
   'single document size must be between 1 byte and 8 MiB'
 );
+insert into storage.objects (bucket_id, name, owner)
+values (
+  'entity-files',
+  :account_a::text || '/single/' || :single_a::text
+    || '/dddddddd-dddd-4ddd-8ddd-dddddddddddd.pdf',
+  '3f311111-1111-1111-1111-111111111111'
+);
+insert into results values (
+  'Parent admin storage INSERT accepts an opaque UUID key', true, null
+);
+select pg_temp.expect_storage_insert_error(
+  'Storage INSERT rejects a named single key',
+  :account_a::text || '/single/' || :single_a::text || '/ParentName.pdf',
+  '42501', 'new row violates row-level security policy for table "objects"'
+);
+select pg_temp.expect_storage_insert_error(
+  'Storage INSERT rejects a dot path segment',
+  :account_a::text || '/single/' || :single_a::text || '/./paper.pdf',
+  '42501', 'new row violates row-level security policy for table "objects"'
+);
+select pg_temp.expect_storage_insert_error(
+  'Storage INSERT rejects a parent-dot path segment',
+  :account_a::text || '/single/' || :single_a::text || '/../paper.pdf',
+  '42501', 'new row violates row-level security policy for table "objects"'
+);
+select pg_temp.expect_storage_insert_error(
+  'Storage INSERT rejects a wrong extension',
+  :account_a::text || '/single/' || :single_a::text
+    || '/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.exe',
+  '42501', 'new row violates row-level security policy for table "objects"'
+);
 set local role service_role;
 update public.account_members
 set role = 'helper'
@@ -357,43 +425,28 @@ set local role authenticated;
 select public.set_active_context(:account_a);
 select pg_temp.expect_paper_insert_error(
   'Helper direct INSERT rejects an unsupported MIME', :account_a, :single_a,
-  :account_a::text || '/single/' || :single_a::text || '/helper-invalid-uuid.exe',
-  'helper-invalid.exe', 'text/plain', 10, 'paper_1', '23514',
+  :account_a::text || '/single/' || :single_a::text || '/77777777-7777-4777-8777-777777777777.pdf',
+  'helper-invalid.pdf', 'text/plain', 10, 'paper_1', '23514',
   'single document MIME type is not allowed'
 );
 select pg_temp.expect_paper_update_error(
   'Helper direct UPDATE rejects an unsupported MIME', :paper_a_2,
-  'helper-invalid.exe', 'text/plain', 10, '23514',
+  'helper-invalid.pdf', 'text/plain', 10, '23514',
   'single document MIME type is not allowed'
 );
-set local role service_role;
-update public.account_members
-set role = 'shadchan'
-where account_id = :account_a
-  and user_id = '3f311111-1111-1111-1111-111111111111';
 set local role authenticated;
-select public.set_active_context(:account_a);
+select public.set_active_context(:account_c);
 select pg_temp.expect_paper_insert_error(
-  'Shadchan direct INSERT rejects a mismatched extension', :account_a, :single_a,
-  :account_a::text || '/single/' || :single_a::text || '/shadchan-invalid-uuid.pdf',
-  'shadchan-invalid.doc', 'application/pdf', 10, 'paper_1', '23514',
-  'single document file extension does not match MIME type'
+  'Shadchan direct INSERT cannot target a household single', :account_c, :single_a,
+  :account_c::text || '/single/' || :single_a::text || '/88888888-8888-4888-8888-888888888888.pdf',
+  'shadchan-invalid.pdf', 'application/pdf', 10, 'paper_1', '23503',
+  'entity file single target is missing'
 );
-select pg_temp.expect_paper_update_error(
-  'Shadchan direct UPDATE rejects an oversized file', :paper_a_2,
-  'shadchan-invalid.pdf', 'application/pdf', 8 * 1024 * 1024 + 1, '23514',
-  'single document size must be between 1 byte and 8 MiB'
-);
-set local role service_role;
-update public.account_members
-set role = 'parent_admin'
-where account_id = :account_a
-  and user_id = '3f311111-1111-1111-1111-111111111111';
 set local role authenticated;
 select public.set_active_context(:account_a);
 select pg_temp.expect_paper_insert_error(
   'A single cannot exceed two paper slots', :account_a, :single_a,
-  :account_a::text || '/single/' || :single_a::text || '/paper-3-uuid.pdf',
+  :account_a::text || '/single/' || :single_a::text || '/99999999-9999-4999-8999-999999999999.pdf',
   'paper-3.pdf', 'application/pdf', 10, 'paper_1', '23514',
   'child document limit reached'
 );
@@ -404,7 +457,7 @@ select pg_temp.expect_direct_delete_error(
 select id as replacement_paper_id
 from public.replace_entity_file(
   :paper_a_2,
-  :'account_a'::text || '/single/' || :'single_a'::text || '/paper-2-replaced-uuid.pdf',
+  :'account_a'::text || '/single/' || :'single_a'::text || '/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.pdf',
   'paper-2-replaced.pdf', 'application/pdf', 10, 'paper_2', 'private_parent'
 ) \gset
 insert into results
@@ -418,7 +471,7 @@ select 'Replace queues the old paper after the new row is installed',
     select 1 from public.storage_purge_queue
     where account_id = :'account_a'
       and bucket = 'entity-files'
-      and storage_path = :'account_a'::text || '/single/' || :'single_a'::text || '/paper-2-uuid.pdf'
+      and storage_path = :'account_a'::text || '/single/' || :'single_a'::text || '/22222222-2222-4222-8222-222222222222.pdf'
   ),
   null;
 
@@ -426,7 +479,7 @@ select id as deleted_paper_id, delete_token as deleted_token
 from public.soft_delete_entity_file(:paper_a_1) \gset
 select pg_temp.expect_paper_insert_error(
   'A paper slot remains reserved during the Undo window', :account_a, :single_a,
-  :account_a::text || '/single/' || :single_a::text || '/pending-slot-uuid.pdf',
+  :account_a::text || '/single/' || :single_a::text || '/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.pdf',
   'pending-slot.pdf', 'application/pdf', 10, 'paper_1', '23505',
   'single paper slot is already in use'
 );
@@ -461,7 +514,7 @@ select 'Finalize removes the row only after the Undo window and queues storage c
     select 1 from public.storage_purge_queue
     where account_id = :'account_a'
       and bucket = 'entity-files'
-      and storage_path = :'account_a'::text || '/single/' || :'single_a'::text || '/paper-1-uuid.pdf'
+      and storage_path = :'account_a'::text || '/single/' || :'single_a'::text || '/11111111-1111-4111-8111-111111111111.pdf'
   ),
   null;
 insert into public.entity_files (

@@ -27,6 +27,24 @@ function deriveExtension(fileName: string): string {
   return parts.length > 1 ? `.${parts.pop()}` : "";
 }
 
+async function assertSingleTarget(
+  baseDataProvider: DataProvider,
+  targetId: Identifier,
+  accountId: Identifier,
+): Promise<void> {
+  const { data } = await baseDataProvider.getList<{
+    id: Identifier;
+    account_id: Identifier;
+  }>("singles", {
+    filter: { id: targetId },
+    pagination: { page: 1, perPage: 1 },
+    sort: { field: "id", order: "ASC" },
+  });
+  if (!data[0] || String(data[0].account_id) !== String(accountId)) {
+    throw new Error("entity file single target is missing");
+  }
+}
+
 export type UploadEntityFileParams = {
   targetType: EntityTargetType;
   targetId: Identifier;
@@ -53,6 +71,7 @@ export async function uploadEntityFile(
 ): Promise<EntityFile> {
   const { targetType, targetId, file, visibility, slot, excludeId } = params;
   if (targetType === "single") {
+    await assertSingleTarget(baseDataProvider, targetId, accountId);
     if (!slot)
       throw new Error("Choose an available paper slot before uploading.");
     const validationError = validateChildDocument(file);
@@ -80,7 +99,10 @@ export async function uploadEntityFile(
       throw new Error("That paper slot is already in use.");
     }
   }
-  const ext = deriveExtension(file.name);
+  const ext =
+    targetType === "single"
+      ? deriveExtension(file.name).toLowerCase()
+      : deriveExtension(file.name);
   const storagePath = `${accountId}/${targetType}/${targetId}/${crypto.randomUUID()}${ext}`;
   blobUrls.set(storagePath, URL.createObjectURL(file));
 
@@ -98,6 +120,9 @@ export async function uploadEntityFile(
         slot: slot ?? null,
         uploaded_by_member_id: uploadedByMemberId,
         created_at: new Date().toISOString(),
+        deleted_at: null,
+        delete_token: null,
+        delete_undo_until: null,
       },
     });
     return data;

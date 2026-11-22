@@ -15,6 +15,7 @@ import {
 
 import type { CrmDataProvider } from "../../providers/types";
 import { useViewerRole } from "../../entity360/useViewerRole";
+import { canUseNativeFileShare } from "./childDocumentUtils";
 import type {
   EntityFileSummary,
   Resume,
@@ -31,6 +32,7 @@ import {
   resumeFileDeleteKey,
   resumeFileDeleteMarkerToken,
   schedulePendingResumeFileDelete,
+  hydratePendingResumeFileDeletes,
   type PendingResumeFileDelete,
 } from "../../resumes/resumeFileDelete";
 import { canDeleteResumeFile } from "../../resumes/resumeFileDelete";
@@ -60,6 +62,8 @@ type PendingDelete = {
   id: Identifier;
   token: string;
   until: number;
+  label: string;
+  fileName: string;
   slot?: ChildPaperSlot;
 };
 
@@ -69,22 +73,6 @@ type ShareFile = {
 };
 
 const FILE_DELETE_UNDO_MS = 10_000;
-
-/** Native file sharing is intentionally limited to touch devices. Desktop
- * users get explicit Download / Email / WhatsApp choices instead, because
- * those channels require the user to attach the file themselves. */
-export function canUseNativeFileShare(): boolean {
-  if (typeof navigator === "undefined" || typeof window === "undefined") {
-    return false;
-  }
-  const isTouchDevice =
-    navigator.maxTouchPoints > 0 || "ontouchstart" in window;
-  return (
-    isTouchDevice &&
-    typeof navigator.share === "function" &&
-    typeof navigator.canShare === "function"
-  );
-}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -139,7 +127,7 @@ function DocumentActions({
         type="button"
         variant="outline"
         size="sm"
-        className="min-h-11"
+        className="min-h-11 md:min-h-11"
         aria-label={`Open ${slotName}`}
         disabled={disabled}
         onClick={onOpen}
@@ -151,7 +139,7 @@ function DocumentActions({
           type="button"
           variant="outline"
           size="sm"
-          className="min-h-11"
+          className="min-h-11 md:min-h-11"
           aria-label={`Replace ${slotName}`}
           disabled={disabled}
           onClick={onReplace}
@@ -163,7 +151,7 @@ function DocumentActions({
         type="button"
         variant="outline"
         size="sm"
-        className="min-h-11"
+        className="min-h-11 md:min-h-11"
         aria-label={`Forward ${slotName}`}
         disabled={disabled}
         onClick={onForward}
@@ -175,7 +163,7 @@ function DocumentActions({
           type="button"
           variant="ghost"
           size="sm"
-          className="min-h-11 text-destructive hover:text-destructive"
+          className="min-h-11 text-destructive hover:text-destructive md:min-h-11"
           aria-label={`Delete ${slotName}`}
           disabled={disabled}
           onClick={onDelete}
@@ -217,7 +205,7 @@ function EmptySlot({
         <Button
           type="button"
           variant="outline"
-          className="mt-3 min-h-11 self-start"
+          className="mt-3 min-h-11 self-start md:min-h-11"
           aria-label={`Add ${slotName}`}
           disabled={disabled}
           onClick={onAdd}
@@ -245,12 +233,14 @@ export function ChildDocumentsPanel({
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadActiveRef = useRef(false);
   const focusReturnRef = useRef<HTMLElement | null>(null);
-  const undoButtonRef = useRef<HTMLButtonElement>(null);
+  const undoButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const restoreTargetRefs = useRef(new Map<string, HTMLElement>());
   const [uploadKind, setUploadKind] = useState<DocumentKind | null>(null);
   const [uploadSlot, setUploadSlot] = useState<ChildPaperSlot | null>(null);
   const [uploadReplaceTarget, setUploadReplaceTarget] =
     useState<ReplaceTarget>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [pendingDeletes, setPendingDeletes] = useState<
     Map<string, PendingDelete>
@@ -321,14 +311,12 @@ export function ChildDocumentsPanel({
       (resume?.id != null && photosPending));
   const documentsError = resumesError ?? entityFilesError ?? photosError;
   const retryDocuments = () => {
+    setUploadError(null);
     void refetchResumes();
     void refetchPhotos();
     void refetchEntityFiles();
   };
   const sweepExpiredDeletes = useCallback(async () => {
-    if (typeof dataProvider.finalizeExpiredEntityFileDeletes !== "function") {
-      return;
-    }
     try {
       await dataProvider.finalizeExpiredEntityFileDeletes();
       refresh();
@@ -349,10 +337,17 @@ export function ChildDocumentsPanel({
       const original = focusReturnRef.current;
       if (original?.isConnected) {
         original.focus();
-      } else if (undoButtonRef.current?.isConnected) {
-        undoButtonRef.current.focus();
       }
       focusReturnRef.current = null;
+    }, 0);
+  };
+
+  const restorePendingFocus = (key: string) => {
+    window.setTimeout(() => {
+      const target = restoreTargetRefs.current.get(key);
+      if (target?.isConnected) target.focus();
+      restoreTargetRefs.current.delete(key);
+      undoButtonRefs.current.delete(key);
     }, 0);
   };
 
@@ -404,7 +399,7 @@ export function ChildDocumentsPanel({
               return next;
             });
             refresh();
-            restoreFocus();
+            restorePendingFocus(key);
           }
         },
         Math.max(0, pending.until - Date.now()),
@@ -417,6 +412,30 @@ export function ChildDocumentsPanel({
     if (!open) return;
     void sweepExpiredDeletes();
   }, [open, sweepExpiredDeletes]);
+
+  useEffect(() => {
+    if (!open || resume?.id == null) return;
+    void (async () => {
+      await hydratePendingResumeFileDeletes(resume.id, resume.files ?? []);
+      for (const marker of pendingResumeFileDeletes.values()) {
+        if (String(marker.resumeId) !== String(resume.id)) continue;
+        schedulePendingResumeFileDelete(marker, async () => {
+          try {
+            await dataProvider.removeResumeFile({
+              resumeId: marker.resumeId,
+              path: marker.file.path,
+              size: marker.file.size,
+              uploadedAt: marker.file.uploaded_at,
+              deleteToken: marker.token,
+            });
+          } finally {
+            clearPendingResumeFileDelete(marker.token);
+            refresh();
+          }
+        });
+      }
+    })();
+  }, [dataProvider, open, refresh, resume?.files, resume?.id]);
 
   const queueResumeDelete = async (
     resumeId: Identifier,
@@ -486,6 +505,7 @@ export function ChildDocumentsPanel({
       return;
     }
     if (isBusy) return;
+    setUploadError(null);
     const validationError =
       uploadKind === "picture"
         ? validateChildPhoto(file)
@@ -533,6 +553,9 @@ export function ChildDocumentsPanel({
       }
       refresh();
     } catch (error) {
+      setUploadError(
+        error instanceof Error ? error.message : "Could not add this file.",
+      );
       notify(
         error instanceof Error ? error.message : "Could not add this file.",
         { type: "error" },
@@ -644,6 +667,7 @@ export function ChildDocumentsPanel({
 
   const confirmDelete = async () => {
     if (isBusy || !deleteTarget) return;
+    const returnTarget = focusReturnRef.current;
     setIsBusy(true);
     try {
       if (deleteTarget.kind === "resume") {
@@ -672,7 +696,13 @@ export function ChildDocumentsPanel({
             id: deleteTarget.resumeId,
             token,
             until: deadline,
+            label: "Resume",
+            fileName: deleteTarget.file.filename,
           }),
+        );
+        restoreTargetRefs.current.set(
+          `resume:${deleteTarget.file.path}`,
+          focusReturnRef.current ?? document.body,
         );
         schedulePendingResumeFileDelete(marker, async () => {
           try {
@@ -699,32 +729,40 @@ export function ChildDocumentsPanel({
               next.delete(`resume:${marker.file.path}`);
               return next;
             });
-            restoreFocus();
+            restorePendingFocus(`resume:${marker.file.path}`);
           }
         });
       } else if (deleteTarget.kind === "picture") {
+        const key = `picture:${deleteTarget.photo.id}`;
         await dataProvider.hideResumePhoto({ id: deleteTarget.photo.id });
         setPendingDeletes((current) =>
-          new Map(current).set(`picture:${deleteTarget.photo.id}`, {
+          new Map(current).set(key, {
             kind: "picture",
             id: deleteTarget.photo.id,
             token: "photo",
             until: Date.now() + FILE_DELETE_UNDO_MS,
+            label: "Picture",
+            fileName: photoFileName(deleteTarget.photo.path),
           }),
         );
+        if (returnTarget) restoreTargetRefs.current.set(key, returnTarget);
       } else {
+        const key = String(deleteTarget.file.id);
         const result = await dataProvider.softDeleteEntityFile({
           id: deleteTarget.file.id,
         });
         setPendingDeletes((current) =>
-          new Map(current).set(String(deleteTarget.file.id), {
+          new Map(current).set(key, {
             kind: "paper",
             id: deleteTarget.file.id,
             token: result.delete_token,
             until: new Date(result.undo_until).getTime(),
+            label: `Paper ${deleteTarget.file.slot === "paper_2" ? 2 : 1}`,
+            fileName: deleteTarget.file.file_name,
             slot: deleteTarget.file.slot ?? undefined,
           }),
         );
+        if (returnTarget) restoreTargetRefs.current.set(key, returnTarget);
       }
       setDeleteTarget(null);
       await sweepExpiredDeletes();
@@ -766,7 +804,7 @@ export function ChildDocumentsPanel({
         return next;
       });
       refresh();
-      restoreFocus();
+      restorePendingFocus(key);
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Could not undo the deletion.",
@@ -835,6 +873,16 @@ export function ChildDocumentsPanel({
                   PDF, Word, JPEG, or PNG · {CHILD_DOCUMENT_MAX_SIZE_LABEL} each
                 </p>
               </div>
+              {usedCount >= MAX_CHILD_DOCUMENTS ? (
+                <p className="text-sm text-muted-foreground">
+                  To add another file, Replace one first.
+                </p>
+              ) : null}
+              {uploadError ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {uploadError}
+                </p>
+              ) : null}
 
               <section
                 className="grid grid-cols-2 gap-3 sm:grid-cols-4"
@@ -877,9 +925,10 @@ export function ChildDocumentsPanel({
                       });
                     })()
                   }
-                  disabled={isBusy || uploadKind != null}
+                  disabled={isBusy || uploadKind != null || pendingResume > 0}
                   canAdd={canManageResumePicture}
                   canManage={canManageResumePicture}
+                  pending={pendingResume > 0}
                 />
                 <DocumentSlot
                   label="Picture"
@@ -914,9 +963,10 @@ export function ChildDocumentsPanel({
                       setDeleteTarget({ kind: "picture", photo: visiblePhoto });
                     })()
                   }
-                  disabled={isBusy || uploadKind != null}
+                  disabled={isBusy || uploadKind != null || pendingPicture > 0}
                   canAdd={canManageResumePicture}
                   canManage={canManageResumePicture}
+                  pending={pendingPicture > 0}
                 />
                 {(["paper_1", "paper_2"] as const).map((slot, index) => {
                   const file = paperFor(slot);
@@ -979,7 +1029,7 @@ export function ChildDocumentsPanel({
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="min-h-11"
+                          className="min-h-11 md:min-h-11"
                           aria-label={`Open ${file.file_name}`}
                           onClick={() => void openFile("paper", file)}
                         >
@@ -998,14 +1048,20 @@ export function ChildDocumentsPanel({
                   aria-live="polite"
                   className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-900"
                 >
-                  <span>Deleted. Undo is available for 10 seconds.</span>
+                  <span>
+                    Deleted {pending.label}: {pending.fileName}. Undo is
+                    available for 10 seconds.
+                  </span>
                   <Button
                     type="button"
                     variant="outline"
-                    className="min-h-11"
-                    ref={undoButtonRef}
+                    className="min-h-11 md:min-h-11"
+                    ref={(element) => {
+                      if (element) undoButtonRefs.current.set(key, element);
+                      else undoButtonRefs.current.delete(key);
+                    }}
                     disabled={isBusy}
-                    aria-label={`Undo delete ${pending.kind}`}
+                    aria-label={`Undo delete ${pending.label}: ${pending.fileName}`}
                     onClick={() => void undoDelete(key)}
                   >
                     Undo
@@ -1022,20 +1078,20 @@ export function ChildDocumentsPanel({
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <a
-                      className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm text-primary"
+                      className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm text-primary md:min-h-11"
                       href={shareFile.url}
                       download={shareFile.name}
                     >
                       Download
                     </a>
                     <a
-                      className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm text-primary"
+                      className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm text-primary md:min-h-11"
                       href={`mailto:?subject=${encodeURIComponent(shareFile.name)}&body=${encodeURIComponent("Please attach the downloaded file.")}`}
                     >
                       Email
                     </a>
                     <a
-                      className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm text-primary"
+                      className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm text-primary md:min-h-11"
                       target="_blank"
                       rel="noreferrer"
                       href={`https://wa.me/?text=${encodeURIComponent(`Please attach ${shareFile.name} after downloading it.`)}`}
@@ -1058,7 +1114,6 @@ export function ChildDocumentsPanel({
           className="hidden"
           aria-label="Upload child document"
           accept={CHILD_DOCUMENT_ACCEPT}
-          onCancel={clearUploadState}
           onChange={handleUpload}
         />
       </SheetContent>

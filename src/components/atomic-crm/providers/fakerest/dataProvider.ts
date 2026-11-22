@@ -734,6 +734,14 @@ export const createDataProvider = ({
     }
   };
 
+  const assertResumeUploadRole = (role: AccountMember["role"]): void => {
+    if (role !== "parent_admin" && role !== "self_manager") {
+      throw new Error(
+        'new row violates row-level security policy for table "resumes"',
+      );
+    }
+  };
+
   const requireEntityFileMutationMembership = async (): Promise<{
     userId: string;
     membership: AccountMember;
@@ -3856,6 +3864,19 @@ export const createDataProvider = ({
       ]);
       if (!caller?.membership) throw new Error("No active account context");
       assertEntityFileMutationRole(caller.membership.role);
+      const { data: oldFile } = await baseDataProvider.getOne<EntityFile>(
+        "entity_files",
+        { id: params.oldId },
+      );
+      if (
+        String(oldFile.account_id) !== String(accountId) ||
+        oldFile.target_type !== "single"
+      ) {
+        throw new Error("single paper not found");
+      }
+      if (oldFile.deleted_at != null) {
+        throw new Error("The file is already being deleted.");
+      }
       const replacement = await uploadEntityFileImpl(
         baseDataProvider,
         entityFileBlobUrls,
@@ -3864,16 +3885,6 @@ export const createDataProvider = ({
         { ...params, excludeId: params.oldId },
       );
       try {
-        const { data: oldFile } = await baseDataProvider.getOne<EntityFile>(
-          "entity_files",
-          { id: params.oldId },
-        );
-        if (
-          String(oldFile.account_id) !== String(accountId) ||
-          oldFile.target_type !== "single"
-        ) {
-          throw new Error("single paper not found");
-        }
         await deleteEntityFileImpl(baseDataProvider, entityFileBlobUrls, {
           id: params.oldId,
           storagePath: oldFile.storage_path,
@@ -3910,13 +3921,14 @@ export const createDataProvider = ({
     ): Promise<Resume> => {
       const [accountId, caller] = await Promise.all([
         resolveCurrentAccountId(),
-        resolveCallerMembership(),
+        requireCallerMembership(),
       ]);
+      assertResumeUploadRole(caller.membership.role);
       return uploadResumeFileImpl(
         baseDataProvider,
         resumeFileBlobUrls,
         accountId,
-        caller?.membership?.id ?? null,
+        caller.membership.id,
         params,
       );
     },
@@ -4116,7 +4128,11 @@ export const createDataProvider = ({
     uploadResumePhoto: async (
       params: UploadResumePhotoParams,
     ): Promise<ResumePhoto> => {
-      const accountId = await resolveCurrentAccountId();
+      const [accountId, caller] = await Promise.all([
+        resolveCurrentAccountId(),
+        requireCallerMembership(),
+      ]);
+      assertResumeUploadRole(caller.membership.role);
       return uploadResumePhotoImpl(
         baseDataProvider,
         resumePhotoBlobUrls,

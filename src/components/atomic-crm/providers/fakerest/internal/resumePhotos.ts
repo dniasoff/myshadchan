@@ -43,6 +43,19 @@ export async function uploadResumePhoto(
   params: UploadResumePhotoParams,
 ): Promise<ResumePhoto> {
   const { file, visibility = "shared", ...subject } = params;
+  if (isSingleSubject(subject)) {
+    const { data: targets } = await baseDataProvider.getList<{
+      id: Identifier;
+      account_id: Identifier;
+    }>("singles", {
+      filter: { id: subject.singleId },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    });
+    if (!targets[0] || String(targets[0].account_id) !== String(accountId)) {
+      throw new Error("single photo target is missing");
+    }
+  }
   const validationError = validateChildPhoto(file);
   if (validationError) throw new Error(validationError);
   const ownerSegment = isSingleSubject(subject)

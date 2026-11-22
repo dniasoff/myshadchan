@@ -96,14 +96,28 @@ function FilesEmpty(): ReactElement {
 
 /** AC 6(f) — a translated fetch-error message; never a blank tab, and the
  * upload control above it stays usable. */
-function FilesError(): ReactElement {
+function FilesError({ onRetry }: { onRetry: () => void }): ReactElement {
   const translate = useTranslate();
   return (
-    <p role="alert" className="text-sm text-destructive">
-      {translate("crm.entity360.files.error", {
-        _: "Could not load the files.",
-      })}
-    </p>
+    <div
+      role="alert"
+      className="flex items-center gap-3 text-sm text-destructive"
+    >
+      <p>
+        {translate("crm.entity360.files.error", {
+          _: "Could not load the files.",
+        })}
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="min-h-11 md:min-h-11"
+        onClick={onRetry}
+      >
+        {translate("crm.entity360.files.retry", { _: "Retry" })}
+      </Button>
+    </div>
   );
 }
 
@@ -154,7 +168,7 @@ function FileVisibilityControl({
       disabled={isSaving}
     >
       <SelectTrigger
-        className="min-h-11 w-36"
+        className="min-h-11 w-36 md:min-h-11"
         aria-label={translate("crm.entity360.files.visibility", {
           _: "Visibility",
         })}
@@ -200,6 +214,7 @@ function FileRowView({
     token: string;
     until: number;
   } | null>(null);
+  const undoInFlightRef = useRef(false);
 
   const restoreFocus = () => {
     window.setTimeout(() => {
@@ -268,11 +283,7 @@ function FileRowView({
           id: file.id,
           storagePath: file.storage_path,
         });
-        if (
-          typeof dataProvider.finalizeExpiredEntityFileDeletes === "function"
-        ) {
-          await dataProvider.finalizeExpiredEntityFileDeletes();
-        }
+        await dataProvider.finalizeExpiredEntityFileDeletes();
         setIsConfirmingDelete(false);
         onChanged();
         restoreFocus();
@@ -284,9 +295,7 @@ function FileRowView({
         token: result.delete_token,
         until: new Date(result.undo_until).getTime(),
       });
-      if (typeof dataProvider.finalizeExpiredEntityFileDeletes === "function") {
-        await dataProvider.finalizeExpiredEntityFileDeletes();
-      }
+      await dataProvider.finalizeExpiredEntityFileDeletes();
     } catch (error) {
       notify(
         error instanceof Error
@@ -393,7 +402,8 @@ function FileRowView({
           type="button"
           variant="ghost"
           size="sm"
-          className="min-h-11"
+          className="min-h-11 md:min-h-11"
+          aria-label={`View ${file.file_name}`}
           disabled={isBusy}
           onClick={() => setIsViewerOpen(true)}
         >
@@ -403,7 +413,8 @@ function FileRowView({
           type="button"
           variant="ghost"
           size="sm"
-          className="min-h-11"
+          className="min-h-11 md:min-h-11"
+          aria-label={`Download ${file.file_name}`}
           disabled={isBusy}
           onClick={handleDownload}
         >
@@ -413,8 +424,9 @@ function FileRowView({
           type="button"
           variant="ghost"
           size="sm"
-          className="min-h-11"
-          disabled={isBusy}
+          className="min-h-11 md:min-h-11"
+          aria-label={`Replace ${file.file_name}`}
+          disabled={isBusy || pendingDelete != null}
           onClick={() => replaceInputRef.current?.click()}
         >
           {replaceLabel}
@@ -435,8 +447,9 @@ function FileRowView({
           type="button"
           variant="ghost"
           size="sm"
-          className="text-destructive hover:text-destructive"
-          disabled={isBusy}
+          className="min-h-11 text-destructive hover:text-destructive md:min-h-11"
+          aria-label={`Delete ${file.file_name}`}
+          disabled={isBusy || pendingDelete != null}
           onClick={(event) => {
             focusReturnRef.current = event.currentTarget;
             setIsConfirmingDelete(true);
@@ -487,9 +500,12 @@ function FileRowView({
             type="button"
             variant="outline"
             size="sm"
-            className="min-h-11"
+            className="min-h-11 md:min-h-11"
             ref={undoButtonRef}
             onClick={async () => {
+              if (undoInFlightRef.current) return;
+              undoInFlightRef.current = true;
+              setIsBusy(true);
               try {
                 await dataProvider.undoEntityFileDelete({
                   id: file.id,
@@ -505,8 +521,12 @@ function FileRowView({
                     : "Could not undo the deletion.",
                   { type: "error" },
                 );
+              } finally {
+                undoInFlightRef.current = false;
+                setIsBusy(false);
               }
             }}
+            aria-label={`Undo delete ${file.file_name}`}
           >
             Undo
           </Button>
@@ -527,7 +547,7 @@ export function FilesTab({
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  const { data, error, isPending } = useGetList<EntityFileSummary>(
+  const { data, error, isPending, refetch } = useGetList<EntityFileSummary>(
     "entity_files_summary",
     {
       filter: { target_type: targetType, target_id: targetId },
@@ -536,9 +556,6 @@ export function FilesTab({
     },
   );
   useEffect(() => {
-    if (typeof dataProvider.finalizeExpiredEntityFileDeletes !== "function") {
-      return;
-    }
     void dataProvider
       .finalizeExpiredEntityFileDeletes()
       .then(() => refresh())
@@ -603,7 +620,7 @@ export function FilesTab({
       <div>
         <Button
           type="button"
-          className="min-h-11"
+          className="min-h-11 md:min-h-11"
           disabled={isUploading}
           onClick={() => uploadInputRef.current?.click()}
         >
@@ -624,7 +641,7 @@ export function FilesTab({
       {isPending ? (
         <FilesSkeleton />
       ) : error ? (
-        <FilesError />
+        <FilesError onRetry={() => void refetch()} />
       ) : files.length === 0 ? (
         <FilesEmpty />
       ) : (

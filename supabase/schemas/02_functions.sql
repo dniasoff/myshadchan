@@ -2545,7 +2545,7 @@ begin
 end;
 $function$;
 
-CREATE OR REPLACE FUNCTION "public"."add_resume_photo"("p_path" "text", "p_shidduchim_id" bigint DEFAULT NULL::bigint, "p_single_id" bigint DEFAULT NULL::bigint, "p_visibility" "text" DEFAULT 'shared'::"text") RETURNS SETOF "public"."resume_photos"
+CREATE OR REPLACE FUNCTION "public"."add_resume_photo"("p_path" "text", "p_shidduchim_id" bigint DEFAULT NULL::bigint, "p_single_id" bigint DEFAULT NULL::bigint, "p_visibility" "text" DEFAULT 'shared'::"text", "p_size" bigint DEFAULT NULL::bigint) RETURNS SETOF "public"."resume_photos"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -2558,6 +2558,19 @@ begin
   if public.current_member_role() not in ('parent_admin', 'self_manager') then
     raise exception 'new row violates row-level security policy for table "resumes"'
       using errcode = 'insufficient_privilege';
+  end if;
+
+  if p_size is not null then
+    if p_size < 0 or p_size > 8 * 1024 * 1024 then
+      raise exception 'picture must be no larger than 8 MiB'
+        using errcode = 'check_violation';
+    end if;
+    if p_path is null
+       or p_path !~ ('^' || v_account_id::text
+         || '/photos/(shared|private_parent)/(single-)?[0-9]+/[^/]+\.(jpe?g|png)$') then
+      raise exception 'picture must be a JPEG or PNG in the current account'
+        using errcode = 'check_violation';
+    end if;
   end if;
 
   if (p_shidduchim_id is not null) = (p_single_id is not null) then
@@ -2613,45 +2626,6 @@ begin
   returning *;
 end;
 $$;
-
-CREATE OR REPLACE FUNCTION public.add_resume_photo(
-  p_path text,
-  p_shidduchim_id bigint,
-  p_single_id bigint,
-  p_visibility text,
-  p_size bigint
-) RETURNS SETOF public.resume_photos
-LANGUAGE plpgsql SECURITY DEFINER
-SET search_path TO ''
-AS $function$
-declare
-  v_account_id bigint := public.current_context_id();
-begin
-  if v_account_id is null or auth.uid() is null
-     or public.current_member_role() not in ('parent_admin', 'self_manager') then
-    raise exception 'new row violates row-level security policy for table "resumes"'
-      using errcode = 'insufficient_privilege';
-  end if;
-  if p_size is null or p_size < 0 or p_size > 8 * 1024 * 1024 then
-    raise exception 'picture must be no larger than 8 MiB'
-      using errcode = 'check_violation';
-  end if;
-  if p_path is null
-     or p_path !~ ('^' || v_account_id::text
-       || '/photos/(shared|private_parent)/(single-)?[0-9]+/[^/]+\.(jpe?g|png)$') then
-    raise exception 'picture must be a JPEG or PNG in the current account'
-      using errcode = 'check_violation';
-  end if;
-  return query
-  select *
-  from public.add_resume_photo(
-    p_path => p_path,
-    p_shidduchim_id => p_shidduchim_id,
-    p_single_id => p_single_id,
-    p_visibility => p_visibility
-  );
-end;
-$function$;
 
 CREATE OR REPLACE FUNCTION "public"."ai_cost_per_active_family"() RETURNS numeric
     LANGUAGE "plpgsql" SECURITY DEFINER
@@ -11296,7 +11270,28 @@ begin
     return true;
   end if;
   if p_bucket = 'entity-files'
-     and p_name ~ ('^' || v_account_id::text || '/(reference|shadchan|single|connection)/[0-9]+/[^/]+$') then
+     and p_name ~ '(^|/)(\.\.?)(/|$)' then
+    return false;
+  end if;
+  if p_bucket = 'entity-files'
+     and p_name ~ ('^' || v_account_id::text
+       || '/single/[0-9]+/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(pdf|doc|docx|jpe?g|png)$') then
+    return true;
+  end if;
+  if p_bucket = 'entity-files'
+     and p_name ~ ('^' || v_account_id::text || '/single/[0-9]+/[^/]+$') then
+    return exists (
+      select 1
+      from public.entity_files ef
+      where ef.account_id = v_account_id
+        and ef.target_type = 'single'
+        and ef.target_id = split_part(p_name, '/', 3)::bigint
+        and ef.storage_path = p_name
+        and ef.slot is null
+    );
+  end if;
+  if p_bucket = 'entity-files'
+     and p_name ~ ('^' || v_account_id::text || '/(reference|shadchan|connection)/[0-9]+/[^/]+$') then
     return true;
   end if;
 
@@ -11390,6 +11385,22 @@ begin
       or (v_mime_type = 'image/png' and lower(new.file_name) ~ '\.png$')
     ) then
       raise exception 'single document file extension does not match MIME type'
+        using errcode = 'check_violation';
+    end if;
+    if new.storage_path !~ ('^' || v_account_id::text || '/single/'
+       || new.target_id::text || '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(pdf|doc|docx|jpe?g|png)$') then
+      raise exception 'single document storage path must use an opaque UUID key'
+        using errcode = 'check_violation';
+    end if;
+    if not (
+      (v_mime_type = 'application/pdf' and new.storage_path ~ '\.pdf$')
+      or (v_mime_type = 'application/msword' and new.storage_path ~ '\.doc$')
+      or (v_mime_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          and new.storage_path ~ '\.docx$')
+      or (v_mime_type = 'image/jpeg' and new.storage_path ~ '\.jpe?g$')
+      or (v_mime_type = 'image/png' and new.storage_path ~ '\.png$')
+    ) then
+      raise exception 'single document storage extension does not match MIME type'
         using errcode = 'check_violation';
     end if;
     select s.id into v_parent_id
@@ -11693,6 +11704,10 @@ begin
   where ef.id = p_old_id and ef.account_id = v_account_id for update;
   if not found then
     raise exception 'single paper not found' using errcode = 'P0002';
+  end if;
+  if v_old.deleted_at is not null then
+    raise exception 'The file is already being deleted.'
+      using errcode = 'check_violation';
   end if;
   if p_slot not in ('paper_1', 'paper_2') or p_size_bytes < 1 or p_size_bytes > 8 * 1024 * 1024
      or lower(coalesce(p_mime_type, '')) not in ('application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/png')

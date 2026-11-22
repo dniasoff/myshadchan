@@ -71,6 +71,76 @@ $$;
 alter table public.entity_files validate constraint entity_files_slot_check;
 alter table public.entity_files validate constraint entity_files_slot_target_check;
 
+CREATE OR REPLACE FUNCTION public.shidduch_storage_path_allowed(
+  p_bucket text,
+  p_name text
+) RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_shidduch_id bigint;
+begin
+  if v_account_id is null or p_bucket is null or p_name is null then
+    return false;
+  end if;
+
+  if p_bucket = 'documents'
+     and p_name ~ ('^' || v_account_id::text || '/resumes/single-[0-9]+/[^/]+$') then
+    return true;
+  end if;
+  if p_bucket = 'documents'
+     and p_name ~ ('^' || v_account_id::text || '/photos/(shared|private_parent)/single-[0-9]+/[^/]+$') then
+    return true;
+  end if;
+  if p_bucket = 'entity-files'
+     and p_name ~ '(^|/)(\.\.?)(/|$)' then
+    return false;
+  end if;
+  if p_bucket = 'entity-files'
+     and p_name ~ ('^' || v_account_id::text
+       || '/single/[0-9]+/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(pdf|doc|docx|jpe?g|png)$') then
+    return true;
+  end if;
+  if p_bucket = 'entity-files'
+     and p_name ~ ('^' || v_account_id::text || '/single/[0-9]+/[^/]+$') then
+    return exists (
+      select 1
+      from public.entity_files ef
+      where ef.account_id = v_account_id
+        and ef.target_type = 'single'
+        and ef.target_id = split_part(p_name, '/', 3)::bigint
+        and ef.storage_path = p_name
+        and ef.slot is null
+    );
+  end if;
+  if p_bucket = 'entity-files'
+     and p_name ~ ('^' || v_account_id::text || '/(reference|shadchan|connection)/[0-9]+/[^/]+$') then
+    return true;
+  end if;
+
+  if p_bucket = 'documents'
+     and p_name ~ ('^' || v_account_id::text || '/resumes/[0-9]+/[^/]+$') then
+    v_shidduch_id := split_part(p_name, '/', 3)::bigint;
+  elsif p_bucket = 'documents'
+     and p_name ~ ('^' || v_account_id::text || '/photos/(shared|private_parent)/[0-9]+/[^/]+$') then
+    v_shidduch_id := split_part(p_name, '/', 4)::bigint;
+  elsif p_bucket = 'entity-files'
+     and p_name ~ ('^' || v_account_id::text || '/shidduch/[0-9]+/[^/]+$') then
+    v_shidduch_id := split_part(p_name, '/', 3)::bigint;
+  else
+    return false;
+  end if;
+
+  return not exists (
+    select 1
+    from public.deleted_shidduch_tombstones t
+    where t.account_id = v_account_id and t.shidduch_id = v_shidduch_id
+  );
+end;
+$function$;
+
 create unique index if not exists entity_files_single_slot_active_key
   on public.entity_files (account_id, target_type, target_id, slot)
   where target_type = 'single' and slot is not null and deleted_at is null;
@@ -173,6 +243,22 @@ begin
       or (v_mime_type = 'image/png' and lower(new.file_name) ~ '\.png$')
     ) then
       raise exception 'single document file extension does not match MIME type'
+        using errcode = 'check_violation';
+    end if;
+    if new.storage_path !~ ('^' || v_account_id::text || '/single/'
+       || new.target_id::text || '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(pdf|doc|docx|jpe?g|png)$') then
+      raise exception 'single document storage path must use an opaque UUID key'
+        using errcode = 'check_violation';
+    end if;
+    if not (
+      (v_mime_type = 'application/pdf' and new.storage_path ~ '\.pdf$')
+      or (v_mime_type = 'application/msword' and new.storage_path ~ '\.doc$')
+      or (v_mime_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          and new.storage_path ~ '\.docx$')
+      or (v_mime_type = 'image/jpeg' and new.storage_path ~ '\.jpe?g$')
+      or (v_mime_type = 'image/png' and new.storage_path ~ '\.png$')
+    ) then
+      raise exception 'single document storage extension does not match MIME type'
         using errcode = 'check_violation';
     end if;
     select s.id into v_parent_id
@@ -477,6 +563,10 @@ begin
   if not found then
     raise exception 'single paper not found' using errcode = 'P0002';
   end if;
+  if v_old.deleted_at is not null then
+    raise exception 'The file is already being deleted.'
+      using errcode = 'check_violation';
+  end if;
   if p_slot not in ('paper_1', 'paper_2') or p_size_bytes < 1 or p_size_bytes > 8 * 1024 * 1024
      or lower(coalesce(p_mime_type, '')) not in ('application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/png')
      or not (
@@ -748,42 +838,93 @@ begin
 end;
 $function$;
 
+drop function if exists public.add_resume_photo(text, bigint, bigint, text);
+
 CREATE OR REPLACE FUNCTION public.add_resume_photo(
   p_path text,
-  p_shidduchim_id bigint,
-  p_single_id bigint,
-  p_visibility text,
-  p_size bigint
+  p_shidduchim_id bigint DEFAULT NULL,
+  p_single_id bigint DEFAULT NULL,
+  p_visibility text DEFAULT 'shared',
+  p_size bigint DEFAULT NULL
 ) RETURNS SETOF public.resume_photos
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path TO ''
 AS $function$
 declare
-  v_account_id bigint := public.current_context_id();
+  v_account_id bigint;
+  v_resume_id bigint;
+  v_parent_id bigint;
 begin
-  if v_account_id is null or auth.uid() is null
-     or public.current_member_role() not in ('parent_admin', 'self_manager') then
+  v_account_id := public.current_context_id();
+  if public.current_member_role() not in ('parent_admin', 'self_manager') then
     raise exception 'new row violates row-level security policy for table "resumes"'
       using errcode = 'insufficient_privilege';
   end if;
-  if p_size is null or p_size < 0 or p_size > 8 * 1024 * 1024 then
-    raise exception 'picture must be no larger than 8 MiB'
-      using errcode = 'check_violation';
+
+  if p_size is not null then
+    if p_size < 0 or p_size > 8 * 1024 * 1024 then
+      raise exception 'picture must be no larger than 8 MiB'
+        using errcode = 'check_violation';
+    end if;
+    if p_path is null
+       or p_path !~ ('^' || v_account_id::text
+         || '/photos/(shared|private_parent)/(single-)?[0-9]+/[^/]+\.(jpe?g|png)$') then
+      raise exception 'picture must be a JPEG or PNG in the current account'
+        using errcode = 'check_violation';
+    end if;
   end if;
-  if p_path is null
-     or p_path !~ ('^' || v_account_id::text
-       || '/photos/(shared|private_parent)/(single-)?[0-9]+/[^/]+\.(jpe?g|png)$') then
-    raise exception 'picture must be a JPEG or PNG in the current account'
-      using errcode = 'check_violation';
+
+  if (p_shidduchim_id is not null) = (p_single_id is not null) then
+    raise exception 'exactly one of p_shidduchim_id/p_single_id must be provided';
   end if;
+
+  if p_shidduchim_id is not null then
+    select s.id into v_parent_id
+    from public.shidduchim s
+    where s.id = p_shidduchim_id and s.account_id = v_account_id
+    for update;
+    perform public.account_storage_lock(v_account_id);
+    if v_parent_id is null then
+      raise exception 'shidduch % not found in current account', p_shidduchim_id;
+    end if;
+    if exists (
+      select 1 from public.deleted_shidduch_tombstones t
+      where t.account_id = v_account_id and t.shidduch_id = p_shidduchim_id
+    ) then
+      raise exception 'shidduch % is deleted', p_shidduchim_id
+        using errcode = 'foreign_key_violation';
+    end if;
+    if not exists (
+      select 1 from public.shidduchim s
+      where s.id = p_shidduchim_id and s.account_id = v_account_id
+    ) then
+      raise exception 'shidduch % not found in current account', p_shidduchim_id;
+    end if;
+
+    insert into public.resumes (account_id, shidduchim_id)
+    values (v_account_id, p_shidduchim_id)
+    on conflict (shidduchim_id) where shidduchim_id is not null
+      do update set shidduchim_id = excluded.shidduchim_id
+    returning id into v_resume_id;
+  else
+    if not exists (
+      select 1 from public.singles s
+      where s.id = p_single_id and s.account_id = v_account_id
+    ) then
+      raise exception 'single % not found in current account', p_single_id;
+    end if;
+
+    insert into public.resumes (account_id, single_id)
+    values (v_account_id, p_single_id)
+    on conflict (single_id) where single_id is not null
+      do update set single_id = excluded.single_id
+    returning id into v_resume_id;
+  end if;
+
   return query
-  select *
-  from public.add_resume_photo(
-    p_path => p_path,
-    p_shidduchim_id => p_shidduchim_id,
-    p_single_id => p_single_id,
-    p_visibility => p_visibility
-  );
+  insert into public.resume_photos (account_id, resume_id, path, visibility)
+  values (v_account_id, v_resume_id, p_path, coalesce(p_visibility, 'shared'))
+  returning *;
 end;
 $function$;
 

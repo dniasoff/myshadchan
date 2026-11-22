@@ -36,16 +36,16 @@ function extensionOf(name: string): string {
 
 export function validateChildDocument(file: File): string | null {
   if (file.size < 1 || file.size > CHILD_DOCUMENT_MAX_BYTES) {
-    return `Each file must be ${CHILD_DOCUMENT_MAX_SIZE_LABEL} or smaller.`;
+    return "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.";
   }
   const extension = extensionOf(file.name);
   const expectedType =
     CHILD_DOCUMENT_TYPES[extension as keyof typeof CHILD_DOCUMENT_TYPES];
   if (!expectedType || !CHILD_DOCUMENT_MIME_TYPES.has(file.type)) {
-    return "Choose a PDF, Word, JPEG, or PNG file.";
+    return "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.";
   }
   if (file.type !== expectedType) {
-    return "The file type and extension do not match.";
+    return "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.";
   }
   return null;
 }
