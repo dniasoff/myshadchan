@@ -11412,22 +11412,6 @@ begin
       raise exception 'entity file single target is missing'
         using errcode = 'foreign_key_violation';
     end if;
-    if (
-      select count(*)
-      from public.entity_files ef
-      where ef.account_id = v_account_id
-        and ef.target_type = 'single'
-        and ef.target_id = new.target_id
-        and ef.slot is not null
-        and (
-          ef.deleted_at is null
-          or ef.delete_undo_until is not null and ef.delete_undo_until >= now()
-        )
-        and (tg_op = 'UPDATE' and ef.id <> new.id or tg_op <> 'UPDATE')
-    ) >= public.max_child_documents() - 2 then
-      raise exception 'child document limit reached'
-        using errcode = 'check_violation';
-    end if;
     if exists (
       select 1
       from public.entity_files ef
@@ -11444,6 +11428,22 @@ begin
     ) then
       raise exception 'single paper slot is already in use'
         using errcode = 'unique_violation';
+    end if;
+    if (
+      select count(*)
+      from public.entity_files ef
+      where ef.account_id = v_account_id
+        and ef.target_type = 'single'
+        and ef.target_id = new.target_id
+        and ef.slot is not null
+        and (
+          ef.deleted_at is null
+          or ef.delete_undo_until is not null and ef.delete_undo_until >= now()
+        )
+        and (tg_op = 'UPDATE' and ef.id <> new.id or tg_op <> 'UPDATE')
+    ) >= public.max_child_documents() - 2 then
+      raise exception 'child document limit reached'
+        using errcode = 'check_violation';
     end if;
   end if;
 

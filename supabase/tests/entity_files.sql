@@ -425,16 +425,23 @@ end $$;
 insert into public.singles (first_name_en) values ('EF Purge Single')
 returning id as purge_single \gset
 
--- Legacy single rows without a slot keep their historical paths.  The opaque
--- key rule applies only to newly slotted paper rows.
+-- Legacy single rows without a slot keep their historical paths.  This row is
+-- deliberately seeded through the same narrowly-scoped pre-migration bypass
+-- used by other fixtures: after the migration, a new single insert must have
+-- a paper slot, while an existing legacy row may still receive an unrelated
+-- metadata update.
+set local role postgres;
+set local session_replication_role = replica;
 insert into public.entity_files (
-  target_type, target_id, storage_path, file_name, mime_type, size_bytes
+  account_id, target_type, target_id, storage_path, file_name, mime_type, size_bytes
 )
-select 'single', :purge_single,
+select value::bigint, 'single', :purge_single,
        value || '/single/' || :purge_single || '/legacy-parent-name.pdf',
        'legacy-parent-name.pdf', 'application/pdf', 10
 from ids where name = 'acct_a'
 returning id as legacy_single_file \gset
+set local session_replication_role = origin;
+set local role authenticated;
 
 update public.entity_files
 set file_name = 'legacy-parent-renamed.pdf'

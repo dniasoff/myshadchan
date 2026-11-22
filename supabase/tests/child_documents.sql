@@ -370,6 +370,11 @@ select pg_temp.expect_paper_insert_error(
   'invalid-size.pdf', 'application/pdf', 8 * 1024 * 1024 + 1, 'paper_1', '23514',
   'single document size must be between 1 byte and 8 MiB'
 );
+-- The app never has a direct UPDATE grant for catalog metadata; the trigger
+-- still must validate a privileged catalog write when the executor is the
+-- service role. Keep the JWT/account context unchanged so this remains the
+-- parent-admin role test rather than a grant test.
+set local role service_role;
 select pg_temp.expect_paper_update_error(
   'Parent admin direct UPDATE rejects an unsupported MIME', :paper_a_2,
   'invalid-update.exe', 'text/plain', 10, '23514',
@@ -385,6 +390,7 @@ select pg_temp.expect_paper_update_error(
   'invalid-update.pdf', 'application/pdf', 8 * 1024 * 1024 + 1, '23514',
   'single document size must be between 1 byte and 8 MiB'
 );
+set local role authenticated;
 insert into storage.objects (bucket_id, name, owner)
 values (
   'entity-files',
@@ -429,6 +435,7 @@ select pg_temp.expect_paper_insert_error(
   'helper-invalid.pdf', 'text/plain', 10, 'paper_1', '23514',
   'single document MIME type is not allowed'
 );
+set local role service_role;
 select pg_temp.expect_paper_update_error(
   'Helper direct UPDATE rejects an unsupported MIME', :paper_a_2,
   'helper-invalid.pdf', 'text/plain', 10, '23514',
@@ -442,6 +449,11 @@ select pg_temp.expect_paper_insert_error(
   'shadchan-invalid.pdf', 'application/pdf', 10, 'paper_1', '23503',
   'entity file single target is missing'
 );
+set local role service_role;
+update public.account_members
+set role = 'parent_admin'
+where account_id = :account_a
+  and user_id = '3f311111-1111-1111-1111-111111111111';
 set local role authenticated;
 select public.set_active_context(:account_a);
 select pg_temp.expect_paper_insert_error(
@@ -522,7 +534,7 @@ insert into public.entity_files (
   size_bytes, visibility, slot
 ) values (
   :'account_a', 'single', :'single_a',
-  :'account_a'::text || '/single/' || :'single_a'::text || '/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.pdf',
+  :'account_a'::text || '/single/' || :'single_a'::text || '/cccccccc-cccc-4ccc-8ccc-cccccccccccc.pdf',
   'expired-sweep.pdf', 'application/pdf', 10, 'private_parent', 'paper_1'
 ) returning id as swept_paper_id \gset
 select id as swept_delete_id, delete_token as swept_delete_token
@@ -546,7 +558,7 @@ select 'Expired papers are finalized by the durable sweep while active papers re
     select 1 from public.storage_purge_queue
     where account_id = :'account_a'
       and bucket = 'entity-files'
-      and storage_path = :'account_a'::text || '/single/' || :'single_a'::text || '/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.pdf'
+      and storage_path = :'account_a'::text || '/single/' || :'single_a'::text || '/cccccccc-cccc-4ccc-8ccc-cccccccccccc.pdf'
   ),
   null;
 
