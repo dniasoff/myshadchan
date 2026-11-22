@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactElement } from "react";
 import {
   useDataProvider,
@@ -27,6 +27,12 @@ import type {
   EntityFileVisibility,
   EntityTargetType,
 } from "../../types";
+import { isEntityFileDeleteChangedError } from "../../providers/entityFileDeleteErrors";
+import {
+  CHILD_DOCUMENT_ACCEPT,
+  MAX_CHILD_PAPERS,
+  validateChildDocument,
+} from "../../singles/ChildDocuments/childDocuments";
 import { formatTimelineDate } from "./interactionLabels";
 import type { UniversalTabProps } from "./types";
 
@@ -91,14 +97,28 @@ function FilesEmpty(): ReactElement {
 
 /** AC 6(f) — a translated fetch-error message; never a blank tab, and the
  * upload control above it stays usable. */
-function FilesError(): ReactElement {
+function FilesError({ onRetry }: { onRetry: () => void }): ReactElement {
   const translate = useTranslate();
   return (
-    <p role="alert" className="text-sm text-destructive">
-      {translate("crm.entity360.files.error", {
-        _: "Could not load the files.",
-      })}
-    </p>
+    <div
+      role="alert"
+      className="flex items-center gap-3 text-sm text-destructive"
+    >
+      <p>
+        {translate("crm.entity360.files.error", {
+          _: "Could not load the files.",
+        })}
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="min-h-11 md:min-h-11"
+        onClick={onRetry}
+      >
+        {translate("crm.entity360.files.retry", { _: "Retry" })}
+      </Button>
+    </div>
   );
 }
 
@@ -149,7 +169,7 @@ function FileVisibilityControl({
       disabled={isSaving}
     >
       <SelectTrigger
-        className="w-36"
+        className="min-h-11 w-36 md:min-h-11"
         aria-label={translate("crm.entity360.files.visibility", {
           _: "Visibility",
         })}
@@ -171,11 +191,13 @@ function FileVisibilityControl({
 
 function FileRowView({
   file,
+  existingFiles,
   targetType,
   targetId,
   onChanged,
 }: {
   file: EntityFileSummary;
+  existingFiles: readonly EntityFileSummary[];
   targetType: EntityTargetType;
   targetId: Identifier;
   onChanged: () => void;
@@ -184,9 +206,59 @@ function FileRowView({
   const notify = useNotify();
   const translate = useTranslate();
   const replaceInputRef = useRef<HTMLInputElement>(null);
+  const focusReturnRef = useRef<HTMLElement | null>(null);
+  const undoButtonRef = useRef<HTMLButtonElement>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{
+    token: string;
+    until: number;
+  } | null>(null);
+  const undoInFlightRef = useRef(false);
+
+  const restoreFocus = () => {
+    window.setTimeout(() => {
+      if (focusReturnRef.current?.isConnected) {
+        focusReturnRef.current.focus();
+      } else if (undoButtonRef.current?.isConnected) {
+        undoButtonRef.current.focus();
+      }
+      focusReturnRef.current = null;
+    }, 0);
+  };
+
+  useEffect(() => {
+    if (!pendingDelete) return;
+    const remaining = Math.max(0, pendingDelete.until - Date.now());
+    const timer = window.setTimeout(async () => {
+      try {
+        await dataProvider.finalizeEntityFileDelete({
+          id: file.id,
+          deleteToken: pendingDelete.token,
+        });
+      } catch (error) {
+        // Undo can win the deadline race. The server then rejects this stale
+        // token by design; that expected outcome must not become an unhandled
+        // promise rejection or an error toast after the user restored the row.
+        if (!isEntityFileDeleteChangedError(error)) {
+          notify(
+            error instanceof Error
+              ? error.message
+              : translate("crm.entity360.files.deleteError", {
+                  _: "Failed to delete the file",
+                }),
+            { type: "error" },
+          );
+        }
+      } finally {
+        setPendingDelete(null);
+        onChanged();
+        restoreFocus();
+      }
+    }, remaining);
+    return () => window.clearTimeout(timer);
+  }, [dataProvider, file.id, notify, onChanged, pendingDelete, translate]);
 
   // Stable across renders so the viewer's mint-on-open effect does not
   // re-sign the URL on every parent render while the dialog is open.
@@ -216,20 +288,29 @@ function FileRowView({
     }
   };
 
-  // Reached only from the confirm dialog — never straight off the row. The
-  // call destroys the `entity_files` row AND the storage object, with no undo
-  // anywhere in the product, and "Delete" sits one wrapped-row gap from
-  // "Replace" on a phone. A toast after the fact is not a substitute for a
-  // question before it.
+  // Reached only from the confirm dialog. The server soft-deletes first, so
+  // the object remains available during the ten-second Undo window.
   const handleDelete = async () => {
     setIsBusy(true);
     try {
-      await dataProvider.deleteEntityFile({
-        id: file.id,
-        storagePath: file.storage_path,
-      });
+      if (targetType !== "single") {
+        await dataProvider.deleteEntityFile({
+          id: file.id,
+          storagePath: file.storage_path,
+        });
+        await dataProvider.finalizeExpiredEntityFileDeletes();
+        setIsConfirmingDelete(false);
+        onChanged();
+        restoreFocus();
+        return;
+      }
+      const result = await dataProvider.softDeleteEntityFile({ id: file.id });
       setIsConfirmingDelete(false);
-      onChanged();
+      setPendingDelete({
+        token: result.delete_token,
+        until: new Date(result.undo_until).getTime(),
+      });
+      await dataProvider.finalizeExpiredEntityFileDeletes();
     } catch (error) {
       notify(
         error instanceof Error
@@ -244,25 +325,48 @@ function FileRowView({
     }
   };
 
-  // AC 6(c): replace = delete then upload, sharing one UI action, carrying
-  // the previous row's visibility forward. No in-place object rename.
+  // Upload first, then atomically swap the catalog row. A failed upload leaves
+  // the old file untouched.
   const handleReplace = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0];
     event.target.value = "";
-    if (!nextFile) return;
+    if (!nextFile || isBusy) return;
 
     setIsBusy(true);
     try {
-      await dataProvider.deleteEntityFile({
-        id: file.id,
-        storagePath: file.storage_path,
-      });
-      await dataProvider.uploadEntityFile({
-        targetType,
-        targetId,
-        file: nextFile,
-        visibility: file.visibility,
-      });
+      if (targetType === "single") {
+        const validationError = validateChildDocument(nextFile);
+        if (validationError) throw new Error(validationError);
+        const slot = (["paper_1", "paper_2"] as const).find(
+          (candidate) =>
+            candidate === file.slot ||
+            !existingFiles.some(
+              (existing) =>
+                existing.id !== file.id && existing.slot === candidate,
+            ),
+        );
+        if (!slot)
+          throw new Error(`You can store up to ${MAX_CHILD_PAPERS} papers.`);
+        await dataProvider.replaceEntityFile({
+          oldId: file.id,
+          targetType,
+          targetId,
+          file: nextFile,
+          visibility: file.visibility,
+          slot,
+        });
+      } else {
+        await dataProvider.uploadEntityFile({
+          targetType,
+          targetId,
+          file: nextFile,
+          visibility: file.visibility,
+        });
+        await dataProvider.deleteEntityFile({
+          id: file.id,
+          storagePath: file.storage_path,
+        });
+      }
       onChanged();
     } catch (error) {
       notify(
@@ -285,7 +389,9 @@ function FileRowView({
   return (
     <li className="flex flex-col gap-2 border-b border-border pb-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium">{file.file_name}</p>
+        <p dir="auto" className="truncate text-sm font-medium">
+          {file.file_name}
+        </p>
         <p className="text-xs text-muted-foreground">
           {file.mime_type} · {formatFileSize(file.size_bytes)} ·{" "}
           {file.uploaded_by_name ??
@@ -311,6 +417,8 @@ function FileRowView({
           type="button"
           variant="ghost"
           size="sm"
+          className="min-h-11 md:min-h-11"
+          aria-label={`View ${file.file_name}`}
           disabled={isBusy}
           onClick={() => setIsViewerOpen(true)}
         >
@@ -320,6 +428,8 @@ function FileRowView({
           type="button"
           variant="ghost"
           size="sm"
+          className="min-h-11 md:min-h-11"
+          aria-label={`Download ${file.file_name}`}
           disabled={isBusy}
           onClick={handleDownload}
         >
@@ -329,7 +439,9 @@ function FileRowView({
           type="button"
           variant="ghost"
           size="sm"
-          disabled={isBusy}
+          className="min-h-11 md:min-h-11"
+          aria-label={`Replace ${file.file_name}`}
+          disabled={isBusy || pendingDelete != null}
           onClick={() => replaceInputRef.current?.click()}
         >
           {replaceLabel}
@@ -341,6 +453,7 @@ function FileRowView({
           aria-hidden="true"
           tabIndex={-1}
           aria-label={replaceLabel}
+          accept={targetType === "single" ? CHILD_DOCUMENT_ACCEPT : undefined}
           onChange={handleReplace}
         />
         {/* Reads as destructive BEFORE it is pressed — the four row actions
@@ -349,9 +462,13 @@ function FileRowView({
           type="button"
           variant="ghost"
           size="sm"
-          className="text-destructive hover:text-destructive"
-          disabled={isBusy}
-          onClick={() => setIsConfirmingDelete(true)}
+          className="min-h-11 text-destructive hover:text-destructive md:min-h-11"
+          aria-label={`Delete ${file.file_name}`}
+          disabled={isBusy || pendingDelete != null}
+          onClick={(event) => {
+            focusReturnRef.current = event.currentTarget;
+            setIsConfirmingDelete(true);
+          }}
         >
           {translate("crm.entity360.files.delete", { _: "Delete" })}
         </Button>
@@ -374,7 +491,7 @@ function FileRowView({
           _: "Delete this file?",
         })}
         content={translate("crm.entity360.files.deleteConfirmBody", {
-          _: "%{fileName} will be removed for everyone. This cannot be undone.",
+          _: "%{fileName} will be hidden for 10 seconds so you can Undo.",
           fileName: file.file_name,
         })}
         confirm={translate("crm.entity360.files.deleteConfirmAction", {
@@ -382,8 +499,54 @@ function FileRowView({
         })}
         confirmColor="warning"
         onConfirm={handleDelete}
-        onClose={() => setIsConfirmingDelete(false)}
+        onClose={() => {
+          setIsConfirmingDelete(false);
+          restoreFocus();
+        }}
       />
+      {pendingDelete ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 text-sm text-muted-foreground"
+        >
+          <span>Deleted. Undo is available for 10 seconds.</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-11 md:min-h-11"
+            ref={undoButtonRef}
+            onClick={async () => {
+              if (undoInFlightRef.current) return;
+              undoInFlightRef.current = true;
+              setIsBusy(true);
+              try {
+                await dataProvider.undoEntityFileDelete({
+                  id: file.id,
+                  deleteToken: pendingDelete.token,
+                });
+                setPendingDelete(null);
+                onChanged();
+                restoreFocus();
+              } catch (error) {
+                notify(
+                  error instanceof Error
+                    ? error.message
+                    : "Could not undo the deletion.",
+                  { type: "error" },
+                );
+              } finally {
+                undoInFlightRef.current = false;
+                setIsBusy(false);
+              }
+            }}
+            aria-label={`Undo delete ${file.file_name}`}
+          >
+            Undo
+          </Button>
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -398,8 +561,9 @@ export function FilesTab({
   const refresh = useRefresh();
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const { data, error, isPending } = useGetList<EntityFileSummary>(
+  const { data, error, isPending, refetch } = useGetList<EntityFileSummary>(
     "entity_files_summary",
     {
       filter: { target_type: targetType, target_id: targetId },
@@ -407,25 +571,58 @@ export function FilesTab({
       pagination: { page: 1, perPage: 50 },
     },
   );
+  useEffect(() => {
+    void dataProvider
+      .finalizeExpiredEntityFileDeletes()
+      .then(() => refresh())
+      .catch(() => {
+        // A cleanup outage does not make the existing file list unreadable.
+      });
+  }, [dataProvider, refresh, targetId, targetType]);
+  const files = data ?? [];
 
   const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file) return;
+    if (!file || isUploading) return;
 
     setIsUploading(true);
+    setUploadError(null);
     try {
-      await dataProvider.uploadEntityFile({ targetType, targetId, file });
+      if (targetType === "single") {
+        const validationError = validateChildDocument(file);
+        if (validationError) throw new Error(validationError);
+      }
+      const usedPaperSlots = new Set(
+        files
+          .filter((candidate) => candidate.slot)
+          .map((candidate) => candidate.slot),
+      );
+      const slot =
+        targetType === "single"
+          ? (["paper_1", "paper_2"] as const).find(
+              (candidate) => !usedPaperSlots.has(candidate),
+            )
+          : undefined;
+      if (targetType === "single" && !slot) {
+        throw new Error(`You can store up to ${MAX_CHILD_PAPERS} papers.`);
+      }
+      await dataProvider.uploadEntityFile({
+        targetType,
+        targetId,
+        file,
+        ...(slot ? { slot } : {}),
+      });
       refresh();
     } catch (uploadError) {
-      notify(
+      const message =
         uploadError instanceof Error
           ? uploadError.message
           : translate("crm.entity360.files.uploadError", {
               _: "Failed to upload the file",
-            }),
-        { type: "error" },
-      );
+            });
+      setUploadError(message);
+      notify(message, { type: "error" });
     } finally {
       setIsUploading(false);
     }
@@ -434,13 +631,13 @@ export function FilesTab({
   const uploadLabel = translate("crm.entity360.files.upload", {
     _: "Upload a file",
   });
-  const files = data ?? [];
 
   return (
     <div className="flex flex-col gap-4">
       <div>
         <Button
           type="button"
+          className="min-h-11 md:min-h-11"
           disabled={isUploading}
           onClick={() => uploadInputRef.current?.click()}
         >
@@ -453,14 +650,20 @@ export function FilesTab({
           aria-hidden="true"
           tabIndex={-1}
           aria-label={uploadLabel}
+          accept={targetType === "single" ? CHILD_DOCUMENT_ACCEPT : undefined}
           onChange={handleUpload}
         />
       </div>
+      {uploadError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {uploadError}
+        </p>
+      ) : null}
 
       {isPending ? (
         <FilesSkeleton />
       ) : error ? (
-        <FilesError />
+        <FilesError onRetry={() => void refetch()} />
       ) : files.length === 0 ? (
         <FilesEmpty />
       ) : (
@@ -469,6 +672,7 @@ export function FilesTab({
             <FileRowView
               key={String(file.id)}
               file={file}
+              existingFiles={files}
               targetType={targetType}
               targetId={targetId}
               onChanged={refresh}

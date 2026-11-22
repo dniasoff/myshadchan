@@ -768,7 +768,7 @@ export const englishCrmMessages = {
       files: {
         deleteConfirmAction: "Delete file",
         deleteConfirmBody:
-          "%{fileName} will be removed for everyone. This cannot be undone.",
+          "%{fileName} will be hidden for 10 seconds so you can Undo.",
         deleteConfirmTitle: "Delete this file?",
         empty: "No files yet.",
         error: "Could not load the files.",

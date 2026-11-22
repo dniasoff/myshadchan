@@ -10,6 +10,7 @@ import {
   type ResumeInboxAttachment,
 } from "../../resumes/resumeInbox";
 import type { InboxAttachment, Resume } from "../../types";
+import { validateChildDocument } from "../../singles/ChildDocuments/childDocuments";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import { getSupabaseClient } from "./supabase";
 
@@ -95,6 +96,8 @@ export async function uploadResumeFile(
   params: UploadResumeFileParams,
 ): Promise<Resume> {
   const { file, ...subject } = params;
+  const validationError = validateChildDocument(file);
+  if (validationError) throw new Error(validationError);
   const accountId = await getCurrentAccountId();
   const ownerSegment = isSingleSubject(subject)
     ? `single-${subject.singleId}`

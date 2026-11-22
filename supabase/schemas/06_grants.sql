@@ -589,13 +589,16 @@ grant execute on function public.resume_read_in_progress(bigint, text) to servic
 
 -- Story 5.4: the two write paths into resume_photos (AC 2). Story 5.8
 -- widened add_resume_photo the same way as add_resume_file above.
-revoke all on function public.add_resume_photo(text, bigint, bigint, text) from public, anon;
-grant execute on function public.add_resume_photo(text, bigint, bigint, text) to authenticated;
-grant execute on function public.add_resume_photo(text, bigint, bigint, text) to service_role;
+revoke all on function public.add_resume_photo(text, bigint, bigint, text, bigint) from public, anon;
+grant execute on function public.add_resume_photo(text, bigint, bigint, text, bigint) to authenticated;
+grant execute on function public.add_resume_photo(text, bigint, bigint, text, bigint) to service_role;
 
 revoke all on function public.hide_resume_photo(bigint) from public, anon;
 grant execute on function public.hide_resume_photo(bigint) to authenticated;
 grant execute on function public.hide_resume_photo(bigint) to service_role;
+revoke all on function public.restore_resume_photo(bigint) from public, anon;
+grant execute on function public.restore_resume_photo(bigint) to authenticated;
+grant execute on function public.restore_resume_photo(bigint) to service_role;
 
 -- References epic: new tables, views and functions. anon is revoked everywhere,
 -- exactly as for the rest of the shidduchim domain.
@@ -1165,6 +1168,19 @@ grant update (visibility) on table public.entity_files to authenticated;
 revoke all on sequence public.entity_files_id_seq from anon;
 grant usage, select on sequence public.entity_files_id_seq to authenticated;
 grant all on sequence public.entity_files_id_seq to service_role;
+
+revoke all on function public.soft_delete_entity_file(bigint) from public, anon;
+grant execute on function public.soft_delete_entity_file(bigint) to authenticated;
+grant execute on function public.soft_delete_entity_file(bigint) to service_role;
+revoke all on function public.undo_entity_file_delete(bigint, text) from public, anon;
+grant execute on function public.undo_entity_file_delete(bigint, text) to authenticated;
+grant execute on function public.undo_entity_file_delete(bigint, text) to service_role;
+revoke all on function public.finalize_entity_file_delete(bigint, text) from public, anon;
+grant execute on function public.finalize_entity_file_delete(bigint, text) to authenticated;
+grant execute on function public.finalize_entity_file_delete(bigint, text) to service_role;
+revoke all on function public.replace_entity_file(bigint, text, text, text, bigint, text, text) from public, anon;
+grant execute on function public.replace_entity_file(bigint, text, text, text, bigint, text, text) to authenticated;
+grant execute on function public.replace_entity_file(bigint, text, text, text, bigint, text, text) to service_role;
 
 -- Read path only (AD-10), same posture as interactions_summary above: an
 -- aggregating join is not auto-updatable, so only SELECT is meaningful for

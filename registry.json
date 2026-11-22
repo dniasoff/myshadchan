@@ -228,6 +228,18 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/singles/ChildDocuments/childDocumentUtils.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/singles/ChildDocuments/ChildDocumentsPanel.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/useShidduchUndo.ts",
           "type": "registry:component"
         },
@@ -965,6 +977,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/types.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/entityFileDeleteErrors.ts",
           "type": "registry:component"
         },
         {

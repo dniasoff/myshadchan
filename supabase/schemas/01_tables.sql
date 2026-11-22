@@ -1508,6 +1508,13 @@ create table public.entity_files (
     -- the value from day one.
     visibility text not null default 'shared',
     uploaded_by_member_id bigint,
+    -- Single documents use two named paper slots. Existing NULL rows are
+    -- legacy Files-tab rows and remain visible but do not count toward the
+    -- child-document slots.
+    slot text,
+    deleted_at timestamp with time zone,
+    delete_token text,
+    delete_undo_until timestamp with time zone,
     -- Story 8.5 (Task 8, contract §8 rule 4): 'connection' joins for
     -- TS/DB-union parity with ENTITY_TARGET_TYPES — legal here though no
     -- story wires a connection Files tab, exactly as 'shadchan' was already
@@ -1529,6 +1536,8 @@ create table public.entity_files (
     constraint entity_files_visibility_target_check check (
         visibility = 'shared' or target_type in ('shidduch', 'single')
     ),
+    constraint entity_files_slot_check check (slot is null or slot in ('paper_1', 'paper_2')),
+    constraint entity_files_slot_target_check check (slot is null or target_type = 'single'),
     -- The two-phase upload's consistency guarantee, enforced by the database
     -- rather than by a test: account_id is trigger-assigned from
     -- current_context_id() (set_entity_files_account_id, 04_triggers.sql), so
@@ -1539,6 +1548,10 @@ create table public.entity_files (
         storage_path like account_id::text || '/%'
     )
 );
+
+create unique index entity_files_single_slot_active_key
+    on public.entity_files (account_id, target_type, target_id, slot)
+    where target_type = 'single' and slot is not null and deleted_at is null;
 
 -- entity_files is deliberately NOT attached to enforce_household_scope() —
 -- see 04_triggers.sql's household-only-tables comment and AC 8(c)/(d): a

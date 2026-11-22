@@ -5,6 +5,10 @@ import type {
   EntityFileVisibility,
   EntityTargetType,
 } from "../../../types";
+import {
+  validateChildDocument,
+  type ChildPaperSlot,
+} from "../../../singles/ChildDocuments/childDocuments";
 
 /**
  * The AD-10 mirror of `providers/supabase/entityFiles.ts` for demo mode.
@@ -23,11 +27,32 @@ function deriveExtension(fileName: string): string {
   return parts.length > 1 ? `.${parts.pop()}` : "";
 }
 
+export async function assertSingleTarget(
+  baseDataProvider: DataProvider,
+  targetId: Identifier,
+  accountId: Identifier,
+): Promise<void> {
+  const { data } = await baseDataProvider.getList<{
+    id: Identifier;
+    account_id: Identifier;
+  }>("singles", {
+    filter: { id: targetId },
+    pagination: { page: 1, perPage: 1 },
+    sort: { field: "id", order: "ASC" },
+  });
+  if (!data[0] || String(data[0].account_id) !== String(accountId)) {
+    throw new Error("entity file single target is missing");
+  }
+}
+
 export type UploadEntityFileParams = {
   targetType: EntityTargetType;
   targetId: Identifier;
   file: File;
   visibility?: EntityFileVisibility;
+  slot?: ChildPaperSlot;
+  /** Existing row being replaced; excluded from the slot-occupancy check. */
+  excludeId?: Identifier;
 };
 
 /**
@@ -44,8 +69,40 @@ export async function uploadEntityFile(
   uploadedByMemberId: Identifier | null,
   params: UploadEntityFileParams,
 ): Promise<EntityFile> {
-  const { targetType, targetId, file, visibility } = params;
-  const ext = deriveExtension(file.name);
+  const { targetType, targetId, file, visibility, slot, excludeId } = params;
+  if (targetType === "single") {
+    await assertSingleTarget(baseDataProvider, targetId, accountId);
+    if (!slot)
+      throw new Error("Choose an available paper slot before uploading.");
+    const validationError = validateChildDocument(file);
+    if (validationError) throw new Error(validationError);
+    const { data: existing } = await baseDataProvider.getList<EntityFile>(
+      "entity_files",
+      {
+        filter: { target_type: "single", target_id: targetId },
+        pagination: { page: 1, perPage: 100 },
+        sort: { field: "id", order: "ASC" },
+      },
+    );
+    const now = Date.now();
+    const active = existing.filter(
+      (candidate) =>
+        String(candidate.id) !== String(excludeId) &&
+        (candidate.deleted_at == null ||
+          (candidate.delete_undo_until != null &&
+            new Date(candidate.delete_undo_until).getTime() >= now)),
+    );
+    if (active.filter((candidate) => candidate.slot != null).length >= 2) {
+      throw new Error("You can store up to 2 papers.");
+    }
+    if (active.some((candidate) => candidate.slot === slot)) {
+      throw new Error("That paper slot is already in use.");
+    }
+  }
+  const ext =
+    targetType === "single"
+      ? deriveExtension(file.name).toLowerCase()
+      : deriveExtension(file.name);
   const storagePath = `${accountId}/${targetType}/${targetId}/${crypto.randomUUID()}${ext}`;
   blobUrls.set(storagePath, URL.createObjectURL(file));
 
@@ -60,8 +117,12 @@ export async function uploadEntityFile(
         mime_type: file.type || "application/octet-stream",
         size_bytes: file.size,
         visibility: visibility ?? "shared",
+        slot: slot ?? null,
         uploaded_by_member_id: uploadedByMemberId,
         created_at: new Date().toISOString(),
+        deleted_at: null,
+        delete_token: null,
+        delete_undo_until: null,
       },
     });
     return data;

@@ -443,10 +443,13 @@ select
     ef.size_bytes,
     ef.visibility,
     ef.uploaded_by_member_id,
-    nullif(btrim(coalesce(m.first_name, '') || ' ' || coalesce(m.last_name, '')), '') as uploaded_by_name
+    nullif(btrim(coalesce(m.first_name, '') || ' ' || coalesce(m.last_name, '')), '') as uploaded_by_name,
+    ef.slot,
+    ef.deleted_at
 from public.entity_files ef
     left join public.account_members am on am.id = ef.uploaded_by_member_id
-    left join public.members m on m.user_id = am.user_id;
+    left join public.members m on m.user_id = am.user_id
+where ef.deleted_at is null;
 
 -- Story 12.3: the assignee picker's roster — the ACTIVE members of the
 -- caller's ACTIVE context, whatever that context's kind (Ruling 1: a
