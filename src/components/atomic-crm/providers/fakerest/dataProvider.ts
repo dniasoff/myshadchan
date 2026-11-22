@@ -77,6 +77,10 @@ import {
   signEntityFileUrl as signEntityFileUrlImpl,
   uploadEntityFile as uploadEntityFileImpl,
 } from "./internal/entityFiles";
+import type {
+  EntityFileDeleteTokenParams,
+  ReplaceEntityFileParams,
+} from "../supabase/entityFiles";
 import { copyInboxAttachmentsToEntityFiles as copyInboxAttachmentsToEntityFilesImpl } from "./internal/inboxAttachments";
 import type { CopyInboxAttachmentsParams } from "./internal/inboxAttachments";
 import type {
@@ -98,6 +102,7 @@ import type {
 } from "./internal/resumes";
 import {
   hideResumePhoto as hideResumePhotoImpl,
+  restoreResumePhoto as restoreResumePhotoImpl,
   signResumePhotoUrl as signResumePhotoUrlImpl,
   uploadResumePhoto as uploadResumePhotoImpl,
 } from "./internal/resumePhotos";
@@ -3511,6 +3516,71 @@ export const createDataProvider = ({
       storagePath: string;
     }): Promise<void> =>
       deleteEntityFileImpl(baseDataProvider, entityFileBlobUrls, params),
+    softDeleteEntityFile: async (params: { id: Identifier }) => {
+      const { data } = await baseDataProvider.getOne<EntityFile>(
+        "entity_files",
+        { id: params.id },
+      );
+      await baseDataProvider.update("entity_files", {
+        id: params.id,
+        data: { deleted_at: new Date().toISOString() },
+        previousData: data,
+      });
+      return {
+        id: params.id,
+        delete_token: crypto.randomUUID().replaceAll("-", ""),
+        undo_until: new Date(Date.now() + 10_000).toISOString(),
+      };
+    },
+    undoEntityFileDelete: async (params: EntityFileDeleteTokenParams) => {
+      const { data } = await baseDataProvider.getOne<EntityFile>(
+        "entity_files",
+        { id: params.id },
+      );
+      const result = await baseDataProvider.update<EntityFile>("entity_files", {
+        id: params.id,
+        data: { deleted_at: null },
+        previousData: data,
+      });
+      return result.data;
+    },
+    finalizeEntityFileDelete: async (params: {
+      id: Identifier;
+      deleteToken: string;
+    }) => {
+      await baseDataProvider.delete("entity_files", { id: params.id });
+    },
+    replaceEntityFile: async (params: ReplaceEntityFileParams) => {
+      const [accountId, caller] = await Promise.all([
+        resolveCurrentAccountId(),
+        resolveCallerMembership(),
+      ]);
+      const replacement = await uploadEntityFileImpl(
+        baseDataProvider,
+        entityFileBlobUrls,
+        accountId,
+        caller?.membership?.id ?? null,
+        params,
+      );
+      try {
+        const { data: oldFile } = await baseDataProvider.getOne<EntityFile>(
+          "entity_files",
+          { id: params.oldId },
+        );
+        await baseDataProvider.update("entity_files", {
+          id: params.oldId,
+          data: { deleted_at: new Date().toISOString() },
+          previousData: oldFile,
+        });
+        return replacement;
+      } catch (error) {
+        await deleteEntityFileImpl(baseDataProvider, entityFileBlobUrls, {
+          id: replacement.id,
+          storagePath: replacement.storage_path,
+        });
+        throw error;
+      }
+    },
     // Story 10.4: carry capture attachments into the linked shidduch's Files tab.
     copyInboxAttachmentsToEntityFiles: async (
       params: CopyInboxAttachmentsParams,
@@ -3752,6 +3822,8 @@ export const createDataProvider = ({
       signResumePhotoUrlImpl(resumePhotoBlobUrls, params.storagePath),
     hideResumePhoto: (params: { id: Identifier }): Promise<ResumePhoto> =>
       hideResumePhotoImpl(baseDataProvider, params),
+    restoreResumePhoto: (params: { id: Identifier }): Promise<ResumePhoto> =>
+      restoreResumePhotoImpl(baseDataProvider, params),
     // ---------------------------------------------------------------------
     // Analytics (Story 15.2) -- FakeRest mirrors of the analytics RPCs.
     // ---------------------------------------------------------------------

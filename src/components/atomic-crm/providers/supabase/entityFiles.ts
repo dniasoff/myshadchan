@@ -7,6 +7,11 @@ import {
   type EntityFileVisibility,
   type EntityTargetType,
 } from "../../types";
+import {
+  CHILD_DOCUMENT_MAX_BYTES,
+  validateChildDocument,
+  type ChildPaperSlot,
+} from "../../singles/ChildDocuments/childDocuments";
 import { getSupabaseClient } from "./supabase";
 
 /**
@@ -72,6 +77,7 @@ export type UploadEntityFileParams = {
   targetId: Identifier;
   file: File;
   visibility?: EntityFileVisibility;
+  slot?: ChildPaperSlot;
 };
 
 export type SignEntityFileUrlParams = {
@@ -91,6 +97,21 @@ export type DeleteEntityFileParams = {
   storagePath: string;
 };
 
+export type SoftDeleteEntityFileResult = {
+  id: Identifier;
+  delete_token: string;
+  undo_until: string;
+};
+
+export type EntityFileDeleteTokenParams = {
+  id: Identifier;
+  deleteToken: string;
+};
+
+export type ReplaceEntityFileParams = UploadEntityFileParams & {
+  oldId: Identifier;
+};
+
 /**
  * AC 4's ordering, exactly:
  *   1. Resolve the key — `{account_id}/{target_type}/{target_id}/{uuid}{ext}`,
@@ -105,7 +126,16 @@ export async function uploadEntityFile(
   baseDataProvider: DataProvider,
   params: UploadEntityFileParams,
 ): Promise<EntityFile> {
-  const { targetType, targetId, file, visibility } = params;
+  const { targetType, targetId, file, visibility, slot } = params;
+  if (targetType === "single" && !slot) {
+    throw new Error("Choose an available paper slot before uploading.");
+  }
+  if (targetType === "single") {
+    const validationError = validateChildDocument(file);
+    if (validationError || file.size > CHILD_DOCUMENT_MAX_BYTES) {
+      throw new Error(validationError ?? "Each file must be 8 MiB or smaller.");
+    }
+  }
   const accountId = await getCurrentAccountId();
   const ext = deriveExtension(file.name);
   const storagePath = `${accountId}/${targetType}/${targetId}/${crypto.randomUUID()}${ext}`;
@@ -127,6 +157,7 @@ export async function uploadEntityFile(
         file_name: file.name,
         mime_type: file.type || "application/octet-stream",
         size_bytes: file.size,
+        ...(slot !== undefined ? { slot } : {}),
         ...(visibility !== undefined ? { visibility } : {}),
       },
     });
@@ -174,11 +205,9 @@ export async function signEntityFileUrl(
 }
 
 /**
- * The reverse of `uploadEntityFile`, and deliberately asymmetric: the ROW
- * deletion is authoritative (it is what every other surface reads), so it
- * runs first; a failure to also remove the storage object is logged, not
- * surfaced as a failed delete. That asymmetry is deliberate — a two-call
- * flow the user could interrupt halfway would be worse.
+ * The legacy Files-tab delete path. Single documents use the explicit
+ * `softDeleteEntityFile` RPC instead; keeping this method's row-and-object
+ * delete behavior unchanged preserves the existing non-single Files tab.
  */
 export async function deleteEntityFile(
   baseDataProvider: DataProvider,
@@ -191,6 +220,79 @@ export async function deleteEntityFile(
     .remove([params.storagePath]);
   if (error) {
     console.error("deleteEntityFile.storage.error", error);
+  }
+}
+
+export async function softDeleteEntityFile(
+  params: Pick<DeleteEntityFileParams, "id">,
+): Promise<SoftDeleteEntityFileResult> {
+  const { data, error } = await getSupabaseClient().rpc(
+    "soft_delete_entity_file",
+    { p_entity_file_id: params.id },
+  );
+  if (error) throw new Error(error.message || "Failed to delete the file");
+  const row = Array.isArray(data) ? data[0] : data;
+  return row as SoftDeleteEntityFileResult;
+}
+
+export async function undoEntityFileDelete(
+  params: EntityFileDeleteTokenParams,
+): Promise<EntityFile> {
+  const { data, error } = await getSupabaseClient().rpc(
+    "undo_entity_file_delete",
+    { p_entity_file_id: params.id, p_delete_token: params.deleteToken },
+  );
+  if (error) throw new Error(error.message || "Failed to undo the deletion");
+  return (Array.isArray(data) ? data[0] : data) as EntityFile;
+}
+
+export async function finalizeEntityFileDelete(
+  params: EntityFileDeleteTokenParams,
+): Promise<void> {
+  const { error } = await getSupabaseClient().rpc(
+    "finalize_entity_file_delete",
+    { p_entity_file_id: params.id, p_delete_token: params.deleteToken },
+  );
+  if (error)
+    throw new Error(error.message || "Failed to finish deleting the file");
+}
+
+/** Upload the replacement before the server swaps the old catalog row. */
+export async function replaceEntityFile(
+  params: ReplaceEntityFileParams,
+): Promise<EntityFile> {
+  const { targetType, targetId, file, visibility, slot, oldId } = params;
+  const validationError = validateChildDocument(file);
+  if (validationError) throw new Error(validationError);
+  const accountId = await getCurrentAccountId();
+  const ext = deriveExtension(file.name);
+  const storagePath = `${accountId}/${targetType}/${targetId}/${crypto.randomUUID()}${ext}`;
+  const { error: uploadError } = await getSupabaseClient()
+    .storage.from(ENTITY_FILES_BUCKET)
+    .upload(storagePath, file);
+  if (uploadError) throw new Error("Failed to upload the file");
+  try {
+    const { data, error } = await getSupabaseClient().rpc(
+      "replace_entity_file",
+      {
+        p_old_id: oldId,
+        p_storage_path: storagePath,
+        p_file_name: file.name,
+        p_mime_type: file.type || "application/octet-stream",
+        p_size_bytes: file.size,
+        p_slot: slot ?? null,
+        p_visibility: visibility ?? "shared",
+      },
+    );
+    if (error) throw error;
+    return (Array.isArray(data) ? data[0] : data) as EntityFile;
+  } catch (error) {
+    await getSupabaseClient()
+      .storage.from(ENTITY_FILES_BUCKET)
+      .remove([storagePath]);
+    throw error instanceof Error
+      ? error
+      : new Error("Failed to replace the file");
   }
 }
 

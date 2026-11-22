@@ -1,10 +1,13 @@
 import type { Identifier } from "ra-core";
+import { useState } from "react";
 
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 import type { Single } from "../types";
 import { AddSingleLink } from "./AddSingleLink";
 import { SendToShadchanButton } from "./SendToShadchanDialog";
+import { ChildDocumentsPanel } from "../singles/ChildDocuments/ChildDocumentsPanel";
 
 export interface DashboardHeaderProps {
   singleList: Single[];
@@ -22,6 +25,7 @@ export const DashboardHeader = ({
   singleId,
   onSelectSingle,
 }: DashboardHeaderProps) => {
+  const [documentsOpen, setDocumentsOpen] = useState(false);
   const selected = singleList.find((single) => single.id === singleId);
   const nameEn = selected ? singleLabel(selected) : "";
 
@@ -39,11 +43,25 @@ export const DashboardHeader = ({
       <div className="flex flex-wrap items-center justify-end gap-2">
         <AddSingleLink />
         {selected ? (
-          <SendToShadchanButton
-            single={selected}
-            singleOptions={singleList}
-            onSingleChange={onSelectSingle}
-          />
+          <>
+            <SendToShadchanButton
+              single={selected}
+              singleOptions={singleList}
+              onSingleChange={onSelectSingle}
+            />
+            <Button
+              type="button"
+              className="min-h-11"
+              onClick={() => setDocumentsOpen(true)}
+            >
+              Documents
+            </Button>
+            <ChildDocumentsPanel
+              single={selected}
+              open={documentsOpen}
+              onOpenChange={setDocumentsOpen}
+            />
+          </>
         ) : null}
         {singleList.length > 1 ? (
           // The pills drive the whole dashboard, so they get the 44px touch

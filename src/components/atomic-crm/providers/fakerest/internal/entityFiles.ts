@@ -5,6 +5,10 @@ import type {
   EntityFileVisibility,
   EntityTargetType,
 } from "../../../types";
+import {
+  validateChildDocument,
+  type ChildPaperSlot,
+} from "../../../singles/ChildDocuments/childDocuments";
 
 /**
  * The AD-10 mirror of `providers/supabase/entityFiles.ts` for demo mode.
@@ -28,6 +32,7 @@ export type UploadEntityFileParams = {
   targetId: Identifier;
   file: File;
   visibility?: EntityFileVisibility;
+  slot?: ChildPaperSlot;
 };
 
 /**
@@ -44,7 +49,13 @@ export async function uploadEntityFile(
   uploadedByMemberId: Identifier | null,
   params: UploadEntityFileParams,
 ): Promise<EntityFile> {
-  const { targetType, targetId, file, visibility } = params;
+  const { targetType, targetId, file, visibility, slot } = params;
+  if (targetType === "single") {
+    if (!slot)
+      throw new Error("Choose an available paper slot before uploading.");
+    const validationError = validateChildDocument(file);
+    if (validationError) throw new Error(validationError);
+  }
   const ext = deriveExtension(file.name);
   const storagePath = `${accountId}/${targetType}/${targetId}/${crypto.randomUUID()}${ext}`;
   blobUrls.set(storagePath, URL.createObjectURL(file));
@@ -60,6 +71,7 @@ export async function uploadEntityFile(
         mime_type: file.type || "application/octet-stream",
         size_bytes: file.size,
         visibility: visibility ?? "shared",
+        slot: slot ?? null,
         uploaded_by_member_id: uploadedByMemberId,
         created_at: new Date().toISOString(),
       },

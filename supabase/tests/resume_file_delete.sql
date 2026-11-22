@@ -282,6 +282,12 @@ select 'first call queues exactly the removed object',
   and exists (select 1 from public.storage_purge_queue where account_id = :account_a and storage_path = :account_a::text || '/resumes/' || :shidduch_a::text || '/old.pdf')
   and not exists (select 1 from public.storage_purge_queue where account_id = :account_a and storage_path = :account_a::text || '/resumes/' || :shidduch_a::text || '/new.pdf'),
   null;
+insert into results
+select 'extended remove_resume_file preserves the shidduch branch',
+  exists (select 1 from public.resumes where id = :resume_a and shidduchim_id = :shidduch_a and single_id is null)
+  and jsonb_array_length((select files from public.resumes where id = :resume_a)) = 2
+  and exists (select 1 from public.storage_purge_queue where resume_id = :resume_a and storage_path = :account_a::text || '/resumes/' || :shidduch_a::text || '/old.pdf'),
+  null;
 
 set local role postgres;
 insert into public.storage_purge_queue (

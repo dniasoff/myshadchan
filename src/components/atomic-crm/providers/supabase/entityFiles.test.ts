@@ -32,6 +32,7 @@ import {
   deleteEntityFile,
   ENTITY_FILE_URL_TTL_SECONDS,
   removeEntityFileObjects,
+  replaceEntityFile,
   signEntityFileUrl,
   uploadEntityFile,
 } from "./entityFiles";
@@ -243,65 +244,121 @@ describe("signEntityFileUrl (AC 5)", () => {
   });
 });
 
-describe("deleteEntityFile — the row deletion is authoritative (AC 4)", () => {
+describe("deleteEntityFile — legacy delete removes the row and object", () => {
   beforeEach(() => {
     remove.mockReset();
+    rpc.mockReset();
   });
 
-  it("deletes the row first, then removes the storage object", async () => {
-    // Arrange
-    const callOrder: string[] = [];
-    const deleteFn = vi.fn().mockImplementation(async () => {
-      callOrder.push("row");
-      return { data: { id: 1 } };
-    });
-    remove.mockImplementation(async () => {
-      callOrder.push("object");
-      return { error: null };
-    });
-    const baseDataProvider = { delete: deleteFn } as unknown as DataProvider;
+  it("deletes the row first and then removes its storage object", async () => {
+    const removeRow = vi.fn().mockResolvedValue({ data: {} });
+    remove.mockResolvedValue({ error: null });
 
-    // Act
-    await deleteEntityFile(baseDataProvider, {
+    await deleteEntityFile({ delete: removeRow } as unknown as DataProvider, {
       id: 9,
       storagePath: "1/shidduch/1/x.pdf",
     });
 
-    // Assert
-    expect(deleteFn).toHaveBeenCalledExactlyOnceWith("entity_files", {
+    expect(removeRow).toHaveBeenCalledExactlyOnceWith("entity_files", {
       id: 9,
     });
     expect(remove).toHaveBeenCalledExactlyOnceWith(["1/shidduch/1/x.pdf"]);
-    expect(callOrder).toEqual(["row", "object"]);
   });
 
-  it("does not throw when the storage removal fails — logged, not surfaced, by design", async () => {
-    // Arrange — deliberate asymmetry: the row's absence is what every other
-    // surface reads, so a storage-side failure must not turn into a failed
-    // delete a user could "fix" by retrying (which would then fail on the
-    // already-deleted row).
-    const deleteFn = vi.fn().mockResolvedValue({ data: { id: 1 } });
-    remove.mockResolvedValue({ error: { message: "storage down" } });
-    const baseDataProvider = { delete: deleteFn } as unknown as DataProvider;
+  it("keeps a row-delete failure from touching storage", async () => {
+    const removeRow = vi.fn().mockRejectedValue(new Error("row unavailable"));
 
-    // Act / Assert
     await expect(
-      deleteEntityFile(baseDataProvider, {
+      deleteEntityFile({ delete: removeRow } as unknown as DataProvider, {
         id: 9,
         storagePath: "1/shidduch/1/x.pdf",
       }),
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow("row unavailable");
+    expect(remove).not.toHaveBeenCalled();
+  });
+});
+
+describe("replaceEntityFile — upload before swap", () => {
+  beforeEach(() => {
+    upload.mockReset();
+    remove.mockReset();
+    rpc.mockReset();
+    upload.mockResolvedValue({ error: null });
   });
 
-  it("propagates a row-deletion failure — the row is authoritative", async () => {
-    // Arrange
-    const deleteFn = vi.fn().mockRejectedValue(new Error("row gone already"));
-    const baseDataProvider = { delete: deleteFn } as unknown as DataProvider;
+  it("uploads the replacement before swapping the old catalog row", async () => {
+    const events: string[] = [];
+    rpc.mockImplementation(async (name: string) => {
+      events.push(name);
+      if (name === "current_context_id") return { data: 7, error: null };
+      return { data: { id: 10 }, error: null };
+    });
 
-    // Act / Assert
+    await replaceEntityFile({
+      oldId: 9,
+      targetType: "single",
+      targetId: 42,
+      file: buildFile("new.pdf"),
+      slot: "paper_1",
+      visibility: "private_parent",
+    });
+
+    expect(events).toEqual(["current_context_id", "replace_entity_file"]);
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith(
+      "replace_entity_file",
+      expect.objectContaining({
+        p_old_id: 9,
+        p_file_name: "new.pdf",
+        p_slot: "paper_1",
+      }),
+    );
+    const uploadedAt = upload.mock.invocationCallOrder[0];
+    const swappedAt = rpc.mock.invocationCallOrder[1];
+    expect(uploadedAt).toBeLessThan(swappedAt);
+  });
+
+  it("cleans up the new object when the swap fails, leaving the old row for retry", async () => {
+    rpc.mockImplementation(async (name: string) => {
+      if (name === "current_context_id") return { data: 7, error: null };
+      return { data: null, error: { message: "old row was not replaced" } };
+    });
+    remove.mockResolvedValue({ error: null });
+
     await expect(
-      deleteEntityFile(baseDataProvider, { id: 9, storagePath: "p" }),
-    ).rejects.toThrow("row gone already");
+      replaceEntityFile({
+        oldId: 9,
+        targetType: "single",
+        targetId: 42,
+        file: buildFile("new.pdf"),
+        slot: "paper_1",
+      }),
+    ).rejects.toThrow("old row was not replaced");
+    expect(remove).toHaveBeenCalledExactlyOnceWith([
+      expect.stringMatching(/^7\/single\/42\/[0-9a-f-]+\.pdf$/),
+    ]);
+    expect(rpc).not.toHaveBeenCalledWith(
+      "soft_delete_entity_file",
+      expect.anything(),
+    );
+  });
+
+  it("does not call the swap RPC when the replacement upload fails", async () => {
+    upload.mockResolvedValue({ error: { message: "upload failed" } });
+
+    await expect(
+      replaceEntityFile({
+        oldId: 9,
+        targetType: "single",
+        targetId: 42,
+        file: buildFile("new.pdf"),
+        slot: "paper_1",
+      }),
+    ).rejects.toThrow("Failed to upload the file");
+    expect(rpc).not.toHaveBeenCalledWith(
+      "replace_entity_file",
+      expect.anything(),
+    );
     expect(remove).not.toHaveBeenCalled();
   });
 });

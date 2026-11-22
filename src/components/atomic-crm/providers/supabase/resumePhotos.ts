@@ -51,6 +51,10 @@ export type HideResumePhotoParams = {
   id: Identifier;
 };
 
+export type RestoreResumePhotoParams = {
+  id: Identifier;
+};
+
 /**
  * AC 2/AC 4: uploads under the AC-4 key grammar — the visibility is segment
  * 3 of the path itself, `{account}/photos/{visibility}/{owner}/{uuid}-
@@ -83,6 +87,7 @@ export async function uploadResumePhoto(
 
   const { data, error } = await getSupabaseClient().rpc("add_resume_photo", {
     p_path: storagePath,
+    p_size: file.size,
     p_visibility: visibility,
     p_shidduchim_id: isSingleSubject(subject)
       ? undefined
@@ -156,6 +161,23 @@ export async function hideResumePhoto(
   if (error) {
     console.error("hideResumePhoto.error", error);
     throw new Error(error.message || "Failed to hide the photo");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return row as ResumePhoto;
+}
+
+export async function restoreResumePhoto(
+  params: RestoreResumePhotoParams,
+): Promise<ResumePhoto> {
+  const { data, error } = await getSupabaseClient().rpc(
+    "restore_resume_photo",
+    {
+      p_photo_id: params.id,
+    },
+  );
+  if (error) {
+    console.error("restoreResumePhoto.error", error);
+    throw new Error(error.message || "Failed to undo the photo deletion");
   }
   const row = Array.isArray(data) ? data[0] : data;
   return row as ResumePhoto;

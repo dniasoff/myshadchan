@@ -1861,8 +1861,22 @@ create policy "Inbox attachment purge queue scoped to account"
 alter table public.entity_files enable row level security;
 alter table public.entity_files force row level security;
 
-create policy "Entity files scoped to account" on public.entity_files
-    for all to authenticated
+create policy "Entity files readable within account" on public.entity_files
+    for select to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
+
+create policy "Entity files insertable within account" on public.entity_files
+    for insert to authenticated
+    with check (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+    );
+
+create policy "Entity files visibility updates within account" on public.entity_files
+    for update to authenticated
     using (
         account_id = public.current_context_id()
         and public.current_member_role() <> 'single'
@@ -1870,6 +1884,16 @@ create policy "Entity files scoped to account" on public.entity_files
     with check (
         account_id = public.current_context_id()
         and public.current_member_role() <> 'single'
+    );
+
+-- Named child-document rows can only leave through the soft-delete/Undo RPC.
+-- Legacy non-single Files-tab rows retain the original direct-delete path.
+create policy "Legacy entity files deletable within account" on public.entity_files
+    for delete to authenticated
+    using (
+        account_id = public.current_context_id()
+        and public.current_member_role() <> 'single'
+        and target_type <> 'single'
     );
 
 -- Story 5xr: queue rows are private cleanup work, never direct client DML.

@@ -914,6 +914,8 @@ export type EntityFile = {
   mime_type: string;
   size_bytes: number;
   visibility: EntityFileVisibility;
+  slot?: "paper_1" | "paper_2" | null;
+  deleted_at?: string | null;
   uploaded_by_member_id?: Identifier | null;
   created_at: string;
 } & Pick<RaRecord, "id">;

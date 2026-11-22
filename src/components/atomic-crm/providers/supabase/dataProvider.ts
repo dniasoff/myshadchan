@@ -65,11 +65,17 @@ import {
 import {
   buildEntityFilesCleanupCallbacks,
   deleteEntityFile as deleteEntityFileImpl,
+  finalizeEntityFileDelete as finalizeEntityFileDeleteImpl,
+  replaceEntityFile as replaceEntityFileImpl,
   signEntityFileUrl as signEntityFileUrlImpl,
+  softDeleteEntityFile as softDeleteEntityFileImpl,
   uploadEntityFile as uploadEntityFileImpl,
+  undoEntityFileDelete as undoEntityFileDeleteImpl,
 } from "./entityFiles";
 import type {
   DeleteEntityFileParams,
+  EntityFileDeleteTokenParams,
+  ReplaceEntityFileParams,
   SignEntityFileUrlParams,
   UploadEntityFileParams,
 } from "./entityFiles";
@@ -95,11 +101,13 @@ import type {
 } from "./resumes";
 import {
   hideResumePhoto as hideResumePhotoImpl,
+  restoreResumePhoto as restoreResumePhotoImpl,
   signResumePhotoUrl as signResumePhotoUrlImpl,
   uploadResumePhoto as uploadResumePhotoImpl,
 } from "./resumePhotos";
 import type {
   HideResumePhotoParams,
+  RestoreResumePhotoParams,
   SignResumePhotoUrlParams,
   UploadResumePhotoParams,
 } from "./resumePhotos";
@@ -1409,6 +1417,18 @@ export const getDataProviderWithCustomMethods = () => {
     async deleteEntityFile(params: DeleteEntityFileParams): Promise<void> {
       return deleteEntityFileImpl(baseDataProvider, params);
     },
+    async softDeleteEntityFile(params: Pick<DeleteEntityFileParams, "id">) {
+      return softDeleteEntityFileImpl(params);
+    },
+    async undoEntityFileDelete(params: EntityFileDeleteTokenParams) {
+      return undoEntityFileDeleteImpl(params);
+    },
+    async finalizeEntityFileDelete(params: EntityFileDeleteTokenParams) {
+      return finalizeEntityFileDeleteImpl(params);
+    },
+    async replaceEntityFile(params: ReplaceEntityFileParams) {
+      return replaceEntityFileImpl(params);
+    },
     async copyInboxAttachmentsToEntityFiles(
       params: CopyInboxAttachmentsParams,
     ): Promise<EntityFile[]> {
@@ -1530,6 +1550,11 @@ export const getDataProviderWithCustomMethods = () => {
     },
     async hideResumePhoto(params: HideResumePhotoParams): Promise<ResumePhoto> {
       return hideResumePhotoImpl(params);
+    },
+    async restoreResumePhoto(
+      params: RestoreResumePhotoParams,
+    ): Promise<ResumePhoto> {
+      return restoreResumePhotoImpl(params);
     },
     // ---------------------------------------------------------------------
     // Analytics (Story 15.2) -- Custom methods for dashboard metrics.

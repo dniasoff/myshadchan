@@ -2156,6 +2156,20 @@ begin
   if p_size < 0 then
     raise exception 'resume file size must not be negative';
   end if;
+  if p_source_inbox_item_id is null and (
+       p_size > 8 * 1024 * 1024
+       or lower(coalesce(p_mime_type, '')) not in (
+         'application/pdf',
+         'application/msword',
+         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+         'image/jpeg',
+         'image/png'
+       )
+       or lower(coalesce(p_filename, '')) !~ '\.(pdf|doc|docx|jpe?g|png)$'
+     ) then
+    raise exception 'resume file must be a PDF, Word, JPEG, or PNG no larger than 8 MiB'
+      using errcode = 'check_violation';
+  end if;
 
   if (p_source_inbox_item_id is null) <> (p_source_inbox_attachment_path is null) then
     raise exception 'source Inbox provenance must be provided together';
@@ -2287,6 +2301,7 @@ AS $function$
 declare
   v_account_id bigint := public.current_context_id();
   v_parent_id bigint;
+  v_single_id bigint;
   v_resume public.resumes;
   v_file jsonb;
   v_files jsonb;
@@ -2310,32 +2325,49 @@ begin
       using errcode = 'P0002';
   end if;
 
-  -- Global storage-writer order is parent shidduch -> advisory fence ->
+  -- Global storage-writer order is parent row -> advisory fence ->
   -- resume -> purge queue. The queue's opaque token is the server-side claim;
   -- a retry with the same token and exact identity is harmless. A duplicate
   -- path with a different identity removes one entry and leaves a partial
   -- queue claim until the last reference is removed.
-  select s.id into v_parent_id
-  from public.shidduchim s
-  where s.account_id = v_account_id
-    and exists (
-      select 1
-      from public.resumes r
-      where r.id = p_resume_id
-        and r.account_id = v_account_id
-        and r.shidduchim_id = s.id
-    )
-  for update;
-  perform public.account_storage_lock(v_account_id);
-  if v_parent_id is null then
-    raise exception 'resume not found'
-      using errcode = 'P0002';
+  select r.shidduchim_id, r.single_id into v_parent_id, v_single_id
+  from public.resumes r
+  where r.id = p_resume_id and r.account_id = v_account_id;
+  if v_single_id is null then
+    -- Keep the shidduchim branch's lock and account checks unchanged.
+    select s.id into v_parent_id
+    from public.shidduchim s
+    where s.account_id = v_account_id
+      and exists (
+        select 1
+        from public.resumes r
+        where r.id = p_resume_id
+          and r.account_id = v_account_id
+          and r.shidduchim_id = s.id
+      )
+    for update;
+    perform public.account_storage_lock(v_account_id);
+    if v_parent_id is null then
+      raise exception 'resume not found'
+        using errcode = 'P0002';
+    end if;
+  else
+    select s.id into v_single_id
+    from public.singles s
+    where s.id = v_single_id and s.account_id = v_account_id
+    for update;
+    perform public.account_storage_lock(v_account_id);
+    if v_single_id is null then
+      raise exception 'resume not found'
+        using errcode = 'P0002';
+    end if;
   end if;
   select r.* into v_resume
   from public.resumes r
   where r.id = p_resume_id
     and r.account_id = v_account_id
-    and r.shidduchim_id = v_parent_id
+    and ((v_single_id is null and r.shidduchim_id = v_parent_id)
+      or (v_single_id is not null and r.single_id = v_single_id))
   for update;
   if not found then
     raise exception 'resume not found'
@@ -2408,7 +2440,8 @@ begin
       using errcode = 'serialization_failure';
   end if;
 
-  if p_path !~ ('^' || v_account_id::text || '/resumes/' || v_parent_id::text || '/[^/]+$')
+  if p_path !~ ('^' || v_account_id::text || '/resumes/' ||
+      case when v_single_id is null then v_parent_id::text else 'single-' || v_single_id::text end || '/[^/]+$')
      or p_path ~ '(^|/)(\.\.?)($|/)'
      or p_path ~ '[*?]' then
     raise exception 'resume file path is not removable'
@@ -2580,6 +2613,45 @@ begin
   returning *;
 end;
 $$;
+
+CREATE OR REPLACE FUNCTION public.add_resume_photo(
+  p_path text,
+  p_shidduchim_id bigint,
+  p_single_id bigint,
+  p_visibility text,
+  p_size bigint
+) RETURNS SETOF public.resume_photos
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+declare
+  v_account_id bigint := public.current_context_id();
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager') then
+    raise exception 'new row violates row-level security policy for table "resumes"'
+      using errcode = 'insufficient_privilege';
+  end if;
+  if p_size is null or p_size < 0 or p_size > 8 * 1024 * 1024 then
+    raise exception 'picture must be no larger than 8 MiB'
+      using errcode = 'check_violation';
+  end if;
+  if p_path is null
+     or p_path !~ ('^' || v_account_id::text
+       || '/photos/(shared|private_parent)/(single-)?[0-9]+/[^/]+\.(jpe?g|png)$') then
+    raise exception 'picture must be a JPEG or PNG in the current account'
+      using errcode = 'check_violation';
+  end if;
+  return query
+  select *
+  from public.add_resume_photo(
+    p_path => p_path,
+    p_shidduchim_id => p_shidduchim_id,
+    p_single_id => p_single_id,
+    p_visibility => p_visibility
+  );
+end;
+$function$;
 
 CREATE OR REPLACE FUNCTION "public"."ai_cost_per_active_family"() RETURNS numeric
     LANGUAGE "plpgsql" SECURITY DEFINER
@@ -5519,6 +5591,12 @@ declare
 begin
   v_account_id := public.current_context_id();
 
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager', 'helper', 'shadchan') then
+    raise exception 'photo changes are not available to this role'
+      using errcode = 'insufficient_privilege';
+  end if;
+
   if not exists (
     select 1 from public.resume_photos p
     where p.id = p_photo_id and p.account_id = v_account_id
@@ -5533,6 +5611,31 @@ begin
   returning *;
 end;
 $$;
+
+CREATE OR REPLACE FUNCTION public.restore_resume_photo(p_photo_id bigint)
+RETURNS SETOF public.resume_photos
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+declare
+  v_account_id bigint := public.current_context_id();
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager', 'helper', 'shadchan') then
+    raise exception 'photo changes are not available to this role'
+      using errcode = 'insufficient_privilege';
+  end if;
+  return query
+  update public.resume_photos
+  set hidden_at = null
+  where id = p_photo_id and account_id = v_account_id
+  returning *;
+  if not found then
+    raise exception 'photo % not found in current account', p_photo_id
+      using errcode = 'P0002';
+  end if;
+end;
+$function$;
 
 CREATE OR REPLACE FUNCTION "public"."identity_name_key"("p_input" "text") RETURNS "text"
     LANGUAGE "plpgsql" IMMUTABLE
@@ -11213,6 +11316,14 @@ begin
 end;
 $$;
 
+CREATE OR REPLACE FUNCTION public.max_child_documents()
+RETURNS integer
+LANGUAGE sql IMMUTABLE
+SET search_path TO ''
+AS $function$
+  select 4;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.entity_files_target_guard()
 RETURNS trigger
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
@@ -11233,6 +11344,35 @@ begin
      or new.storage_path ~ '[*?]' then
     raise exception 'entity file storage path does not match its target'
       using errcode = 'check_violation';
+  end if;
+
+  if new.target_type = 'single' then
+    if new.slot is null then
+      raise exception 'single document uploads require a paper slot'
+        using errcode = 'check_violation';
+    end if;
+    select s.id into v_parent_id
+    from public.singles s
+    where s.id = new.target_id and s.account_id = v_account_id
+    for update;
+    perform public.account_storage_lock(v_account_id);
+    if v_parent_id is null then
+      raise exception 'entity file single target is missing'
+        using errcode = 'foreign_key_violation';
+    end if;
+    if (
+      select count(*)
+      from public.entity_files ef
+      where ef.account_id = v_account_id
+        and ef.target_type = 'single'
+        and ef.target_id = new.target_id
+        and ef.slot is not null
+        and ef.deleted_at is null
+        and (tg_op = 'UPDATE' and ef.id <> new.id or tg_op <> 'UPDATE')
+    ) >= public.max_child_documents() - 2 then
+      raise exception 'child document limit reached'
+        using errcode = 'check_violation';
+    end if;
   end if;
 
   if new.target_type = 'shidduch' then
@@ -11256,6 +11396,181 @@ begin
   return new;
 end;
 $$;
+
+CREATE OR REPLACE FUNCTION public.soft_delete_entity_file(p_entity_file_id bigint)
+RETURNS TABLE(id bigint, delete_token text, undo_until timestamptz)
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_target_id bigint;
+  v_token text := encode(extensions.gen_random_bytes(32), 'hex');
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager', 'helper', 'shadchan') then
+    raise exception 'entity file changes are not available to this role'
+      using errcode = 'insufficient_privilege';
+  end if;
+  select ef.target_id into v_target_id
+  from public.entity_files ef
+  where ef.id = p_entity_file_id and ef.account_id = v_account_id
+    and ef.target_type = 'single';
+  if v_target_id is null then
+    raise exception 'entity file not found' using errcode = 'P0002';
+  end if;
+  perform 1 from public.singles s where s.id = v_target_id and s.account_id = v_account_id for update;
+  if not found then
+    raise exception 'entity file single target is missing' using errcode = 'P0002';
+  end if;
+  perform public.account_storage_lock(v_account_id);
+  perform 1 from public.entity_files ef where ef.id = p_entity_file_id and ef.account_id = v_account_id for update;
+  return query
+  update public.entity_files ef
+  set deleted_at = now(), delete_token = v_token,
+      delete_undo_until = now() + interval '10 seconds'
+  where ef.id = p_entity_file_id and ef.account_id = v_account_id
+    and ef.deleted_at is null
+  returning ef.id, ef.delete_token, ef.delete_undo_until;
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.undo_entity_file_delete(
+  p_entity_file_id bigint,
+  p_delete_token text
+) RETURNS SETOF public.entity_files
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_target_id bigint;
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager', 'helper', 'shadchan') then
+    raise exception 'entity file changes are not available to this role'
+      using errcode = 'insufficient_privilege';
+  end if;
+  select ef.target_id into v_target_id
+  from public.entity_files ef
+  where ef.id = p_entity_file_id and ef.account_id = v_account_id
+    and ef.target_type = 'single';
+  perform 1 from public.singles s where s.id = v_target_id and s.account_id = v_account_id for update;
+  if not found then
+    raise exception 'entity file single target is missing' using errcode = 'P0002';
+  end if;
+  perform public.account_storage_lock(v_account_id);
+  return query
+  update public.entity_files ef
+  set deleted_at = null, delete_token = null, delete_undo_until = null
+  where ef.id = p_entity_file_id and ef.account_id = v_account_id
+    and ef.delete_token = p_delete_token
+    and ef.delete_undo_until >= now()
+  returning ef.*;
+  if not found then
+    raise exception 'entity file delete can no longer be undone' using errcode = 'P0002';
+  end if;
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.finalize_entity_file_delete(
+  p_entity_file_id bigint,
+  p_delete_token text
+) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_target_id bigint;
+  v_path text;
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager', 'helper', 'shadchan') then
+    raise exception 'entity file changes are not available to this role'
+      using errcode = 'insufficient_privilege';
+  end if;
+  select ef.target_id, ef.storage_path into v_target_id, v_path
+  from public.entity_files ef
+  where ef.id = p_entity_file_id and ef.account_id = v_account_id
+    and ef.target_type = 'single';
+  perform 1 from public.singles s where s.id = v_target_id and s.account_id = v_account_id for update;
+  if not found then
+    raise exception 'entity file single target is missing' using errcode = 'P0002';
+  end if;
+  perform public.account_storage_lock(v_account_id);
+  perform 1 from public.entity_files ef where ef.id = p_entity_file_id and ef.account_id = v_account_id for update;
+  if v_path is null then
+    raise exception 'entity file not found' using errcode = 'P0002';
+  end if;
+  if not exists (
+    select 1 from public.entity_files ef
+    where ef.id = p_entity_file_id and ef.account_id = v_account_id
+      and ef.delete_token = p_delete_token and ef.delete_undo_until < now()
+  ) then
+    raise exception 'entity file delete is still undoable or has changed' using errcode = 'P0002';
+  end if;
+  delete from public.entity_files where id = p_entity_file_id and account_id = v_account_id;
+  perform public.storage_purge_queue_object(v_account_id, 'entity-files', v_path);
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.replace_entity_file(
+  p_old_id bigint,
+  p_storage_path text,
+  p_file_name text,
+  p_mime_type text,
+  p_size_bytes bigint,
+  p_slot text,
+  p_visibility text
+) RETURNS SETOF public.entity_files
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+declare
+  v_account_id bigint := public.current_context_id();
+  v_target_id bigint;
+  v_target_type text;
+  v_old public.entity_files;
+begin
+  if v_account_id is null or auth.uid() is null
+     or public.current_member_role() not in ('parent_admin', 'self_manager', 'helper', 'shadchan') then
+    raise exception 'entity file changes are not available to this role'
+      using errcode = 'insufficient_privilege';
+  end if;
+  select ef.target_type, ef.target_id into v_target_type, v_target_id
+  from public.entity_files ef
+  where ef.id = p_old_id and ef.account_id = v_account_id
+  ;
+  if v_target_type is null or v_target_type <> 'single' then
+    raise exception 'single paper not found' using errcode = 'P0002';
+  end if;
+  perform 1 from public.singles s where s.id = v_target_id and s.account_id = v_account_id for update;
+  if not found then
+    raise exception 'entity file single target is missing' using errcode = 'P0002';
+  end if;
+  perform public.account_storage_lock(v_account_id);
+  select ef.* into v_old from public.entity_files ef
+  where ef.id = p_old_id and ef.account_id = v_account_id for update;
+  if p_slot not in ('paper_1', 'paper_2') or p_size_bytes < 0 or p_size_bytes > 8 * 1024 * 1024
+     or lower(coalesce(p_mime_type, '')) not in ('application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/png')
+     or lower(coalesce(p_file_name, '')) !~ '\.(pdf|doc|docx|jpe?g|png)$' then
+    raise exception 'file must be a PDF, Word, JPEG, or PNG no larger than 8 MiB' using errcode = 'check_violation';
+  end if;
+  update public.entity_files
+  set deleted_at = now(), delete_token = encode(extensions.gen_random_bytes(32), 'hex'),
+      delete_undo_until = now() + interval '10 seconds'
+  where id = v_old.id;
+  return query
+  insert into public.entity_files (
+    account_id, target_type, target_id, storage_path, file_name, mime_type,
+    size_bytes, visibility, slot
+  ) values (
+    v_account_id, 'single', v_target_id, p_storage_path, p_file_name,
+    p_mime_type, p_size_bytes, coalesce(p_visibility, 'shared'), p_slot
+  ) returning *;
+end;
+$function$;
 
 CREATE OR REPLACE FUNCTION public.shidduch_delete_tombstone()
 RETURNS trigger

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactElement } from "react";
 import {
   useDataProvider,
@@ -27,6 +27,11 @@ import type {
   EntityFileVisibility,
   EntityTargetType,
 } from "../../types";
+import {
+  CHILD_DOCUMENT_ACCEPT,
+  MAX_CHILD_PAPERS,
+  validateChildDocument,
+} from "../../singles/ChildDocuments/childDocuments";
 import { formatTimelineDate } from "./interactionLabels";
 import type { UniversalTabProps } from "./types";
 
@@ -149,7 +154,7 @@ function FileVisibilityControl({
       disabled={isSaving}
     >
       <SelectTrigger
-        className="w-36"
+        className="min-h-11 w-36"
         aria-label={translate("crm.entity360.files.visibility", {
           _: "Visibility",
         })}
@@ -171,11 +176,13 @@ function FileVisibilityControl({
 
 function FileRowView({
   file,
+  existingFiles,
   targetType,
   targetId,
   onChanged,
 }: {
   file: EntityFileSummary;
+  existingFiles: readonly EntityFileSummary[];
   targetType: EntityTargetType;
   targetId: Identifier;
   onChanged: () => void;
@@ -187,6 +194,27 @@ function FileRowView({
   const [isBusy, setIsBusy] = useState(false);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{
+    token: string;
+    until: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!pendingDelete) return;
+    const remaining = Math.max(0, pendingDelete.until - Date.now());
+    const timer = window.setTimeout(async () => {
+      try {
+        await dataProvider.finalizeEntityFileDelete({
+          id: file.id,
+          deleteToken: pendingDelete.token,
+        });
+      } finally {
+        setPendingDelete(null);
+        onChanged();
+      }
+    }, remaining);
+    return () => window.clearTimeout(timer);
+  }, [dataProvider, file.id, onChanged, pendingDelete]);
 
   // Stable across renders so the viewer's mint-on-open effect does not
   // re-sign the URL on every parent render while the dialog is open.
@@ -216,20 +244,26 @@ function FileRowView({
     }
   };
 
-  // Reached only from the confirm dialog — never straight off the row. The
-  // call destroys the `entity_files` row AND the storage object, with no undo
-  // anywhere in the product, and "Delete" sits one wrapped-row gap from
-  // "Replace" on a phone. A toast after the fact is not a substitute for a
-  // question before it.
+  // Reached only from the confirm dialog. The server soft-deletes first, so
+  // the object remains available during the ten-second Undo window.
   const handleDelete = async () => {
     setIsBusy(true);
     try {
-      await dataProvider.deleteEntityFile({
-        id: file.id,
-        storagePath: file.storage_path,
-      });
+      if (targetType !== "single") {
+        await dataProvider.deleteEntityFile({
+          id: file.id,
+          storagePath: file.storage_path,
+        });
+        setIsConfirmingDelete(false);
+        onChanged();
+        return;
+      }
+      const result = await dataProvider.softDeleteEntityFile({ id: file.id });
       setIsConfirmingDelete(false);
-      onChanged();
+      setPendingDelete({
+        token: result.delete_token,
+        until: new Date(result.undo_until).getTime(),
+      });
     } catch (error) {
       notify(
         error instanceof Error
@@ -244,8 +278,8 @@ function FileRowView({
     }
   };
 
-  // AC 6(c): replace = delete then upload, sharing one UI action, carrying
-  // the previous row's visibility forward. No in-place object rename.
+  // Upload first, then atomically swap the catalog row. A failed upload leaves
+  // the old file untouched.
   const handleReplace = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0];
     event.target.value = "";
@@ -253,16 +287,39 @@ function FileRowView({
 
     setIsBusy(true);
     try {
-      await dataProvider.deleteEntityFile({
-        id: file.id,
-        storagePath: file.storage_path,
-      });
-      await dataProvider.uploadEntityFile({
-        targetType,
-        targetId,
-        file: nextFile,
-        visibility: file.visibility,
-      });
+      if (targetType === "single") {
+        const validationError = validateChildDocument(nextFile);
+        if (validationError) throw new Error(validationError);
+        const slot = (["paper_1", "paper_2"] as const).find(
+          (candidate) =>
+            candidate === file.slot ||
+            !existingFiles.some(
+              (existing) =>
+                existing.id !== file.id && existing.slot === candidate,
+            ),
+        );
+        if (!slot)
+          throw new Error(`You can store up to ${MAX_CHILD_PAPERS} papers.`);
+        await dataProvider.replaceEntityFile({
+          oldId: file.id,
+          targetType,
+          targetId,
+          file: nextFile,
+          visibility: file.visibility,
+          slot,
+        });
+      } else {
+        await dataProvider.uploadEntityFile({
+          targetType,
+          targetId,
+          file: nextFile,
+          visibility: file.visibility,
+        });
+        await dataProvider.deleteEntityFile({
+          id: file.id,
+          storagePath: file.storage_path,
+        });
+      }
       onChanged();
     } catch (error) {
       notify(
@@ -311,6 +368,7 @@ function FileRowView({
           type="button"
           variant="ghost"
           size="sm"
+          className="min-h-11"
           disabled={isBusy}
           onClick={() => setIsViewerOpen(true)}
         >
@@ -320,6 +378,7 @@ function FileRowView({
           type="button"
           variant="ghost"
           size="sm"
+          className="min-h-11"
           disabled={isBusy}
           onClick={handleDownload}
         >
@@ -329,6 +388,7 @@ function FileRowView({
           type="button"
           variant="ghost"
           size="sm"
+          className="min-h-11"
           disabled={isBusy}
           onClick={() => replaceInputRef.current?.click()}
         >
@@ -341,6 +401,7 @@ function FileRowView({
           aria-hidden="true"
           tabIndex={-1}
           aria-label={replaceLabel}
+          accept={targetType === "single" ? CHILD_DOCUMENT_ACCEPT : undefined}
           onChange={handleReplace}
         />
         {/* Reads as destructive BEFORE it is pressed — the four row actions
@@ -374,7 +435,7 @@ function FileRowView({
           _: "Delete this file?",
         })}
         content={translate("crm.entity360.files.deleteConfirmBody", {
-          _: "%{fileName} will be removed for everyone. This cannot be undone.",
+          _: "%{fileName} will be hidden for 10 seconds so you can Undo.",
           fileName: file.file_name,
         })}
         confirm={translate("crm.entity360.files.deleteConfirmAction", {
@@ -384,6 +445,27 @@ function FileRowView({
         onConfirm={handleDelete}
         onClose={() => setIsConfirmingDelete(false)}
       />
+      {pendingDelete ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>Deleted. Undo is available for 10 seconds.</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-11"
+            onClick={async () => {
+              await dataProvider.undoEntityFileDelete({
+                id: file.id,
+                deleteToken: pendingDelete.token,
+              });
+              setPendingDelete(null);
+              onChanged();
+            }}
+          >
+            Undo
+          </Button>
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -407,6 +489,7 @@ export function FilesTab({
       pagination: { page: 1, perPage: 50 },
     },
   );
+  const files = data ?? [];
 
   const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -415,7 +498,30 @@ export function FilesTab({
 
     setIsUploading(true);
     try {
-      await dataProvider.uploadEntityFile({ targetType, targetId, file });
+      if (targetType === "single") {
+        const validationError = validateChildDocument(file);
+        if (validationError) throw new Error(validationError);
+      }
+      const usedPaperSlots = new Set(
+        files
+          .filter((candidate) => candidate.slot)
+          .map((candidate) => candidate.slot),
+      );
+      const slot =
+        targetType === "single"
+          ? (["paper_1", "paper_2"] as const).find(
+              (candidate) => !usedPaperSlots.has(candidate),
+            )
+          : undefined;
+      if (targetType === "single" && !slot) {
+        throw new Error(`You can store up to ${MAX_CHILD_PAPERS} papers.`);
+      }
+      await dataProvider.uploadEntityFile({
+        targetType,
+        targetId,
+        file,
+        ...(slot ? { slot } : {}),
+      });
       refresh();
     } catch (uploadError) {
       notify(
@@ -434,13 +540,13 @@ export function FilesTab({
   const uploadLabel = translate("crm.entity360.files.upload", {
     _: "Upload a file",
   });
-  const files = data ?? [];
 
   return (
     <div className="flex flex-col gap-4">
       <div>
         <Button
           type="button"
+          className="min-h-11"
           disabled={isUploading}
           onClick={() => uploadInputRef.current?.click()}
         >
@@ -453,6 +559,7 @@ export function FilesTab({
           aria-hidden="true"
           tabIndex={-1}
           aria-label={uploadLabel}
+          accept={targetType === "single" ? CHILD_DOCUMENT_ACCEPT : undefined}
           onChange={handleUpload}
         />
       </div>
@@ -469,6 +576,7 @@ export function FilesTab({
             <FileRowView
               key={String(file.id)}
               file={file}
+              existingFiles={files}
               targetType={targetType}
               targetId={targetId}
               onChanged={refresh}

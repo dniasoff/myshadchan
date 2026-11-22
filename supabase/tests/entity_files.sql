@@ -425,8 +425,8 @@ end $$;
 insert into public.singles (first_name_en) values ('EF Purge Single')
 returning id as purge_single \gset
 
-insert into public.entity_files (target_type, target_id, storage_path, file_name, mime_type, size_bytes)
-select 'single', :purge_single, value || '/single/' || :purge_single || '/p.pdf', 'p.pdf', 'application/pdf', 10
+insert into public.entity_files (target_type, target_id, storage_path, file_name, mime_type, size_bytes, slot)
+select 'single', :purge_single, value || '/single/' || :purge_single || '/p.pdf', 'p.pdf', 'application/pdf', 10, 'paper_1'
 from ids where name = 'acct_a';
 
 delete from public.singles where id = :purge_single;

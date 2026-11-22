@@ -112,3 +112,19 @@ export async function hideResumePhoto(
   });
   return data;
 }
+
+export async function restoreResumePhoto(
+  baseDataProvider: DataProvider,
+  params: { id: Identifier },
+): Promise<ResumePhoto> {
+  const { data: photo } = await baseDataProvider.getOne<ResumePhoto>(
+    "resume_photos",
+    { id: params.id },
+  );
+  const { data } = await baseDataProvider.update<ResumePhoto>("resume_photos", {
+    id: params.id,
+    data: { hidden_at: null },
+    previousData: photo,
+  });
+  return data;
+}
