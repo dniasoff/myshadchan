@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createDataProvider } from "./dataProvider";
+import generateData from "./dataGenerator";
 
 const PDF = "application/pdf";
 
@@ -96,6 +97,39 @@ describe("FakeRest child document lifecycle", () => {
     ).rejects.toThrow(
       "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.",
     );
+  });
+
+  it("rejects direct entity_files creates for missing and foreign singles", async () => {
+    const db = generateData();
+    db.singles.push({
+      ...db.singles[0]!,
+      id: 99,
+      account_id: 2,
+      first_name_en: "Foreign",
+      last_name_en: "Single",
+    });
+    const provider = createDataProvider({ db, latency: 0, silent: true });
+    const row = (targetId: number | string) => ({
+      account_id: 1,
+      target_type: "single" as const,
+      target_id: targetId,
+      storage_path: `1/single/${targetId}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.pdf`,
+      file_name: "direct.pdf",
+      mime_type: PDF,
+      size_bytes: 10,
+      visibility: "private_parent" as const,
+      uploaded_by_member_id: 1,
+      slot: "paper_1" as const,
+    });
+
+    await expect(
+      provider.create("entity_files", {
+        data: row("missing-single"),
+      }),
+    ).rejects.toThrow("entity file single target is missing");
+    await expect(
+      provider.create("entity_files", { data: row(99) }),
+    ).rejects.toThrow("entity file single target is missing");
   });
 
   it("soft-deletes with an exact token, hides summary rows, and finalizes idempotently", async () => {

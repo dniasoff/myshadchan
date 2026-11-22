@@ -236,6 +236,23 @@ function FileRowView({
           id: file.id,
           deleteToken: pendingDelete.token,
         });
+      } catch (error) {
+        // Undo can win the deadline race. The server then rejects this stale
+        // token by design; that expected outcome must not become an unhandled
+        // promise rejection or an error toast after the user restored the row.
+        if (!(
+          error instanceof Error &&
+          /no longer valid|already finalized/i.test(error.message)
+        )) {
+          notify(
+            error instanceof Error
+              ? error.message
+              : translate("crm.entity360.files.deleteError", {
+                  _: "Failed to delete the file",
+                }),
+            { type: "error" },
+          );
+        }
       } finally {
         setPendingDelete(null);
         onChanged();
@@ -243,7 +260,7 @@ function FileRowView({
       }
     }, remaining);
     return () => window.clearTimeout(timer);
-  }, [dataProvider, file.id, onChanged, pendingDelete]);
+  }, [dataProvider, file.id, notify, onChanged, pendingDelete, translate]);
 
   // Stable across renders so the viewer's mint-on-open effect does not
   // re-sign the URL on every parent render while the dialog is open.
@@ -546,6 +563,7 @@ export function FilesTab({
   const refresh = useRefresh();
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const { data, error, isPending, refetch } = useGetList<EntityFileSummary>(
     "entity_files_summary",
@@ -571,6 +589,7 @@ export function FilesTab({
     if (!file || isUploading) return;
 
     setIsUploading(true);
+    setUploadError(null);
     try {
       if (targetType === "single") {
         const validationError = validateChildDocument(file);
@@ -598,14 +617,14 @@ export function FilesTab({
       });
       refresh();
     } catch (uploadError) {
-      notify(
+      const message =
         uploadError instanceof Error
           ? uploadError.message
           : translate("crm.entity360.files.uploadError", {
               _: "Failed to upload the file",
-            }),
-        { type: "error" },
-      );
+            });
+      setUploadError(message);
+      notify(message, { type: "error" });
     } finally {
       setIsUploading(false);
     }
@@ -637,6 +656,11 @@ export function FilesTab({
           onChange={handleUpload}
         />
       </div>
+      {uploadError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {uploadError}
+        </p>
+      ) : null}
 
       {isPending ? (
         <FilesSkeleton />

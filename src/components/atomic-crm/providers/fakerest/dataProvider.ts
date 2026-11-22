@@ -77,6 +77,7 @@ import {
   type InboxDeleteResult,
 } from "../../inbox/inboxDelete";
 import {
+  assertSingleTarget,
   deleteEntityFile as deleteEntityFileImpl,
   signEntityFileUrl as signEntityFileUrlImpl,
   uploadEntityFile as uploadEntityFileImpl,
@@ -2268,6 +2269,7 @@ export const createDataProvider = ({
           if (String(accountId) !== String(membership.account_id)) {
             throw new Error("entity file account context mismatch");
           }
+          await assertSingleTarget(baseDataProvider, data.target_id, accountId);
           if (data.slot !== "paper_1" && data.slot !== "paper_2") {
             throw new Error("Choose an available paper slot before uploading.");
           }

@@ -228,6 +228,21 @@ describe("ChildDocumentsPanel", () => {
     });
   });
 
+  it("shows an inline accessible error for an invalid upload", async () => {
+    const { screen } = await renderPanel([paper]);
+
+    await screen.getByRole("button", { name: "Add Paper 2" }).click();
+    await screen
+      .getByLabelText("Upload child document")
+      .upload(new File(["not a document"], "bad.txt", { type: "text/plain" }));
+
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent(
+        "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.",
+      );
+  });
+
   it("replaces a paper through the upload-before-swap provider method", async () => {
     const { dataProvider, screen } = await renderPanel([paper]);
     const upload = screen.getByLabelText("Upload child document");

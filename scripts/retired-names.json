@@ -134,6 +134,10 @@
           "term": "CHILD_PAPERS"
         },
         {
+          "file": "src/components/atomic-crm/entity360/tabs/FilesTab.test.tsx",
+          "term": "child-document"
+        },
+        {
           "file": "src/components/atomic-crm/providers/supabase/entityFiles.ts",
           "term": "CHILD_DOCUMENT"
         },

@@ -511,6 +511,7 @@ export function ChildDocumentsPanel({
         ? validateChildPhoto(file)
         : validateChildDocument(file);
     if (validationError) {
+      setUploadError(validationError);
       notify(validationError, { type: "error" });
       clearUploadState();
       return;

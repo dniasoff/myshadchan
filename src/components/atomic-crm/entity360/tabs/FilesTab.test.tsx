@@ -204,6 +204,24 @@ describe("FilesTab — upload (AC 6b)", () => {
       .element(screen.getByRole("button", { name: "Upload a file" }))
       .toBeInTheDocument();
   });
+
+  it("shows an inline accessible error for an invalid child-document upload", async () => {
+    const getList = vi.fn().mockResolvedValue({ data: [], total: 0 });
+
+    const { screen } = await renderFilesTab(
+      { targetType: "single", targetId: 42 },
+      { getList },
+    );
+    await screen
+      .getByLabelText("Upload a file")
+      .upload(new File(["not a document"], "bad.txt", { type: "text/plain" }));
+
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent(
+        "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.",
+      );
+  });
 });
 
 describe("FilesTab — replace (AC 6c)", () => {
@@ -400,6 +418,62 @@ describe("FilesTab — delete (AC 6d)", () => {
       deleteToken: "delete-token",
     });
     resolveUndo?.(row);
+  });
+
+  it("quietly handles Undo winning the finalization deadline race", async () => {
+    let rejectFinalize!: (error: Error) => void;
+    const row = buildFileRow({
+      id: 80,
+      target_type: "single",
+      slot: "paper_1",
+      file_name: "paper.pdf",
+    });
+    const getList = vi.fn().mockResolvedValue({ data: [row], total: 1 });
+    const softDeleteEntityFile = vi.fn().mockResolvedValue({
+      delete_token: "delete-token",
+      undo_until: new Date(Date.now() + 10).toISOString(),
+    });
+    const finalizeEntityFileDelete = vi.fn(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          rejectFinalize = reject;
+        }),
+    );
+    const undoEntityFileDelete = vi.fn().mockResolvedValue(row);
+
+    try {
+      const { screen } = await renderFilesTab(
+        { targetType: "single" },
+        {
+          getList,
+          softDeleteEntityFile,
+          finalizeEntityFileDelete,
+          undoEntityFileDelete,
+        },
+      );
+      await expect
+        .element(screen.getByRole("button", { name: "Delete paper.pdf" }))
+        .toBeInTheDocument();
+      vi.useFakeTimers();
+      await screen.getByRole("button", { name: "Delete paper.pdf" }).click();
+      await screen.getByRole("button", { name: "Delete file" }).click();
+      await expect
+        .element(screen.getByRole("button", { name: "Undo delete paper.pdf" }))
+        .toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(10);
+      await expect
+        .poll(() => finalizeEntityFileDelete.mock.calls.length)
+        .toBe(1);
+      await screen
+        .getByRole("button", { name: "Undo delete paper.pdf" })
+        .click();
+      await expect.poll(() => undoEntityFileDelete.mock.calls.length).toBe(1);
+      rejectFinalize(new Error("The delete token is no longer valid."));
+      await vi.runOnlyPendingTimersAsync();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

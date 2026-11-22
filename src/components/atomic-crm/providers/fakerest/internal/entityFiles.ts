@@ -27,7 +27,7 @@ function deriveExtension(fileName: string): string {
   return parts.length > 1 ? `.${parts.pop()}` : "";
 }
 
-async function assertSingleTarget(
+export async function assertSingleTarget(
   baseDataProvider: DataProvider,
   targetId: Identifier,
   accountId: Identifier,
