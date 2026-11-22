@@ -66,6 +66,14 @@ describe("applyFullTextSearch (AC 4)", () => {
     expect(result.filter).toEqual({});
   });
 
+  it("drops an empty q while preserving the field@is null filter", async () => {
+    const result = await applyFullTextSearch(["first_name_en"])(
+      buildParams({ q: "", "archived_at@is": null }),
+    );
+
+    expect(result.filter).toEqual({ "archived_at@is": null });
+  });
+
   it("builds an @or ilike clause per column for a plain search term", async () => {
     // Arrange
     const params = buildParams({ q: "Chaim" });
@@ -234,6 +242,8 @@ describe("shidduchim search column list (Story 5.2 AC-3)", () => {
       "mother_he@ilike": "Cohen",
       "location_en@ilike": "Cohen",
       "location_he@ilike": "Cohen",
+      "suggested_by_name@ilike": "Cohen",
+      "suggested_by_phone@ilike": "Cohen",
     });
     expect(
       lifeCycleCallbacks.some(
@@ -241,6 +251,25 @@ describe("shidduchim search column list (Story 5.2 AC-3)", () => {
           callback.resource === "shidduchim_summary",
       ),
     ).toBe(false);
+  });
+
+  it("searches Suggested by name and phone digits through the real hook", async () => {
+    const beforeGetList = findBeforeGetList("shidduchim");
+
+    const byName = await beforeGetList(
+      buildParams({ q: "Kaila Niasoff", "archived_at@is": null }),
+    );
+    expect(byName.filter["@or"]).toMatchObject({
+      "suggested_by_name@ilike": "Kaila Niasoff",
+    });
+    expect(byName.filter["archived_at@is"]).toBeNull();
+
+    const byPhone = await beforeGetList(
+      buildParams({ q: "*732 814-5891*", "archived_at@is": null }),
+    );
+    expect(byPhone.filter["@or"]).toMatchObject({
+      "suggested_by_phone@ilike": "7%3%2%8%1%4%5%8%9%1",
+    });
   });
 });
 

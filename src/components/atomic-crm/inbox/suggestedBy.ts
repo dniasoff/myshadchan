@@ -35,6 +35,19 @@ export function validateSuggestedByPhone(value: unknown): string | undefined {
   return undefined;
 }
 
+/** Strip only decoration wrapped around a persisted phone for presentation.
+ * The stored value remains untouched; this is also the normalization applied
+ * when a newly entered value is parsed by SuggestedByFields. */
+export function displaySuggestedByPhone(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/^[\s*~()[\]{}]+|[\s*~()[\]{}]+$/g, "");
+}
+
+/** Search key for phone values: digits are stable across common formatting. */
+export function suggestedByPhoneSearchDigits(value: unknown): string {
+  return typeof value === "string" ? value.replace(/\D/g, "") : "";
+}
+
 function textValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
@@ -82,7 +95,7 @@ export async function resolveSuggestedByValues(
 /** Keep a persisted phone value display-friendly while making its link safe. */
 export function suggestedByPhoneHref(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const trimmed = value.trim();
+  const trimmed = displaySuggestedByPhone(value);
   const digits = trimmed.replace(/\D/g, "");
   if (!digits) return null;
   return `tel:${trimmed.startsWith("+") ? "+" : ""}${digits}`;

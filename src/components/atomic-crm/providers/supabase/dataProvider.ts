@@ -53,6 +53,7 @@ import type {
   ThreadVisibility,
 } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
+import { suggestedByPhoneSearchDigits } from "../../inbox/suggestedBy";
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import {
@@ -1723,6 +1724,8 @@ export const lifeCycleCallbacks: ResourceCallbacks[] = [
         "mother_he",
         "location_en",
         "location_he",
+        "suggested_by_name",
+        "suggested_by_phone",
       ])(params);
     },
   },
@@ -1752,7 +1755,7 @@ export const getDataProvider = () => {
 // function inside the test would prove nothing about what ships.
 export const applyFullTextSearch =
   (columns: string[]) => (params: GetListParams) => {
-    if (!params.filter?.q) {
+    if (params.filter?.q === undefined || params.filter?.q === null) {
       return params;
     }
     const { q, ...filter } = params.filter;
@@ -1781,20 +1784,25 @@ export const applyFullTextSearch =
       filter: {
         ...filter,
         "@or": columns.reduce((acc, column) => {
+          const searchValue =
+            column === "suggested_by_phone"
+              ? suggestedByPhoneSearchDigits(sanitizedQ).split("").join("%") ||
+                sanitizedQ
+              : sanitizedQ;
           if (column === "email")
             return {
               ...acc,
-              [`email_fts@ilike`]: sanitizedQ,
+              [`email_fts@ilike`]: searchValue,
             };
           if (column === "phone")
             return {
               ...acc,
-              [`phone_fts@ilike`]: sanitizedQ,
+              [`phone_fts@ilike`]: searchValue,
             };
           else
             return {
               ...acc,
-              [`${column}@ilike`]: sanitizedQ,
+              [`${column}@ilike`]: searchValue,
             };
         }, {}),
       },

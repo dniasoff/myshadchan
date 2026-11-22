@@ -1,14 +1,15 @@
 import { TextInput } from "@/components/admin/text-input";
 
 import {
+  displaySuggestedByPhone,
   validateSuggestedByName,
   validateSuggestedByPhone,
 } from "./suggestedBy";
 
 /**
  * The From block is shared by Inbox, resume-first filing, and ShareTarget.
- * A phone is kept exactly as the person typed it (after trimming) and never
- * enters a URL, log, or storage key.
+ * A phone's edge decoration is cleaned for the field display and on newly
+ * entered values. Persisted data is never rewritten merely by rendering it.
  */
 export const SuggestedByFields = () => (
   <div className="flex flex-col gap-3 rounded-xl border border-border p-4">
@@ -32,6 +33,8 @@ export const SuggestedByFields = () => (
       inputMode="tel"
       autoComplete="tel"
       inputClassName="h-11 min-h-11"
+      format={displaySuggestedByPhone}
+      parse={displaySuggestedByPhone}
       helperText={
         <span
           id="suggested_by_phone-description"
