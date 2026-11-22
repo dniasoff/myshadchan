@@ -5,6 +5,7 @@ import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import { canViewChildDocuments } from "../singles/ChildDocuments/childDocumentUtils";
 import { DashboardHeader } from "./DashboardHeader";
 import { testI18nProvider } from "../providers/commons/i18nProvider";
+import type { ResumeFileVersion } from "../types";
 import type { CrmDataProvider } from "../providers/types";
 import {
   canDeleteResumeFile,
@@ -12,7 +13,6 @@ import {
   pendingResumeFileDeletes,
   rememberPendingResumeFileDelete,
   resumeFileDeleteMarkerToken,
-  schedulePendingResumeFileDelete,
 } from "../resumes/resumeFileDelete";
 
 const viewerRole = vi.hoisted(() => ({
@@ -48,9 +48,13 @@ const file = {
   size: 12,
 } as const;
 
-const renderScheduler = async (removeResumeFile: ReturnType<typeof vi.fn>) => {
+const renderScheduler = async (
+  removeResumeFile: ReturnType<typeof vi.fn>,
+  resumeId = 33,
+  resumeFile: ResumeFileVersion = file,
+) => {
   const getList = vi.fn().mockResolvedValue({
-    data: [{ id: 33, files: [file] }],
+    data: [{ id: resumeId, files: [resumeFile] }],
     total: 1,
   });
   const dataProvider = {
@@ -108,6 +112,36 @@ describe("DashboardHeader document visibility", () => {
     expect(canDeleteResumeFile("shadchan", false)).toBe(false);
   });
 
+  it("cleans up a durable resume marker after DashboardHeader finalization fails", async () => {
+    vi.useFakeTimers();
+    const failedFile = {
+      ...file,
+      path: "1/resumes/34/failed.pdf",
+      filename: "failed.pdf",
+    };
+    const token = await resumeFileDeleteMarkerToken(34, failedFile);
+    clearPendingResumeFileDelete(token);
+    await rememberPendingResumeFileDelete({
+      resumeId: 34,
+      file: failedFile,
+      deadline: Date.now() - 1_000,
+    });
+
+    const removeResumeFile = vi
+      .fn()
+      .mockRejectedValue(new Error("temporary cleanup failure"));
+    const rendered = await renderScheduler(removeResumeFile, 34, failedFile);
+    await expect.poll(() => rendered.getList.mock.calls.length).toBe(1);
+    await vi.runOnlyPendingTimersAsync();
+    await expect.poll(() => removeResumeFile.mock.calls.length).toBe(1);
+    expect(
+      window.localStorage.getItem(
+        `myshadchan:pending-resume-file-delete:${token}`,
+      ),
+    ).toBeNull();
+    rendered.screen.unmount();
+  });
+
   it("finalizes a durable resume delete after DashboardHeader remounts", async () => {
     vi.useFakeTimers();
     const removeResumeFile = vi.fn().mockResolvedValue(undefined);
@@ -115,7 +149,7 @@ describe("DashboardHeader document visibility", () => {
     await rememberPendingResumeFileDelete({
       resumeId: 33,
       file,
-      deadline: Date.now() - 1,
+      deadline: Date.now() - 1_000,
     });
 
     const first = await renderScheduler(removeResumeFile);
@@ -133,28 +167,5 @@ describe("DashboardHeader document visibility", () => {
       }),
     );
     second.screen.unmount();
-  });
-
-  it("cleans up a durable resume marker after finalization fails", async () => {
-    vi.useFakeTimers();
-    const token = await resumeFileDeleteMarkerToken(33, file);
-    clearPendingResumeFileDelete(token);
-    const marker = {
-      resumeId: 33,
-      file,
-      deadline: Date.now() - 1,
-      token,
-    };
-    await rememberPendingResumeFileDelete({
-      resumeId: 33,
-      file,
-      deadline: marker.deadline,
-    });
-    schedulePendingResumeFileDelete(marker, async () => {
-      clearPendingResumeFileDelete(token);
-      throw new Error("temporary cleanup failure");
-    });
-    await vi.runOnlyPendingTimersAsync();
-    expect(window.localStorage.length).toBe(0);
   });
 });

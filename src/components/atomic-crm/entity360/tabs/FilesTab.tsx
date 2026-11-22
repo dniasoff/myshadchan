@@ -27,6 +27,7 @@ import type {
   EntityFileVisibility,
   EntityTargetType,
 } from "../../types";
+import { isEntityFileDeleteChangedError } from "../../providers/entityFileDeleteErrors";
 import {
   CHILD_DOCUMENT_ACCEPT,
   MAX_CHILD_PAPERS,
@@ -240,10 +241,7 @@ function FileRowView({
         // Undo can win the deadline race. The server then rejects this stale
         // token by design; that expected outcome must not become an unhandled
         // promise rejection or an error toast after the user restored the row.
-        if (!(
-          error instanceof Error &&
-          /no longer valid|already finalized/i.test(error.message)
-        )) {
+        if (!isEntityFileDeleteChangedError(error)) {
           notify(
             error instanceof Error
               ? error.message

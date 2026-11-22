@@ -13,6 +13,7 @@ import type {
   EntityFileSummary,
   EntityTargetType,
 } from "../../types";
+import { ENTITY_FILE_DELETE_CHANGED_MESSAGE } from "../../providers/entityFileDeleteErrors";
 import { FilesTab } from "./FilesTab";
 
 /**
@@ -469,8 +470,12 @@ describe("FilesTab — delete (AC 6d)", () => {
         .getByRole("button", { name: "Undo delete paper.pdf" })
         .click();
       await expect.poll(() => undoEntityFileDelete.mock.calls.length).toBe(1);
-      rejectFinalize(new Error("The delete token is no longer valid."));
+      rejectFinalize(new Error(ENTITY_FILE_DELETE_CHANGED_MESSAGE));
       await vi.runOnlyPendingTimersAsync();
+      await expect
+        .element(screen.getByRole("button", { name: "Delete paper.pdf" }))
+        .toBeInTheDocument();
+      expect(screen.container.querySelector("[data-sonner-toast]")).toBeNull();
     } finally {
       vi.useRealTimers();
     }

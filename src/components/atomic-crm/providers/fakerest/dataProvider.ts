@@ -63,6 +63,7 @@ import {
   MAX_CHILD_PAPERS,
   validateChildDocument,
 } from "../../singles/ChildDocuments/childDocuments";
+import { ENTITY_FILE_DELETE_CHANGED_MESSAGE } from "../entityFileDeleteErrors";
 import {
   buildResumeInboxStoragePath,
   toResumeInboxPickerItem,
@@ -3813,13 +3814,13 @@ export const createDataProvider = ({
         data.delete_token !== params.deleteToken ||
         data.deleted_at == null
       ) {
-        throw new Error("That delete request is no longer valid.");
+        throw new Error(ENTITY_FILE_DELETE_CHANGED_MESSAGE);
       }
       if (
         data.delete_undo_until == null ||
         new Date(data.delete_undo_until).getTime() >= Date.now()
       ) {
-        throw new Error("The 10-second Undo window has not ended.");
+        throw new Error(ENTITY_FILE_DELETE_CHANGED_MESSAGE);
       }
       await deleteEntityFileImpl(baseDataProvider, entityFileBlobUrls, {
         id: params.id,

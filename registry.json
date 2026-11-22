@@ -980,6 +980,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/entityFileDeleteErrors.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/supabase/trustedSenders.ts",
           "type": "registry:component"
         },

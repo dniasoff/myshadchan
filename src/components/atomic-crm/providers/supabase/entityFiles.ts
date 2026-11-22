@@ -12,6 +12,10 @@ import {
   validateChildDocument,
   type ChildPaperSlot,
 } from "../../singles/ChildDocuments/childDocuments";
+import {
+  ENTITY_FILE_DELETE_CHANGED_MESSAGE,
+  isEntityFileDeleteChangedError,
+} from "../entityFileDeleteErrors";
 import { getSupabaseClient } from "./supabase";
 
 /**
@@ -255,8 +259,13 @@ export async function finalizeEntityFileDelete(
     "finalize_entity_file_delete",
     { p_entity_file_id: params.id, p_delete_token: params.deleteToken },
   );
-  if (error)
-    throw new Error(error.message || "Failed to finish deleting the file");
+  if (error) {
+    throw new Error(
+      isEntityFileDeleteChangedError(error)
+        ? ENTITY_FILE_DELETE_CHANGED_MESSAGE
+        : error.message || "Failed to finish deleting the file",
+    );
+  }
 }
 
 export async function finalizeExpiredEntityFileDeletes(): Promise<number> {
