@@ -34,6 +34,7 @@ import { useMyContexts } from "../root/useMyContexts";
 import { buildCaptureEmail } from "../settings/captureEmail";
 import type { CrmDataProvider } from "../providers/types";
 import type { Account, InboxAttachment, InboxItem } from "../types";
+import { validateSuggestedByPhone } from "./suggestedBy";
 
 const ACCEPTED_INBOX_FILES = [
   "image/jpeg",
@@ -119,6 +120,7 @@ export const AddToInboxDialog = ({
   const isMobile = useIsMobile();
   const [text, setText] = useState("");
   const [sender, setSender] = useState("");
+  const [senderPhone, setSenderPhone] = useState("");
   const [files, setFiles] = useState<SelectedInboxFile[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -145,6 +147,7 @@ export const AddToInboxDialog = ({
   const handleClose = () => {
     setText("");
     setSender("");
+    setSenderPhone("");
     setFiles([]);
     setFileError(null);
     setIsCopied(false);
@@ -199,6 +202,7 @@ export const AddToInboxDialog = ({
 
   const onSave = async () => {
     if (!text.trim() && files.length === 0) return;
+    if (validateSuggestedByPhone(senderPhone)) return;
     const addingFiles = files.length > 0;
     setSaving(true);
     let created: InboxItem | null = null;
@@ -209,6 +213,7 @@ export const AddToInboxDialog = ({
           source: "upload",
           raw_text: text.trim() || null,
           sender: sender.trim() || null,
+          sender_phone: senderPhone.trim() || null,
           status: "unresolved",
           attachments: null,
         },
@@ -275,6 +280,7 @@ export const AddToInboxDialog = ({
   };
 
   const hasContent = Boolean(text.trim() || files.length > 0);
+  const senderPhoneError = validateSuggestedByPhone(senderPhone);
 
   const formBody = (
     <>
@@ -299,6 +305,35 @@ export const AddToInboxDialog = ({
             className="text-base md:text-sm"
             placeholder="e.g. Mrs. Feldman"
           />
+          <Label htmlFor="inbox-sender-phone">Phone number (optional)</Label>
+          <Input
+            id="inbox-sender-phone"
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            dir="ltr"
+            value={senderPhone}
+            onChange={(event) => setSenderPhone(event.target.value)}
+            className="h-11 min-h-11 text-base md:text-sm"
+            aria-invalid={senderPhoneError ? "true" : undefined}
+            aria-describedby={
+              senderPhoneError ? "inbox-sender-phone-error" : undefined
+            }
+            placeholder="e.g. +1 347-555-0182"
+          />
+          {senderPhoneError ? (
+            <p
+              id="inbox-sender-phone-error"
+              role="alert"
+              className="text-sm text-destructive"
+            >
+              {senderPhoneError}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Optional. Keep it as typed.
+            </p>
+          )}
         </div>
 
         <div className="space-y-2">

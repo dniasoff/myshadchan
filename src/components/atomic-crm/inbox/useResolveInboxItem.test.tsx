@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import {
   suggestedByNameFromInboxItem,
+  suggestedByPhoneFromInboxItem,
   useResolveInboxItem,
   type ResumeDraft,
 } from "./useResolveInboxItem";
@@ -377,6 +378,30 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
       suggestedByNameFromInboxItem({
         sender: "   ",
         sender_needs_confirmation: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("carries an Inbox phone only with a safe sender name", () => {
+    expect(
+      suggestedByPhoneFromInboxItem({
+        sender: "  Miriam Cohen  ",
+        sender_needs_confirmation: false,
+        sender_phone: " +1 555-0100 ",
+      }),
+    ).toBe("+1 555-0100");
+    expect(
+      suggestedByPhoneFromInboxItem({
+        sender: "miriam@example.test",
+        sender_needs_confirmation: false,
+        sender_phone: "555-0100",
+      }),
+    ).toBeNull();
+    expect(
+      suggestedByPhoneFromInboxItem({
+        sender: "Miriam Cohen",
+        sender_needs_confirmation: true,
+        sender_phone: "555-0100",
       }),
     ).toBeNull();
   });

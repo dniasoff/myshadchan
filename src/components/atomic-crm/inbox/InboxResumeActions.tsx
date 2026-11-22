@@ -31,12 +31,16 @@ import {
   hasResumeDocumentAttachment,
   isResumeDocument,
   suggestedByNameFromInboxItem,
+  suggestedByPhoneFromInboxItem,
   type InboxResumeAction,
   useResolveInboxItem,
 } from "./useResolveInboxItem";
 import { ResolutionClaimLostError } from "./resolveInboxItemLock";
 import { rememberTransientSuggestionName } from "../shidduchim/transientSuggestionDisplay";
-import { resolveSuggestedByValues } from "./suggestedBy";
+import {
+  resolveSuggestedByValues,
+  suggestedByPhoneForName,
+} from "./suggestedBy";
 import { SuggestedByFields } from "./SuggestedByFields";
 import type { SuggestedByFormValues } from "./suggestedBy";
 
@@ -236,15 +240,22 @@ export const InboxResumeActionsDialog = ({
             })
           : {
               suggestedByName: suggestedByNameFromInboxItem(item),
-              suggestedByPhone: null,
+              suggestedByPhone: suggestedByPhoneFromInboxItem(item),
               shadchanId: null,
             };
+      const suggestedByPhone =
+        action === "new" && suggestedBy.suggestedByName != null
+          ? suggestedByPhoneForName(
+              suggestedBy.suggestedByName,
+              suggestedBy.suggestedByPhone,
+            )
+          : suggestedBy.suggestedByPhone;
       const result = await resolveInboxResume(item, action, {
         shidduchimId: selectedSuggestion ?? undefined,
         singleId: selectedSingle ?? undefined,
         shadchanId: suggestedBy.shadchanId,
         suggestedByName: suggestedBy.suggestedByName,
-        suggestedByPhone: suggestedBy.suggestedByPhone,
+        suggestedByPhone,
       });
       if (result.outcome === "completed") {
         refresh();
@@ -311,7 +322,7 @@ export const InboxResumeActionsDialog = ({
           defaultValues={{
             shadchan_id: lockedShadchanId ?? item.shadchan_id ?? undefined,
             suggested_by_name: suggestedByNameFromInboxItem(item) ?? "",
-            suggested_by_phone: "",
+            suggested_by_phone: suggestedByPhoneFromInboxItem(item) ?? "",
           }}
         >
           {action === "attach" ? (

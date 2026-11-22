@@ -88,6 +88,45 @@ const renderDialog = async (dataProvider: CrmDataProvider) => {
 };
 
 describe("AddToInboxDialog — manual files", () => {
+  it("stores the optional sender phone with the captured Inbox item", async () => {
+    const dataProvider = buildProvider();
+    const create = vi.spyOn(dataProvider, "create");
+    const screen = await renderDialog(dataProvider);
+
+    await screen.getByLabelText("What arrived").fill("A resume was sent");
+    await screen.getByLabelText("From (optional)").fill("Sara Cohen");
+    await screen
+      .getByLabelText("Phone number (optional)")
+      .fill(" +1 347-555-0182 ");
+    await screen.getByRole("button", { name: "Add to inbox" }).click();
+
+    await expect.poll(() => create.mock.calls.length).toBe(1);
+    expect(create).toHaveBeenCalledWith(
+      "inbox_items",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sender: "Sara Cohen",
+          sender_phone: "+1 347-555-0182",
+        }),
+      }),
+    );
+  });
+
+  it("blocks a sender phone that violates the shared database checks", async () => {
+    const dataProvider = buildProvider();
+    const create = vi.spyOn(dataProvider, "create");
+    const screen = await renderDialog(dataProvider);
+
+    await screen.getByLabelText("What arrived").fill("A resume was sent");
+    await screen.getByLabelText("Phone number (optional)").fill("x".repeat(41));
+    await screen.getByRole("button", { name: "Add to inbox" }).click();
+
+    expect(create).not.toHaveBeenCalled();
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("Use 40 characters or fewer for a phone number");
+  });
+
   it("lists several files with kind and size, and removes one before saving", async () => {
     const screen = await renderDialog(buildProvider());
     const fileInput = screen.getByLabelText("Add files or photos");

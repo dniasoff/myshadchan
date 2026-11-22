@@ -68,8 +68,11 @@ const InboxCard = ({
         onClick={() => onOpen(item)}
         className="w-full rounded-2xl p-4 text-start outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
-        <div className="flex items-center justify-between gap-3">
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <span
+            className="inline-flex min-w-0 flex-wrap items-center gap-1.5 break-words text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground"
+            dir="auto"
+          >
             <SourceIcon className="size-3.5" aria-hidden="true" />
             {meta.label}
             {item.sender_needs_confirmation ? (
@@ -85,10 +88,20 @@ const InboxCard = ({
                 })}
               </span>
             ) : item.sender ? (
-              <span className="normal-case font-normal">· {item.sender}</span>
+              <span className="min-w-0 break-words normal-case font-normal">
+                · {item.sender}
+              </span>
+            ) : null}
+            {item.sender_phone ? (
+              <span
+                className="min-w-0 break-words normal-case font-normal tabular-nums"
+                dir="ltr"
+              >
+                · {item.sender_phone}
+              </span>
             ) : null}
           </span>
-          <span className="text-xs tabular-nums text-muted-foreground">
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
             {formatRedtDate(item.created_at?.split("T")[0])}
           </span>
         </div>
