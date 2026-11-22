@@ -43,7 +43,10 @@ export const InboxCapturePreview = ({ item }: { item: InboxItem }) => {
 
   return (
     <div className="rounded-2xl border border-border bg-secondary/60 p-4">
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+      <div
+        className="mb-2 flex min-w-0 flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground"
+        dir="auto"
+      >
         <SourceIcon className="size-3.5" aria-hidden="true" />
         {sourceLabel}
         {item.sender_needs_confirmation ? (
@@ -59,10 +62,15 @@ export const InboxCapturePreview = ({ item }: { item: InboxItem }) => {
             })}
           </span>
         ) : item.sender ? (
-          <span className="normal-case">· {item.sender}</span>
+          <span className="min-w-0 break-words normal-case">
+            · {item.sender}
+          </span>
         ) : null}
         {item.sender_phone ? (
-          <span className="normal-case" dir="ltr">
+          <span
+            className="min-w-0 break-words normal-case tabular-nums"
+            dir="ltr"
+          >
             · {item.sender_phone}
           </span>
         ) : null}

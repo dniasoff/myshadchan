@@ -46,9 +46,12 @@ const shadchanItem = {
   connection_id: 7,
 } as InboxItem;
 
-const renderResumeDialog = async () => {
+const renderResumeDialog = async (
+  action: "new" | "attach" = "new",
+  getList = vi.fn().mockResolvedValue({ data: [], total: 0 }),
+) => {
   const dataProvider = {
-    getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    getList,
   } as unknown as CrmDataProvider;
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -63,7 +66,7 @@ const renderResumeDialog = async () => {
         <InboxResumeActionsDialog
           item={shadchanItem}
           open
-          action="new"
+          action={action}
           onClose={vi.fn()}
         />
       </CoreAdminContext>
@@ -96,6 +99,38 @@ describe("Inbox resume action buttons", () => {
         ),
       )
       .toBe(true);
+  });
+
+  it("does not list archived suggestions in the attach picker", async () => {
+    const getList = vi.fn().mockImplementation((resource, params) => {
+      if (resource !== "shidduchim") {
+        return Promise.resolve({ data: [], total: 0 });
+      }
+      const rows = [
+        { id: 1, name_en: "Active suggestion", created_at: "2026-01-02" },
+        { id: 2, name_en: "Archived suggestion", created_at: "2026-01-01" },
+      ];
+      const data =
+        params.filter?.["archived_at@is"] === null ? [rows[0]] : rows;
+      return Promise.resolve({ data, total: data.length });
+    });
+    const { screen } = await renderResumeDialog("attach", getList);
+
+    await expect
+      .poll(() =>
+        getList.mock.calls.some(
+          ([resource, params]) =>
+            resource === "shidduchim" &&
+            params.filter?.["archived_at@is"] === null,
+        ),
+      )
+      .toBe(true);
+    await expect
+      .element(screen.getByRole("option", { name: /Active suggestion/ }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("option", { name: /Archived suggestion/ }))
+      .not.toBeInTheDocument();
   });
 
   it("offers exactly the two approved actions for a resume document", async () => {

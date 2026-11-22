@@ -31,6 +31,7 @@ export const SuggestedByFields = () => (
       dir="ltr"
       inputMode="tel"
       autoComplete="tel"
+      inputClassName="h-11 min-h-11"
       helperText={
         <span
           id="suggested_by_phone-description"

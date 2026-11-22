@@ -128,6 +128,30 @@ describe("InboxList — delete and undo", () => {
       .toBeInTheDocument();
   });
 
+  it("wraps a long sender and phone at the 390px phone width", async () => {
+    await page.viewport(390, 844);
+    const sender = `A very long sender ${"name ".repeat(30)}`.trim();
+    const phone = "1".repeat(40);
+    const { screen } = await renderInboxList([
+      { ...UNRESOLVED_ITEM, sender, sender_phone: phone },
+    ]);
+
+    const senderText = screen.getByText(`· ${sender}`, { exact: true });
+    const phoneText = screen.getByText(`· ${phone}`, { exact: true });
+    const metadata = senderText.element().parentElement;
+    const row = metadata?.parentElement;
+
+    expect(metadata?.getAttribute("dir")).toBe("auto");
+    expect(metadata?.classList.contains("min-w-0")).toBe(true);
+    expect(metadata?.classList.contains("flex-wrap")).toBe(true);
+    expect(senderText.element().classList.contains("break-words")).toBe(true);
+    expect(phoneText.element().classList.contains("break-words")).toBe(true);
+    expect(phoneText.element().getAttribute("dir")).toBe("ltr");
+    expect(row?.classList.contains("min-w-0")).toBe(true);
+    expect(row?.classList.contains("flex-wrap")).toBe(true);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+  });
+
   it("hides the item immediately and restores it without calling final delete on Undo", async () => {
     const { screen, deleteInboxItem } = await renderInboxList([
       UNRESOLVED_ITEM,

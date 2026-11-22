@@ -314,7 +314,7 @@ export const AddToInboxDialog = ({
             dir="ltr"
             value={senderPhone}
             onChange={(event) => setSenderPhone(event.target.value)}
-            className="text-base md:text-sm"
+            className="h-11 min-h-11 text-base md:text-sm"
             aria-invalid={senderPhoneError ? "true" : undefined}
             aria-describedby={
               senderPhoneError ? "inbox-sender-phone-error" : undefined
