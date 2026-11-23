@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { buildNewPath } from "../entity360/entityPaths";
 import { TopToolbar } from "../layout/TopToolbar";
 import { EmptyState } from "../misc/EmptyState";
+import { useSelectedSingle } from "../singles/useSelectedSingle";
 import type { ShidduchSummary, Single } from "../types";
 import { PipelineListSkeleton } from "./ShidduchimPipelineList";
 import { ShidduchTodoSummaryProvider } from "./ShidduchTodoSummary";
@@ -30,7 +31,25 @@ import {
 } from "./shidduchLifecycle";
 import { ShidduchPendingActionBar } from "./ShidduchLifecycleActions";
 
-const singleLabel = (single: Single) => single.first_name_en ?? `#${single.id}`;
+const singleLabel = (single: Single) =>
+  [single.first_name_en, single.last_name_en].filter(Boolean).join(" ") ||
+  `#${single.id}`;
+
+const getExplicitSingleId = (search: string): Identifier | undefined => {
+  const rawFilter = new URLSearchParams(search).get("filter");
+  if (!rawFilter) return undefined;
+
+  try {
+    const parsed: unknown = JSON.parse(rawFilter);
+    if (!parsed || typeof parsed !== "object") return undefined;
+    const value = (parsed as Record<string, unknown>).single_id;
+    return typeof value === "string" || typeof value === "number"
+      ? value
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 type ArchiveFilterMode = "active" | "archived" | "all";
 
@@ -120,15 +139,42 @@ const ShidduchimList = () => {
   }, [location.search]);
 
   const { identity } = useGetIdentity();
-  const { data: singles, isPending: singlesPending } = useGetList<Single>(
-    "singles",
-    {
-      // 2.5 AC-8: an archived single is not a selectable "current" single.
-      filter: { "status@neq": "archived" },
-      pagination: { page: 1, perPage: 100 },
-      sort: { field: "first_name_en", order: "ASC" },
-    },
-  );
+  const {
+    singles,
+    selected,
+    selectedId,
+    setSelectedId,
+    isPending: singlesPending,
+  } = useSelectedSingle();
+  const explicitSingleId = getExplicitSingleId(location.search);
+  const explicitSingle =
+    explicitSingleId == null
+      ? undefined
+      : singles.find(
+          (single) => String(single.id) === String(explicitSingleId),
+        );
+  const explicitNavigationKey = explicitSingle
+    ? `${location.key}:${location.pathname}${location.search}:${String(explicitSingle.id)}`
+    : undefined;
+  const appliedExplicitSingle = useRef<string | undefined>(undefined);
+  const selectedSingle =
+    explicitSingle && explicitNavigationKey !== appliedExplicitSingle.current
+      ? explicitSingle
+      : selected;
+
+  useEffect(() => {
+    if (!explicitSingle || !explicitNavigationKey) return;
+    if (appliedExplicitSingle.current === explicitNavigationKey) return;
+    appliedExplicitSingle.current = explicitNavigationKey;
+    if (selectedId !== explicitSingle.id) setSelectedId(explicitSingle.id);
+  }, [
+    explicitSingle,
+    explicitNavigationKey,
+    location.pathname,
+    location.search,
+    selectedId,
+    setSelectedId,
+  ]);
 
   // Review fix F4 (AC-5): this used to be a bare `return null` — one of the
   // audit's seven "null loading" states. `<List>` (and therefore
@@ -137,7 +183,9 @@ const ShidduchimList = () => {
   // same loading SHAPE the gate renders once it does mount (AC-13), not a
   // second, differently-shaped spinner.
   if (!identity || singlesPending) return <PipelineListSkeleton />;
-  if (!singles || singles.length === 0) return <ShidduchimNoSingles />;
+  if (!singles || singles.length === 0 || !selectedSingle) {
+    return <ShidduchimNoSingles />;
+  }
 
   // Story 5.1: the create page is no longer matched inside this component —
   // it is `ShidduchCreatePage`, mounted by `buildEntityRoutes`'s own `new`
@@ -146,21 +194,15 @@ const ShidduchimList = () => {
     <List
       title={false}
       perPage={200}
-      // Task 2 (AC 4): a `filterDefaultValues`, not a hard `filter` computed
-      // from local state — ra-core's `getQuery()` falls back to this only
-      // when neither the URL nor stored list params already supply a value,
-      // so it is resolved exactly once, synchronously, the same moment the
-      // pre-story `singleId ?? singles[0].id` was. The `if (!singles...)`
-      // guard above already guarantees `singles` is loaded here.
-      filterDefaultValues={{
-        single_id: singles[0].id,
-        "archived_at@is": null,
-      }}
+      filterDefaultValues={{ "archived_at@is": null }}
       // `ra-core` removes null values from ordinary list filters. Keep the
       // active archive predicate permanent so it cannot disappear from the
       // request after a search or single switch; archived/all modes replace
       // it from the parent state.
-      filter={getArchiveFilter(archiveMode)}
+      filter={{
+        single_id: selectedSingle.id,
+        ...getArchiveFilter(archiveMode),
+      }}
       filters={[
         <ShidduchSearchInput
           key="q"
@@ -179,8 +221,7 @@ const ShidduchimList = () => {
           archiveModeRef.current = mode;
           setArchiveMode(mode);
         }}
-        searchValueRef={searchValueRef}
-        singleList={singles}
+        selectedSingle={selectedSingle}
       />
     </List>
   );
@@ -262,13 +303,11 @@ const ShidduchSearchInput = ({
 const ShidduchimBody = ({
   archiveMode,
   onArchiveModeChange,
-  searchValueRef,
-  singleList,
+  selectedSingle,
 }: {
   archiveMode: ArchiveFilterMode;
   onArchiveModeChange: (mode: ArchiveFilterMode) => void;
-  searchValueRef: MutableRefObject<string>;
-  singleList: Single[];
+  selectedSingle: Single;
 }) => {
   const { data, filterValues, setFilters, displayedFilters } = useListContext();
   const location = useLocation();
@@ -373,15 +412,12 @@ const ShidduchimBody = ({
     setFilters,
   ]);
 
-  const singleId = (filterValues as Record<string, unknown> | undefined)
-    ?.single_id as Identifier | undefined;
   const count = data?.length ?? 0;
-  const singleIdFilter = singleId ?? singleList[0]?.id;
   const { total: archivedCount = 0 } = useGetList<ShidduchSummary>(
     "shidduchim",
     {
       filter: {
-        single_id: singleIdFilter,
+        single_id: selectedSingle.id,
         "archived_at@not.is": null,
       },
       pagination: { page: 1, perPage: 1 },
@@ -389,6 +425,19 @@ const ShidduchimBody = ({
     },
   );
   const allSuggestions = archiveMode === "all";
+
+  useEffect(() => {
+    const currentSingleId = (filterValues as Record<string, unknown>)
+      ?.single_id;
+    if (String(currentSingleId) === String(selectedSingle.id)) return;
+    setFilters(
+      {
+        ...(filterValues as Record<string, unknown>),
+        single_id: selectedSingle.id,
+      },
+      displayedFilters,
+    );
+  }, [displayedFilters, filterValues, selectedSingle.id, setFilters]);
 
   const setArchiveFilter = (mode: "active" | "archived" | "all") => {
     const next = { ...(filterValues as Record<string, unknown>) };
@@ -404,13 +453,6 @@ const ShidduchimBody = ({
     }
     onArchiveModeChange(mode);
     setFilters(next, nextDisplayedFilters);
-  };
-
-  const getCurrentFilters = () => {
-    const next = { ...(filterValues as Record<string, unknown>) };
-    if (searchValueRef.current) next.q = searchValueRef.current;
-    else delete next.q;
-    return next;
   };
 
   return (
@@ -534,34 +576,6 @@ const ShidduchimBody = ({
               Include archived
             </label>
           </div>
-          {singleList.length > 1 ? (
-            <div className="mb-3 inline-flex flex-wrap gap-0.5 rounded-full border bg-secondary p-0.5">
-              {singleList.map((single) => (
-                <button
-                  key={single.id}
-                  type="button"
-                  // Task 2 (AC 4): setFilters is what writes single_id into
-                  // the URL's `filter` param — filterDefaultValues only ever
-                  // supplies the INITIAL value.
-                  onClick={() => {
-                    setFilters(
-                      { ...getCurrentFilters(), single_id: single.id },
-                      displayedFilters,
-                    );
-                  }}
-                  className={cn(
-                    // Task 7: 32px -> 44px touch targets.
-                    "min-h-11 rounded-full px-4 text-[13px] font-semibold transition-colors",
-                    single.id === singleId
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {singleLabel(single)}
-                </button>
-              ))}
-            </div>
-          ) : null}
           <h1
             ref={heading}
             tabIndex={-1}
@@ -570,11 +584,7 @@ const ShidduchimBody = ({
             {count} redts
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {/* View-neutral on purpose: this line sits ABOVE the Board /
-                List / Cards switch, and the Board has no rows and no ⇄
-                control, so naming either was telling a parent to do
-                something the screen in front of them does not offer. */}
-            Tap a suggestion to open it, or move it to another stage.
+            Showing {singleLabel(selectedSingle)}
           </p>
         </div>
       </div>

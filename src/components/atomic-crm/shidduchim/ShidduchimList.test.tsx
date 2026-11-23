@@ -17,6 +17,7 @@ import type { CrmDataProvider } from "../providers/types";
 import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import type { MyContext } from "../types";
 import { PIPELINE_STATES } from "./pipelineStates";
+import { SingleSwitcherPill } from "../layout/TopBar";
 
 // The real, post-change `shidduchim` resource definition — the same object
 // `<CRM>` spreads onto `<Resource>` (`root/routeManifest.ts`'s `RESOURCES`,
@@ -56,15 +57,27 @@ type ListRequest = {
   pagination?: { page: number; perPage: number };
 };
 
+type TestSingle = {
+  id: number;
+  first_name_en: string;
+  last_name_en?: string;
+  status: string;
+};
+
+const DEFAULT_SINGLES: TestSingle[] = [
+  { id: 1, first_name_en: "Chaya", status: "active" },
+];
+
 const buildDataProvider = (
   onShidduchList?: (params: ListRequest) => void,
+  singles: TestSingle[] = DEFAULT_SINGLES,
 ): CrmDataProvider =>
   ({
     getList: vi.fn((resource: string, params: ListRequest) => {
       if (resource === "singles") {
         return Promise.resolve({
-          data: [{ id: 1, first_name_en: "Chaya", status: "active" }],
-          total: 1,
+          data: singles,
+          total: singles.length,
         });
       }
       if (resource === "shidduchim") onShidduchList?.(params);
@@ -77,7 +90,11 @@ const buildDataProvider = (
 
 const renderShidduchimResourceAt = async (
   initialEntries: string[],
-  options: { dataProvider?: CrmDataProvider; store?: Store } = {},
+  options: {
+    dataProvider?: CrmDataProvider;
+    store?: Store;
+    topBar?: boolean;
+  } = {},
 ) =>
   render(
     <TestMemoryRouter initialEntries={initialEntries}>
@@ -87,6 +104,7 @@ const renderShidduchimResourceAt = async (
         store={options.store}
         i18nProvider={testI18nProvider}
       >
+        {options.topBar ? <SingleSwitcherPill /> : null}
         <Suspense fallback={null}>
           <Routes>
             <Route
@@ -98,6 +116,119 @@ const renderShidduchimResourceAt = async (
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
+
+describe("ShidduchimList — shared child choice", () => {
+  const singles: TestSingle[] = [
+    {
+      id: 1,
+      first_name_en: "Chaya",
+      last_name_en: "Cohen",
+      status: "active",
+    },
+    {
+      id: 2,
+      first_name_en: "Rivka",
+      last_name_en: "Levy",
+      status: "active",
+    },
+  ];
+
+  it("follows a child switched in the top-left pill", async () => {
+    const requests: ListRequest[] = [];
+    const store = memoryStore({ "single.selected": 1 });
+    const screen = await renderShidduchimResourceAt(["/shidduchim"], {
+      dataProvider: buildDataProvider(
+        (params) => requests.push(params),
+        singles,
+      ),
+      store,
+      topBar: true,
+    });
+
+    await expect.element(screen.getByText("Showing Chaya Cohen")).toBeVisible();
+    await screen
+      .getByRole("button", { name: /Switch single: Chaya Cohen/ })
+      .click();
+    await screen.getByRole("menuitem", { name: "Rivka Levy" }).click();
+
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.pagination?.perPage === 200 &&
+            request.filter?.single_id === 2,
+        ),
+      )
+      .toBe(true);
+    await expect.element(screen.getByText("Showing Rivka Levy")).toBeVisible();
+  });
+
+  it("ignores a stale stored list child filter", async () => {
+    const requests: ListRequest[] = [];
+    const store = memoryStore({
+      "single.selected": 2,
+      "shidduchim.listParams": {
+        filter: { single_id: 1 },
+        page: 1,
+        perPage: 200,
+        sort: "index",
+        order: "ASC",
+        displayedFilters: {},
+      },
+    });
+    const screen = await renderShidduchimResourceAt(["/shidduchim"], {
+      dataProvider: buildDataProvider(
+        (params) => requests.push(params),
+        singles,
+      ),
+      store,
+    });
+
+    await expect.element(screen.getByText("Showing Rivka Levy")).toBeVisible();
+    const mainRequest = requests.find(
+      (request) => request.pagination?.perPage === 200,
+    );
+    expect(mainRequest?.filter).toMatchObject({ single_id: 2 });
+  });
+
+  it("lets an explicit link initialize the shared choice once", async () => {
+    const requests: ListRequest[] = [];
+    const store = memoryStore({ "single.selected": 1 });
+    const filter = encodeURIComponent(JSON.stringify({ single_id: 2 }));
+    const screen = await renderShidduchimResourceAt(
+      [`/shidduchim?filter=${filter}`],
+      {
+        dataProvider: buildDataProvider(
+          (params) => requests.push(params),
+          singles,
+        ),
+        store,
+        topBar: true,
+      },
+    );
+
+    await expect.element(screen.getByText("Showing Rivka Levy")).toBeVisible();
+    await expect
+      .element(
+        screen.getByRole("button", { name: /Switch single: Rivka Levy/ }),
+      )
+      .toBeVisible();
+    expect(store.getItem("single.selected", null)).toBe(2);
+    expect(
+      requests.some(
+        (request) =>
+          request.pagination?.perPage === 200 &&
+          request.filter?.single_id === 2,
+      ),
+    ).toBe(true);
+
+    await screen
+      .getByRole("button", { name: /Switch single: Rivka Levy/ })
+      .click();
+    await screen.getByRole("menuitem", { name: "Chaya Cohen" }).click();
+    await expect.element(screen.getByText("Showing Chaya Cohen")).toBeVisible();
+  });
+});
 
 describe("ShidduchimList — the create page sits above <List> (AC 1)", () => {
   it("renders the create heading and never the pipeline's '{n} redts' heading at /shidduchim/new", async () => {
