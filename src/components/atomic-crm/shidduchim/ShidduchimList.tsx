@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import { buildNewPath } from "../entity360/entityPaths";
+import { SingleSwitcherPill } from "../layout/TopBar";
 import { TopToolbar } from "../layout/TopToolbar";
 import { EmptyState } from "../misc/EmptyState";
 import { useSelectedSingle } from "../singles/useSelectedSingle";
@@ -191,39 +192,46 @@ const ShidduchimList = () => {
   // it is `ShidduchCreatePage`, mounted by `buildEntityRoutes`'s own `new`
   // route (`shidduchim/index.ts`). `<List>` now renders unconditionally here.
   return (
-    <List
-      title={false}
-      perPage={200}
-      filterDefaultValues={{ "archived_at@is": null }}
-      // `ra-core` removes null values from ordinary list filters. Keep the
-      // active archive predicate permanent so it cannot disappear from the
-      // request after a search or single switch; archived/all modes replace
-      // it from the parent state.
-      filter={{
-        single_id: selectedSingle.id,
-        ...getArchiveFilter(archiveMode),
-      }}
-      filters={[
-        <ShidduchSearchInput
-          key="q"
-          source="q"
-          alwaysOn
-          searchValueRef={searchValueRef}
-        />,
-      ]}
-      sort={{ field: "index", order: "ASC" }}
-      pagination={null}
-      actions={<ShidduchimActions />}
-    >
-      <ShidduchimBody
-        archiveMode={archiveMode}
-        onArchiveModeChange={(mode) => {
-          archiveModeRef.current = mode;
-          setArchiveMode(mode);
+    <>
+      {singles.length > 1 ? (
+        <div className="mb-4 sm:hidden">
+          <SingleSwitcherPill className="h-11 min-h-11 w-full justify-between rounded-xl" />
+        </div>
+      ) : null}
+      <List
+        title={false}
+        perPage={200}
+        filterDefaultValues={{ "archived_at@is": null }}
+        // `ra-core` removes null values from ordinary list filters. Keep the
+        // active archive predicate permanent so it cannot disappear from the
+        // request after a search or single switch; archived/all modes replace
+        // it from the parent state.
+        filter={{
+          single_id: selectedSingle.id,
+          ...getArchiveFilter(archiveMode),
         }}
-        selectedSingle={selectedSingle}
-      />
-    </List>
+        filters={[
+          <ShidduchSearchInput
+            key="q"
+            source="q"
+            alwaysOn
+            searchValueRef={searchValueRef}
+          />,
+        ]}
+        sort={{ field: "index", order: "ASC" }}
+        pagination={null}
+        actions={<ShidduchimActions />}
+      >
+        <ShidduchimBody
+          archiveMode={archiveMode}
+          onArchiveModeChange={(mode) => {
+            archiveModeRef.current = mode;
+            setArchiveMode(mode);
+          }}
+          selectedSingle={selectedSingle}
+        />
+      </List>
+    </>
   );
 };
 
