@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import postgrestRestProvider from "@raphiniert/ra-data-postgrest";
 
 /**
  * The `shidduchim` read redirects, tested against what ships.
@@ -112,5 +113,37 @@ describe("supabase dataProvider — shidduchim reads never address the base tabl
 
     // Assert
     expect(baseProvider.getMany).toHaveBeenCalledWith("singles", { ids: [1] });
+  });
+});
+
+describe("the real PostgREST request builder", () => {
+  it("encodes an explicit null filter as is.null", async () => {
+    let requestedUrl = "";
+    const httpClient = vi.fn(async (url: string) => {
+      requestedUrl = url;
+      return {
+        headers: {
+          has: () => true,
+          get: () => "0-0/0",
+        },
+        json: [],
+      };
+    });
+    const provider = postgrestRestProvider({
+      apiUrl: "http://supabase.test/rest/v1",
+      httpClient,
+      defaultListOp: "eq",
+      primaryKeys: new Map(),
+      schema: () => "",
+    });
+
+    await provider.getList("resume_photos", {
+      filter: { resume_id: 33, "hidden_at@is": null },
+      pagination: { page: 1, perPage: 20 },
+      sort: { field: "uploaded_at", order: "DESC" },
+    });
+
+    expect(requestedUrl).toContain("hidden_at=is.null");
+    expect(requestedUrl).not.toContain("hidden_at=eq.null");
   });
 });

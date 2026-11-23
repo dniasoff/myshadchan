@@ -73,6 +73,8 @@ type ShareFile = {
 };
 
 const FILE_DELETE_UNDO_MS = 10_000;
+const DOCUMENT_SLOT_UNAVAILABLE_MESSAGE =
+  "Can't check this right now - tap Retry.";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -181,6 +183,7 @@ function EmptySlot({
   canAdd,
   disabled,
   pending,
+  unavailableMessage,
   onAdd,
 }: {
   label: string;
@@ -188,6 +191,7 @@ function EmptySlot({
   canAdd: boolean;
   disabled?: boolean;
   pending?: boolean;
+  unavailableMessage?: string;
   onAdd: () => void;
 }): ReactElement {
   const actionLabel = label.startsWith("Papers")
@@ -198,7 +202,10 @@ function EmptySlot({
       <div>
         <p className="text-sm font-semibold">{label}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          {pending ? "Undo is available for 10 seconds." : "No file added yet."}
+          {unavailableMessage ??
+            (pending
+              ? "Undo is available for 10 seconds."
+              : "No file added yet.")}
         </p>
       </div>
       {canAdd ? (
@@ -207,7 +214,7 @@ function EmptySlot({
           variant="outline"
           className="mt-3 min-h-11 self-start md:min-h-11"
           aria-label={`Add ${slotName}`}
-          disabled={disabled}
+          disabled={disabled || unavailableMessage != null}
           onClick={onAdd}
         >
           {actionLabel}
@@ -235,11 +242,13 @@ export function ChildDocumentsPanel({
   const focusReturnRef = useRef<HTMLElement | null>(null);
   const undoButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const restoreTargetRefs = useRef(new Map<string, HTMLElement>());
+  const expiredDeleteSweepStartedRef = useRef(false);
   const [uploadKind, setUploadKind] = useState<DocumentKind | null>(null);
   const [uploadSlot, setUploadSlot] = useState<ChildPaperSlot | null>(null);
   const [uploadReplaceTarget, setUploadReplaceTarget] =
     useState<ReplaceTarget>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [isRetryingDocuments, setIsRetryingDocuments] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [pendingDeletes, setPendingDeletes] = useState<
@@ -251,6 +260,7 @@ export function ChildDocumentsPanel({
     data: resumes,
     error: resumesError,
     isPending: resumesPending,
+    isFetching: resumesFetching,
     refetch: refetchResumes,
   } = useGetList<Resume>(
     "resumes",
@@ -268,11 +278,12 @@ export function ChildDocumentsPanel({
     data: photos,
     error: photosError,
     isPending: photosPending,
+    isFetching: photosFetching,
     refetch: refetchPhotos,
   } = useGetList<ResumePhoto>(
     "resume_photos",
     {
-      filter: { resume_id: resume?.id, hidden_at: null },
+      filter: { resume_id: resume?.id, "hidden_at@is": null },
       pagination: { page: 1, perPage: 20 },
       sort: { field: "uploaded_at", order: "DESC" },
     },
@@ -289,6 +300,7 @@ export function ChildDocumentsPanel({
     data: entityFiles,
     error: entityFilesError,
     isPending: entityFilesPending,
+    isFetching: entityFilesFetching,
     refetch: refetchEntityFiles,
   } = useGetList<EntityFileSummary>(
     "entity_files_summary",
@@ -303,23 +315,35 @@ export function ChildDocumentsPanel({
     (file) => file.slot === "paper_1" || file.slot === "paper_2",
   );
   const olderFiles = (entityFiles ?? []).filter((file) => file.slot == null);
+  const documentsFetching =
+    resumesFetching ||
+    entityFilesFetching ||
+    (resume?.id != null && photosFetching);
 
   const documentsPending =
     open &&
     (resumesPending ||
       entityFilesPending ||
-      (resume?.id != null && photosPending));
+      (resume?.id != null && photosPending) ||
+      isRetryingDocuments);
   const documentsError = resumesError ?? entityFilesError ?? photosError;
   const retryDocuments = () => {
+    if (isRetryingDocuments || documentsFetching) return;
     setUploadError(null);
-    void refetchResumes();
-    void refetchPhotos();
-    void refetchEntityFiles();
+    setIsRetryingDocuments(true);
+    const refetches: Array<Promise<unknown>> = [
+      refetchResumes(),
+      refetchEntityFiles(),
+    ];
+    if (resume?.id != null) refetches.push(refetchPhotos());
+    void Promise.allSettled(refetches).finally(() => {
+      setIsRetryingDocuments(false);
+    });
   };
   const sweepExpiredDeletes = useCallback(async () => {
     try {
-      await dataProvider.finalizeExpiredEntityFileDeletes();
-      refresh();
+      const finalized = await dataProvider.finalizeExpiredEntityFileDeletes();
+      if (finalized > 0) refresh();
     } catch {
       // A cleanup outage must not turn a readable document list into an error.
     }
@@ -409,7 +433,12 @@ export function ChildDocumentsPanel({
   }, [dataProvider, notify, pendingDeletes, refresh]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      expiredDeleteSweepStartedRef.current = false;
+      return;
+    }
+    if (expiredDeleteSweepStartedRef.current) return;
+    expiredDeleteSweepStartedRef.current = true;
     void sweepExpiredDeletes();
   }, [open, sweepExpiredDeletes]);
 
@@ -848,19 +877,27 @@ export function ChildDocumentsPanel({
             >
               Loading documents…
             </p>
-          ) : documentsError ? (
-            <div role="alert" className="flex flex-col gap-3 text-sm">
-              <p>Could not load documents. Your files are unchanged.</p>
-              <Button
-                type="button"
-                className="min-h-11 self-start"
-                onClick={retryDocuments}
-              >
-                Retry
-              </Button>
-            </div>
           ) : (
             <>
+              {documentsError ? (
+                <div role="alert" className="flex flex-col gap-3 text-sm">
+                  <p>
+                    Could not load some documents. Your files are unchanged.
+                  </p>
+                  <ul className="list-inside list-disc text-muted-foreground">
+                    {resumesError ? <li>Resume is unavailable.</li> : null}
+                    {photosError ? <li>Picture is unavailable.</li> : null}
+                    {entityFilesError ? <li>Papers are unavailable.</li> : null}
+                  </ul>
+                  <Button
+                    type="button"
+                    className="min-h-11 self-start"
+                    onClick={retryDocuments}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : null}
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm text-muted-foreground">
@@ -892,6 +929,9 @@ export function ChildDocumentsPanel({
                 <DocumentSlot
                   label="Resume"
                   slotName="Resume"
+                  unavailableMessage={
+                    resumesError ? DOCUMENT_SLOT_UNAVAILABLE_MESSAGE : undefined
+                  }
                   file={
                     visibleResume
                       ? {
@@ -934,6 +974,11 @@ export function ChildDocumentsPanel({
                 <DocumentSlot
                   label="Picture"
                   slotName="Picture"
+                  unavailableMessage={
+                    resumesError || photosError
+                      ? DOCUMENT_SLOT_UNAVAILABLE_MESSAGE
+                      : undefined
+                  }
                   file={
                     visiblePhoto
                       ? {
@@ -976,6 +1021,11 @@ export function ChildDocumentsPanel({
                       key={slot}
                       label={`Papers · ${index + 1} of ${MAX_CHILD_PAPERS}`}
                       slotName={`Paper ${index + 1}`}
+                      unavailableMessage={
+                        entityFilesError
+                          ? DOCUMENT_SLOT_UNAVAILABLE_MESSAGE
+                          : undefined
+                      }
                       file={
                         file
                           ? {
@@ -1148,6 +1198,7 @@ function DocumentSlot({
   canManage,
   disabled,
   pending,
+  unavailableMessage,
 }: {
   label: string;
   slotName: string;
@@ -1161,7 +1212,19 @@ function DocumentSlot({
   onForward: () => void;
   onDelete: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled: boolean;
+  unavailableMessage?: string;
 }): ReactElement {
+  if (unavailableMessage)
+    return (
+      <EmptySlot
+        label={label}
+        slotName={slotName}
+        canAdd={canAdd}
+        disabled
+        unavailableMessage={unavailableMessage}
+        onAdd={onAdd}
+      />
+    );
   if (!file)
     return (
       <EmptySlot

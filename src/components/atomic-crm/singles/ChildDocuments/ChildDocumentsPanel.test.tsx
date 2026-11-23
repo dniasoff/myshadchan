@@ -83,16 +83,22 @@ const olderFile: EntityFileSummary = {
 
 function buildDataProvider(
   entityFiles: EntityFileSummary[] = [paper, olderFile],
+  getListOverride?: CrmDataProvider["getList"],
 ): CrmDataProvider {
-  const getList = vi.fn((resource: string) => {
-    if (resource === "resumes")
-      return Promise.resolve({ data: [resume], total: 1 });
-    if (resource === "resume_photos")
-      return Promise.resolve({ data: [photo], total: 1 });
-    if (resource === "entity_files_summary")
-      return Promise.resolve({ data: entityFiles, total: entityFiles.length });
-    return Promise.resolve({ data: [], total: 0 });
-  });
+  const getList =
+    getListOverride ??
+    vi.fn((resource: string) => {
+      if (resource === "resumes")
+        return Promise.resolve({ data: [resume], total: 1 });
+      if (resource === "resume_photos")
+        return Promise.resolve({ data: [photo], total: 1 });
+      if (resource === "entity_files_summary")
+        return Promise.resolve({
+          data: entityFiles,
+          total: entityFiles.length,
+        });
+      return Promise.resolve({ data: [], total: 0 });
+    });
   return {
     getList,
     getOne: vi.fn(),
@@ -104,7 +110,7 @@ function buildDataProvider(
     uploadResumePhoto: vi.fn().mockResolvedValue(photo),
     signResumeFileUrl: vi.fn().mockResolvedValue("blob:resume"),
     signResumePhotoUrl: vi.fn().mockResolvedValue("blob:photo"),
-    signEntityFileUrl: vi.fn(),
+    signEntityFileUrl: vi.fn().mockResolvedValue("blob:paper"),
     hideResumePhoto: vi.fn().mockResolvedValue(photo),
     restoreResumePhoto: vi.fn().mockResolvedValue(photo),
     removeResumeFile: vi.fn().mockResolvedValue(undefined),
@@ -120,8 +126,11 @@ function buildDataProvider(
   } as unknown as CrmDataProvider;
 }
 
-async function renderPanel(entityFiles?: EntityFileSummary[]) {
-  const dataProvider = buildDataProvider(entityFiles);
+async function renderPanel(
+  entityFiles?: EntityFileSummary[],
+  getListOverride?: CrmDataProvider["getList"],
+) {
+  const dataProvider = buildDataProvider(entityFiles, getListOverride);
   const screen = await render(
     <TestMemoryRouter>
       <CoreAdminContext
@@ -162,7 +171,7 @@ describe("ChildDocumentsPanel", () => {
   });
 
   it("renders the three named slots, same-source files, and the legacy section", async () => {
-    const { screen } = await renderPanel();
+    const { dataProvider, screen } = await renderPanel();
 
     await expect.element(screen.getByText("Documents")).toBeInTheDocument();
     await expect
@@ -176,6 +185,12 @@ describe("ChildDocumentsPanel", () => {
       .element(screen.getByText("Older files (1)"))
       .toBeInTheDocument();
     await expect.element(screen.getByText("older-file.docx")).not.toBeVisible();
+    expect(dataProvider.getList).toHaveBeenCalledWith(
+      "resume_photos",
+      expect.objectContaining({
+        filter: { resume_id: resume.id, "hidden_at@is": null },
+      }),
+    );
 
     for (const name of [
       "Open Resume",
@@ -196,6 +211,102 @@ describe("ChildDocumentsPanel", () => {
         .element(screen.getByRole("button", { name }))
         .toBeInTheDocument();
     }
+  });
+
+  it("shows loading while Retry refetches after a failed load", async () => {
+    let phase: "initial" | "retry" = "initial";
+    const retryResolvers: Array<
+      (result: { data: unknown[]; total: number }) => void
+    > = [];
+    const getList = vi.fn((resource: string) => {
+      if (phase === "initial") return Promise.reject(new Error("offline"));
+      if (resource === "resume_photos")
+        return Promise.resolve({ data: [photo], total: 1 });
+      return new Promise<{ data: unknown[]; total: number }>((resolve) => {
+        retryResolvers.push(resolve);
+      });
+    }) as unknown as CrmDataProvider["getList"];
+    const { screen } = await renderPanel(undefined, getList);
+
+    await expect
+      .element(
+        screen.getByText(
+          "Could not load some documents. Your files are unchanged.",
+        ),
+      )
+      .toBeInTheDocument();
+
+    phase = "retry";
+    await screen.getByRole("button", { name: "Retry" }).click();
+    await expect
+      .element(screen.getByText("Loading documents…"))
+      .toBeInTheDocument();
+    await expect.poll(() => retryResolvers.length).toBe(2);
+
+    const pendingResolvers = retryResolvers.splice(0);
+    pendingResolvers.forEach((resolve, index) => {
+      resolve(
+        index === 0
+          ? { data: [resume], total: 1 }
+          : { data: [paper, olderFile], total: 2 },
+      );
+    });
+    await expect
+      .element(screen.getByText("Miriam-Cohen-resume.pdf"))
+      .toBeInTheDocument();
+  });
+
+  it("keeps paper slots usable when the resume lookup fails", async () => {
+    const getList = vi.fn((resource: string) => {
+      if (resource === "resumes") {
+        return Promise.reject(new Error("resume unavailable"));
+      }
+      if (resource === "entity_files_summary")
+        return Promise.resolve({ data: [paper], total: 1 });
+      return Promise.resolve({ data: [], total: 0 });
+    }) as unknown as CrmDataProvider["getList"];
+    const { dataProvider, screen } = await renderPanel(undefined, getList);
+
+    await expect
+      .element(screen.getByText("Resume is unavailable."))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Add Resume" }))
+      .toBeDisabled();
+    await expect
+      .element(screen.getByText("school-paper.pdf"))
+      .toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "Open Paper 1" }).click();
+    await expect
+      .poll(() => vi.mocked(dataProvider.signEntityFileUrl).mock.calls.length)
+      .toBe(1);
+  });
+
+  it("disables paper adds when the paper lookup fails", async () => {
+    const getList = vi.fn((resource: string) => {
+      if (resource === "entity_files_summary")
+        return Promise.reject(new Error("papers unavailable"));
+      if (resource === "resumes")
+        return Promise.resolve({ data: [resume], total: 1 });
+      if (resource === "resume_photos")
+        return Promise.resolve({ data: [photo], total: 1 });
+      return Promise.resolve({ data: [], total: 0 });
+    }) as unknown as CrmDataProvider["getList"];
+    const { screen } = await renderPanel(undefined, getList);
+
+    await expect
+      .element(screen.getByText("Papers are unavailable."))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Add Paper 1" }))
+      .toBeDisabled();
+    await expect
+      .element(screen.getByRole("button", { name: "Add Paper 2" }))
+      .toBeDisabled();
+    await expect
+      .element(screen.getByRole("button", { name: "Open Resume" }))
+      .not.toBeDisabled();
   });
 
   it("does not show Older files when no legacy rows exist", async () => {
