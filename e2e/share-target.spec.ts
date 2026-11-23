@@ -123,7 +123,7 @@ test.describe("Share-target completion (Story 10.1)", () => {
     // new suggestion was filed against — `ShidduchCard`/`ShidduchRow` fall
     // back to the single's own name when the suggestion itself has none yet.
     await page.goto(`${APP_URL}/#/shidduchim`);
-    await expect(page.getByText("Malka E2E")).toBeVisible();
+    await expect(page.getByRole("link", { name: /Malka E2E/ })).toBeVisible();
   });
 
   test("skip drops the capture, unresolved, in the Inbox (AC 6)", async ({

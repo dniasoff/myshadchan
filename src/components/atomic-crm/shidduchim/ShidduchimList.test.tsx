@@ -204,6 +204,10 @@ afterEach(async () => {
 });
 
 describe("ShidduchimList — shared child choice", () => {
+  beforeEach(async () => {
+    await page.viewport(1280, 720);
+  });
+
   const singles: TestSingle[] = [
     {
       id: 1,
@@ -412,6 +416,7 @@ describe("ShidduchimList — mobile shared child choice", () => {
   });
 
   it("does not add a page picker on desktop", async () => {
+    await page.viewport(1280, 720);
     const store = memoryStore({ "single.selected": 1 });
     const screen = await renderShidduchimResourceAt(["/shidduchim"], {
       dataProvider: buildDataProvider(undefined, singles),
@@ -427,6 +432,7 @@ describe("ShidduchimList — mobile shared child choice", () => {
   });
 
   it("keeps the selected child after the delete redirect to /shidduchim", async () => {
+    await page.viewport(1280, 720);
     const store = memoryStore({ "single.selected": 2 });
     const screen = await renderShidduchimResourceAt([postDeleteEntry()], {
       dataProvider: buildDataProvider(undefined, singles),
