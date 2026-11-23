@@ -226,6 +226,9 @@ describe("ChildDocumentsPanel", () => {
       .element(screen.getByRole("img", { name: "Picture preview" }))
       .toHaveAttribute("src", "blob:photo");
     await expect
+      .element(screen.getByText("Tap to open full size"))
+      .toBeInTheDocument();
+    await expect
       .element(screen.getByText("school-paper.pdf"))
       .toBeInTheDocument();
     await expect
@@ -748,6 +751,40 @@ describe("ChildDocumentsPanel", () => {
       .element(screen.getByRole("status"))
       .toHaveTextContent("Picture ready to share.");
     expect(open).not.toHaveBeenCalled();
+  });
+
+  it("guards a full-size send against double taps and announces its busy state", async () => {
+    let resolveSignedUrl!: (url: string) => void;
+    const signPhoto = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveSignedUrl = resolve;
+        }),
+    );
+    const { dataProvider, screen } = await renderPanel([paper]);
+    dataProvider.signResumePhotoUrl = signPhoto;
+
+    await screen.getByRole("button", { name: "Forward Picture" }).click();
+    const sendFullSize = screen.getByRole("button", {
+      name: "Send full size",
+    });
+    await sendFullSize.click();
+
+    await expect
+      .element(screen.getByRole("region", { name: "Forward picture" }))
+      .toHaveAttribute("aria-busy", "true");
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Preparing to send…");
+    await expect.element(sendFullSize).toBeDisabled();
+    expect(signPhoto).toHaveBeenCalledTimes(1);
+
+    await sendFullSize.click();
+    expect(signPhoto).toHaveBeenCalledTimes(1);
+    resolveSignedUrl("blob:photo");
+    await expect
+      .element(screen.getByText("Download it, then attach it yourself."))
+      .toBeInTheDocument();
   });
 
   it("uses the touch share sheet only after a successful fetch", async () => {
