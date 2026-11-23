@@ -228,6 +228,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/singles/ChildDocuments/photoResize.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/singles/ChildDocuments/childDocuments.ts",
           "type": "registry:component"
         },
