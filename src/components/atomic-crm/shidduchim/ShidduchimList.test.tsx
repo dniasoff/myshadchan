@@ -23,9 +23,10 @@ import { ACCOUNT_DEMO_QUERY_KEY } from "../root/useAccountDemo";
 import { AGE_AFFIRMATION_QUERY_KEY } from "../root/useAgeAffirmation";
 import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
 import { MY_PERSONAS_QUERY_KEY } from "../root/useMyPersonas";
-import type { MyContext } from "../types";
+import type { MyContext, ShidduchSummary } from "../types";
 import { PIPELINE_STATES } from "./pipelineStates";
 import { SingleSwitcherPill } from "../layout/TopBar";
+import { ShidduchLifecycleActions } from "./ShidduchLifecycleActions";
 
 // The real, post-change `shidduchim` resource definition — the same object
 // `<CRM>` spreads onto `<Resource>` (`root/routeManifest.ts`'s `RESOURCES`,
@@ -99,6 +100,15 @@ const postDeleteEntry = () => ({
   },
 });
 
+const DELETE_RECORD = {
+  id: 42,
+  account_id: 1,
+  single_id: 2,
+  name_en: "Deleted resume",
+  pipeline_state: "new",
+  archived_at: null,
+} as ShidduchSummary;
+
 const buildDataProvider = (
   onShidduchList?: (params: ListRequest) => void,
   singles: TestSingle[] = DEFAULT_SINGLES,
@@ -120,6 +130,9 @@ const buildDataProvider = (
     currentAccountDemo: vi.fn().mockResolvedValue(false),
     ageAffirmationPending: vi.fn().mockResolvedValue(false),
     getConfiguration: vi.fn().mockResolvedValue({}),
+    archiveShidduch: vi.fn().mockResolvedValue(undefined),
+    getShidduchReadState: vi.fn().mockResolvedValue({ inProgress: false }),
+    restoreShidduch: vi.fn().mockResolvedValue(undefined),
     create: vi.fn(),
     createShidduch: vi.fn(),
   }) as unknown as CrmDataProvider;
@@ -332,6 +345,7 @@ describe("ShidduchimList — mobile shared child choice", () => {
       mobileShell: true,
     });
 
+    await expect.element(screen.getByText("Showing Chaya Cohen")).toBeVisible();
     expect(
       screen.container.querySelectorAll('button[aria-label^="Switch single:"]'),
     ).toHaveLength(1);
@@ -358,6 +372,45 @@ describe("ShidduchimList — mobile shared child choice", () => {
     await expect.element(screen.getByText("Showing Rivka Levy")).toBeVisible();
   });
 
+  it("matches the mobile shell at 700px and both sides of the breakpoint", async () => {
+    const store = memoryStore({ "single.selected": 1 });
+    await page.viewport(700, 844);
+    const screen = await renderShidduchimResourceAt(["/shidduchim"], {
+      dataProvider: buildDataProvider(undefined, singles),
+      store,
+      mobileShell: true,
+    });
+
+    await expect
+      .element(
+        screen.getByRole("button", { name: /Switch single: Chaya Cohen/ }),
+      )
+      .toBeVisible();
+    expect(
+      screen.container.querySelectorAll('button[aria-label^="Switch single:"]'),
+    ).toHaveLength(1);
+
+    await page.viewport(767, 844);
+    await expect
+      .element(
+        screen.getByRole("button", { name: /Switch single: Chaya Cohen/ }),
+      )
+      .toBeVisible();
+    expect(
+      screen.container.querySelectorAll('button[aria-label^="Switch single:"]'),
+    ).toHaveLength(1);
+
+    await page.viewport(768, 844);
+    await expect
+      .poll(
+        () =>
+          screen.container.querySelectorAll(
+            'button[aria-label^="Switch single:"]',
+          ).length,
+      )
+      .toBe(0);
+  });
+
   it("does not add a page picker on desktop", async () => {
     const store = memoryStore({ "single.selected": 1 });
     const screen = await renderShidduchimResourceAt(["/shidduchim"], {
@@ -381,6 +434,64 @@ describe("ShidduchimList — mobile shared child choice", () => {
     });
 
     await expect.element(screen.getByText("Showing Rivka Levy")).toBeVisible();
+  });
+
+  it("keeps the selected child through the real delete route redirect", async () => {
+    await page.viewport(390, 844);
+    window.sessionStorage.clear();
+    const archiveShidduch = vi.fn().mockResolvedValue(undefined);
+    const dataProvider = {
+      ...buildDataProvider(undefined, singles),
+      archiveShidduch,
+      getShidduchReadState: vi.fn().mockResolvedValue({ inProgress: false }),
+    } as unknown as CrmDataProvider;
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, MOBILE_CONTEXTS);
+    queryClient.setQueryData(MY_PERSONAS_QUERY_KEY, [{}]);
+    queryClient.setQueryData(ACCOUNT_DEMO_QUERY_KEY, false);
+    queryClient.setQueryData(AGE_AFFIRMATION_QUERY_KEY, false);
+
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/shidduchim/42"]}>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          authProvider={buildAuthProvider()}
+          store={memoryStore({ "single.selected": 2 })}
+          queryClient={queryClient}
+          i18nProvider={testI18nProvider}
+        >
+          <ThemeProvider>
+            <MobileLayout>
+              <Suspense fallback={null}>
+                <Routes>
+                  <Route
+                    path="shidduchim/42"
+                    element={
+                      <ShidduchLifecycleActions record={DELETE_RECORD} />
+                    }
+                  />
+                  <Route
+                    path="shidduchim/*"
+                    element={<Resource name="shidduchim" {...shidduchim} />}
+                  />
+                </Routes>
+              </Suspense>
+            </MobileLayout>
+          </ThemeProvider>
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await screen.getByRole("button", { name: "More actions" }).click();
+    await screen.getByRole("menuitem", { name: "Delete suggestion" }).click();
+    await screen
+      .getByRole("dialog")
+      .getByRole("button", { name: "Delete", exact: true })
+      .click();
+
+    await expect.poll(() => archiveShidduch.mock.calls.length).toBe(1);
+    await expect.element(screen.getByText("Showing Rivka Levy")).toBeVisible();
+    window.sessionStorage.clear();
   });
 });
 

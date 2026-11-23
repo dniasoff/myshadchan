@@ -13,6 +13,7 @@ import { useLocation, useNavigate } from "react-router";
 import { CreateButton } from "@/components/admin/create-button";
 import { List } from "@/components/admin/list";
 import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 import { buildNewPath } from "../entity360/entityPaths";
@@ -147,6 +148,7 @@ const ShidduchimList = () => {
     setSelectedId,
     isPending: singlesPending,
   } = useSelectedSingle();
+  const isMobile = useIsMobile();
   const explicitSingleId = getExplicitSingleId(location.search);
   const explicitSingle =
     explicitSingleId == null
@@ -193,8 +195,8 @@ const ShidduchimList = () => {
   // route (`shidduchim/index.ts`). `<List>` now renders unconditionally here.
   return (
     <>
-      {singles.length > 1 ? (
-        <div className="mb-4 sm:hidden">
+      {isMobile && singles.length > 1 ? (
+        <div className="mb-4">
           <SingleSwitcherPill className="h-11 min-h-11 w-full justify-between rounded-xl" />
         </div>
       ) : null}
