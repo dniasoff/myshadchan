@@ -62,10 +62,31 @@ import {
  * — `src/sw.ts`'s own header comment has the full reproduction.
  */
 const SHARE_TARGET_CACHE = "share-target-inbox";
+const SHARE_ORPHANED_ATTACHMENTS_KEY = "myshadchan.share.orphaned-attachments";
 const shareTargetManifestKey = (shareKey: string) =>
   `/share-target-inbox/${shareKey}/manifest`;
 const shareTargetFileKey = (shareKey: string, index: number) =>
   `/share-target-inbox/${shareKey}/${index}`;
+
+function rememberOrphanedShareAttachments(paths: string[]): void {
+  const record = { recordedAt: new Date().toISOString(), paths };
+  try {
+    const existing = window.sessionStorage.getItem(
+      SHARE_ORPHANED_ATTACHMENTS_KEY,
+    );
+    const records = existing ? JSON.parse(existing) : [];
+    const nextRecords = Array.isArray(records) ? records : [];
+    window.sessionStorage.setItem(
+      SHARE_ORPHANED_ATTACHMENTS_KEY,
+      JSON.stringify([...nextRecords, record].slice(-20)),
+    );
+  } catch (storageError) {
+    console.error("ShareTarget.orphanedAttachments.sessionStorage.error", {
+      paths,
+      storageError,
+    });
+  }
+}
 
 /** The three source choices AC 2 renders — a plain three-way toggle, not a
  * new resource. `InboxSource` also has `"email"`/`"upload"`/`"shadchan"`,
@@ -374,6 +395,16 @@ export const ShareTarget = () => {
                 );
               }
             }
+          }
+          if (!recoverySaved) {
+            const orphanedPaths = cleanupFailedAttachments.map(
+              (attachment) => attachment.path,
+            );
+            rememberOrphanedShareAttachments(orphanedPaths);
+            console.error(
+              "ShareTarget.orphanedAttachments.recoveryFailed",
+              `Failed to persist cleanup paths: ${orphanedPaths.join(", ")}`,
+            );
           }
           setShareCaptureFailure({
             message: SHARE_RECOVERY_FAILURE_COPY,
@@ -782,7 +813,9 @@ export const ShareTarget = () => {
                   ? "Automatic text reading is skipped because a resume file is attached."
                   : "Your original text is still saved."}
             </p>
-            {shareReadState === "failed" || shareReadState === "unavailable" ? (
+            {(shareReadState === "failed" ||
+              shareReadState === "unavailable") &&
+            shareCaptureFailure?.retryable !== false ? (
               <button
                 type="button"
                 className="mt-2 min-h-11 rounded-lg border px-3 text-sm font-medium"

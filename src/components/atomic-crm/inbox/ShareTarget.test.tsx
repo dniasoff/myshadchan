@@ -128,6 +128,7 @@ beforeEach(() => {
   uploadToBucket.mockReset();
   parseResume.mockReset().mockResolvedValue(parsedResume);
   vi.unstubAllGlobals();
+  window.sessionStorage.clear();
 });
 
 describe("Android share target", () => {
@@ -331,6 +332,51 @@ describe("Android share target", () => {
     await expect
       .element(screen.getByRole("alert"))
       .toHaveTextContent("Please check your Inbox before trying again.");
+  });
+
+  it("does not offer a read retry that creates a second row after recovery fails", async () => {
+    installSharedFiles([
+      { name: "first.jpg", type: "image/jpeg" },
+      { name: "second.jpg", type: "image/jpeg" },
+    ]);
+    uploadToBucket
+      .mockResolvedValueOnce({
+        title: "first.jpg",
+        type: "image/jpeg",
+        path: "1/inbox/1/first.jpg",
+        src: "first",
+      })
+      .mockRejectedValueOnce(new Error("second failed"));
+    const removeInboxAttachment = vi
+      .fn()
+      .mockRejectedValue(new Error("storage unavailable"));
+    const update = vi.fn().mockRejectedValue(new Error("row unavailable"));
+
+    const { screen, create, deleteRow } = await renderShareTarget(
+      ["/share?text=hello&shareKey=recovery-read-retry"],
+      { removeInboxAttachment, update },
+    );
+
+    await expect.poll(() => update.mock.calls.length).toBe(2);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(deleteRow).not.toHaveBeenCalled();
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("Please check your Inbox before trying again.");
+    expect(
+      JSON.parse(
+        window.sessionStorage.getItem(
+          "myshadchan.share.orphaned-attachments",
+        ) ?? "[]",
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ paths: ["1/inbox/1/first.jpg"] }),
+      ]),
+    );
+    await expect
+      .element(screen.getByRole("button", { name: "Try again" }))
+      .not.toBeInTheDocument();
   });
 
   it("updates the persisted source when the user changes tabs after auto-read", async () => {
