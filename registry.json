@@ -984,6 +984,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/resumePhotoIdempotency.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/entityFileDeleteErrors.ts",
           "type": "registry:component"
         },

@@ -8,6 +8,9 @@ import type { CrmDataProvider } from "../providers/types";
 import { ShareTarget } from "./ShareTarget";
 import {
   applyParsedResumeFields,
+  deriveShareSource,
+  removeSharedFilesBestEffort,
+  preserveResumeSourceMarker,
   uploadSharedFiles,
 } from "./ShareTarget.helpers";
 
@@ -60,6 +63,34 @@ describe("Android share target", () => {
     expect(cleanup).toHaveBeenCalledWith(["10/inbox/1/first.jpg"]);
   });
 
+  it("keeps a failed removal path recoverable when partial cleanup rejects", async () => {
+    const uploaded = [
+      {
+        title: "first.jpg",
+        type: "image/jpeg",
+        path: "10/inbox/1/first.jpg",
+        src: "first",
+        size: 5,
+      },
+      {
+        title: "second.jpg",
+        type: "image/jpeg",
+        path: "10/inbox/1/second.jpg",
+        src: "second",
+        size: 6,
+      },
+    ];
+    const remove = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("storage unavailable"))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(
+      removeSharedFilesBestEffort(uploaded, remove),
+    ).resolves.toEqual([uploaded[0]]);
+    expect(remove).toHaveBeenCalledTimes(2);
+  });
+
   it("maps the complete parsed resume into the suggestion payload", () => {
     const input = { single_id: 1 };
     applyParsedResumeFields(
@@ -99,6 +130,25 @@ describe("Android share target", () => {
       person_gender: "female",
       marital_status: "single",
     });
+  });
+
+  it("derives upload source before the source-tab effect settles", () => {
+    expect(
+      deriveShareSource([
+        new File(["text"], "resume.pdf", { type: "application/pdf" }),
+      ]),
+    ).toBe("upload");
+    expect(
+      deriveShareSource([
+        new File(["photo"], "photo.jpg", { type: "image/jpeg" }),
+      ]),
+    ).toBe("photo");
+  });
+
+  it("preserves the inbox provenance marker when retrying a resume read", () => {
+    expect(
+      preserveResumeSourceMarker({ age: 24, source_inbox_item_id: 77 }, 99),
+    ).toMatchObject({ age: 24, source_inbox_item_id: 77 });
   });
 
   it("filters the shadchan picker to active rows", async () => {

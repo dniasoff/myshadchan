@@ -12,6 +12,46 @@ export type SharedAttachment = {
   size: number;
 };
 
+export type DerivedShareSource = "whatsapp" | "photo" | "upload";
+
+export function deriveShareSource(files: File[]): DerivedShareSource {
+  if (files.length === 0) return "whatsapp";
+  return files.some((file) => !file.type.startsWith("image/"))
+    ? "upload"
+    : "photo";
+}
+
+export function preserveResumeSourceMarker(
+  sections: unknown,
+  sourceInboxItemId: Identifier,
+): Record<string, unknown> {
+  const existing =
+    sections != null && typeof sections === "object" && !Array.isArray(sections)
+      ? (sections as Record<string, unknown>)
+      : {};
+  return {
+    ...existing,
+    source_inbox_item_id:
+      existing.source_inbox_item_id != null
+        ? existing.source_inbox_item_id
+        : sourceInboxItemId,
+  };
+}
+
+/** Remove captured objects without allowing one failed removal to prevent the
+ * rest from running. The returned rows are the objects that remain reachable
+ * and must stay recorded for a later cleanup sweep. */
+export async function removeSharedFilesBestEffort(
+  uploaded: SharedAttachment[],
+  remove: (path: string) => Promise<void>,
+): Promise<SharedAttachment[]> {
+  const candidates = uploaded.filter((attachment) => Boolean(attachment.path));
+  const results = await Promise.allSettled(
+    candidates.map((attachment) => remove(attachment.path)),
+  );
+  return candidates.filter((_, index) => results[index]?.status === "rejected");
+}
+
 /** Copy every model field into the create payload, while preserving a name
  * the user edited in the share form over the model's suggestion. */
 export function applyParsedResumeFields(
@@ -57,7 +97,13 @@ export async function uploadSharedFiles(
       }
     }
   } catch (error) {
-    await onPartialFailure?.(uploaded);
+    try {
+      await onPartialFailure?.(uploaded);
+    } catch (cleanupError) {
+      // Preserve the upload error. Callers that need a recoverable record keep
+      // the uploaded list in their callback, even if cleanup itself rejects.
+      console.error("uploadSharedFiles.partialCleanup.error", cleanupError);
+    }
     throw error;
   }
   return uploaded;

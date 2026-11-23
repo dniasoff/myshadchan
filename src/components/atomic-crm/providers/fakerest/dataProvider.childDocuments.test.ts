@@ -99,6 +99,28 @@ describe("FakeRest child document lifecycle", () => {
     );
   });
 
+  it("does not create a duplicate photo when the source attachment is promoted again", async () => {
+    const provider = createDataProvider({ latency: 0, silent: true });
+    const single = await getSingle(provider);
+    const params = {
+      singleId: single.id,
+      sourceAttachmentPath: "1/inbox/900/photo.jpg",
+      file: new File(["photo"], "photo.jpg", { type: "image/jpeg" }),
+      visibility: "shared" as const,
+    };
+
+    const first = await provider.uploadResumePhoto(params);
+    const second = await provider.uploadResumePhoto(params);
+
+    expect(second).toEqual(first);
+    const { data: photos } = await provider.getList("resume_photos", {
+      filter: { path: first.path },
+      pagination: { page: 1, perPage: 10 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(photos).toHaveLength(1);
+  });
+
   it("rejects direct entity_files creates for missing and foreign singles", async () => {
     const db = generateData();
     db.singles.push({

@@ -43,6 +43,8 @@ import { parseWhatsAppText } from "./whatsappText";
 import {
   uploadSharedFiles,
   applyParsedResumeFields,
+  deriveShareSource,
+  removeSharedFilesBestEffort,
 } from "./ShareTarget.helpers";
 
 /**
@@ -185,7 +187,7 @@ export const ShareTarget = () => {
   > | null> | null>(null);
   const shareReadStarted = useRef(false);
   const [shareReadState, setShareReadState] = useState<
-    "idle" | "reading" | "saved" | "failed" | "unavailable"
+    "idle" | "reading" | "saved" | "skipped" | "failed" | "unavailable"
   >("idle");
 
   // `null` = still resolving from the Cache API (only when a `shareKey` was
@@ -295,9 +297,10 @@ export const ShareTarget = () => {
    * row-scoped path (`{accountId}/inbox/{inboxItemId}/{uuid}{ext}`); the
    * same row is then updated with the attachment metadata. */
   const createInboxItem = useCallback(async (): Promise<InboxItem> => {
+    const derivedSource: ShareSourceTab = deriveShareSource(files ?? []);
     const { data } = await dataProvider.create<InboxItem>("inbox_items", {
       data: {
-        source: sourceTab ?? "whatsapp",
+        source: sourceTab ?? derivedSource,
         raw_text: hasRawText ? rawText : null,
         attachments: null,
         status: "unresolved",
@@ -307,16 +310,19 @@ export const ShareTarget = () => {
 
     if (files && files.length > 0) {
       let uploadedAttachments: SharedAttachment[] = [];
+      let partialUploadedAttachments: SharedAttachment[] = [];
+      let cleanupFailedAttachments: SharedAttachment[] = [];
+      let partialCleanupAttempted = false;
       try {
         uploadedAttachments = await uploadSharedFiles(
           files,
           item.id,
           async (uploaded) => {
-            await Promise.all(
-              uploaded
-                .map((attachment) => attachment.path)
-                .filter(Boolean)
-                .map((path) => dataProvider.removeInboxAttachment(path)),
+            partialUploadedAttachments = uploaded;
+            partialCleanupAttempted = true;
+            cleanupFailedAttachments = await removeSharedFilesBestEffort(
+              uploaded,
+              (path) => dataProvider.removeInboxAttachment(path),
             );
           },
         );
@@ -333,16 +339,35 @@ export const ShareTarget = () => {
         );
         return updated ?? item;
       } catch (error) {
-        await Promise.all(
-          uploadedAttachments
-            .map((attachment) => attachment.path)
-            .filter(Boolean)
-            .map((path) => dataProvider.removeInboxAttachment(path))
-            .map((cleanup) => cleanup.catch(() => undefined)),
-        );
-        await dataProvider
-          .delete("inbox_items", { id: item.id, previousData: item })
-          .catch(() => undefined);
+        const cleanupCandidates =
+          partialUploadedAttachments.length > 0
+            ? partialUploadedAttachments
+            : uploadedAttachments;
+        if (!partialCleanupAttempted && cleanupCandidates.length > 0) {
+          cleanupFailedAttachments = await removeSharedFilesBestEffort(
+            cleanupCandidates,
+            (path) => dataProvider.removeInboxAttachment(path),
+          );
+        }
+        if (cleanupFailedAttachments.length > 0) {
+          await dataProvider
+            .update<InboxItem>("inbox_items", {
+              id: item.id,
+              data: { attachments: cleanupFailedAttachments },
+              previousData: item,
+            })
+            .catch((cleanupError) => {
+              console.error(
+                "ShareTarget.orphanedAttachments",
+                cleanupFailedAttachments.map((attachment) => attachment.path),
+                cleanupError,
+              );
+            });
+        } else {
+          await dataProvider
+            .delete("inbox_items", { id: item.id, previousData: item })
+            .catch(() => undefined);
+        }
         throw error;
       }
     }
@@ -378,7 +403,10 @@ export const ShareTarget = () => {
     const promise = (async () => {
       try {
         const item = await getOrCreateInboxItem();
-        if (hasResumeDocumentAttachment(item)) return null;
+        if (hasResumeDocumentAttachment(item)) {
+          setShareReadState("skipped");
+          return null;
+        }
         const result = await parse(item);
         parsedTextResumeRef.current = result;
         setShareReadState("saved");
@@ -653,16 +681,20 @@ export const ShareTarget = () => {
                 ? "Reading the text now…"
                 : shareReadState === "saved"
                   ? "Resume tab saved"
-                  : shareReadState === "failed"
-                    ? "We couldn’t read the text yet."
-                    : shareReadState === "unavailable"
-                      ? "Automatic reading is not available right now."
-                      : "Reading this text into the Resume tab starts automatically."}
+                  : shareReadState === "skipped"
+                    ? "Resume file ready"
+                    : shareReadState === "failed"
+                      ? "We couldn’t read the text yet."
+                      : shareReadState === "unavailable"
+                        ? "Automatic reading is not available right now."
+                        : "Reading this text into the Resume tab starts automatically."}
             </p>
             <p className="text-muted-foreground">
               {shareReadState === "saved"
                 ? "You can review and edit the suggestion before filing."
-                : "Your original text is still saved."}
+                : shareReadState === "skipped"
+                  ? "Automatic text reading is skipped because a resume file is attached."
+                  : "Your original text is still saved."}
             </p>
             {shareReadState === "failed" || shareReadState === "unavailable" ? (
               <button
@@ -816,7 +848,7 @@ export const ShareTarget = () => {
                   _: "Save & review",
                 })}
                 className={INBOX_PRIMARY_CTA_CLASS}
-                disabled={isSaving}
+                disabled={isSaving || shareReadState === "reading"}
               />
             </div>
           </FormToolbar>

@@ -11,6 +11,7 @@ import type {
   ResumePhotoVisibility,
 } from "../../../types";
 import { validateChildPhoto } from "../../../singles/ChildDocuments/childDocuments";
+import { resumePhotoStoragePath } from "../../resumePhotoIdempotency";
 
 /**
  * The AD-10 mirror of `providers/supabase/resumePhotos.ts` for demo mode.
@@ -25,7 +26,41 @@ export type ResumePhotoBlobUrls = Map<string, string>;
 export type UploadResumePhotoParams = ResumeSubject & {
   file: File;
   visibility?: ResumePhotoVisibility;
+  sourceAttachmentPath?: string;
 };
+
+export type FindResumePhotoBySourceParams = ResumeSubject & {
+  sourceAttachmentPath: string;
+  visibility?: ResumePhotoVisibility;
+};
+
+function ownerSegment(subject: ResumeSubject): string {
+  return isSingleSubject(subject)
+    ? `single-${subject.singleId}`
+    : `${subject.shidduchimId}`;
+}
+
+export async function findResumePhotoBySource(
+  baseDataProvider: DataProvider,
+  accountId: Identifier,
+  params: FindResumePhotoBySourceParams,
+): Promise<ResumePhoto | null> {
+  const path = resumePhotoStoragePath(
+    accountId,
+    ownerSegment(params),
+    params.visibility ?? "shared",
+    params.sourceAttachmentPath,
+  );
+  const { data } = await baseDataProvider.getList<ResumePhoto>(
+    "resume_photos",
+    {
+      filter: { path },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    },
+  );
+  return data[0] ?? null;
+}
 
 /**
  * FakeRest mirror of `add_resume_photo` (AC 2; widened to a single subject
@@ -42,7 +77,12 @@ export async function uploadResumePhoto(
   accountId: Identifier,
   params: UploadResumePhotoParams,
 ): Promise<ResumePhoto> {
-  const { file, visibility = "shared", ...subject } = params;
+  const {
+    file,
+    visibility = "shared",
+    sourceAttachmentPath,
+    ...subject
+  } = params;
   if (isSingleSubject(subject)) {
     const { data: targets } = await baseDataProvider.getList<{
       id: Identifier;
@@ -58,10 +98,24 @@ export async function uploadResumePhoto(
   }
   const validationError = validateChildPhoto(file);
   if (validationError) throw new Error(validationError);
-  const ownerSegment = isSingleSubject(subject)
-    ? `single-${subject.singleId}`
-    : `${subject.shidduchimId}`;
-  const storagePath = `${accountId}/photos/${visibility}/${ownerSegment}/${crypto.randomUUID()}-${file.name}`;
+  const storagePath = resumePhotoStoragePath(
+    accountId,
+    ownerSegment(subject),
+    visibility,
+    sourceAttachmentPath,
+  );
+  if (sourceAttachmentPath) {
+    const existing = await findResumePhotoBySource(
+      baseDataProvider,
+      accountId,
+      {
+        ...subject,
+        sourceAttachmentPath,
+        visibility,
+      },
+    );
+    if (existing) return existing;
+  }
   blobUrls.set(storagePath, URL.createObjectURL(file));
 
   const { data: matches } = await baseDataProvider.getList<Resume>("resumes", {

@@ -108,6 +108,7 @@ import type {
 } from "./internal/resumes";
 import {
   hideResumePhoto as hideResumePhotoImpl,
+  findResumePhotoBySource as findResumePhotoBySourceImpl,
   restoreResumePhoto as restoreResumePhotoImpl,
   signResumePhotoUrl as signResumePhotoUrlImpl,
   uploadResumePhoto as uploadResumePhotoImpl,
@@ -115,6 +116,7 @@ import {
 import { suggestedByPhoneSearchDigits } from "../../inbox/suggestedBy";
 import type {
   ResumePhotoBlobUrls,
+  FindResumePhotoBySourceParams,
   UploadResumePhotoParams,
 } from "./internal/resumePhotos";
 import {
@@ -4191,6 +4193,12 @@ export const createDataProvider = ({
         accountId,
         params,
       );
+    },
+    findResumePhotoBySource: async (
+      params: FindResumePhotoBySourceParams,
+    ): Promise<ResumePhoto | null> => {
+      const accountId = await resolveCurrentAccountId();
+      return findResumePhotoBySourceImpl(baseDataProvider, accountId, params);
     },
     signResumePhotoUrl: (params: { storagePath: string }): Promise<string> =>
       signResumePhotoUrlImpl(resumePhotoBlobUrls, params.storagePath),

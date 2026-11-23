@@ -6,6 +6,7 @@ import {
 } from "../../resumes/resumeSubject";
 import type { ResumePhoto, ResumePhotoVisibility } from "../../types";
 import { validateChildPhoto } from "../../singles/ChildDocuments/childDocuments";
+import { resumePhotoStoragePath } from "../resumePhotoIdempotency";
 import { getSupabaseClient } from "./supabase";
 
 /**
@@ -42,6 +43,12 @@ async function getCurrentAccountId(): Promise<number> {
 export type UploadResumePhotoParams = ResumeSubject & {
   file: File;
   visibility?: ResumePhotoVisibility;
+  sourceAttachmentPath?: string;
+};
+
+export type FindResumePhotoBySourceParams = ResumeSubject & {
+  sourceAttachmentPath: string;
+  visibility?: ResumePhotoVisibility;
 };
 
 export type SignResumePhotoUrlParams = {
@@ -55,6 +62,38 @@ export type HideResumePhotoParams = {
 export type RestoreResumePhotoParams = {
   id: Identifier;
 };
+
+function ownerSegment(subject: ResumeSubject): string {
+  return isSingleSubject(subject)
+    ? `single-${subject.singleId}`
+    : `${subject.shidduchimId}`;
+}
+
+async function findResumePhotoByPath(
+  path: string,
+): Promise<ResumePhoto | null> {
+  const { data, error } = await getSupabaseClient()
+    .from("resume_photos")
+    .select("*")
+    .eq("path", path)
+    .maybeSingle();
+  if (error) throw new Error(error.message || "Failed to find the photo");
+  return (data as ResumePhoto | null) ?? null;
+}
+
+export async function findResumePhotoBySource(
+  params: FindResumePhotoBySourceParams,
+): Promise<ResumePhoto | null> {
+  const accountId = await getCurrentAccountId();
+  const visibility = params.visibility ?? "shared";
+  const path = resumePhotoStoragePath(
+    accountId,
+    ownerSegment(params),
+    visibility,
+    params.sourceAttachmentPath,
+  );
+  return findResumePhotoByPath(path);
+}
 
 /**
  * AC 2/AC 4: uploads under the AC-4 key grammar — the visibility is segment
@@ -71,19 +110,36 @@ export type RestoreResumePhotoParams = {
 export async function uploadResumePhoto(
   params: UploadResumePhotoParams,
 ): Promise<ResumePhoto> {
-  const { file, visibility = "shared", ...subject } = params;
+  const {
+    file,
+    visibility = "shared",
+    sourceAttachmentPath,
+    ...subject
+  } = params;
   const validationError = validateChildPhoto(file);
   if (validationError) throw new Error(validationError);
   const accountId = await getCurrentAccountId();
-  const ownerSegment = isSingleSubject(subject)
-    ? `single-${subject.singleId}`
-    : `${subject.shidduchimId}`;
-  const storagePath = `${accountId}/photos/${visibility}/${ownerSegment}/${crypto.randomUUID()}-${file.name}`;
+  const subjectOwnerSegment = ownerSegment(subject);
+  const storagePath = resumePhotoStoragePath(
+    accountId,
+    subjectOwnerSegment,
+    visibility,
+    sourceAttachmentPath,
+  );
+
+  if (sourceAttachmentPath) {
+    const existing = await findResumePhotoByPath(storagePath);
+    if (existing) return existing;
+  }
 
   const { error: uploadError } = await getSupabaseClient()
     .storage.from(DOCUMENTS_BUCKET)
     .upload(storagePath, file);
   if (uploadError) {
+    if (sourceAttachmentPath) {
+      const existing = await findResumePhotoByPath(storagePath);
+      if (existing) return existing;
+    }
     console.error("uploadResumePhoto.upload.error", uploadError);
     throw new Error("Failed to upload the photo");
   }

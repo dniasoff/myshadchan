@@ -1,3 +1,4 @@
+import type { Identifier } from "ra-core";
 import type { ReactNode } from "react";
 import {
   useDataProvider,
@@ -5,7 +6,7 @@ import {
   useNotify,
   useRecordContext,
 } from "ra-core";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -24,6 +25,7 @@ import { canRereadResume } from "./resumeReferenceVisibility";
 import { canDeleteResumeFile as canDeleteResumeFileForRole } from "./resumeFileDelete";
 import { parseWhatsAppText } from "../inbox/whatsappText";
 import { useParseResume } from "../inbox/useParseResume";
+import { preserveResumeSourceMarker } from "../inbox/ShareTarget.helpers";
 
 function isPictureAttachment(attachment: InboxAttachment): boolean {
   return (
@@ -67,6 +69,10 @@ function WhatsAppTextSource({
   );
   const [photoErrors, setPhotoErrors] = useState<Record<string, boolean>>({});
   const { parse } = useParseResume();
+  const pictures = useMemo(
+    () => (capture.attachments ?? []).filter(isPictureAttachment),
+    [capture.attachments],
+  );
   const [readState, setReadState] = useState<
     "idle" | "reading" | "saved" | "failed"
   >(hasParsedResumeData(resume) ? "saved" : "failed");
@@ -74,6 +80,37 @@ function WhatsAppTextSource({
   useEffect(() => {
     setReadState(hasParsedResumeData(resume) ? "saved" : "failed");
   }, [resume]);
+
+  // The promoted state is a property of the source attachment, not of this
+  // mounted tab. Re-check the provider when the tab mounts so a remount or a
+  // reload cannot offer to create a duplicate photo.
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      pictures.map(async (attachment) => {
+        if (!attachment.path) return;
+        try {
+          const existing = await dataProvider.findResumePhotoBySource({
+            shidduchimId: record.id,
+            sourceAttachmentPath: attachment.path,
+            visibility: "shared",
+          });
+          if (existing && !cancelled) {
+            setPromotedPhotos((current) => {
+              const next = new Set(current);
+              next.add(attachment.path);
+              return next;
+            });
+          }
+        } catch {
+          // A lookup failure must not hide the still-safe manual promotion.
+        }
+      }),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [dataProvider, pictures, record.id]);
 
   const saveSuggestedName = async () => {
     const nextName = suggestedName.trim();
@@ -117,6 +154,7 @@ function WhatsAppTextSource({
         shidduchimId: record.id,
         file,
         visibility: "shared",
+        sourceAttachmentPath: attachment.path,
       });
       setPromotedPhotos((current) => {
         const next = new Set(current);
@@ -142,11 +180,22 @@ function WhatsAppTextSource({
     try {
       const result = await parse(capture);
       if (resume) {
+        const previousSections =
+          resume.sections != null &&
+          typeof resume.sections === "object" &&
+          !Array.isArray(resume.sections)
+            ? (resume.sections as { source_inbox_item_id?: unknown })
+            : {};
+        const previousSourceId = previousSections.source_inbox_item_id as
+          Identifier | null | undefined;
         await dataProvider.update("resumes", {
           id: resume.id,
           data: {
             extracted: result.rawDraft,
-            sections: result.sections,
+            sections: preserveResumeSourceMarker(
+              result.sections,
+              previousSourceId ?? capture.id,
+            ),
           },
           previousData: resume,
         });
@@ -156,7 +205,7 @@ function WhatsAppTextSource({
             shidduchim_id: record.id,
             files: [],
             extracted: result.rawDraft,
-            sections: result.sections,
+            sections: preserveResumeSourceMarker(result.sections, capture.id),
           },
         });
       }
@@ -167,8 +216,6 @@ function WhatsAppTextSource({
   };
 
   const parsed = parseWhatsAppText(capture.raw_text ?? "");
-  const pictures = (capture.attachments ?? []).filter(isPictureAttachment);
-
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-border bg-secondary/40 p-4">
       <div className="flex items-center justify-between gap-3">
@@ -276,7 +323,7 @@ function WhatsAppTextSource({
             {photoBusy === attachment.path
               ? "Using this picture…"
               : promotedPhotos.has(attachment.path)
-                ? "Photo added"
+                ? "Already your Photo"
                 : "Use this picture as Photo"}
           </Button>
           {promotedPhotos.has(attachment.path) ? (

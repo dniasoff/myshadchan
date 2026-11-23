@@ -1,0 +1,60 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { rpc, upload, maybeSingle, eq, select } = vi.hoisted(() => ({
+  rpc: vi.fn(),
+  upload: vi.fn(),
+  maybeSingle: vi.fn(),
+  eq: vi.fn(),
+  select: vi.fn(),
+  addResumePhoto: vi.fn(),
+}));
+
+const tableQuery = { select, eq, maybeSingle };
+
+vi.mock("./supabase", () => ({
+  getSupabaseClient: () => ({
+    rpc,
+    from: () => tableQuery,
+    storage: { from: () => ({ upload }) },
+  }),
+}));
+
+import { uploadResumePhoto } from "./resumePhotos";
+
+describe("Supabase resume photo promotion", () => {
+  beforeEach(() => {
+    rpc.mockReset().mockResolvedValue({
+      data: {
+        id: 12,
+        account_id: 7,
+        resume_id: 55,
+        path: "7/photos/shared/42/inbox-stable",
+        visibility: "shared",
+      },
+      error: null,
+    });
+    upload.mockReset().mockResolvedValue({ error: null });
+    select.mockReset().mockReturnValue(tableQuery);
+    eq.mockReset().mockReturnValue(tableQuery);
+    maybeSingle.mockReset().mockResolvedValue({ data: null, error: null });
+  });
+
+  it("returns the existing source photo after a remount-style second promotion", async () => {
+    const params = {
+      shidduchimId: 42,
+      sourceAttachmentPath: "7/inbox/900/photo.jpg",
+      file: new File(["photo"], "photo.jpg", { type: "image/jpeg" }),
+      visibility: "shared" as const,
+    };
+    const first = await uploadResumePhoto(params);
+    const existing = { ...first, id: 13 };
+    maybeSingle.mockResolvedValueOnce({ data: existing, error: null });
+
+    const second = await uploadResumePhoto(params);
+
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(existing);
+    expect(select).toHaveBeenCalledWith("*");
+    expect(eq).toHaveBeenCalledWith("path", expect.stringContaining("inbox-"));
+  });
+});

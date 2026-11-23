@@ -103,12 +103,14 @@ import type {
 } from "./resumes";
 import {
   hideResumePhoto as hideResumePhotoImpl,
+  findResumePhotoBySource as findResumePhotoBySourceImpl,
   restoreResumePhoto as restoreResumePhotoImpl,
   signResumePhotoUrl as signResumePhotoUrlImpl,
   uploadResumePhoto as uploadResumePhotoImpl,
 } from "./resumePhotos";
 import type {
   HideResumePhotoParams,
+  FindResumePhotoBySourceParams,
   RestoreResumePhotoParams,
   SignResumePhotoUrlParams,
   UploadResumePhotoParams,
@@ -1547,6 +1549,11 @@ export const getDataProviderWithCustomMethods = () => {
       params: UploadResumePhotoParams,
     ): Promise<ResumePhoto> {
       return uploadResumePhotoImpl(params);
+    },
+    async findResumePhotoBySource(
+      params: FindResumePhotoBySourceParams,
+    ): Promise<ResumePhoto | null> {
+      return findResumePhotoBySourceImpl(params);
     },
     async signResumePhotoUrl(
       params: SignResumePhotoUrlParams,
