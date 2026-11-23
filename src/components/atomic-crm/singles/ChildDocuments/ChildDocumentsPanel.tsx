@@ -257,6 +257,8 @@ export function ChildDocumentsPanel({
   const uploadActiveRef = useRef(false);
   const focusReturnRef = useRef<HTMLElement | null>(null);
   const photoChoiceFocusRef = useRef<HTMLElement | null>(null);
+  const photoChoiceFocusLabelRef = useRef<string | null>(null);
+  const photoActionInFlightRef = useRef(false);
   const undoButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const restoreTargetRefs = useRef(new Map<string, HTMLElement>());
   const expiredDeleteSweepStartedRef = useRef(false);
@@ -579,13 +581,26 @@ export function ChildDocumentsPanel({
   const rememberPhotoChoiceFocus = () => {
     const active = document.activeElement;
     photoChoiceFocusRef.current = active instanceof HTMLElement ? active : null;
+    photoChoiceFocusLabelRef.current =
+      active instanceof HTMLElement ? active.getAttribute("aria-label") : null;
   };
 
   const restorePhotoChoiceFocus = () => {
     window.setTimeout(() => {
       const target = photoChoiceFocusRef.current;
-      if (target?.isConnected) target.focus();
+      if (target?.isConnected) {
+        target.focus();
+      } else {
+        const label = photoChoiceFocusLabelRef.current;
+        const replacement = label
+          ? [...document.querySelectorAll<HTMLElement>("[aria-label]")].find(
+              (element) => element.getAttribute("aria-label") === label,
+            )
+          : null;
+        replacement?.focus();
+      }
       photoChoiceFocusRef.current = null;
+      photoChoiceFocusLabelRef.current = null;
     }, 0);
   };
 
@@ -598,6 +613,7 @@ export function ChildDocumentsPanel({
       setPhotoChoiceAnnouncement(null);
       setPhotoBusyStatus(null);
       photoChoiceFocusRef.current = null;
+      photoChoiceFocusLabelRef.current = null;
     }
     onOpenChange(nextOpen);
   };
@@ -619,8 +635,9 @@ export function ChildDocumentsPanel({
 
   const choosePhotoUpload = async (makeSmaller: boolean) => {
     const candidate = photoUploadCandidate;
-    if (!candidate || isBusy) return;
+    if (!candidate || isBusy || photoActionInFlightRef.current) return;
     if (!makeSmaller && candidate.file.size > CHILD_DOCUMENT_MAX_BYTES) return;
+    photoActionInFlightRef.current = true;
     setUploadError(null);
     setIsBusy(true);
     setPhotoBusyStatus(
@@ -647,6 +664,7 @@ export function ChildDocumentsPanel({
       notify(message, { type: "error" });
       restorePhotoChoiceFocus();
     } finally {
+      photoActionInFlightRef.current = false;
       setIsBusy(false);
       setPhotoBusyStatus(null);
     }
@@ -770,7 +788,8 @@ export function ChildDocumentsPanel({
     file: ResumeFileVersion | ResumePhoto | EntityFileSummary,
     photoMode: PhotoForwardMode = "full",
   ) => {
-    if (isBusy) return false;
+    if (isBusy || photoActionInFlightRef.current) return false;
+    photoActionInFlightRef.current = true;
     const makeSmaller = kind === "picture" && photoMode === "smaller";
     setIsBusy(true);
     setPhotoBusyStatus(
@@ -859,6 +878,7 @@ export function ChildDocumentsPanel({
       notify(message, { type: "error" });
       return false;
     } finally {
+      photoActionInFlightRef.current = false;
       setPhotoBusyStatus(null);
       setIsBusy(false);
     }
@@ -1021,7 +1041,7 @@ export function ChildDocumentsPanel({
     });
   const choosePhotoForward = async (mode: PhotoForwardMode) => {
     const photo = forwardPhotoTarget;
-    if (!photo || isBusy) return;
+    if (!photo || isBusy || photoActionInFlightRef.current) return;
     setPhotoChoiceAnnouncement(null);
     const succeeded = await forwardFile("picture", photo, mode);
     if (succeeded) {

@@ -762,6 +762,9 @@ describe("ChildDocumentsPanel", () => {
         }),
     );
     const { dataProvider, screen } = await renderPanel([paper]);
+    await expect
+      .element(screen.getByRole("img", { name: "Picture preview" }))
+      .toHaveAttribute("src", "blob:photo");
     dataProvider.signResumePhotoUrl = signPhoto;
 
     await screen.getByRole("button", { name: "Forward Picture" }).click();
