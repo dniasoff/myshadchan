@@ -149,7 +149,7 @@ export function LinkToShidduchSearch({
                 shidduch.name_en?.trim() ||
                 shidduch.name_he?.trim() ||
                 `#${shidduch.id}`;
-              const childName = [
+              const singleName = [
                 shidduch.single_first_name_en,
                 shidduch.single_last_name_en,
               ]
@@ -169,7 +169,7 @@ export function LinkToShidduchSearch({
                     className="flex min-h-16 w-full items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                     disabled={disabled || linkingId !== null}
                     onClick={() => void handleLink(shidduch.id)}
-                    aria-label={`Link ${personName}${childName ? ` for ${childName}` : ""}`}
+                    aria-label={`Link ${personName}${singleName ? ` for ${singleName}` : ""}`}
                   >
                     <span className="flex min-w-0 flex-col gap-0.5 text-sm">
                       <span className="flex min-w-0 items-center gap-2">
@@ -186,12 +186,12 @@ export function LinkToShidduchSearch({
                           {personName}
                         </span>
                       </span>
-                      {childName ? (
+                      {singleName ? (
                         <span className="text-xs text-muted-foreground">
                           {translate("crm.inbox.linkSearch.child", {
                             _: "For",
                           })}{" "}
-                          {childName}
+                          {singleName}
                         </span>
                       ) : null}
                       {suggestedByName || suggestedByPhone ? (
