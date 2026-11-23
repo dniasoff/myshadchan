@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 import { QueryClient } from "@tanstack/react-query";
@@ -14,18 +14,75 @@ import {
   uploadSharedFiles,
 } from "./ShareTarget.helpers";
 
-const { uploadToBucket } = vi.hoisted(() => ({ uploadToBucket: vi.fn() }));
+const { parseResume, uploadToBucket } = vi.hoisted(() => ({
+  parseResume: vi.fn(),
+  uploadToBucket: vi.fn(),
+}));
 vi.mock("../providers/supabase/dataProvider", () => ({ uploadToBucket }));
+vi.mock("./useParseResume", () => ({
+  useParseResume: () => ({ parse: parseResume }),
+}));
 
-const renderShareTarget = async () => {
+const parsedResume = {
+  fields: {
+    name_en: null,
+    name_he: null,
+    father_en: null,
+    father_he: null,
+    mother_en: null,
+    mother_he: null,
+    seminary_en: null,
+    seminary_he: null,
+    shul_en: null,
+    shul_he: null,
+    location_en: null,
+    location_he: null,
+    age: null,
+    height: null,
+    person_gender: null,
+    kohen_status: null,
+    marital_status: null,
+  },
+  lowConfidenceFields: [],
+  sections: { learningHistory: [], references: [] },
+  rawDraft: null,
+};
+
+const renderShareTarget = async (
+  initialEntries = ["/share?text=hello"],
+  overrides: Record<string, unknown> = {},
+) => {
+  let currentItem = {
+    id: 1,
+    account_id: 1,
+    created_at: "2026-01-01T00:00:00Z",
+    source: "photo",
+    raw_text: "hello",
+    subject: null,
+    sender: null,
+    sender_needs_confirmation: false,
+    attachments: null,
+    status: "unresolved",
+  };
+  const create = vi.fn().mockResolvedValue({ data: currentItem });
+  const update = vi.fn().mockImplementation((_resource, params) => {
+    currentItem = { ...currentItem, ...params.data };
+    return Promise.resolve({ data: currentItem });
+  });
+  const deleteRow = vi.fn().mockResolvedValue({ data: currentItem });
   const dataProvider = {
     getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    create,
+    update,
+    delete: deleteRow,
+    removeInboxAttachment: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
   } as unknown as CrmDataProvider;
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   const screen = await render(
-    <TestMemoryRouter initialEntries={["/share?text=hello"]}>
+    <TestMemoryRouter initialEntries={initialEntries}>
       <CoreAdminContext
         dataProvider={dataProvider}
         queryClient={queryClient}
@@ -35,8 +92,43 @@ const renderShareTarget = async () => {
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
-  return { screen, dataProvider };
+  return { screen, dataProvider, create, update, deleteRow };
 };
+
+const installSharedFiles = (files: Array<{ name: string; type: string }>) => {
+  const cache = {
+    match: vi.fn((key: RequestInfo | URL) => {
+      const path = String(key);
+      if (path.endsWith("/manifest")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(files), {
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      const index = Number(path.split("/").at(-1));
+      const file = files[index];
+      return Promise.resolve(
+        file
+          ? new Response(`file-${index}`, {
+              headers: { "content-type": file.type },
+            })
+          : undefined,
+      );
+    }),
+    delete: vi.fn().mockResolvedValue(true),
+  };
+  vi.stubGlobal("caches", {
+    open: vi.fn().mockResolvedValue(cache),
+  });
+  return cache;
+};
+
+beforeEach(() => {
+  uploadToBucket.mockReset();
+  parseResume.mockReset().mockResolvedValue(parsedResume);
+  vi.unstubAllGlobals();
+});
 
 describe("Android share target", () => {
   it("reports partial uploads for cleanup instead of leaving the first file orphaned", async () => {
@@ -89,6 +181,24 @@ describe("Android share target", () => {
       removeSharedFilesBestEffort(uploaded, remove),
     ).resolves.toEqual([uploaded[0]]);
     expect(remove).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats a synchronous cleanup throw as a failed path", async () => {
+    const uploaded = [
+      {
+        title: "first.jpg",
+        type: "image/jpeg",
+        path: "10/inbox/1/first.jpg",
+        src: "first",
+        size: 5,
+      },
+    ];
+
+    await expect(
+      removeSharedFilesBestEffort(uploaded, () => {
+        throw new Error("storage unavailable");
+      }),
+    ).resolves.toEqual(uploaded);
   });
 
   it("maps the complete parsed resume into the suggestion payload", () => {
@@ -160,6 +270,89 @@ describe("Android share target", () => {
           ([resource, params]) =>
             resource === "shadchanim" &&
             params.filter?.["archived_at@is"] === null,
+        ),
+      )
+      .toBe(true);
+  });
+
+  it("does not resolve a stale inbox row after a shared upload fails", async () => {
+    installSharedFiles([
+      { name: "first.jpg", type: "image/jpeg" },
+      { name: "second.jpg", type: "image/jpeg" },
+    ]);
+    uploadToBucket
+      .mockResolvedValueOnce({
+        title: "first.jpg",
+        type: "image/jpeg",
+        path: "1/inbox/1/first.jpg",
+        src: "first",
+      })
+      .mockRejectedValueOnce(new Error("second failed"));
+
+    const { screen, create, deleteRow, update } = await renderShareTarget([
+      "/share?shareKey=partial-upload",
+    ]);
+    await screen.getByRole("button", { name: /Skip/ }).click();
+
+    await expect.poll(() => deleteRow.mock.calls.length).toBe(1);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(update).not.toHaveBeenCalled();
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("Nothing was saved. Try again.");
+  });
+
+  it("surfaces a recovery failure when the row cannot retain an orphan path", async () => {
+    installSharedFiles([
+      { name: "first.jpg", type: "image/jpeg" },
+      { name: "second.jpg", type: "image/jpeg" },
+    ]);
+    uploadToBucket
+      .mockResolvedValueOnce({
+        title: "first.jpg",
+        type: "image/jpeg",
+        path: "1/inbox/1/first.jpg",
+        src: "first",
+      })
+      .mockRejectedValueOnce(new Error("second failed"));
+    const removeInboxAttachment = vi
+      .fn()
+      .mockRejectedValue(new Error("storage unavailable"));
+    const update = vi.fn().mockRejectedValue(new Error("row unavailable"));
+
+    const { screen, deleteRow } = await renderShareTarget(
+      ["/share?shareKey=recovery-failure"],
+      { removeInboxAttachment, update },
+    );
+    await screen.getByRole("button", { name: /Skip/ }).click();
+
+    await expect.poll(() => update.mock.calls.length).toBe(2);
+    expect(deleteRow).not.toHaveBeenCalled();
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("Please check your Inbox before trying again.");
+  });
+
+  it("updates the persisted source when the user changes tabs after auto-read", async () => {
+    installSharedFiles([{ name: "photo.jpg", type: "image/jpeg" }]);
+    uploadToBucket.mockResolvedValue({
+      title: "photo.jpg",
+      type: "image/jpeg",
+      path: "1/inbox/1/photo.jpg",
+      src: "photo",
+    });
+
+    const { screen, update } = await renderShareTarget([
+      "/share?text=hello&shareKey=source-change",
+    ]);
+    await expect.poll(() => parseResume.mock.calls.length).toBe(1);
+    await screen.getByRole("tab", { name: /WhatsApp/ }).click();
+
+    await expect
+      .poll(() =>
+        update.mock.calls.some(
+          ([resource, params]) =>
+            resource === "inbox_items" && params.data?.source === "whatsapp",
         ),
       )
       .toBe(true);

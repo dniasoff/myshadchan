@@ -14,6 +14,12 @@ export type SharedAttachment = {
 
 export type DerivedShareSource = "whatsapp" | "photo" | "upload";
 
+export const SHARE_UPLOAD_FAILURE_COPY =
+  "Couldn't upload the shared file. Nothing was saved. Try again.";
+
+export const SHARE_RECOVERY_FAILURE_COPY =
+  "Couldn't finish cleaning up this share. Please check your Inbox before trying again.";
+
 export function deriveShareSource(files: File[]): DerivedShareSource {
   if (files.length === 0) return "whatsapp";
   return files.some((file) => !file.type.startsWith("image/"))
@@ -47,7 +53,9 @@ export async function removeSharedFilesBestEffort(
 ): Promise<SharedAttachment[]> {
   const candidates = uploaded.filter((attachment) => Boolean(attachment.path));
   const results = await Promise.allSettled(
-    candidates.map((attachment) => remove(attachment.path)),
+    candidates.map((attachment) =>
+      Promise.resolve().then(() => remove(attachment.path)),
+    ),
   );
   return candidates.filter((_, index) => results[index]?.status === "rejected");
 }
