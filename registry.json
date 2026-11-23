@@ -1720,6 +1720,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/inbox/ShareTarget.helpers.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/inbox/NeedsReviewDialog.tsx",
           "type": "registry:component"
         },

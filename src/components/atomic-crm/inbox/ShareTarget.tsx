@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import type { Identifier } from "ra-core";
 import {
@@ -17,13 +17,11 @@ import { FormToolbar } from "@/components/admin/simple-form";
 import { TextInput } from "@/components/admin/text-input";
 import { cn } from "@/lib/utils";
 
-import { uploadToBucket } from "../providers/supabase/dataProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type {
   CreateShidduchInput,
   InboxItem,
   InboxSource,
-  RAFile,
   Single,
 } from "../types";
 import { createShadchanInline } from "../shidduchim/createShadchanInline";
@@ -42,21 +40,10 @@ import {
 } from "./useResolveInboxItem";
 import { useParseResume } from "./useParseResume";
 import { parseWhatsAppText } from "./whatsappText";
-import type { ParsedResumeFields } from "./useParseResume";
-
-/** Copy every model field into the create payload, while preserving a name
- * the user edited in the share form over the model's suggestion. */
-// eslint-disable-next-line react-refresh/only-export-components
-export function applyParsedResumeFields(
-  input: CreateShidduchInput,
-  fields: ParsedResumeFields,
-  manuallyEnteredName: string | null,
-  fallbackName: string | null,
-): CreateShidduchInput {
-  Object.assign(input, fields);
-  input.name_en = manuallyEnteredName ?? fields.name_en ?? fallbackName ?? null;
-  return input;
-}
+import {
+  uploadSharedFiles,
+  applyParsedResumeFields,
+} from "./ShareTarget.helpers";
 
 /**
  * Story 10.1 (Task 1): must match `src/sw.ts`'s own copy of these three
@@ -157,46 +144,6 @@ async function readSharedFiles(shareKey: string): Promise<SharedFilesResult> {
   ]);
   const files = results.filter((file): file is File => file !== null);
   return { files, failed: files.length < manifest.length };
-}
-
-/** Task 4: uploads through the SAME primitive `members.avatar` already
- * uses (`uploadToBucket`, exported this story) rather than a second upload
- * path — one upload primitive across every entry point. */
-// eslint-disable-next-line react-refresh/only-export-components
-export async function uploadSharedFiles(
-  files: File[],
-  inboxItemId?: Identifier,
-  onPartialFailure?: (uploaded: SharedAttachment[]) => Promise<void>,
-): Promise<SharedAttachment[]> {
-  const uploaded: SharedAttachment[] = [];
-  try {
-    for (const file of files) {
-      const objectUrl = URL.createObjectURL(file);
-      try {
-        const raFile: RAFile = {
-          src: objectUrl,
-          title: file.name,
-          rawFile: file,
-          type: file.type,
-        };
-        const prefix = inboxItemId != null ? `inbox/${inboxItemId}` : undefined;
-        const result = await uploadToBucket(raFile, prefix);
-        uploaded.push({
-          title: result.title,
-          type: result.type ?? file.type,
-          path: result.path ?? "",
-          src: result.src,
-          size: file.size,
-        });
-      } finally {
-        URL.revokeObjectURL(objectUrl);
-      }
-    }
-  } catch (error) {
-    await onPartialFailure?.(uploaded);
-    throw error;
-  }
-  return uploaded;
 }
 
 /**
@@ -347,7 +294,7 @@ export const ShareTarget = () => {
    * write never leaves orphaned storage objects. Files are uploaded into a
    * row-scoped path (`{accountId}/inbox/{inboxItemId}/{uuid}{ext}`); the
    * same row is then updated with the attachment metadata. */
-  const createInboxItem = async (): Promise<InboxItem> => {
+  const createInboxItem = useCallback(async (): Promise<InboxItem> => {
     const { data } = await dataProvider.create<InboxItem>("inbox_items", {
       data: {
         source: sourceTab ?? "whatsapp",
@@ -401,7 +348,7 @@ export const ShareTarget = () => {
     }
 
     return item;
-  };
+  }, [dataProvider, files, hasRawText, rawText, sourceTab]);
 
   // Review fix (F6, MEDIUM): Save, every "Link" press, and Skip each used
   // to call `createInboxItem()` independently. Any sequence that runs more
@@ -414,7 +361,7 @@ export const ShareTarget = () => {
   // cache so the next click gets a genuine retry rather than being stuck
   // replaying the same rejection.
   const createdItemRef = useRef<Promise<InboxItem> | null>(null);
-  const getOrCreateInboxItem = (): Promise<InboxItem> => {
+  const getOrCreateInboxItem = useCallback((): Promise<InboxItem> => {
     if (!createdItemRef.current) {
       createdItemRef.current = createInboxItem().catch((error: unknown) => {
         createdItemRef.current = null;
@@ -422,9 +369,9 @@ export const ShareTarget = () => {
       });
     }
     return createdItemRef.current;
-  };
+  }, [createInboxItem]);
 
-  const readSharedText = async () => {
+  const readSharedText = useCallback(async () => {
     if (!hasRawText || files === null) return;
     if (shareReadPromise.current) return shareReadPromise.current;
     setShareReadState("reading");
@@ -450,7 +397,7 @@ export const ShareTarget = () => {
     })();
     shareReadPromise.current = promise;
     return promise;
-  };
+  }, [files, getOrCreateInboxItem, hasRawText, parse]);
 
   // The helper intentionally closes over the one-shot capture promise. The
   // ref guard prevents a render-driven effect retry from reading twice.
@@ -459,8 +406,7 @@ export const ShareTarget = () => {
       shareReadStarted.current = true;
       void readSharedText();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, hasRawText]);
+  }, [files, hasRawText, readSharedText]);
 
   const resolveSingleId = (): Identifier | null => {
     if (singleId != null) return singleId;

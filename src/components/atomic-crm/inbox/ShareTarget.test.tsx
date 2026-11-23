@@ -5,11 +5,11 @@ import { QueryClient } from "@tanstack/react-query";
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
+import { ShareTarget } from "./ShareTarget";
 import {
   applyParsedResumeFields,
-  ShareTarget,
   uploadSharedFiles,
-} from "./ShareTarget";
+} from "./ShareTarget.helpers";
 
 const { uploadToBucket } = vi.hoisted(() => ({ uploadToBucket: vi.fn() }));
 vi.mock("../providers/supabase/dataProvider", () => ({ uploadToBucket }));
