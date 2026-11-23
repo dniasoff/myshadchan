@@ -13,12 +13,18 @@ export function resumePhotoStoragePath(
   ownerSegment: string,
   visibility: ResumePhotoVisibility,
   sourceAttachmentPath?: string,
+  fileName?: string,
 ): string {
   const suffix =
     sourceAttachmentPath == null
-      ? crypto.randomUUID()
-      : `inbox-${stableSourceToken(sourceAttachmentPath)}`;
+      ? `${crypto.randomUUID()}-${fileName ?? "photo.jpg"}`
+      : `inbox-${stableSourceToken(sourceAttachmentPath)}${imageExtension(sourceAttachmentPath)}`;
   return `${accountId}/photos/${visibility}/${ownerSegment}/${suffix}`;
+}
+
+function imageExtension(path: string): ".jpg" | ".png" {
+  const extension = path.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase();
+  return extension === "png" ? ".png" : ".jpg";
 }
 
 function stableSourceToken(sourcePath: string): string {

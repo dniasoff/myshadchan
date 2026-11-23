@@ -103,6 +103,7 @@ export async function uploadResumePhoto(
     ownerSegment(subject),
     visibility,
     sourceAttachmentPath,
+    file.name,
   );
   if (sourceAttachmentPath) {
     const existing = await findResumePhotoBySource(

@@ -56,5 +56,18 @@ describe("Supabase resume photo promotion", () => {
     expect(second).toEqual(existing);
     expect(select).toHaveBeenCalledWith("*");
     expect(eq).toHaveBeenCalledWith("path", expect.stringContaining("inbox-"));
+    expect(eq).toHaveBeenCalledWith("path", expect.stringMatching(/\.jpg$/));
+  });
+
+  it("keeps the image filename suffix for direct uploads", async () => {
+    await uploadResumePhoto({
+      shidduchimId: 42,
+      file: new File(["photo"], "portrait.png", { type: "image/png" }),
+    });
+
+    expect(upload).toHaveBeenCalledWith(
+      expect.stringMatching(/\/photos\/shared\/42\/[0-9a-f-]+-portrait\.png$/),
+      expect.any(File),
+    );
   });
 });

@@ -125,6 +125,7 @@ export async function uploadResumePhoto(
     subjectOwnerSegment,
     visibility,
     sourceAttachmentPath,
+    file.name,
   );
 
   if (sourceAttachmentPath) {
