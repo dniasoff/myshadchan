@@ -1023,6 +1023,16 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
       },
     });
     expect(dataProvider.createShidduch).not.toHaveBeenCalled();
+    expect(dataProvider.update).toHaveBeenCalledWith(
+      "inbox_items",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          resolution_input: expect.objectContaining({
+            resume_source_inbox_item_id: item.id,
+          }),
+        }),
+      }),
+    );
 
     // Story 10.5: resolving -> note inserted -> resolved
     expect(dataProvider.update).toHaveBeenCalledTimes(3);

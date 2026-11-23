@@ -37,6 +37,8 @@ export type ResolutionInput =
   | {
       action: "new";
       input: CreateShidduchInput;
+      /** The capture that supplied a text resume, when this is a text resume. */
+      resume_source_inbox_item_id?: Identifier;
       resolved_shidduchim_id?: Identifier;
       resume_draft?: ResumeDraft;
       resume_created?: boolean;
@@ -50,6 +52,8 @@ export type ResolutionInput =
   | {
       action: "link";
       shidduchim_id: Identifier;
+      /** The capture that supplied a text resume, when this is a text resume. */
+      resume_source_inbox_item_id?: Identifier;
       note_inserted?: boolean;
       claimed_from_status?: "unresolved" | "held";
       lock_acquired_at?: string;

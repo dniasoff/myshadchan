@@ -48,6 +48,10 @@ const RereadParseBodySchema = z.strictObject({
   file_identity: z.string().min(1).optional(),
 });
 
+/** Maximum characters copied from an Inbox text capture into the model input.
+ * The exact raw_text stays in the Inbox row; this only bounds model exposure. */
+export const MAX_TEXT_SOURCE_CHARS = 40_000;
+
 // The two routes intentionally share POST /parse for deployment compatibility,
 // but their bodies are disjoint and strict. A mixed body or an extra key must
 // never silently fall through to the legacy inbox path.
@@ -323,6 +327,17 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
     const knownSize = isTextSource
       ? new TextEncoder().encode(textSource!).byteLength
       : listing?.[0]?.metadata?.size;
+    if (isTextSource && textSource!.length > MAX_TEXT_SOURCE_CHARS) {
+      return releaseAndFail(
+        c,
+        accountId,
+        attemptId,
+        generation,
+        "This text is too long to read automatically. Your original text is still saved.",
+        413,
+        "text_source_too_long",
+      );
+    }
     if (typeof knownSize === "number" && knownSize > MAX_ATTACHMENT_BYTES) {
       return releaseAndFail(
         c,

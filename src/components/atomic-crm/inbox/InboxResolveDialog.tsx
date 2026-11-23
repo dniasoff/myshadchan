@@ -184,6 +184,9 @@ const LegacyInboxResolveDialog = ({
     "idle" | "reading" | "saved" | "failed" | "unavailable"
   >("idle");
   const textReadAttempt = useRef<Identifier | null>(null);
+  const textReadPromise = useRef<Promise<ParsedResumeResponse | null> | null>(
+    null,
+  );
   const { parse } = useParseResume();
   const textResume =
     Boolean(item.raw_text?.trim()) && !hasResumeDocumentAttachment(item);
@@ -191,30 +194,41 @@ const LegacyInboxResolveDialog = ({
     ? parseWhatsAppText(item.raw_text ?? "").firstBoldText
     : null;
 
-  const readTextResume = useCallback(async () => {
-    if (!textResume || textReadState === "reading") return;
-    textReadAttempt.current = item.id;
-    setTextReadState("reading");
-    try {
-      const result = await parse(item);
-      if (textReadAttempt.current !== item.id) return;
-      setParsedTextResume(result);
-      setTextReadState("saved");
-    } catch (error) {
-      if (textReadAttempt.current !== item.id) return;
-      const message = error instanceof Error ? error.message : "";
-      setTextReadState(
-        /monthly|entitled|allowance|available/i.test(message)
-          ? "unavailable"
-          : "failed",
-      );
-    }
-  }, [item, parse, textReadState, textResume]);
+  const readTextResume =
+    useCallback(async (): Promise<ParsedResumeResponse | null> => {
+      if (!textResume) return null;
+      if (textReadPromise.current) return textReadPromise.current;
+      textReadAttempt.current = item.id;
+      setTextReadState("reading");
+      const promise = (async () => {
+        try {
+          const result = await parse(item);
+          if (textReadAttempt.current !== item.id) return null;
+          setParsedTextResume(result);
+          setTextReadState("saved");
+          return result;
+        } catch (error) {
+          if (textReadAttempt.current !== item.id) return null;
+          const message = error instanceof Error ? error.message : "";
+          setTextReadState(
+            /monthly|entitled|allowance|available/i.test(message)
+              ? "unavailable"
+              : "failed",
+          );
+          return null;
+        } finally {
+          textReadPromise.current = null;
+        }
+      })();
+      textReadPromise.current = promise;
+      return promise;
+    }, [item, parse, textResume]);
 
   useEffect(() => {
     setParsedTextResume(null);
     setTextReadState("idle");
     textReadAttempt.current = null;
+    textReadPromise.current = null;
   }, [item.id]);
 
   useEffect(() => {
@@ -294,14 +308,20 @@ const LegacyInboxResolveDialog = ({
         return;
       }
 
+      const settledTextDraft = textResume
+        ? textReadPromise.current
+          ? await textReadPromise.current
+          : (parsedTextResume ??
+            (textReadState === "idle" ? await readTextResume() : null))
+        : null;
       await resolveAsNewShidduch(
         item,
         input,
         textResume || resumeAttachment
           ? {
               attachment: resumeAttachment,
-              rawDraft: parsedTextResume?.rawDraft ?? null,
-              sections: parsedTextResume?.sections ?? null,
+              rawDraft: settledTextDraft?.rawDraft ?? null,
+              sections: settledTextDraft?.sections ?? null,
             }
           : undefined,
       );
@@ -508,7 +528,7 @@ const LegacyInboxResolveDialog = ({
               </span>
               <LinkToShidduchSearch
                 onLink={handleLinkToExisting}
-                disabled={isBusy}
+                disabled={isBusy || textReadState === "reading"}
               />
             </div>
 
@@ -538,7 +558,7 @@ const LegacyInboxResolveDialog = ({
                   <SaveButton
                     label="File as a suggestion"
                     className={`${INBOX_PRIMARY_CTA_CLASS} w-full justify-center sm:w-auto`}
-                    disabled={isBusy}
+                    disabled={isBusy || textReadState === "reading"}
                   />
                 </div>
               </div>

@@ -5,12 +5,17 @@ import {
   useNotify,
   useRecordContext,
 } from "ra-core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 import { buildTabPath } from "../entity360/entityPaths";
-import type { InboxAttachment, InboxItem, ShidduchSummary } from "../types";
+import type {
+  InboxAttachment,
+  InboxItem,
+  Resume,
+  ShidduchSummary,
+} from "../types";
 import type { CrmDataProvider } from "../providers/types";
 import { signInboxAttachmentUrl } from "../providers/supabase/inboxAttachments";
 import { useViewerRole } from "../entity360/useViewerRole";
@@ -18,6 +23,7 @@ import { ResumeDocument } from "./ResumeDocument";
 import { canRereadResume } from "./resumeReferenceVisibility";
 import { canDeleteResumeFile as canDeleteResumeFileForRole } from "./resumeFileDelete";
 import { parseWhatsAppText } from "../inbox/whatsappText";
+import { useParseResume } from "../inbox/useParseResume";
 
 function isPictureAttachment(attachment: InboxAttachment): boolean {
   return (
@@ -26,19 +32,63 @@ function isPictureAttachment(attachment: InboxAttachment): boolean {
   );
 }
 
+function hasParsedResumeData(resume?: Resume): boolean {
+  if (!resume) return false;
+  if (resume.extracted != null) return true;
+  const sections = resume.sections;
+  return (
+    sections != null &&
+    typeof sections === "object" &&
+    !Array.isArray(sections) &&
+    ("learningHistory" in sections || "references" in sections)
+  );
+}
+
 function WhatsAppTextSource({
   record,
   capture,
+  resume,
 }: {
   record: ShidduchSummary;
   capture: InboxItem;
+  resume?: Resume;
 }): ReactNode {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const [suggestedName, setSuggestedName] = useState(
-    parseWhatsAppText(capture.raw_text ?? "").firstBoldText ?? "",
+    record.name_en?.trim() ||
+      parseWhatsAppText(capture.raw_text ?? "").firstBoldText ||
+      "",
   );
+  const [nameError, setNameError] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState<string | null>(null);
+  const [promotedPhotos, setPromotedPhotos] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [photoErrors, setPhotoErrors] = useState<Record<string, boolean>>({});
+  const { parse } = useParseResume();
+  const [readState, setReadState] = useState<
+    "idle" | "reading" | "saved" | "failed"
+  >(hasParsedResumeData(resume) ? "saved" : "failed");
+
+  useEffect(() => {
+    setReadState(hasParsedResumeData(resume) ? "saved" : "failed");
+  }, [resume]);
+
+  const saveSuggestedName = async () => {
+    const nextName = suggestedName.trim();
+    if (nextName === (record.name_en?.trim() ?? "")) return;
+    try {
+      await dataProvider.update("shidduchim", {
+        id: record.id,
+        data: { name_en: nextName || null },
+        previousData: record,
+      });
+      setNameError(null);
+    } catch {
+      setNameError("We couldn’t save this suggested name. Try again.");
+    }
+  };
 
   const copySource = async () => {
     try {
@@ -50,7 +100,9 @@ function WhatsAppTextSource({
   };
 
   const handleUseAsPhoto = async (attachment: InboxAttachment) => {
+    if (promotedPhotos.has(attachment.path)) return;
     setPhotoBusy(attachment.path);
+    setPhotoErrors((current) => ({ ...current, [attachment.path]: false }));
     try {
       const url = attachment.src.startsWith("data:")
         ? attachment.src
@@ -66,8 +118,14 @@ function WhatsAppTextSource({
         file,
         visibility: "shared",
       });
+      setPromotedPhotos((current) => {
+        const next = new Set(current);
+        next.add(attachment.path);
+        return next;
+      });
       notify("This picture is now the Photo", { type: "info" });
     } catch {
+      setPhotoErrors((current) => ({ ...current, [attachment.path]: true }));
       notify(
         "We couldn’t use this picture as Photo yet. It is still safe in Files.",
         {
@@ -76,6 +134,35 @@ function WhatsAppTextSource({
       );
     } finally {
       setPhotoBusy(null);
+    }
+  };
+
+  const retryTextRead = async () => {
+    setReadState("reading");
+    try {
+      const result = await parse(capture);
+      if (resume) {
+        await dataProvider.update("resumes", {
+          id: resume.id,
+          data: {
+            extracted: result.rawDraft,
+            sections: result.sections,
+          },
+          previousData: resume,
+        });
+      } else {
+        await dataProvider.create("resumes", {
+          data: {
+            shidduchim_id: record.id,
+            files: [],
+            extracted: result.rawDraft,
+            sections: result.sections,
+          },
+        });
+      }
+      setReadState("saved");
+    } catch {
+      setReadState("failed");
     }
   };
 
@@ -116,19 +203,61 @@ function WhatsAppTextSource({
             id="suggested-name"
             value={suggestedName}
             onChange={(event) => setSuggestedName(event.target.value)}
+            onBlur={() => void saveSuggestedName()}
             className="min-h-11"
           />
           <p className="text-xs text-muted-foreground">
             Taken from the first bold words. You can change it.
           </p>
+          {nameError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {nameError}
+            </p>
+          ) : null}
         </div>
       ) : null}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-busy={readState === "reading"}
+        className="rounded-xl border border-border bg-background/60 p-3 text-sm"
+      >
+        <p className="font-medium">
+          {readState === "reading"
+            ? "Reading the text now…"
+            : readState === "saved"
+              ? "Resume reading saved"
+              : "We couldn’t read this text automatically yet."}
+        </p>
+        <p className="text-muted-foreground">
+          Your original text is still saved in this Inbox capture.
+        </p>
+        {readState === "failed" ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-2 min-h-11"
+            onClick={() => void retryTextRead()}
+          >
+            Try again
+          </Button>
+        ) : null}
+      </div>
       {pictures.map((attachment) => (
         <div
           key={attachment.path}
           className="rounded-xl border border-border p-3"
         >
+          <img
+            src={attachment.src}
+            alt={`Private picture from WhatsApp: ${attachment.title}`}
+            className="mb-3 h-24 w-24 rounded-lg object-cover"
+          />
           <p className="text-sm font-semibold">Picture from WhatsApp</p>
+          <p className="text-sm text-muted-foreground">{attachment.title}</p>
+          <p className="text-sm font-medium text-muted-foreground">
+            Private in Files
+          </p>
           <p className="text-sm text-muted-foreground">
             Shared picture — not a file
           </p>
@@ -138,13 +267,35 @@ function WhatsAppTextSource({
           <Button
             type="button"
             className="mt-3 min-h-11"
-            disabled={photoBusy === attachment.path}
+            disabled={
+              photoBusy === attachment.path ||
+              promotedPhotos.has(attachment.path)
+            }
             onClick={() => void handleUseAsPhoto(attachment)}
           >
             {photoBusy === attachment.path
               ? "Using this picture…"
-              : "Use this picture as Photo"}
+              : promotedPhotos.has(attachment.path)
+                ? "Photo added"
+                : "Use this picture as Photo"}
           </Button>
+          {promotedPhotos.has(attachment.path) ? (
+            <p role="status" className="mt-2 text-sm text-green-700">
+              This picture is now the Photo.
+            </p>
+          ) : photoErrors[attachment.path] ? (
+            <div role="alert" className="mt-2 text-sm text-destructive">
+              <p>We couldn’t use this picture as Photo yet.</p>
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-2 min-h-11"
+                onClick={() => void handleUseAsPhoto(attachment)}
+              >
+                Try again
+              </Button>
+            </div>
+          ) : null}
         </div>
       ))}
     </div>
@@ -161,7 +312,12 @@ export function OriginalResumeTab(): ReactNode {
   const record = useRecordContext<ShidduchSummary>();
   const { role, isPending: isRolePending } = useViewerRole();
   const recordId = record?.id;
-  const { data: captures = [] } = useGetList<InboxItem>(
+  const {
+    data: captures = [],
+    isPending: capturesPending,
+    error: capturesError,
+    refetch: refetchCaptures,
+  } = useGetList<InboxItem>(
     "inbox_items",
     {
       filter: { resolved_shidduchim_id: recordId },
@@ -170,11 +326,59 @@ export function OriginalResumeTab(): ReactNode {
     },
     { enabled: recordId != null },
   );
+  const { data: resumes = [] } = useGetList<Resume>(
+    "resumes",
+    {
+      filter: { shidduchim_id: recordId },
+      pagination: { page: 1, perPage: 10 },
+      sort: { field: "id", order: "ASC" },
+    },
+    { enabled: recordId != null },
+  );
   if (!record) return null;
 
   const canReread = canRereadResume(role, isRolePending);
   const canDelete = canDeleteResumeFileForRole(role, isRolePending);
-  const textCapture = captures.find(
+  const markedCaptures = captures.filter(
+    (capture) =>
+      (
+        capture.resolution_input as {
+          resume_source_inbox_item_id?: unknown;
+        } | null
+      )?.resume_source_inbox_item_id != null &&
+      String(
+        (
+          capture.resolution_input as {
+            resume_source_inbox_item_id?: unknown;
+          } | null
+        )?.resume_source_inbox_item_id,
+      ) === String(capture.id) &&
+      typeof capture.raw_text === "string" &&
+      capture.raw_text.trim().length > 0,
+  );
+  const resumeSourceId = resumes.find((resume) => {
+    const sections = resume.sections;
+    return (
+      sections != null &&
+      typeof sections === "object" &&
+      !Array.isArray(sections) &&
+      "source_inbox_item_id" in sections
+    );
+  })?.sections as { source_inbox_item_id?: unknown } | undefined;
+  const persistedSourceCaptures = captures.filter(
+    (capture) =>
+      resumeSourceId?.source_inbox_item_id != null &&
+      String(capture.id) === String(resumeSourceId.source_inbox_item_id) &&
+      typeof capture.raw_text === "string" &&
+      capture.raw_text.trim().length > 0,
+  );
+  const textCapture = (
+    persistedSourceCaptures.length > 0
+      ? persistedSourceCaptures
+      : markedCaptures.length > 0
+        ? markedCaptures
+        : captures
+  ).find(
     (capture) =>
       typeof capture.raw_text === "string" &&
       capture.raw_text.trim().length > 0,
@@ -188,8 +392,27 @@ export function OriginalResumeTab(): ReactNode {
       <h2 id="original-resume-heading" className="text-xl font-semibold">
         Original resume
       </h2>
-      {textCapture ? (
-        <WhatsAppTextSource record={record} capture={textCapture} />
+      {capturesPending ? (
+        <p role="status">Loading the original resume…</p>
+      ) : capturesError ? (
+        <div role="alert" className="flex flex-col gap-2">
+          <p>We couldn’t load the original resume.</p>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void refetchCaptures()}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : textCapture ? (
+        <WhatsAppTextSource
+          record={record}
+          capture={textCapture}
+          resume={resumes.find(
+            (candidate) => candidate.shidduchim_id === record.id,
+          )}
+        />
       ) : null}
       <ResumeDocument
         shidduchimId={record.id}

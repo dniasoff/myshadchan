@@ -14,6 +14,7 @@ import { AutocompleteInput } from "@/components/admin/autocomplete-input";
 import { SaveButton } from "@/components/admin/form";
 import { ReferenceInput } from "@/components/admin/reference-input";
 import { FormToolbar } from "@/components/admin/simple-form";
+import { TextInput } from "@/components/admin/text-input";
 import { cn } from "@/lib/utils";
 
 import { uploadToBucket } from "../providers/supabase/dataProvider";
@@ -41,6 +42,21 @@ import {
 } from "./useResolveInboxItem";
 import { useParseResume } from "./useParseResume";
 import { parseWhatsAppText } from "./whatsappText";
+import type { ParsedResumeFields } from "./useParseResume";
+
+/** Copy every model field into the create payload, while preserving a name
+ * the user edited in the share form over the model's suggestion. */
+// eslint-disable-next-line react-refresh/only-export-components
+export function applyParsedResumeFields(
+  input: CreateShidduchInput,
+  fields: ParsedResumeFields,
+  manuallyEnteredName: string | null,
+  fallbackName: string | null,
+): CreateShidduchInput {
+  Object.assign(input, fields);
+  input.name_en = manuallyEnteredName ?? fields.name_en ?? fallbackName ?? null;
+  return input;
+}
 
 /**
  * Story 10.1 (Task 1): must match `src/sw.ts`'s own copy of these three
@@ -146,32 +162,39 @@ async function readSharedFiles(shareKey: string): Promise<SharedFilesResult> {
 /** Task 4: uploads through the SAME primitive `members.avatar` already
  * uses (`uploadToBucket`, exported this story) rather than a second upload
  * path — one upload primitive across every entry point. */
-async function uploadSharedFiles(
+// eslint-disable-next-line react-refresh/only-export-components
+export async function uploadSharedFiles(
   files: File[],
   inboxItemId?: Identifier,
+  onPartialFailure?: (uploaded: SharedAttachment[]) => Promise<void>,
 ): Promise<SharedAttachment[]> {
   const uploaded: SharedAttachment[] = [];
-  for (const file of files) {
-    const objectUrl = URL.createObjectURL(file);
-    try {
-      const raFile: RAFile = {
-        src: objectUrl,
-        title: file.name,
-        rawFile: file,
-        type: file.type,
-      };
-      const prefix = inboxItemId != null ? `inbox/${inboxItemId}` : undefined;
-      const result = await uploadToBucket(raFile, prefix);
-      uploaded.push({
-        title: result.title,
-        type: result.type ?? file.type,
-        path: result.path ?? "",
-        src: result.src,
-        size: file.size,
-      });
-    } finally {
-      URL.revokeObjectURL(objectUrl);
+  try {
+    for (const file of files) {
+      const objectUrl = URL.createObjectURL(file);
+      try {
+        const raFile: RAFile = {
+          src: objectUrl,
+          title: file.name,
+          rawFile: file,
+          type: file.type,
+        };
+        const prefix = inboxItemId != null ? `inbox/${inboxItemId}` : undefined;
+        const result = await uploadToBucket(raFile, prefix);
+        uploaded.push({
+          title: result.title,
+          type: result.type ?? file.type,
+          path: result.path ?? "",
+          src: result.src,
+          size: file.size,
+        });
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
     }
+  } catch (error) {
+    await onPartialFailure?.(uploaded);
+    throw error;
   }
   return uploaded;
 }
@@ -210,6 +233,13 @@ export const ShareTarget = () => {
   const parsedTextResumeRef = useRef<Awaited<ReturnType<typeof parse>> | null>(
     null,
   );
+  const shareReadPromise = useRef<Promise<Awaited<
+    ReturnType<typeof parse>
+  > | null> | null>(null);
+  const shareReadStarted = useRef(false);
+  const [shareReadState, setShareReadState] = useState<
+    "idle" | "reading" | "saved" | "failed" | "unavailable"
+  >("idle");
 
   // `null` = still resolving from the Cache API (only when a `shareKey` was
   // handed off); an empty array covers both "no shareKey" and "no files".
@@ -329,18 +359,45 @@ export const ShareTarget = () => {
     const item = data;
 
     if (files && files.length > 0) {
-      const attachments = await uploadSharedFiles(files, item.id);
-      const { data: updated } = await dataProvider.update<InboxItem>(
-        "inbox_items",
-        {
-          id: item.id,
-          data: {
-            attachments: attachments.length > 0 ? attachments : null,
+      let uploadedAttachments: SharedAttachment[] = [];
+      try {
+        uploadedAttachments = await uploadSharedFiles(
+          files,
+          item.id,
+          async (uploaded) => {
+            await Promise.all(
+              uploaded
+                .map((attachment) => attachment.path)
+                .filter(Boolean)
+                .map((path) => dataProvider.removeInboxAttachment(path)),
+            );
           },
-          previousData: item,
-        },
-      );
-      return updated ?? item;
+        );
+        const { data: updated } = await dataProvider.update<InboxItem>(
+          "inbox_items",
+          {
+            id: item.id,
+            data: {
+              attachments:
+                uploadedAttachments.length > 0 ? uploadedAttachments : null,
+            },
+            previousData: item,
+          },
+        );
+        return updated ?? item;
+      } catch (error) {
+        await Promise.all(
+          uploadedAttachments
+            .map((attachment) => attachment.path)
+            .filter(Boolean)
+            .map((path) => dataProvider.removeInboxAttachment(path))
+            .map((cleanup) => cleanup.catch(() => undefined)),
+        );
+        await dataProvider
+          .delete("inbox_items", { id: item.id, previousData: item })
+          .catch(() => undefined);
+        throw error;
+      }
     }
 
     return item;
@@ -366,6 +423,44 @@ export const ShareTarget = () => {
     }
     return createdItemRef.current;
   };
+
+  const readSharedText = async () => {
+    if (!hasRawText || files === null) return;
+    if (shareReadPromise.current) return shareReadPromise.current;
+    setShareReadState("reading");
+    const promise = (async () => {
+      try {
+        const item = await getOrCreateInboxItem();
+        if (hasResumeDocumentAttachment(item)) return null;
+        const result = await parse(item);
+        parsedTextResumeRef.current = result;
+        setShareReadState("saved");
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        setShareReadState(
+          /monthly|entitled|allowance|available/i.test(message)
+            ? "unavailable"
+            : "failed",
+        );
+        return null;
+      } finally {
+        shareReadPromise.current = null;
+      }
+    })();
+    shareReadPromise.current = promise;
+    return promise;
+  };
+
+  // The helper intentionally closes over the one-shot capture promise. The
+  // ref guard prevents a render-driven effect retry from reading twice.
+  useEffect(() => {
+    if (files !== null && hasRawText && !shareReadStarted.current) {
+      shareReadStarted.current = true;
+      void readSharedText();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, hasRawText]);
 
   const resolveSingleId = (): Identifier | null => {
     if (singleId != null) return singleId;
@@ -408,8 +503,15 @@ export const ShareTarget = () => {
         initial_state: "new",
         visibility: "shared",
         redt_date: item.created_at.split("T")[0],
+        name_en:
+          typeof values.name_en === "string" && values.name_en.trim()
+            ? values.name_en.trim()
+            : null,
       };
       let textDraft = parsedTextResumeRef.current;
+      if (!textDraft && shareReadPromise.current) {
+        textDraft = await shareReadPromise.current;
+      }
       if (hasRawText && !hasResumeDocumentAttachment(item) && !textDraft) {
         try {
           textDraft = await parse(item);
@@ -420,10 +522,13 @@ export const ShareTarget = () => {
         }
       }
       if (textDraft) {
-        input.name_en =
-          textDraft.fields.name_en ??
-          parseWhatsAppText(item.raw_text ?? "").firstBoldText ??
-          null;
+        const manuallyEnteredName = input.name_en ?? null;
+        applyParsedResumeFields(
+          input,
+          textDraft.fields,
+          manuallyEnteredName,
+          parseWhatsAppText(item.raw_text ?? "").firstBoldText,
+        );
       }
       await resolveAsNewShidduch(
         item,
@@ -552,7 +657,7 @@ export const ShareTarget = () => {
               aria-selected={isActive}
               onClick={() => setSourceTab(tab)}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
+                "inline-flex min-h-11 items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
                 isActive
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-border text-muted-foreground hover:text-foreground",
@@ -571,8 +676,17 @@ export const ShareTarget = () => {
       {/* Task 4: "a preview of the raw text or image(s)". */}
       <div className="rounded-2xl border border-border bg-secondary/60 p-4">
         {rawText ? (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-            {rawText}
+          <p
+            className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground"
+            dir="auto"
+          >
+            {parseWhatsAppText(rawText).parts.map((part, index) =>
+              part.bold ? (
+                <strong key={index}>{part.text}</strong>
+              ) : (
+                <span key={index}>{part.text}</span>
+              ),
+            )}
           </p>
         ) : imagePreviews.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -580,6 +694,43 @@ export const ShareTarget = () => {
               _: "No text — see the attached file.",
             })}
           </p>
+        ) : null}
+        {hasRawText ? (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-busy={shareReadState === "reading"}
+            className="mt-3 rounded-xl border border-border bg-background/60 p-3 text-sm"
+          >
+            <p className="font-medium">
+              {shareReadState === "reading"
+                ? "Reading the text now…"
+                : shareReadState === "saved"
+                  ? "Resume tab saved"
+                  : shareReadState === "failed"
+                    ? "We couldn’t read the text yet."
+                    : shareReadState === "unavailable"
+                      ? "Automatic reading is not available right now."
+                      : "Reading this text into the Resume tab starts automatically."}
+            </p>
+            <p className="text-muted-foreground">
+              {shareReadState === "saved"
+                ? "You can review and edit the suggestion before filing."
+                : "Your original text is still saved."}
+            </p>
+            {shareReadState === "failed" || shareReadState === "unavailable" ? (
+              <button
+                type="button"
+                className="mt-2 min-h-11 rounded-lg border px-3 text-sm font-medium"
+                onClick={() => {
+                  shareReadStarted.current = false;
+                  void readSharedText();
+                }}
+              >
+                Try again
+              </button>
+            ) : null}
+          </div>
         ) : null}
         {sharedDocumentCount > 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -615,6 +766,7 @@ export const ShareTarget = () => {
         defaultValues={{
           suggested_by_name: "",
           suggested_by_phone: "",
+          name_en: parseWhatsAppText(rawText).firstBoldText ?? "",
         }}
       >
         <div className="flex flex-col gap-4">
@@ -636,6 +788,21 @@ export const ShareTarget = () => {
           </ReferenceInput>
 
           <SuggestedByFields />
+
+          <TextInput
+            source="name_en"
+            label={
+              parseWhatsAppText(rawText).firstBoldText
+                ? "Suggested name"
+                : "Name of the person"
+            }
+            dir="auto"
+            helperText={
+              parseWhatsAppText(rawText).firstBoldText
+                ? "Taken from the first bold words. You can change it."
+                : false
+            }
+          />
 
           {/* AC 4: a pill picker, shown only when there is more than one
               single to disambiguate. */}
@@ -659,7 +826,7 @@ export const ShareTarget = () => {
                       type="button"
                       onClick={() => setSingleId(single.id)}
                       className={cn(
-                        "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                        "min-h-11 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
                         isActive
                           ? "border-primary bg-primary/10 text-primary"
                           : "border-border text-muted-foreground hover:text-foreground",
@@ -682,7 +849,7 @@ export const ShareTarget = () => {
             </span>
             <LinkToShidduchSearch
               onLink={handleLinkToExisting}
-              disabled={isSaving}
+              disabled={isSaving || shareReadState === "reading"}
             />
           </div>
 
@@ -691,7 +858,7 @@ export const ShareTarget = () => {
               <button
                 type="button"
                 onClick={() => void handleSkip()}
-                disabled={isSaving}
+                disabled={isSaving || shareReadState === "reading"}
                 className="inline-flex h-11 items-center rounded-xl px-4 text-sm font-medium text-muted-foreground hover:text-foreground"
               >
                 {translate("crm.inbox.share.skip", {

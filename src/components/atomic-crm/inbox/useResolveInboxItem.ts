@@ -257,6 +257,9 @@ export function useResolveInboxItem() {
       action: "new",
       input: filingInput,
       resume_draft: draft,
+      ...(item.raw_text?.trim()
+        ? { resume_source_inbox_item_id: item.id }
+        : {}),
     };
     const lockedItem = await acquireResolutionLock(
       dataProvider,
@@ -451,7 +454,21 @@ export function useResolveInboxItem() {
               resumeData.extracted = savedDraft.rawDraft;
             }
             if (savedDraft.sections != null) {
-              resumeData.sections = savedDraft.sections;
+              resumeData.sections =
+                !savedDraft.attachment &&
+                typeof savedDraft.sections === "object" &&
+                savedDraft.sections !== null &&
+                !Array.isArray(savedDraft.sections)
+                  ? {
+                      ...(savedDraft.sections as Record<string, unknown>),
+                      source_inbox_item_id: item.id,
+                    }
+                  : savedDraft.sections;
+            } else if (!savedDraft.attachment) {
+              // Text captures have no file-version row in which to retain
+              // provenance. Keep the source id alongside the parsed sections
+              // metadata without changing the exact Inbox raw_text.
+              resumeData.sections = { source_inbox_item_id: item.id };
             }
             await dataProvider.create<Resume>("resumes", {
               data: resumeData,
@@ -581,6 +598,9 @@ export function useResolveInboxItem() {
     const resolutionInput: ResolutionInput = {
       action: "link",
       shidduchim_id: shidduchimId,
+      ...(item.raw_text?.trim()
+        ? { resume_source_inbox_item_id: item.id }
+        : {}),
     };
     const lockedItem = await acquireResolutionLock(
       dataProvider,
