@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  displaySuggestedByPhone,
   resolveSuggestedByValues,
   suggestedByPhoneForName,
   suggestedByPhoneHref,
+  suggestedByPhoneSearchDigits,
   validateSuggestedByName,
   validateSuggestedByPhone,
 } from "./suggestedBy";
@@ -31,6 +33,9 @@ describe("SuggestedByFields", () => {
     expect(validateSuggestedByName("Sara\u0000Cohen")).toContain("ordinary");
     expect(validateSuggestedByName("שרה כהן")).toBeUndefined();
     expect(suggestedByPhoneHref("+1 (347) 555-0182")).toBe("tel:+13475550182");
+    expect(suggestedByPhoneHref("*~+1 (347) 555-0182~*")).toBe(
+      "tel:+13475550182",
+    );
     expect(suggestedByPhoneHref("javascript:")).toBeNull();
     expect(validateSuggestedByPhone(" ")).toBeUndefined();
   });
@@ -42,5 +47,15 @@ describe("SuggestedByFields", () => {
     expect(suggestedByPhoneForName("Sara\u0000Cohen", "555-0100")).toBeNull();
     expect(suggestedByPhoneForName("Sara Cohen", "x".repeat(41))).toBeNull();
     expect(suggestedByPhoneForName("", "555-0100")).toBeNull();
+  });
+
+  it("strips edge decoration for display without changing phone digits", () => {
+    expect(displaySuggestedByPhone("  *~(+1 347-555-0182)~*  ")).toBe(
+      "(+1 347-555-0182)",
+    );
+    expect(displaySuggestedByPhone("(347) 555-0182")).toBe("(347) 555-0182");
+    expect(suggestedByPhoneSearchDigits("*~(+1 347-555-0182)~*")).toBe(
+      "13475550182",
+    );
   });
 });

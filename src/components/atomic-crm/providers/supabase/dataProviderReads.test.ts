@@ -34,7 +34,8 @@ vi.mock("./supabase", () => ({
   getSupabaseClient: () => ({ rpc: vi.fn(), functions: { invoke: vi.fn() } }),
 }));
 
-const { getDataProviderWithCustomMethods } = await import("./dataProvider");
+const { applyFullTextSearch, getDataProviderWithCustomMethods } =
+  await import("./dataProvider");
 
 describe("supabase dataProvider — shidduchim reads never address the base table", () => {
   beforeEach(() => {
@@ -145,5 +146,104 @@ describe("the real PostgREST request builder", () => {
 
     expect(requestedUrl).toContain("hidden_at=is.null");
     expect(requestedUrl).not.toContain("hidden_at=eq.null");
+  });
+
+  it("quotes structural search punctuation while preserving phone digit matching", async () => {
+    const searchableColumns = [
+      "name_en",
+      "shadchan_name",
+      "suggested_by_phone",
+    ];
+
+    const requestUrlFor = async (q: string): Promise<URL> => {
+      let requestedUrl = "";
+      const httpClient = vi.fn(async (url: string) => {
+        requestedUrl = url;
+        return {
+          headers: {
+            has: () => true,
+            get: () => "0-0/0",
+          },
+          json: [],
+        };
+      });
+      const provider = postgrestRestProvider({
+        apiUrl: "http://supabase.test/rest/v1",
+        httpClient,
+        defaultListOp: "eq",
+        primaryKeys: new Map(),
+        schema: () => "",
+      });
+      const params = applyFullTextSearch(searchableColumns)({
+        filter: { q },
+        pagination: { page: 1, perPage: 20 },
+        sort: { field: "id", order: "ASC" },
+      });
+
+      await provider.getList("shidduchim", params);
+      return new URL(requestedUrl);
+    };
+
+    const splitOutsideQuotes = (value: string): string[] => {
+      const expressions: string[] = [];
+      let start = 0;
+      let quoted = false;
+      let escaped = false;
+      for (let index = 0; index < value.length; index += 1) {
+        const character = value[index];
+        if (escaped) {
+          escaped = false;
+        } else if (quoted && character === "\\") {
+          escaped = true;
+        } else if (character === '"') {
+          quoted = !quoted;
+        } else if (!quoted && character === ",") {
+          expressions.push(value.slice(start, index));
+          start = index + 1;
+        }
+      }
+      expressions.push(value.slice(start));
+      return expressions;
+    };
+
+    const assertValuesQuoteStructuralCharacters = (url: URL) => {
+      const or = url.searchParams.get("or");
+      expect(or).toBeTruthy();
+      const expressions = splitOutsideQuotes(or!.slice(1, -1));
+      for (const expression of expressions) {
+        const value = expression.slice(expression.indexOf(".ilike.") + 7);
+        let quoted = false;
+        let escaped = false;
+        const unquotedStructuralCharacters: string[] = [];
+        for (const character of value) {
+          if (escaped) {
+            escaped = false;
+          } else if (quoted && character === "\\") {
+            escaped = true;
+          } else if (character === '"') {
+            quoted = !quoted;
+          } else if (!quoted && /[,():;\\]/.test(character)) {
+            unquotedStructuralCharacters.push(character);
+          }
+        }
+        expect(unquotedStructuralCharacters).toEqual([]);
+      }
+    };
+
+    const formattedPhoneUrl = await requestUrlFor("(732) 814-5891");
+    assertValuesQuoteStructuralCharacters(formattedPhoneUrl);
+    expect(formattedPhoneUrl.searchParams.get("or")).toContain(
+      "suggested_by_phone.ilike.*7%3%2%8%1%4%5%8%9%1*",
+    );
+
+    const punctuationUrl = await requestUrlFor('a,b(c)"d');
+    assertValuesQuoteStructuralCharacters(punctuationUrl);
+    expect(punctuationUrl.searchParams.get("or")).toContain(
+      'name_en.ilike.*"a,b(c)\\"d"*',
+    );
+
+    const plainUrl = await requestUrlFor("Rivka");
+    assertValuesQuoteStructuralCharacters(plainUrl);
+    expect(plainUrl.searchParams.get("or")).toContain("name_en.ilike.*Rivka*");
   });
 });

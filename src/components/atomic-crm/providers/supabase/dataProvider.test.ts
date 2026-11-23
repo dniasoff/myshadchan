@@ -66,6 +66,14 @@ describe("applyFullTextSearch (AC 4)", () => {
     expect(result.filter).toEqual({});
   });
 
+  it("drops an empty q while preserving the field@is null filter", async () => {
+    const result = await applyFullTextSearch(["first_name_en"])(
+      buildParams({ q: "", "archived_at@is": null }),
+    );
+
+    expect(result.filter).toEqual({ "archived_at@is": null });
+  });
+
   it("builds an @or ilike clause per column for a plain search term", async () => {
     // Arrange
     const params = buildParams({ q: "Chaim" });
@@ -96,25 +104,18 @@ describe("applyFullTextSearch (AC 4)", () => {
     });
   });
 
-  it("strips a comma out of the search term instead of forwarding it verbatim (F1 — PGRST100)", async () => {
+  it("quotes structural punctuation inside a search term (F1 — PGRST100)", async () => {
     // Arrange — PostgREST's `or=(...)` syntax is a comma-separated list of
-    // conditions with no escaping in this stack; a raw comma here 400s the
-    // whole request (PGRST100 "failed to parse logic tree") before RLS runs.
+    // conditions, so punctuation in a value must be quoted before the real
+    // request builder serializes the logic tree.
     const params = buildParams({ q: "Cohen, Chaim" });
 
     // Act
     const result = await applyFullTextSearch(["first_name_en"])(params);
 
-    // Assert — no filter value may contain a literal comma.
-    const values = Object.values(
-      result.filter["@or"] as Record<string, string>,
-    );
-    expect(values.length).toBeGreaterThan(0);
-    values.forEach((value) => {
-      expect(value).not.toContain(",");
-    });
+    // Assert — the comma remains searchable, but inside a quoted word.
     expect(result.filter["@or"]).toEqual({
-      "first_name_en@ilike": "Cohen  Chaim",
+      "first_name_en@ilike": '"Cohen," Chaim',
     });
   });
 });
@@ -176,13 +177,12 @@ describe("lifeCycleCallbacks wiring (AC 4, Dev Notes 'the dead-hook trap')", () 
       buildParams({ q: "Stern, Rivka" }),
     );
 
-    // Assert — no @or value contains a raw comma for either hook.
-    [singlesResult, shadchanimResult].forEach((result) => {
-      Object.values(result.filter["@or"] as Record<string, string>).forEach(
-        (value) => {
-          expect(value).not.toContain(",");
-        },
-      );
+    // Assert — commas stay inside quoted search words for either hook.
+    expect(singlesResult.filter["@or"]).toMatchObject({
+      "first_name_en@ilike": '"Cohen," Chaim',
+    });
+    expect(shadchanimResult.filter["@or"]).toMatchObject({
+      "name@ilike": '"Stern," Rivka',
     });
   });
 });
@@ -234,6 +234,8 @@ describe("shidduchim search column list (Story 5.2 AC-3)", () => {
       "mother_he@ilike": "Cohen",
       "location_en@ilike": "Cohen",
       "location_he@ilike": "Cohen",
+      "suggested_by_name@ilike": "Cohen",
+      "suggested_by_phone@ilike": "Cohen",
     });
     expect(
       lifeCycleCallbacks.some(
@@ -241,6 +243,25 @@ describe("shidduchim search column list (Story 5.2 AC-3)", () => {
           callback.resource === "shidduchim_summary",
       ),
     ).toBe(false);
+  });
+
+  it("searches Suggested by name and phone digits through the real hook", async () => {
+    const beforeGetList = findBeforeGetList("shidduchim");
+
+    const byName = await beforeGetList(
+      buildParams({ q: "Kaila Niasoff", "archived_at@is": null }),
+    );
+    expect(byName.filter["@or"]).toMatchObject({
+      "suggested_by_name@ilike": "Kaila Niasoff",
+    });
+    expect(byName.filter["archived_at@is"]).toBeNull();
+
+    const byPhone = await beforeGetList(
+      buildParams({ q: "*732 814-5891*", "archived_at@is": null }),
+    );
+    expect(byPhone.filter["@or"]).toMatchObject({
+      "suggested_by_phone@ilike": "7%3%2%8%1%4%5%8%9%1",
+    });
   });
 });
 
@@ -268,18 +289,16 @@ describe("connections search wiring (Story 8-5 review fix, F1 — BLOCKING)", ()
     ).toBe(false);
   });
 
-  it("does not 400 on a comma-bearing search term (F1 — PGRST100)", async () => {
+  it("quotes commas in a search term (F1 — PGRST100)", async () => {
     // Arrange
     const beforeGetList = findBeforeGetList("connections");
 
     // Act
     const result = await beforeGetList(buildParams({ q: "Klein, Cohen" }));
 
-    // Assert
-    Object.values(result.filter["@or"] as Record<string, string>).forEach(
-      (value) => {
-        expect(value).not.toContain(",");
-      },
-    );
+    // Assert — the comma is data, not a second logical condition.
+    expect(result.filter["@or"]).toMatchObject({
+      "household_account_name@ilike": '"Klein," Cohen',
+    });
   });
 });

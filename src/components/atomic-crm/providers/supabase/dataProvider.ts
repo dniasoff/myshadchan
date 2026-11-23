@@ -53,6 +53,7 @@ import type {
   ThreadVisibility,
 } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
+import { suggestedByPhoneSearchDigits } from "../../inbox/suggestedBy";
 import { UNENTITLED_AI } from "../commons/aiEntitlement";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import {
@@ -1723,6 +1724,8 @@ export const lifeCycleCallbacks: ResourceCallbacks[] = [
         "mother_he",
         "location_en",
         "location_he",
+        "suggested_by_name",
+        "suggested_by_phone",
       ])(params);
     },
   },
@@ -1747,33 +1750,35 @@ export const getDataProvider = () => {
   return provider;
 };
 
-// Exported for `dataProvider.test.ts` (review fix, F1/F2): the sanitization
-// below is the actual fix under test, and re-implementing an equivalent
-// function inside the test would prove nothing about what ships.
+const postgrestStructuralCharacters = /[,.():;"\\]/;
+
+const quotePostgrestIlikeWord = (word: string): string =>
+  `"${word.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+
+/** Keep user text inside the value portion of every PostgREST logic clause. */
+const escapePostgrestIlikeValue = (value: string): string =>
+  value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) =>
+      postgrestStructuralCharacters.test(word)
+        ? quotePostgrestIlikeWord(word)
+        : word,
+    )
+    .join(" ");
+
+// Exported for `dataProvider.test.ts` (review fix, F1/F2): the escaping below
+// is the actual fix under test, and re-implementing an equivalent function
+// inside the test would prove nothing about what ships.
 export const applyFullTextSearch =
   (columns: string[]) => (params: GetListParams) => {
-    if (!params.filter?.q) {
+    if (params.filter?.q === undefined || params.filter?.q === null) {
       return params;
     }
     const { q, ...filter } = params.filter;
-    // Review fix (F1): PostgREST's logical-operator syntax — the `or=(...)`
-    // query param this hook builds, via `@raphiniert/ra-data-postgrest`'s
-    // `parseFilters` — is a comma-separated list of conditions, and neither
-    // that library nor this hook escapes a comma embedded inside a search
-    // term. Typing e.g. "Cohen, Chaim" therefore lands an unescaped `,`
-    // inside the list, PostgREST fails to parse the resulting logic tree
-    // (`PGRST100`), and the request 400s before RLS even runs — this is
-    // AC-4's own named failure mode ("PostgREST answers 400"), and it is
-    // unconditional: every caller of this hook (SingleList's/ShadchanList's
-    // search box, plus every ReferenceInput/AutocompleteInput type-ahead on
-    // these two resources) hits it the moment a comma is typed. The search
-    // box asks for a loose per-word substring match — each word is already
-    // OR'd across every column below, so a phrase's word order and
-    // punctuation were never significant to begin with — so replacing a
-    // comma with a space changes nothing about what can be found, only
-    // whether the request survives to ask.
-    const sanitizedQ = q.replace(/,/g, " ").trim();
-    if (!sanitizedQ) {
+    const sanitizedQ = q.trim();
+    if (!sanitizedQ || !/[\p{L}\p{N}]/u.test(sanitizedQ)) {
       return { ...params, filter };
     }
     return {
@@ -1781,20 +1786,26 @@ export const applyFullTextSearch =
       filter: {
         ...filter,
         "@or": columns.reduce((acc, column) => {
+          const searchValue =
+            column === "suggested_by_phone"
+              ? suggestedByPhoneSearchDigits(sanitizedQ).split("").join("%") ||
+                sanitizedQ
+              : sanitizedQ;
+          const safeSearchValue = escapePostgrestIlikeValue(searchValue);
           if (column === "email")
             return {
               ...acc,
-              [`email_fts@ilike`]: sanitizedQ,
+              [`email_fts@ilike`]: safeSearchValue,
             };
           if (column === "phone")
             return {
               ...acc,
-              [`phone_fts@ilike`]: sanitizedQ,
+              [`phone_fts@ilike`]: safeSearchValue,
             };
           else
             return {
               ...acc,
-              [`${column}@ilike`]: sanitizedQ,
+              [`${column}@ilike`]: safeSearchValue,
             };
         }, {}),
       },
