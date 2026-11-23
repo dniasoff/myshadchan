@@ -483,14 +483,16 @@ export function geminiExtractor(env: ParseEnv): ResumeExtractor {
       const contentStartedAt = Date.now();
       try {
         contentPart =
-          mimeType === DOCX_MIME_TYPE
-            ? { text: await extractDocxText(fileBytes) }
-            : {
-                inline_data: {
-                  mime_type: mimeType,
-                  data: arrayBufferToBase64(fileBytes),
-                },
-              };
+          mimeType === "text/plain"
+            ? { text: new TextDecoder().decode(fileBytes) }
+            : mimeType === DOCX_MIME_TYPE
+              ? { text: await extractDocxText(fileBytes) }
+              : {
+                  inline_data: {
+                    mime_type: mimeType,
+                    data: arrayBufferToBase64(fileBytes),
+                  },
+                };
       } catch (error) {
         if (error instanceof DocxExtractionError) {
           logExtractorFailure(error, {

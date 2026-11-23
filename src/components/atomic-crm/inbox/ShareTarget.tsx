@@ -36,8 +36,11 @@ import {
 import {
   suggestedByNameFromInboxItem,
   suggestedByPhoneFromInboxItem,
+  hasResumeDocumentAttachment,
   useResolveInboxItem,
 } from "./useResolveInboxItem";
+import { useParseResume } from "./useParseResume";
+import { parseWhatsAppText } from "./whatsappText";
 
 /**
  * Story 10.1 (Task 1): must match `src/sw.ts`'s own copy of these three
@@ -188,6 +191,7 @@ export const ShareTarget = () => {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const { resolveAsNewShidduch, resolveAsLinkToExisting } =
     useResolveInboxItem();
+  const { parse } = useParseResume();
   const navigate = useNavigate();
   const notify = useNotify();
   const translate = useTranslate();
@@ -197,7 +201,15 @@ export const ShareTarget = () => {
   const text = searchParams.get("text") ?? "";
   const url = searchParams.get("url") ?? "";
   const shareKey = searchParams.get("shareKey");
-  const rawText = [title, text, url].filter(Boolean).join("\n").trim();
+  // Keep the source byte-for-byte. The separate emptiness check below is only
+  // for deciding whether a capture exists; it must never change what is saved.
+  const rawText = [title, text, url]
+    .filter((value) => value.length > 0)
+    .join("\n");
+  const hasRawText = rawText.trim().length > 0;
+  const parsedTextResumeRef = useRef<Awaited<ReturnType<typeof parse>> | null>(
+    null,
+  );
 
   // `null` = still resolving from the Cache API (only when a `shareKey` was
   // handed off); an empty array covers both "no shareKey" and "no files".
@@ -259,10 +271,10 @@ export const ShareTarget = () => {
   // visit to /#/share) — nothing to file, matching the previous
   // auto-redirect's fast path.
   useEffect(() => {
-    if (files !== null && files.length === 0 && rawText === "") {
+    if (files !== null && files.length === 0 && !hasRawText) {
       navigate("/inbox_items", { replace: true });
     }
-  }, [files, rawText, navigate]);
+  }, [files, hasRawText, navigate]);
 
   // Image thumbnails (Task 4: "a preview of the raw text or image(s)").
   // Revoked on every recompute so a re-share never leaks the previous set.
@@ -309,7 +321,7 @@ export const ShareTarget = () => {
     const { data } = await dataProvider.create<InboxItem>("inbox_items", {
       data: {
         source: sourceTab ?? "whatsapp",
-        raw_text: rawText || null,
+        raw_text: hasRawText ? rawText : null,
         attachments: null,
         status: "unresolved",
       },
@@ -397,7 +409,32 @@ export const ShareTarget = () => {
         visibility: "shared",
         redt_date: item.created_at.split("T")[0],
       };
-      await resolveAsNewShidduch(item, input);
+      let textDraft = parsedTextResumeRef.current;
+      if (hasRawText && !hasResumeDocumentAttachment(item) && !textDraft) {
+        try {
+          textDraft = await parse(item);
+          parsedTextResumeRef.current = textDraft;
+        } catch {
+          // The Inbox capture remains the source of truth. Filing manually is
+          // still available when automatic reading is unavailable.
+        }
+      }
+      if (textDraft) {
+        input.name_en =
+          textDraft.fields.name_en ??
+          parseWhatsAppText(item.raw_text ?? "").firstBoldText ??
+          null;
+      }
+      await resolveAsNewShidduch(
+        item,
+        input,
+        hasRawText && !hasResumeDocumentAttachment(item)
+          ? {
+              rawDraft: textDraft?.rawDraft ?? null,
+              sections: textDraft?.sections ?? null,
+            }
+          : undefined,
+      );
       notify(
         translate("crm.inbox.share.saved", { _: "Filed as a suggestion" }),
         {

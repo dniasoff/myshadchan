@@ -702,7 +702,7 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     expect(copyInboxAttachmentToResumeFile).toHaveBeenCalledWith({
       shidduchimId: 99,
       inboxItemId: item.id,
-      attachment: draft.attachment,
+      attachment: draft.attachment!,
     });
 
     // Assert: the persisted file version uses the COPIED path (the bucket
@@ -727,7 +727,7 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
       }),
     );
     expect(dataProvider.removeInboxAttachment).toHaveBeenCalledWith(
-      draft.attachment.path,
+      draft.attachment!.path,
     );
   });
 

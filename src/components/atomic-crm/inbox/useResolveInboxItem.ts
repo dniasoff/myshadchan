@@ -370,9 +370,11 @@ export function useResolveInboxItem() {
           },
         );
 
-        const existingResumeForAttempt = existingResumes.find((resume) =>
-          findResumeFile(resume, item.id, savedDraft.attachment.path),
-        );
+        const existingResumeForAttempt = savedDraft.attachment
+          ? existingResumes.find((resume) =>
+              findResumeFile(resume, item.id, savedDraft.attachment!.path),
+            )
+          : existingResumes[0];
         if (existingResumes.length > 0 && !existingResumeForAttempt) {
           throw new Error(
             "A different resume is already attached to this suggestion.",
@@ -386,25 +388,31 @@ export function useResolveInboxItem() {
               draftProgress.resume_transfer_state === "cleanup_pending") &&
             draftProgress.resume_transfer_path;
           try {
-            copiedFile = stashedTransferPath
-              ? {
-                  storagePath: stashedTransferPath,
-                  size: draftProgress.resume_transfer_size ?? 0,
-                }
-              : await dataProvider.copyInboxAttachmentToResumeFile({
-                  shidduchimId: created.id,
-                  inboxItemId: item.id,
-                  attachment: savedDraft.attachment,
-                });
+            copiedFile = savedDraft.attachment
+              ? stashedTransferPath
+                ? {
+                    storagePath: stashedTransferPath,
+                    size: draftProgress.resume_transfer_size ?? 0,
+                  }
+                : await dataProvider.copyInboxAttachmentToResumeFile({
+                    shidduchimId: created.id,
+                    inboxItemId: item.id,
+                    attachment: savedDraft.attachment,
+                  })
+              : undefined;
 
-            if (!stashedTransferPath) {
+            if (savedDraft.attachment && !copiedFile) {
+              throw new Error("Could not copy the resume attachment.");
+            }
+
+            if (savedDraft.attachment && !stashedTransferPath) {
               resolutionSnapshot = await updateOwnedInboxResolution(
                 item,
                 {
                   resolution_input: {
                     ...draftProgress,
-                    resume_transfer_path: copiedFile.storagePath,
-                    resume_transfer_size: copiedFile.size,
+                    resume_transfer_path: copiedFile!.storagePath,
+                    resume_transfer_size: copiedFile!.size,
                     resume_transfer_state: "pending",
                   },
                 },
@@ -412,25 +420,29 @@ export function useResolveInboxItem() {
               );
               draftProgress = {
                 ...draftProgress,
-                resume_transfer_path: copiedFile.storagePath,
-                resume_transfer_size: copiedFile.size,
+                resume_transfer_path: copiedFile!.storagePath,
+                resume_transfer_size: copiedFile!.size,
                 resume_transfer_state: "pending",
               };
             }
             const resumeData: Record<string, unknown> = {
               shidduchim_id: created.id,
-              files: [
-                {
-                  path: copiedFile.storagePath,
-                  filename: savedDraft.attachment.title,
-                  mime_type: savedDraft.attachment.type,
-                  uploaded_at: new Date().toISOString(),
-                  uploaded_by: null,
-                  size: copiedFile.size,
-                  source_inbox_item_id: item.id,
-                  source_inbox_attachment_path: savedDraft.attachment.path,
-                },
-              ],
+              files:
+                copiedFile && savedDraft.attachment
+                  ? [
+                      {
+                        path: copiedFile.storagePath,
+                        filename: savedDraft.attachment.title,
+                        mime_type: savedDraft.attachment.type,
+                        uploaded_at: new Date().toISOString(),
+                        uploaded_by: null,
+                        size: copiedFile.size,
+                        source_inbox_item_id: item.id,
+                        source_inbox_attachment_path:
+                          savedDraft.attachment.path,
+                      },
+                    ]
+                  : [],
             };
             // A plain confirmation does not have extracted fields. Leave them
             // absent so the Resume-tab reader remains the only writer of read
@@ -486,11 +498,45 @@ export function useResolveInboxItem() {
           },
           attemptId,
         );
-        if (item.source === "upload") {
+        if (item.source === "upload" && savedDraft.attachment) {
           await dataProvider
             .removeInboxAttachment(savedDraft.attachment.path)
             .catch(() => undefined);
         }
+      }
+
+      const pictureAttachments = (
+        (item.attachments ?? []) as InboxAttachment[]
+      ).filter(
+        (attachment) =>
+          INBOX_IMAGE_EXTENSIONS.has(
+            attachmentExtension(attachment.title ?? ""),
+          ) || (attachment.type ?? "").toLowerCase().startsWith("image/"),
+      );
+      const pictureProgress = (resolutionSnapshot.resolution_input ??
+        draftProgress) as NewResolutionProgress;
+      if (
+        pictureAttachments.length > 0 &&
+        !pictureProgress.picture_files_created
+      ) {
+        await dataProvider.copyInboxAttachmentsToEntityFiles({
+          baseDataProvider: dataProvider,
+          attachments: pictureAttachments,
+          targetType: "shidduch",
+          targetId: created.id,
+          visibility: "private_parent",
+          sourceInboxItemId: item.id,
+        });
+        resolutionSnapshot = await updateOwnedInboxResolution(
+          item,
+          {
+            resolution_input: {
+              ...pictureProgress,
+              picture_files_created: true,
+            },
+          },
+          attemptId,
+        );
       }
 
       resolutionSnapshot = await updateOwnedInboxResolution(

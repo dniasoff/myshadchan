@@ -22,7 +22,8 @@ import type { CreateShidduchInput, InboxAttachment, InboxItem } from "../types";
  * the new shidduch so the original attachment and extracted draft are kept.
  */
 export type ResumeDraft = {
-  attachment: InboxAttachment;
+  /** File-backed resumes carry the source attachment; text resumes do not. */
+  attachment?: InboxAttachment;
   rawDraft: unknown;
   sections: unknown;
 };
@@ -42,6 +43,7 @@ export type ResolutionInput =
       resume_transfer_path?: string;
       resume_transfer_size?: number;
       resume_transfer_state?: "pending" | "cleanup_pending" | "cleaned";
+      picture_files_created?: boolean;
       claimed_from_status?: "unresolved" | "held";
       lock_acquired_at?: string;
     }

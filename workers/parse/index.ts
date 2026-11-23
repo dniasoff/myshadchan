@@ -53,6 +53,16 @@ const RereadParseBodySchema = z.strictObject({
 // never silently fall through to the legacy inbox path.
 const ParseBodySchema = z.union([LegacyParseBodySchema, RereadParseBodySchema]);
 
+async function textSourceKey(source: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(source),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 // The HTTP statuses a post-claim failure can return — narrowed (rather than
 // a bare `number`) so `releaseAndFail` stays assignable to Hono's
 // `ContentfulStatusCode`.
@@ -203,7 +213,7 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
     // 2. Fetch the inbox item through the caller-scoped client (RLS-enforced).
     const { data: item, error: itemError } = await supabase
       .from("inbox_items")
-      .select("id, account_id, attachments")
+      .select("id, account_id, attachments, raw_text")
       .eq("id", inbox_item_id)
       .single();
     if (itemError || !item) {
@@ -213,13 +223,27 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
 
     // 3. Find a resume-shaped attachment (MIME-allowlisted — Finding 9,
     // inboxAttachment.ts).
-    const attachment = findResumeAttachment(item.attachments);
-    if (!attachment) {
+    const candidateAttachment = findResumeAttachment(item.attachments);
+    const textSource =
+      typeof item.raw_text === "string" && item.raw_text.trim()
+        ? item.raw_text
+        : null;
+    // A picture accompanying WhatsApp text is a separate private file, not
+    // the resume source. Prefer a document when one exists; otherwise let the
+    // captured text drive the parse and leave the picture for Files.
+    const attachment =
+      textSource && candidateAttachment?.type.toLowerCase().startsWith("image/")
+        ? null
+        : candidateAttachment;
+    if (!attachment && textSource === null) {
       c.set("traceOutcome", "no_attachment");
       return c.json(fail("no resume attachment found"), 422);
     }
 
     const accountId: number = item.account_id;
+    const parseSourceKey = attachment
+      ? attachment.path
+      : `text:${await textSourceKey(textSource!)}`;
 
     // 4. Atomic claim (Findings 6/7/8/12): reserve this month's usage,
     // check idempotency, and validate any replayed result — all before any
@@ -229,7 +253,7 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
       c.env,
       accountId,
       inbox_item_id,
-      attachment.path,
+      parseSourceKey,
     );
     if (resolution.kind === "claim_error") {
       // Fail-closed (Finding 16): the reservation machinery itself
@@ -271,27 +295,34 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
     // object's stored metadata (including `size`) without transferring the
     // file body, so an oversized attachment is rejected without ever paying
     // for the download.
-    const { dirPath, fileName } = splitStoragePath(attachment.path);
+    const isTextSource = attachment === null;
+    const { dirPath, fileName } = isTextSource
+      ? { dirPath: "", fileName: "" }
+      : splitStoragePath(attachment.path);
     let listing: Array<{ metadata?: { size?: number } | null }> | null = null;
-    try {
-      const listingResult = await supabase.storage
-        .from(ATTACHMENTS_BUCKET)
-        .list(dirPath, { search: fileName, limit: 1 });
-      if (listingResult.error) throw listingResult.error;
-      listing = listingResult.data;
-    } catch (error) {
-      console.error("parse.storage.list.error", summarizeErrorForLog(error));
-      return releaseAndFail(
-        c,
-        accountId,
-        attemptId,
-        generation,
-        "could not read attachment",
-        422,
-        "storage_list_failed",
-      );
+    if (!isTextSource) {
+      try {
+        const listingResult = await supabase.storage
+          .from(ATTACHMENTS_BUCKET)
+          .list(dirPath, { search: fileName, limit: 1 });
+        if (listingResult.error) throw listingResult.error;
+        listing = listingResult.data;
+      } catch (error) {
+        console.error("parse.storage.list.error", summarizeErrorForLog(error));
+        return releaseAndFail(
+          c,
+          accountId,
+          attemptId,
+          generation,
+          "could not read attachment",
+          422,
+          "storage_list_failed",
+        );
+      }
     }
-    const knownSize = listing?.[0]?.metadata?.size;
+    const knownSize = isTextSource
+      ? new TextEncoder().encode(textSource!).byteLength
+      : listing?.[0]?.metadata?.size;
     if (typeof knownSize === "number" && knownSize > MAX_ATTACHMENT_BYTES) {
       return releaseAndFail(
         c,
@@ -305,42 +336,46 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
     }
 
     // 6. Download the file bytes from the attachments bucket.
-    let fileData: Blob | null = null;
-    let downloadError: unknown = null;
-    try {
-      const downloadResult = await supabase.storage
-        .from(ATTACHMENTS_BUCKET)
-        .download(attachment.path);
-      fileData = downloadResult.data;
-      downloadError = downloadResult.error;
-    } catch (error) {
-      downloadError = error;
-    }
-    if (downloadError || !fileData) {
-      return releaseAndFail(
-        c,
-        accountId,
-        attemptId,
-        generation,
-        "could not download attachment",
-        422,
-        "download_failed",
-      );
-    }
     let fileBytes: ArrayBuffer;
-    try {
-      fileBytes = await fileData.arrayBuffer();
-    } catch (error) {
-      console.error("parse.storage.body.error", summarizeErrorForLog(error));
-      return releaseAndFail(
-        c,
-        accountId,
-        attemptId,
-        generation,
-        "could not download attachment",
-        422,
-        "download_failed",
-      );
+    if (isTextSource) {
+      fileBytes = new TextEncoder().encode(textSource!).buffer;
+    } else {
+      let fileData: Blob | null = null;
+      let downloadError: unknown = null;
+      try {
+        const downloadResult = await supabase.storage
+          .from(ATTACHMENTS_BUCKET)
+          .download(attachment.path);
+        fileData = downloadResult.data;
+        downloadError = downloadResult.error;
+      } catch (error) {
+        downloadError = error;
+      }
+      if (downloadError || !fileData) {
+        return releaseAndFail(
+          c,
+          accountId,
+          attemptId,
+          generation,
+          "could not download attachment",
+          422,
+          "download_failed",
+        );
+      }
+      try {
+        fileBytes = await fileData.arrayBuffer();
+      } catch (error) {
+        console.error("parse.storage.body.error", summarizeErrorForLog(error));
+        return releaseAndFail(
+          c,
+          accountId,
+          attemptId,
+          generation,
+          "could not download attachment",
+          422,
+          "download_failed",
+        );
+      }
     }
 
     // Backstop (Finding 9): the metadata check above is the PRIMARY guard —
@@ -360,11 +395,13 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
       );
     }
 
-    const magic = validateAttachmentMagic(fileBytes, attachment.type);
+    const magic = isTextSource
+      ? "ok"
+      : validateAttachmentMagic(fileBytes, attachment.type);
     if (magic !== "ok") {
       if (
         magic === "password_protected" &&
-        attachment.type ===
+        attachment!.type ===
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       ) {
         return releaseAndFail(
@@ -406,7 +443,9 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
     // legitimate parse it simply has no way to read. So `null` here falls
     // straight through to extraction, exactly like a PDF or HEIC/HEIF file
     // does.
-    const imageDimensions = readImageDimensions(fileBytes, attachment.type);
+    const imageDimensions = isTextSource
+      ? null
+      : readImageDimensions(fileBytes, attachment!.type);
     if (imageDimensions && exceedsMaxImagePixels(imageDimensions)) {
       // Same public message and status as the byte-size guards above —
       // deliberately not distinguished for the caller (no reason to hand an
@@ -433,7 +472,10 @@ export function createParseApp(extractor?: ResumeExtractor): ParseApp {
     const activeExtractor = extractor ?? geminiExtractor(c.env);
     let raw: unknown;
     try {
-      raw = await activeExtractor.extract(fileBytes, attachment.type);
+      raw = await activeExtractor.extract(
+        fileBytes,
+        isTextSource ? "text/plain" : attachment!.type,
+      );
     } catch (error) {
       console.error("parse.extract.error", summarizeErrorForLog(error));
       if (error instanceof DocxExtractionError) {

@@ -1672,6 +1672,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/inbox/whatsappText.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/inbox/useResolveInboxItem.ts",
           "type": "registry:component"
         },

@@ -682,6 +682,34 @@ describe("parse worker", () => {
     expect(claimParseAttempt).not.toHaveBeenCalled();
   });
 
+  it("passes captured text to the extractor when no resume file exists", async () => {
+    const extract = vi.fn().mockResolvedValue(makeExtract());
+    const app = createParseApp({ extract });
+    const source = "*Sarah Cohen*\nAge: 24";
+    rpc.mockResolvedValue({ data: ENTITLED_PAYLOAD, error: null });
+    single.mockResolvedValue({
+      data: {
+        id: 1,
+        account_id: 10,
+        attachments: [
+          { title: "picture.jpg", type: "image/jpeg", path: "10/picture.jpg" },
+        ],
+        raw_text: source,
+      },
+      error: null,
+    });
+    claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
+
+    const res = await postParse(app);
+
+    expect(res.status).toBe(200);
+    expect(extract).toHaveBeenCalledWith(expect.any(ArrayBuffer), "text/plain");
+    const bytes = extract.mock.calls[0][0] as ArrayBuffer;
+    expect(new TextDecoder().decode(bytes)).toBe(source);
+    expect(confirmParseAttempt).toHaveBeenCalled();
+    expect(storageFrom).not.toHaveBeenCalled();
+  });
+
   it("passes DOCX bytes to the injected extractor and confirms the result", async () => {
     // Arrange
     const extract = vi.fn().mockResolvedValue(makeExtract());
