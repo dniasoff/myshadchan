@@ -4,11 +4,30 @@ import {
   fitPhotoDimensions,
   getPhotoResizeAttempts,
   makeSmallerPhoto,
+  parsePhotoDimensions,
   PHOTO_JPEG_QUALITY_STEPS,
   PHOTO_MAX_BYTES,
   shouldSkipPhotoResize,
   stepDownPhotoDimensions,
 } from "./photoResize";
+
+function pngHeader(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(24);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  new DataView(bytes.buffer).setUint32(16, width);
+  new DataView(bytes.buffer).setUint32(20, height);
+  return bytes;
+}
+
+function orientedJpegHeader(): Uint8Array {
+  return Uint8Array.from([
+    0xff, 0xd8, 0xff, 0xe1, 0x00, 0x22, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00,
+    0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x12, 0x01,
+    0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x07, 0xd0, 0x0f, 0xa0, 0x01,
+    0x01, 0x11, 0x00,
+  ]);
+}
 
 describe("photoResize", () => {
   it("fits the long side to 3000px without changing the aspect ratio", () => {
@@ -19,6 +38,17 @@ describe("photoResize", () => {
     expect(fitPhotoDimensions({ width: 1200, height: 1800 })).toEqual({
       width: 1200,
       height: 1800,
+    });
+  });
+
+  it("reads dimensions from headers and applies EXIF rotation", () => {
+    expect(parsePhotoDimensions(pngHeader(4000, 2000))).toEqual({
+      width: 4000,
+      height: 2000,
+    });
+    expect(parsePhotoDimensions(orientedJpegHeader())).toEqual({
+      width: 2000,
+      height: 4000,
     });
   });
 
@@ -61,7 +91,7 @@ describe("photoResize", () => {
     });
   });
 
-  it("passes EXIF orientation and resize options to the decoder", async () => {
+  it("never asks the decoder for an unbounded bitmap", async () => {
     const decode = vi.fn(
       async (
         _source: Blob,
@@ -77,7 +107,9 @@ describe("photoResize", () => {
       toBlob: (callback: (blob: Blob) => void) =>
         callback(new Blob([new Uint8Array(1024)], { type: "image/jpeg" })),
     };
-    const file = new File([new Uint8Array(PHOTO_MAX_BYTES + 1)], "phone.png", {
+    const bytes = new Uint8Array(PHOTO_MAX_BYTES + 1);
+    bytes.set(pngHeader(4000, 2000));
+    const file = new File([bytes], "phone.png", {
       type: "image/png",
     });
 
@@ -87,13 +119,8 @@ describe("photoResize", () => {
     });
 
     expect(result.resized).toBe(true);
-    expect(decode).toHaveBeenNthCalledWith(
-      1,
-      file,
-      expect.objectContaining({ imageOrientation: "from-image" }),
-    );
-    expect(decode).toHaveBeenNthCalledWith(
-      2,
+    expect(decode).toHaveBeenCalledTimes(1);
+    expect(decode).toHaveBeenCalledWith(
       file,
       expect.objectContaining({
         imageOrientation: "from-image",
@@ -102,6 +129,14 @@ describe("photoResize", () => {
         resizeQuality: "high",
       }),
     );
+    for (const [, options] of decode.mock.calls) {
+      expect(options).toEqual(
+        expect.objectContaining({
+          resizeWidth: expect.any(Number),
+          resizeHeight: expect.any(Number),
+        }),
+      );
+    }
     expect(result.file.type).toBe("image/jpeg");
     expect(result.file.name).toBe("phone.jpg");
   });

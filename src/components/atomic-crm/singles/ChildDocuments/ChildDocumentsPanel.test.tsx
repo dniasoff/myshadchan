@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { useState } from "react";
 import { CoreAdminContext, TestMemoryRouter } from "ra-core";
 
 import { testI18nProvider } from "../../providers/commons/i18nProvider";
@@ -11,6 +12,7 @@ import type {
   Single,
 } from "../../types";
 import { ChildDocumentsPanel } from "./ChildDocumentsPanel";
+import * as photoResize from "./photoResize";
 import { PHOTO_MAX_BYTES } from "./photoResize";
 
 const viewerRole = vi.hoisted(() => ({
@@ -139,6 +141,41 @@ async function renderPanel(
         i18nProvider={testI18nProvider}
       >
         <ChildDocumentsPanel single={single} open onOpenChange={vi.fn()} />
+      </CoreAdminContext>
+    </TestMemoryRouter>,
+  );
+  if (vi.isFakeTimers()) {
+    await vi.runAllTimersAsync();
+  }
+  return { dataProvider, screen };
+}
+
+async function renderControlledPanel(
+  entityFiles: EntityFileSummary[] = [paper, olderFile],
+) {
+  const dataProvider = buildDataProvider(entityFiles);
+  function ControlledDocumentsPanel() {
+    const [open, setOpen] = useState(true);
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          Reopen Documents
+        </button>
+        <ChildDocumentsPanel
+          single={single}
+          open={open}
+          onOpenChange={setOpen}
+        />
+      </>
+    );
+  }
+  const screen = await render(
+    <TestMemoryRouter>
+      <CoreAdminContext
+        dataProvider={dataProvider}
+        i18nProvider={testI18nProvider}
+      >
+        <ControlledDocumentsPanel />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -390,6 +427,9 @@ describe("ChildDocumentsPanel", () => {
       .element(screen.getByRole("button", { name: "Keep full size" }))
       .toBeDisabled();
     await expect
+      .element(screen.getByRole("button", { name: "Keep full size" }))
+      .toHaveAttribute("aria-describedby", "picture-full-size-disabled-reason");
+    await expect
       .element(
         screen.getByRole("button", { name: "Make smaller (recommended)" }),
       )
@@ -429,6 +469,85 @@ describe("ChildDocumentsPanel", () => {
       file,
       visibility: "shared",
     });
+    await expect
+      .element(screen.getByRole("button", { name: "Replace Picture" }))
+      .toHaveFocus();
+  });
+
+  it("keeps the inline choice and progress visible while making a photo smaller", async () => {
+    let resolveResize!: (result: {
+      file: File;
+      resized: boolean;
+      sourceDimensions: { width: number; height: number };
+      outputDimensions: { width: number; height: number };
+    }) => void;
+    vi.spyOn(photoResize, "makeSmallerPhoto").mockReturnValue(
+      new Promise((resolve) => {
+        resolveResize = resolve;
+      }),
+    );
+    const { dataProvider, screen } = await renderPanel([paper]);
+    const bytes = new Uint8Array(PHOTO_MAX_BYTES + 1);
+    const file = new File([bytes], "phone.jpg", { type: "image/jpeg" });
+
+    await screen.getByRole("button", { name: "Replace Picture" }).click();
+    await screen.getByLabelText("Upload child document").upload(file);
+    await screen
+      .getByRole("button", { name: "Make smaller (recommended)" })
+      .click();
+
+    await expect
+      .element(screen.getByRole("region", { name: "Choose picture size" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Making your photo smaller…"))
+      .toBeInTheDocument();
+    expect(dataProvider.uploadResumePhoto).not.toHaveBeenCalled();
+
+    resolveResize({
+      file: new File(["smaller"], "phone.jpg", { type: "image/jpeg" }),
+      resized: true,
+      sourceDimensions: { width: 4000, height: 2000 },
+      outputDimensions: { width: 3000, height: 1500 },
+    });
+    await expect
+      .poll(() => vi.mocked(dataProvider.uploadResumePhoto).mock.calls.length)
+      .toBe(1);
+    await expect
+      .element(screen.getByRole("button", { name: "Replace Picture" }))
+      .toHaveFocus();
+  });
+
+  it("clears pending picture choices when Documents closes and reopens", async () => {
+    const { screen } = await renderControlledPanel([paper]);
+
+    await screen.getByRole("button", { name: "Replace Picture" }).click();
+    await screen
+      .getByLabelText("Upload child document")
+      .upload(new File(["photo"], "phone.jpg", { type: "image/jpeg" }));
+    await expect
+      .element(screen.getByRole("region", { name: "Choose picture size" }))
+      .toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "Close" }).click();
+    await expect.element(screen.getByText("Documents")).not.toBeInTheDocument();
+    await screen.getByRole("button", { name: "Reopen Documents" }).click();
+    await expect.element(screen.getByText("Documents")).toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("region", { name: "Choose picture size" }))
+      .not.toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "Forward Picture" }).click();
+    await expect
+      .element(screen.getByRole("region", { name: "Forward picture" }))
+      .toBeInTheDocument();
+    await screen.getByRole("button", { name: "Close" }).click();
+    await expect.element(screen.getByText("Documents")).not.toBeInTheDocument();
+    await screen.getByRole("button", { name: "Reopen Documents" }).click();
+    await expect.element(screen.getByText("Documents")).toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("region", { name: "Forward picture" }))
+      .not.toBeInTheDocument();
   });
 
   it("replaces a paper through the upload-before-swap provider method", async () => {
@@ -607,6 +726,12 @@ describe("ChildDocumentsPanel", () => {
     await expect
       .element(screen.getByRole("link", { name: "WhatsApp" }))
       .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Forward Picture" }))
+      .toHaveFocus();
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Picture ready to share.");
     expect(open).not.toHaveBeenCalled();
   });
 
@@ -664,6 +789,12 @@ describe("ChildDocumentsPanel", () => {
     await expect
       .element(screen.getByText("Download it, then attach it yourself."))
       .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Forward Picture" }))
+      .toHaveFocus();
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Could not download this file for sharing.");
   });
 
   it("shows helper/shadchan read-only resume controls and paper controls", async () => {

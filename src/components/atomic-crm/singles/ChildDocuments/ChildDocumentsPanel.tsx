@@ -210,7 +210,11 @@ function EmptySlot({
     ? "Add paper"
     : `Add ${label.toLowerCase()}`;
   return (
-    <div className="flex min-h-28 flex-col justify-between rounded-xl border border-dashed border-border bg-muted/20 p-3">
+    <div
+      className={`${
+        children ? "col-span-full " : ""
+      }flex min-h-28 flex-col justify-between rounded-xl border border-dashed border-border bg-muted/20 p-3`}
+    >
       <div>
         <p className="text-sm font-semibold">{label}</p>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -253,6 +257,7 @@ export function ChildDocumentsPanel({
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadActiveRef = useRef(false);
   const focusReturnRef = useRef<HTMLElement | null>(null);
+  const photoChoiceFocusRef = useRef<HTMLElement | null>(null);
   const undoButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const restoreTargetRefs = useRef(new Map<string, HTMLElement>());
   const expiredDeleteSweepStartedRef = useRef(false);
@@ -275,6 +280,9 @@ export function ChildDocumentsPanel({
   const [forwardPhotoTarget, setForwardPhotoTarget] =
     useState<ResumePhoto | null>(null);
   const [isPreparingSmallerShare, setIsPreparingSmallerShare] = useState(false);
+  const [photoChoiceAnnouncement, setPhotoChoiceAnnouncement] = useState<
+    string | null
+  >(null);
 
   const {
     data: resumes,
@@ -570,6 +578,33 @@ export function ChildDocumentsPanel({
     setUploadReplaceTarget(null);
   };
 
+  const rememberPhotoChoiceFocus = () => {
+    const active = document.activeElement;
+    photoChoiceFocusRef.current = active instanceof HTMLElement ? active : null;
+  };
+
+  const restorePhotoChoiceFocus = () => {
+    window.setTimeout(() => {
+      const target = photoChoiceFocusRef.current;
+      if (target?.isConnected) target.focus();
+      photoChoiceFocusRef.current = null;
+    }, 0);
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      clearUploadState();
+      setPhotoUploadCandidate(null);
+      setForwardPhotoTarget(null);
+      setUploadError(null);
+      setPhotoChoiceAnnouncement(null);
+      setIsResizingPhoto(false);
+      setIsPreparingSmallerShare(false);
+      photoChoiceFocusRef.current = null;
+    }
+    onOpenChange(nextOpen);
+  };
+
   const uploadPicture = async (
     file: File,
     replacement: PhotoUploadCandidate["replacement"],
@@ -598,11 +633,17 @@ export function ChildDocumentsPanel({
         : { file: candidate.file };
       await uploadPicture(prepared.file, candidate.replacement);
       setPhotoUploadCandidate(null);
+      setUploadError(null);
+      setPhotoChoiceAnnouncement("Picture saved.");
+      notify("Picture saved.", { type: "success" });
+      restorePhotoChoiceFocus();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : PHOTO_RESIZE_ERROR_MESSAGE;
       setUploadError(message);
+      setPhotoChoiceAnnouncement(message);
       notify(message, { type: "error" });
+      restorePhotoChoiceFocus();
     } finally {
       setIsResizingPhoto(false);
       setIsBusy(false);
@@ -618,12 +659,14 @@ export function ChildDocumentsPanel({
     }
     if (isBusy) return;
     setUploadError(null);
+    setPhotoChoiceAnnouncement(null);
     const validationError =
       uploadKind === "picture"
         ? validateChildPhotoType(file)
         : validateChildDocument(file);
     if (validationError) {
       setUploadError(validationError);
+      setPhotoChoiceAnnouncement(validationError);
       notify(validationError, { type: "error" });
       clearUploadState();
       return;
@@ -783,7 +826,7 @@ export function ChildDocumentsPanel({
         });
         if (navigator.canShare(payload)) {
           await navigator.share(payload);
-          return;
+          return true;
         }
       }
       if (smallerFile) {
@@ -796,12 +839,16 @@ export function ChildDocumentsPanel({
       } else {
         setShareFile({ name, url });
       }
+      return true;
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      notify(
-        error instanceof Error ? error.message : "Could not forward this file.",
-        { type: "error" },
-      );
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return false;
+      }
+      const message =
+        error instanceof Error ? error.message : "Could not forward this file.";
+      setPhotoChoiceAnnouncement(message);
+      notify(message, { type: "error" });
+      return false;
     } finally {
       setIsPreparingSmallerShare(false);
     }
@@ -962,10 +1009,18 @@ export function ChildDocumentsPanel({
       kind: "paper",
       file,
     });
-  const choosePhotoForward = (mode: PhotoForwardMode) => {
+  const choosePhotoForward = async (mode: PhotoForwardMode) => {
     const photo = forwardPhotoTarget;
-    setForwardPhotoTarget(null);
-    if (photo) void forwardFile("picture", photo, mode);
+    if (!photo || isPreparingSmallerShare) return;
+    setPhotoChoiceAnnouncement(null);
+    const succeeded = await forwardFile("picture", photo, mode);
+    if (succeeded) {
+      setForwardPhotoTarget(null);
+      const message = "Picture ready to share.";
+      setPhotoChoiceAnnouncement(message);
+      notify(message, { type: "success" });
+    }
+    restorePhotoChoiceFocus();
   };
   const paperFor = (slot: ChildPaperSlot) =>
     papers.find((file) => file.slot === slot);
@@ -974,7 +1029,7 @@ export function ChildDocumentsPanel({
   if (isRolePending || role === "single") return <></>;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent
         side="right"
         className="w-full overflow-y-auto sm:max-w-xl [&>button]:min-h-11 [&>button]:min-w-11"
@@ -1036,6 +1091,11 @@ export function ChildDocumentsPanel({
               {uploadError ? (
                 <p role="alert" className="text-sm text-destructive">
                   {uploadError}
+                </p>
+              ) : null}
+              {photoChoiceAnnouncement ? (
+                <p role="status" aria-live="polite" className="sr-only">
+                  {photoChoiceAnnouncement}
                 </p>
               ) : null}
 
@@ -1106,20 +1166,29 @@ export function ChildDocumentsPanel({
                       : null
                   }
                   previewUrl={photoPreviewUrl ?? undefined}
-                  onAdd={() => beginUpload("picture")}
+                  onAdd={() => {
+                    rememberPhotoChoiceFocus();
+                    setPhotoChoiceAnnouncement(null);
+                    beginUpload("picture");
+                  }}
                   onOpen={() =>
                     visiblePhoto && void openFile("picture", visiblePhoto)
                   }
-                  onReplace={() =>
-                    visiblePhoto &&
+                  onReplace={() => {
+                    if (!visiblePhoto) return;
+                    rememberPhotoChoiceFocus();
+                    setPhotoChoiceAnnouncement(null);
                     beginUpload("picture", undefined, {
                       kind: "picture",
                       photo: visiblePhoto,
-                    })
-                  }
-                  onForward={() =>
-                    visiblePhoto && setForwardPhotoTarget(visiblePhoto)
-                  }
+                    });
+                  }}
+                  onForward={() => {
+                    if (!visiblePhoto) return;
+                    rememberPhotoChoiceFocus();
+                    setPhotoChoiceAnnouncement(null);
+                    setForwardPhotoTarget(visiblePhoto);
+                  }}
                   onDelete={(event) =>
                     visiblePhoto &&
                     (() => {
@@ -1375,14 +1444,18 @@ function DocumentSlot({
       />
     );
   return (
-    <div className="flex min-h-28 flex-col justify-between rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
+    <div
+      className={`${
+        photoChoice ? "col-span-full " : ""
+      }flex min-h-28 flex-col justify-between rounded-xl border border-emerald-200 bg-emerald-50/40 p-3`}
+    >
       <div className="min-w-0">
         <p className="text-sm font-semibold">{label}</p>
         <div className="mt-2 flex min-w-0 items-center gap-2">
           {file.kind === "picture" && previewUrl ? (
             <button
               type="button"
-              className="size-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="size-24 shrink-0 overflow-hidden rounded-md border border-border bg-muted outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:size-28"
               aria-label="Open full-size picture preview"
               disabled={disabled}
               onClick={onOpen}
@@ -1467,8 +1540,6 @@ function PictureChoicePanel({
         </div>
         <p className="text-sm text-muted-foreground">
           Original size: {formatBytes(uploadCandidate.file.size)}.
-          <br />
-          Smaller copy: About 3 MB, still sharp on a full printed page.
         </p>
         <Button
           ref={overLimit ? undefined : firstChoiceRef}
@@ -1476,6 +1547,9 @@ function PictureChoicePanel({
           variant="outline"
           className="min-h-14 w-full justify-start px-4 text-left text-base"
           disabled={isBusy || overLimit}
+          aria-describedby={
+            overLimit ? "picture-full-size-disabled-reason" : undefined
+          }
           onClick={() => onChooseUpload(false)}
         >
           <span>
@@ -1486,7 +1560,10 @@ function PictureChoicePanel({
           </span>
         </Button>
         {overLimit ? (
-          <p className="text-sm text-muted-foreground">
+          <p
+            id="picture-full-size-disabled-reason"
+            className="text-sm text-muted-foreground"
+          >
             Not available for this photo. It is over the 8 MiB limit.
             <br />
             The full-size photo is too large to save here. Make a smaller copy
