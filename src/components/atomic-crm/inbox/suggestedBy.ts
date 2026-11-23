@@ -40,7 +40,7 @@ export function validateSuggestedByPhone(value: unknown): string | undefined {
  * when a newly entered value is parsed by SuggestedByFields. */
 export function displaySuggestedByPhone(value: unknown): string {
   if (typeof value !== "string") return "";
-  return value.replace(/^[\s*~()[\]{}]+|[\s*~()[\]{}]+$/g, "");
+  return value.replace(/^[\s*~[\]]+|[\s*~[\]]+$/g, "");
 }
 
 /** Search key for phone values: digits are stable across common formatting. */

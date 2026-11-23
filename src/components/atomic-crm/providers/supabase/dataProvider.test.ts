@@ -104,25 +104,18 @@ describe("applyFullTextSearch (AC 4)", () => {
     });
   });
 
-  it("strips a comma out of the search term instead of forwarding it verbatim (F1 — PGRST100)", async () => {
+  it("quotes structural punctuation inside a search term (F1 — PGRST100)", async () => {
     // Arrange — PostgREST's `or=(...)` syntax is a comma-separated list of
-    // conditions with no escaping in this stack; a raw comma here 400s the
-    // whole request (PGRST100 "failed to parse logic tree") before RLS runs.
+    // conditions, so punctuation in a value must be quoted before the real
+    // request builder serializes the logic tree.
     const params = buildParams({ q: "Cohen, Chaim" });
 
     // Act
     const result = await applyFullTextSearch(["first_name_en"])(params);
 
-    // Assert — no filter value may contain a literal comma.
-    const values = Object.values(
-      result.filter["@or"] as Record<string, string>,
-    );
-    expect(values.length).toBeGreaterThan(0);
-    values.forEach((value) => {
-      expect(value).not.toContain(",");
-    });
+    // Assert — the comma remains searchable, but inside a quoted word.
     expect(result.filter["@or"]).toEqual({
-      "first_name_en@ilike": "Cohen  Chaim",
+      "first_name_en@ilike": '"Cohen," Chaim',
     });
   });
 });
@@ -184,13 +177,12 @@ describe("lifeCycleCallbacks wiring (AC 4, Dev Notes 'the dead-hook trap')", () 
       buildParams({ q: "Stern, Rivka" }),
     );
 
-    // Assert — no @or value contains a raw comma for either hook.
-    [singlesResult, shadchanimResult].forEach((result) => {
-      Object.values(result.filter["@or"] as Record<string, string>).forEach(
-        (value) => {
-          expect(value).not.toContain(",");
-        },
-      );
+    // Assert — commas stay inside quoted search words for either hook.
+    expect(singlesResult.filter["@or"]).toMatchObject({
+      "first_name_en@ilike": '"Cohen," Chaim',
+    });
+    expect(shadchanimResult.filter["@or"]).toMatchObject({
+      "name@ilike": '"Stern," Rivka',
     });
   });
 });
@@ -297,18 +289,16 @@ describe("connections search wiring (Story 8-5 review fix, F1 — BLOCKING)", ()
     ).toBe(false);
   });
 
-  it("does not 400 on a comma-bearing search term (F1 — PGRST100)", async () => {
+  it("quotes commas in a search term (F1 — PGRST100)", async () => {
     // Arrange
     const beforeGetList = findBeforeGetList("connections");
 
     // Act
     const result = await beforeGetList(buildParams({ q: "Klein, Cohen" }));
 
-    // Assert
-    Object.values(result.filter["@or"] as Record<string, string>).forEach(
-      (value) => {
-        expect(value).not.toContain(",");
-      },
-    );
+    // Assert — the comma is data, not a second logical condition.
+    expect(result.filter["@or"]).toMatchObject({
+      "household_account_name@ilike": '"Klein," Cohen',
+    });
   });
 });

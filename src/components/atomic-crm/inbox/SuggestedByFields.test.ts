@@ -51,8 +51,9 @@ describe("SuggestedByFields", () => {
 
   it("strips edge decoration for display without changing phone digits", () => {
     expect(displaySuggestedByPhone("  *~(+1 347-555-0182)~*  ")).toBe(
-      "+1 347-555-0182",
+      "(+1 347-555-0182)",
     );
+    expect(displaySuggestedByPhone("(347) 555-0182")).toBe("(347) 555-0182");
     expect(suggestedByPhoneSearchDigits("*~(+1 347-555-0182)~*")).toBe(
       "13475550182",
     );

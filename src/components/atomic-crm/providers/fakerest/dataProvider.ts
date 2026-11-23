@@ -112,6 +112,7 @@ import {
   signResumePhotoUrl as signResumePhotoUrlImpl,
   uploadResumePhoto as uploadResumePhotoImpl,
 } from "./internal/resumePhotos";
+import { suggestedByPhoneSearchDigits } from "../../inbox/suggestedBy";
 import type {
   ResumePhotoBlobUrls,
   UploadResumePhotoParams,
@@ -801,6 +802,41 @@ export const createDataProvider = ({
     return { data: rows.slice(start, start + perPage), total: rows.length };
   };
 
+  const matchesShidduchSearch = (row: any, query: string): boolean => {
+    const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return true;
+
+    const textFields = [
+      row.suggested_by_name,
+      row.shadchan_name,
+      row.shadchan_name_he,
+      row.name_en,
+      row.name_he,
+      row.person,
+      row.single_first_name_en,
+      row.single_first_name_he,
+      row.single_last_name_en,
+      row.single_last_name_he,
+      row.father_en,
+      row.father_he,
+      row.mother_en,
+      row.mother_he,
+      row.location_en,
+      row.location_he,
+    ]
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.toLocaleLowerCase());
+    if (
+      terms.some((term) => textFields.some((value) => value.includes(term)))
+    ) {
+      return true;
+    }
+
+    const queryDigits = suggestedByPhoneSearchDigits(query);
+    const phoneDigits = suggestedByPhoneSearchDigits(row.suggested_by_phone);
+    return queryDigits !== "" && phoneDigits.includes(queryDigits);
+  };
+
   const findBaseRow = async <T extends RaRecord<Identifier>>(
     resource: string,
     id: Identifier,
@@ -821,8 +857,11 @@ export const createDataProvider = ({
     const caller = await resolveCallerMembership();
     if (!caller?.membership) return { data: [] as any[], total: 0 };
     const membership = caller.membership;
+    const { q, ...filter } = params.filter ?? {};
+    const hasSearch = typeof q === "string" && q.trim() !== "";
     const { data: rows } = await baseDataProvider.getList("shidduchim", {
       ...params,
+      filter,
       pagination: { page: 1, perPage: 10_000 },
     });
     const [{ data: singles }, grantedSingleIds] = await Promise.all([
@@ -875,7 +914,9 @@ export const createDataProvider = ({
         grantedSingleIds.has(String(row.single_id))
       );
     });
-    return pageRows(visible, params);
+    return hasSearch
+      ? { data: visible, total: visible.length }
+      : pageRows(visible, params);
   };
 
   const getVisibleSingles = async (params: any) => {
@@ -1757,7 +1798,15 @@ export const createDataProvider = ({
       }
       if (resource === "shidduchim" || resource === "shidduchim_summary") {
         const { data, total } = await getVisibleShidduchim(params);
-        return { data: await enrichShidduchim(data), total };
+        const enriched = await enrichShidduchim(data);
+        const query = params.filter?.q;
+        if (typeof query === "string" && query.trim() !== "") {
+          return pageRows(
+            enriched.filter((row: any) => matchesShidduchSearch(row, query)),
+            params,
+          );
+        }
+        return { data: enriched, total };
       }
       // Emulate the references_summary / reference_links_summary views
       // (AD-10 FakeRest mirror) the same way shidduchim_summary is emulated
