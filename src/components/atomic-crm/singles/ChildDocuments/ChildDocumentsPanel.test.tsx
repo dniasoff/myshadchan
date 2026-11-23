@@ -384,8 +384,16 @@ describe("ChildDocumentsPanel", () => {
     await screen.getByLabelText("Upload child document").upload(file);
 
     await expect
+      .element(screen.getByRole("region", { name: "Choose picture size" }))
+      .toBeInTheDocument();
+    await expect
       .element(screen.getByRole("button", { name: "Keep full size" }))
       .toBeDisabled();
+    await expect
+      .element(
+        screen.getByRole("button", { name: "Make smaller (recommended)" }),
+      )
+      .toHaveFocus();
     await expect
       .element(
         screen.getByText(
@@ -575,8 +583,14 @@ describe("ChildDocumentsPanel", () => {
 
     await screen.getByRole("button", { name: "Forward Picture" }).click();
     await expect
+      .element(screen.getByRole("region", { name: "Forward picture" }))
+      .toBeInTheDocument();
+    await expect
       .element(screen.getByRole("button", { name: "Send full size" }))
       .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Send full size" }))
+      .toHaveFocus();
     await expect
       .element(screen.getByRole("button", { name: "Send smaller" }))
       .toBeInTheDocument();

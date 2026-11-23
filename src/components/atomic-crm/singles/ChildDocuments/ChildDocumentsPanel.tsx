@@ -12,13 +12,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 
 import type { CrmDataProvider } from "../../providers/types";
 import { useViewerRole } from "../../entity360/useViewerRole";
@@ -202,6 +195,7 @@ function EmptySlot({
   pending,
   unavailableMessage,
   onAdd,
+  children,
 }: {
   label: string;
   slotName: string;
@@ -210,6 +204,7 @@ function EmptySlot({
   pending?: boolean;
   unavailableMessage?: string;
   onAdd: () => void;
+  children?: ReactElement;
 }): ReactElement {
   const actionLabel = label.startsWith("Papers")
     ? "Add paper"
@@ -237,6 +232,7 @@ function EmptySlot({
           {actionLabel}
         </Button>
       ) : null}
+      {children}
     </div>
   );
 }
@@ -966,6 +962,11 @@ export function ChildDocumentsPanel({
       kind: "paper",
       file,
     });
+  const choosePhotoForward = (mode: PhotoForwardMode) => {
+    const photo = forwardPhotoTarget;
+    setForwardPhotoTarget(null);
+    if (photo) void forwardFile("picture", photo, mode);
+  };
   const paperFor = (slot: ChildPaperSlot) =>
     papers.find((file) => file.slot === slot);
   const resumeId = resume?.id;
@@ -1126,6 +1127,20 @@ export function ChildDocumentsPanel({
                       setDeleteTarget({ kind: "picture", photo: visiblePhoto });
                     })()
                   }
+                  photoChoice={
+                    photoUploadCandidate || forwardPhotoTarget ? (
+                      <PictureChoicePanel
+                        uploadCandidate={photoUploadCandidate}
+                        forwardPhoto={forwardPhotoTarget}
+                        isBusy={isBusy}
+                        isResizingPhoto={isResizingPhoto}
+                        isPreparingSmallerShare={isPreparingSmallerShare}
+                        uploadError={uploadError}
+                        onChooseUpload={choosePhotoUpload}
+                        onChooseForward={choosePhotoForward}
+                      />
+                    ) : undefined
+                  }
                   disabled={isBusy || uploadKind != null || pendingPicture > 0}
                   canAdd={canManageResumePicture}
                   canManage={canManageResumePicture}
@@ -1285,148 +1300,6 @@ export function ChildDocumentsPanel({
           onChange={handleUpload}
         />
       </SheetContent>
-      <Dialog
-        open={photoUploadCandidate != null}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen && !isBusy) {
-            setPhotoUploadCandidate(null);
-            setUploadError(null);
-          }
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Choose picture size</DialogTitle>
-            <DialogDescription>
-              Keep the clear original, or make a smaller copy that stays sharp
-              on a full printed page.
-            </DialogDescription>
-          </DialogHeader>
-          {photoUploadCandidate ? (
-            <div className="flex flex-col gap-3">
-              <p className="text-sm text-muted-foreground">
-                Original size: {formatBytes(photoUploadCandidate.file.size)}.
-                <br />
-                Smaller copy: About 3 MB, still sharp on a full printed page.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-14 w-full justify-start px-4 text-left text-base"
-                disabled={
-                  isBusy ||
-                  photoUploadCandidate.file.size > CHILD_DOCUMENT_MAX_BYTES
-                }
-                onClick={() => void choosePhotoUpload(false)}
-              >
-                <span>
-                  <span className="block font-semibold">Keep full size</span>
-                  <span className="block text-sm font-normal text-muted-foreground">
-                    Save the original photo bytes.
-                  </span>
-                </span>
-              </Button>
-              {photoUploadCandidate.file.size > CHILD_DOCUMENT_MAX_BYTES ? (
-                <p className="text-sm text-muted-foreground">
-                  Not available for this photo. It is over the 8 MiB limit.
-                  <br />
-                  The full-size photo is too large to save here. Make a smaller
-                  copy first.
-                </p>
-              ) : null}
-              <Button
-                type="button"
-                className="min-h-14 w-full justify-start px-4 text-left text-base"
-                disabled={isBusy}
-                autoFocus={
-                  photoUploadCandidate.file.size > CHILD_DOCUMENT_MAX_BYTES
-                }
-                onClick={() => void choosePhotoUpload(true)}
-              >
-                <span>
-                  <span className="block font-semibold">
-                    Make smaller (recommended)
-                  </span>
-                  <span className="block text-sm font-normal opacity-90">
-                    Make a smaller JPEG copy for saving.
-                  </span>
-                </span>
-              </Button>
-              {isResizingPhoto ? (
-                <p role="status" aria-live="polite" className="text-sm">
-                  Making your photo smaller…
-                </p>
-              ) : null}
-              {uploadError ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {uploadError}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={forwardPhotoTarget != null}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen && !isPreparingSmallerShare)
-            setForwardPhotoTarget(null);
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Forward picture</DialogTitle>
-            <DialogDescription>
-              Choose whether to send the saved original or a smaller copy.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              className="min-h-14 w-full justify-start px-4 text-left text-base"
-              onClick={() => {
-                const photo = forwardPhotoTarget;
-                setForwardPhotoTarget(null);
-                if (photo) void forwardFile("picture", photo, "full");
-              }}
-            >
-              <span>
-                <span className="block font-semibold">Send full size</span>
-                <span className="block text-sm font-normal text-muted-foreground">
-                  Send the saved original bytes.
-                </span>
-              </span>
-            </Button>
-            <Button
-              type="button"
-              className="min-h-14 w-full justify-start px-4 text-left text-base"
-              disabled={isPreparingSmallerShare}
-              onClick={() => {
-                const photo = forwardPhotoTarget;
-                setForwardPhotoTarget(null);
-                if (photo) void forwardFile("picture", photo, "smaller");
-              }}
-            >
-              <span>
-                <span className="block font-semibold">Send smaller</span>
-                <span className="block text-sm font-normal opacity-90">
-                  Make a smaller copy only for this send.
-                </span>
-              </span>
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              Making it smaller will not make it clearer. Please ask for a
-              clearer picture.
-            </p>
-            {isPreparingSmallerShare ? (
-              <p role="status" aria-live="polite" className="text-sm">
-                Making your photo smaller…
-              </p>
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
       <Confirm
         isOpen={deleteTarget != null}
         loading={isBusy}
@@ -1459,6 +1332,7 @@ function DocumentSlot({
   pending,
   unavailableMessage,
   previewUrl,
+  photoChoice,
 }: {
   label: string;
   slotName: string;
@@ -1474,6 +1348,7 @@ function DocumentSlot({
   disabled: boolean;
   unavailableMessage?: string;
   previewUrl?: string;
+  photoChoice?: ReactElement;
 }): ReactElement {
   if (unavailableMessage)
     return (
@@ -1484,6 +1359,7 @@ function DocumentSlot({
         disabled
         unavailableMessage={unavailableMessage}
         onAdd={onAdd}
+        children={photoChoice}
       />
     );
   if (!file)
@@ -1495,6 +1371,7 @@ function DocumentSlot({
         disabled={disabled}
         pending={pending}
         onAdd={onAdd}
+        children={photoChoice}
       />
     );
   return (
@@ -1536,6 +1413,165 @@ function DocumentSlot({
         onForward={onForward}
         onDelete={onDelete}
       />
+      {photoChoice}
+    </div>
+  );
+}
+
+function PictureChoicePanel({
+  uploadCandidate,
+  forwardPhoto,
+  isBusy,
+  isResizingPhoto,
+  isPreparingSmallerShare,
+  uploadError,
+  onChooseUpload,
+  onChooseForward,
+}: {
+  uploadCandidate: PhotoUploadCandidate | null;
+  forwardPhoto: ResumePhoto | null;
+  isBusy: boolean;
+  isResizingPhoto: boolean;
+  isPreparingSmallerShare: boolean;
+  uploadError: string | null;
+  onChooseUpload: (makeSmaller: boolean) => void;
+  onChooseForward: (mode: PhotoForwardMode) => void;
+}): ReactElement | null {
+  const firstChoiceRef = useRef<HTMLButtonElement>(null);
+  const mode = uploadCandidate ? "upload" : forwardPhoto ? "forward" : null;
+
+  useEffect(() => {
+    if (!mode) return;
+    const focusTimer = window.setTimeout(() => {
+      firstChoiceRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(focusTimer);
+  }, [mode]);
+
+  if (!mode) return null;
+
+  if (uploadCandidate) {
+    const overLimit = uploadCandidate.file.size > CHILD_DOCUMENT_MAX_BYTES;
+    return (
+      <div
+        role="region"
+        aria-label="Choose picture size"
+        className="mt-3 flex flex-col gap-3 rounded-lg border border-border bg-background p-3"
+      >
+        <div>
+          <p className="text-sm font-semibold">Choose picture size</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Keep the clear original, or make a smaller copy that stays sharp on
+            a full printed page.
+          </p>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Original size: {formatBytes(uploadCandidate.file.size)}.
+          <br />
+          Smaller copy: About 3 MB, still sharp on a full printed page.
+        </p>
+        <Button
+          ref={overLimit ? undefined : firstChoiceRef}
+          type="button"
+          variant="outline"
+          className="min-h-14 w-full justify-start px-4 text-left text-base"
+          disabled={isBusy || overLimit}
+          onClick={() => onChooseUpload(false)}
+        >
+          <span>
+            <span className="block font-semibold">Keep full size</span>
+            <span className="block text-sm font-normal text-muted-foreground">
+              Save the original photo bytes.
+            </span>
+          </span>
+        </Button>
+        {overLimit ? (
+          <p className="text-sm text-muted-foreground">
+            Not available for this photo. It is over the 8 MiB limit.
+            <br />
+            The full-size photo is too large to save here. Make a smaller copy
+            first.
+          </p>
+        ) : null}
+        <Button
+          ref={overLimit ? firstChoiceRef : undefined}
+          type="button"
+          className="min-h-14 w-full justify-start px-4 text-left text-base"
+          disabled={isBusy}
+          onClick={() => onChooseUpload(true)}
+        >
+          <span>
+            <span className="block font-semibold">
+              Make smaller (recommended)
+            </span>
+            <span className="block text-sm font-normal opacity-90">
+              Make a smaller JPEG copy for saving.
+            </span>
+          </span>
+        </Button>
+        {isResizingPhoto ? (
+          <p role="status" aria-live="polite" className="text-sm">
+            Making your photo smaller…
+          </p>
+        ) : null}
+        {uploadError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {uploadError}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      role="region"
+      aria-label="Forward picture"
+      className="mt-3 flex flex-col gap-3 rounded-lg border border-border bg-background p-3"
+    >
+      <div>
+        <p className="text-sm font-semibold">Forward picture</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Choose whether to send the saved original or a smaller copy.
+        </p>
+      </div>
+      <Button
+        ref={firstChoiceRef}
+        type="button"
+        variant="outline"
+        className="min-h-14 w-full justify-start px-4 text-left text-base"
+        disabled={isBusy || isPreparingSmallerShare}
+        onClick={() => onChooseForward("full")}
+      >
+        <span>
+          <span className="block font-semibold">Send full size</span>
+          <span className="block text-sm font-normal text-muted-foreground">
+            Send the saved original bytes.
+          </span>
+        </span>
+      </Button>
+      <Button
+        type="button"
+        className="min-h-14 w-full justify-start px-4 text-left text-base"
+        disabled={isBusy || isPreparingSmallerShare}
+        onClick={() => onChooseForward("smaller")}
+      >
+        <span>
+          <span className="block font-semibold">Send smaller</span>
+          <span className="block text-sm font-normal opacity-90">
+            Make a smaller copy only for this send.
+          </span>
+        </span>
+      </Button>
+      <p className="text-sm text-muted-foreground">
+        Making it smaller will not make it clearer. Please ask for a clearer
+        picture.
+      </p>
+      {isPreparingSmallerShare ? (
+        <p role="status" aria-live="polite" className="text-sm">
+          Making your photo smaller…
+        </p>
+      ) : null}
     </div>
   );
 }
