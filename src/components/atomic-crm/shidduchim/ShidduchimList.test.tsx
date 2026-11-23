@@ -1,5 +1,6 @@
 import { Suspense } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { page } from "@vitest/browser/context";
 import { render } from "vitest-browser-react";
 import {
   CoreAdminContext,
@@ -12,11 +13,20 @@ import type { Store } from "ra-core";
 import { Route, Routes } from "react-router";
 import { QueryClient } from "@tanstack/react-query";
 
+import { ThemeProvider } from "@/components/admin/theme-provider";
+import "@/index.css";
+
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
+import { MobileLayout } from "../layout/MobileLayout";
+import { ACCOUNT_DEMO_QUERY_KEY } from "../root/useAccountDemo";
+import { AGE_AFFIRMATION_QUERY_KEY } from "../root/useAgeAffirmation";
 import { MY_CONTEXTS_QUERY_KEY } from "../root/useMyContexts";
-import type { MyContext } from "../types";
+import { MY_PERSONAS_QUERY_KEY } from "../root/useMyPersonas";
+import type { MyContext, ShidduchSummary } from "../types";
 import { PIPELINE_STATES } from "./pipelineStates";
+import { SingleSwitcherPill } from "../layout/TopBar";
+import { ShidduchLifecycleActions } from "./ShidduchLifecycleActions";
 
 // The real, post-change `shidduchim` resource definition — the same object
 // `<CRM>` spreads onto `<Resource>` (`root/routeManifest.ts`'s `RESOURCES`,
@@ -56,48 +66,440 @@ type ListRequest = {
   pagination?: { page: number; perPage: number };
 };
 
+type TestSingle = {
+  id: number;
+  first_name_en: string;
+  last_name_en?: string;
+  status: string;
+};
+
+const DEFAULT_SINGLES: TestSingle[] = [
+  { id: 1, first_name_en: "Chaya", status: "active" },
+];
+
+const MOBILE_CONTEXTS: MyContext[] = [
+  {
+    account_id: 1,
+    kind: "household",
+    name: "Fixture Household",
+    role: "parent_admin",
+    is_active: true,
+  },
+];
+
+const postDeleteEntry = () => ({
+  pathname: "/shidduchim",
+  state: {
+    shidduchLifecycle: {
+      kind: "delete",
+      id: 42,
+      name: "Deleted resume",
+      deadline: Date.now() + 60_000,
+      origin: "page",
+    },
+  },
+});
+
+const DELETE_RECORD = {
+  id: 42,
+  account_id: 1,
+  single_id: 2,
+  name_en: "Deleted resume",
+  pipeline_state: "new",
+  archived_at: null,
+} as ShidduchSummary;
+
 const buildDataProvider = (
   onShidduchList?: (params: ListRequest) => void,
+  singles: TestSingle[] = DEFAULT_SINGLES,
 ): CrmDataProvider =>
   ({
     getList: vi.fn((resource: string, params: ListRequest) => {
       if (resource === "singles") {
         return Promise.resolve({
-          data: [{ id: 1, first_name_en: "Chaya", status: "active" }],
-          total: 1,
+          data: singles,
+          total: singles.length,
         });
       }
       if (resource === "shidduchim") onShidduchList?.(params);
       return Promise.resolve({ data: [], total: 0 });
     }),
     getMany: vi.fn().mockResolvedValue({ data: [] }),
+    getMyContexts: vi.fn().mockResolvedValue(MOBILE_CONTEXTS),
+    getMyPersonas: vi.fn().mockResolvedValue([{}]),
+    currentAccountDemo: vi.fn().mockResolvedValue(false),
+    ageAffirmationPending: vi.fn().mockResolvedValue(false),
+    getConfiguration: vi.fn().mockResolvedValue({}),
+    archiveShidduch: vi.fn().mockResolvedValue(undefined),
+    getShidduchReadState: vi.fn().mockResolvedValue({ inProgress: false }),
+    restoreShidduch: vi.fn().mockResolvedValue(undefined),
     create: vi.fn(),
     createShidduch: vi.fn(),
   }) as unknown as CrmDataProvider;
 
+type TestInitialEntry =
+  | string
+  | {
+      pathname: string;
+      search?: string;
+      hash?: string;
+      state?: unknown;
+      key?: string;
+    };
+
 const renderShidduchimResourceAt = async (
-  initialEntries: string[],
-  options: { dataProvider?: CrmDataProvider; store?: Store } = {},
-) =>
-  render(
+  initialEntries: TestInitialEntry[],
+  options: {
+    dataProvider?: CrmDataProvider;
+    store?: Store;
+    topBar?: boolean;
+    mobileShell?: boolean;
+  } = {},
+) => {
+  const queryClient = new QueryClient();
+  if (options.mobileShell) {
+    queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, MOBILE_CONTEXTS);
+    queryClient.setQueryData(MY_PERSONAS_QUERY_KEY, [{}]);
+    queryClient.setQueryData(ACCOUNT_DEMO_QUERY_KEY, false);
+    queryClient.setQueryData(AGE_AFFIRMATION_QUERY_KEY, false);
+  }
+
+  const resourceRoutes = (
+    <Suspense fallback={null}>
+      <Routes>
+        <Route
+          path="shidduchim/*"
+          element={<Resource name="shidduchim" {...shidduchim} />}
+        />
+      </Routes>
+    </Suspense>
+  );
+
+  return render(
     <TestMemoryRouter initialEntries={initialEntries}>
       <CoreAdminContext
         dataProvider={options.dataProvider ?? buildDataProvider()}
         authProvider={buildAuthProvider()}
         store={options.store}
+        queryClient={queryClient}
         i18nProvider={testI18nProvider}
       >
-        <Suspense fallback={null}>
-          <Routes>
-            <Route
-              path="shidduchim/*"
-              element={<Resource name="shidduchim" {...shidduchim} />}
-            />
-          </Routes>
-        </Suspense>
+        {options.mobileShell ? (
+          <ThemeProvider>
+            <MobileLayout>{resourceRoutes}</MobileLayout>
+          </ThemeProvider>
+        ) : (
+          <>
+            {options.topBar ? <SingleSwitcherPill /> : null}
+            {resourceRoutes}
+          </>
+        )}
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
+};
+
+afterEach(async () => {
+  await page.viewport(1280, 720);
+});
+
+describe("ShidduchimList — shared child choice", () => {
+  beforeEach(async () => {
+    await page.viewport(1280, 720);
+  });
+
+  const singles: TestSingle[] = [
+    {
+      id: 1,
+      first_name_en: "Chaya",
+      last_name_en: "Cohen",
+      status: "active",
+    },
+    {
+      id: 2,
+      first_name_en: "Rivka",
+      last_name_en: "Levy",
+      status: "active",
+    },
+  ];
+
+  it("follows a child switched in the top-left pill", async () => {
+    const requests: ListRequest[] = [];
+    const store = memoryStore({ "single.selected": 1 });
+    const screen = await renderShidduchimResourceAt(["/shidduchim"], {
+      dataProvider: buildDataProvider(
+        (params) => requests.push(params),
+        singles,
+      ),
+      store,
+      topBar: true,
+    });
+
+    await expect.element(screen.getByText("Showing Chaya Cohen")).toBeVisible();
+    await screen
+      .getByRole("button", { name: /Switch single: Chaya Cohen/ })
+      .click();
+    await screen.getByRole("menuitem", { name: "Rivka Levy" }).click();
+
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.pagination?.perPage === 200 &&
+            request.filter?.single_id === 2,
+        ),
+      )
+      .toBe(true);
+    await expect.element(screen.getByText("Showing Rivka Levy")).toBeVisible();
+  });
+
+  it("ignores a stale stored list child filter", async () => {
+    const requests: ListRequest[] = [];
+    const store = memoryStore({
+      "single.selected": 2,
+      "shidduchim.listParams": {
+        filter: { single_id: 1 },
+        page: 1,
+        perPage: 200,
+        sort: "index",
+        order: "ASC",
+        displayedFilters: {},
+      },
+    });
+    const screen = await renderShidduchimResourceAt(["/shidduchim"], {
+      dataProvider: buildDataProvider(
+        (params) => requests.push(params),
+        singles,
+      ),
+      store,
+    });
+
+    await expect.element(screen.getByText("Showing Rivka Levy")).toBeVisible();
+    const mainRequest = requests.find(
+      (request) => request.pagination?.perPage === 200,
+    );
+    expect(mainRequest?.filter).toMatchObject({ single_id: 2 });
+  });
+
+  it("lets an explicit link initialize the shared choice once", async () => {
+    const requests: ListRequest[] = [];
+    const store = memoryStore({ "single.selected": 1 });
+    const filter = encodeURIComponent(JSON.stringify({ single_id: 2 }));
+    const screen = await renderShidduchimResourceAt(
+      [`/shidduchim?filter=${filter}`],
+      {
+        dataProvider: buildDataProvider(
+          (params) => requests.push(params),
+          singles,
+        ),
+        store,
+        topBar: true,
+      },
+    );
+
+    await expect.element(screen.getByText("Showing Rivka Levy")).toBeVisible();
+    await expect
+      .element(
+        screen.getByRole("button", { name: /Switch single: Rivka Levy/ }),
+      )
+      .toBeVisible();
+    expect(store.getItem("single.selected", null)).toBe(2);
+    expect(
+      requests.some(
+        (request) =>
+          request.pagination?.perPage === 200 &&
+          request.filter?.single_id === 2,
+      ),
+    ).toBe(true);
+
+    await screen
+      .getByRole("button", { name: /Switch single: Rivka Levy/ })
+      .click();
+    await screen.getByRole("menuitem", { name: "Chaya Cohen" }).click();
+    await expect.element(screen.getByText("Showing Chaya Cohen")).toBeVisible();
+  });
+});
+
+describe("ShidduchimList — mobile shared child choice", () => {
+  const singles: TestSingle[] = [
+    {
+      id: 1,
+      first_name_en: "Chaya",
+      last_name_en: "Cohen",
+      status: "active",
+    },
+    {
+      id: 2,
+      first_name_en: "Rivka",
+      last_name_en: "Levy",
+      status: "active",
+    },
+  ];
+
+  it("shows one picker in the real mobile shell and switches the list", async () => {
+    await page.viewport(390, 844);
+    const requests: ListRequest[] = [];
+    const store = memoryStore({ "single.selected": 1 });
+    const screen = await renderShidduchimResourceAt(["/shidduchim"], {
+      dataProvider: buildDataProvider(
+        (params) => requests.push(params),
+        singles,
+      ),
+      store,
+      mobileShell: true,
+    });
+
+    await expect.element(screen.getByText("Showing Chaya Cohen")).toBeVisible();
+    expect(
+      screen.container.querySelectorAll('button[aria-label^="Switch single:"]'),
+    ).toHaveLength(1);
+    const picker = screen.getByRole("button", {
+      name: /Switch single: Chaya Cohen/,
+    });
+    await expect.element(picker).toBeVisible();
+    expect(
+      picker.element().getBoundingClientRect().height,
+    ).toBeGreaterThanOrEqual(44);
+
+    await picker.click();
+    await screen.getByRole("menuitem", { name: "Rivka Levy" }).click();
+
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.pagination?.perPage === 200 &&
+            request.filter?.single_id === 2,
+        ),
+      )
+      .toBe(true);
+    await expect.element(screen.getByText("Showing Rivka Levy")).toBeVisible();
+  });
+
+  it("matches the mobile shell at 700px and both sides of the breakpoint", async () => {
+    const store = memoryStore({ "single.selected": 1 });
+    await page.viewport(700, 844);
+    const screen = await renderShidduchimResourceAt(["/shidduchim"], {
+      dataProvider: buildDataProvider(undefined, singles),
+      store,
+      mobileShell: true,
+    });
+
+    await expect
+      .element(
+        screen.getByRole("button", { name: /Switch single: Chaya Cohen/ }),
+      )
+      .toBeVisible();
+    expect(
+      screen.container.querySelectorAll('button[aria-label^="Switch single:"]'),
+    ).toHaveLength(1);
+
+    await page.viewport(767, 844);
+    await expect
+      .element(
+        screen.getByRole("button", { name: /Switch single: Chaya Cohen/ }),
+      )
+      .toBeVisible();
+    expect(
+      screen.container.querySelectorAll('button[aria-label^="Switch single:"]'),
+    ).toHaveLength(1);
+
+    await page.viewport(768, 844);
+    await expect
+      .poll(
+        () =>
+          screen.container.querySelectorAll(
+            'button[aria-label^="Switch single:"]',
+          ).length,
+      )
+      .toBe(0);
+  });
+
+  it("does not add a page picker on desktop", async () => {
+    await page.viewport(1280, 720);
+    const store = memoryStore({ "single.selected": 1 });
+    const screen = await renderShidduchimResourceAt(["/shidduchim"], {
+      dataProvider: buildDataProvider(undefined, singles),
+      store,
+    });
+
+    await expect.element(screen.getByText("Showing Chaya Cohen")).toBeVisible();
+    await expect
+      .element(
+        screen.getByRole("button", { name: /Switch single: Chaya Cohen/ }),
+      )
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps the selected child after the delete redirect to /shidduchim", async () => {
+    await page.viewport(1280, 720);
+    const store = memoryStore({ "single.selected": 2 });
+    const screen = await renderShidduchimResourceAt([postDeleteEntry()], {
+      dataProvider: buildDataProvider(undefined, singles),
+      store,
+    });
+
+    await expect.element(screen.getByText("Showing Rivka Levy")).toBeVisible();
+  });
+
+  it("keeps the selected child through the real delete route redirect", async () => {
+    await page.viewport(390, 844);
+    window.sessionStorage.clear();
+    const archiveShidduch = vi.fn().mockResolvedValue(undefined);
+    const dataProvider = {
+      ...buildDataProvider(undefined, singles),
+      archiveShidduch,
+      getShidduchReadState: vi.fn().mockResolvedValue({ inProgress: false }),
+    } as unknown as CrmDataProvider;
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(MY_CONTEXTS_QUERY_KEY, MOBILE_CONTEXTS);
+    queryClient.setQueryData(MY_PERSONAS_QUERY_KEY, [{}]);
+    queryClient.setQueryData(ACCOUNT_DEMO_QUERY_KEY, false);
+    queryClient.setQueryData(AGE_AFFIRMATION_QUERY_KEY, false);
+
+    const screen = await render(
+      <TestMemoryRouter initialEntries={["/shidduchim/42"]}>
+        <CoreAdminContext
+          dataProvider={dataProvider}
+          authProvider={buildAuthProvider()}
+          store={memoryStore({ "single.selected": 2 })}
+          queryClient={queryClient}
+          i18nProvider={testI18nProvider}
+        >
+          <ThemeProvider>
+            <MobileLayout>
+              <Suspense fallback={null}>
+                <Routes>
+                  <Route
+                    path="shidduchim/42"
+                    element={
+                      <ShidduchLifecycleActions record={DELETE_RECORD} />
+                    }
+                  />
+                  <Route
+                    path="shidduchim/*"
+                    element={<Resource name="shidduchim" {...shidduchim} />}
+                  />
+                </Routes>
+              </Suspense>
+            </MobileLayout>
+          </ThemeProvider>
+        </CoreAdminContext>
+      </TestMemoryRouter>,
+    );
+
+    await screen.getByRole("button", { name: "More actions" }).click();
+    await screen.getByRole("menuitem", { name: "Delete suggestion" }).click();
+    await screen
+      .getByRole("dialog")
+      .getByRole("button", { name: "Delete", exact: true })
+      .click();
+
+    await expect.poll(() => archiveShidduch.mock.calls.length).toBe(1);
+    await expect.element(screen.getByText("Showing Rivka Levy")).toBeVisible();
+    window.sessionStorage.clear();
+  });
+});
 
 describe("ShidduchimList — the create page sits above <List> (AC 1)", () => {
   it("renders the create heading and never the pipeline's '{n} redts' heading at /shidduchim/new", async () => {

@@ -146,9 +146,12 @@ test("board, list and cards share filters and context, and both survive a reload
   await expect(page.getByText("Moshe Adler")).toBeVisible();
   await expect(page.getByText("Ari Rosenberg")).not.toBeVisible();
 
-  // Act — clear the search, then switch to Rivka's pipeline via the pills.
+  // Act — clear the search, then switch to Rivka's pipeline via the one
+  // shared child picker. On desktop this is the top-left SingleSwitcherPill;
+  // on Mobile Chrome it is the picker at the top of the Shidduchim page.
   await page.getByPlaceholder(/search/i).fill("");
-  await page.getByRole("button", { name: "Rivka" }).click();
+  await page.getByRole("button", { name: "Switch single: Chaya" }).click();
+  await page.getByRole("menuitem", { name: "Rivka" }).click();
 
   // Assert — AC-4: the selected single is shared state — Chaya's shidduchim
   // are gone, Rivka's are shown, on the SAME (Board) position.
