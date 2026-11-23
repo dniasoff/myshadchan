@@ -12,6 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 import { useGlobalSearchDialog } from "../misc/useGlobalSearch";
 import { useSelectedSingle } from "../singles/useSelectedSingle";
@@ -87,7 +88,11 @@ const singleLabel = (single: Single) =>
  * The dashboard held a second, independent selection, so this pill could read
  * "Yaakov" while the page below it showed Rivky's pipeline.
  */
-export const SingleSwitcherPill = () => {
+export const SingleSwitcherPill = ({
+  className,
+}: {
+  className?: string;
+} = {}) => {
   const translate = useTranslate();
   const { singles: singleList, selected, setSelectedId } = useSelectedSingle();
 
@@ -105,11 +110,14 @@ export const SingleSwitcherPill = () => {
             name: singleLabel(selected),
             _: "Switch single: %{name}",
           })}
-          className="inline-flex h-9 items-center gap-2 rounded-full border
-            border-border bg-secondary px-3 text-sm font-semibold
-            text-foreground outline-none transition-colors duration-[160ms]
-            hover:bg-secondary/80
-            focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className={cn(
+            `inline-flex h-9 items-center gap-2 rounded-full border
+              border-border bg-secondary px-3 text-sm font-semibold
+              text-foreground outline-none transition-colors duration-[160ms]
+              hover:bg-secondary/80
+              focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background`,
+            className,
+          )}
         >
           <span>{singleLabel(selected)}</span>
           <ChevronDown
