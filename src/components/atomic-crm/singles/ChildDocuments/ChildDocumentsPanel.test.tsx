@@ -782,7 +782,7 @@ describe("ChildDocumentsPanel", () => {
     await expect.element(sendFullSize).toBeDisabled();
     expect(signPhoto).toHaveBeenCalledTimes(1);
 
-    await sendFullSize.click();
+    await sendFullSize.click({ force: true });
     expect(signPhoto).toHaveBeenCalledTimes(1);
     resolveSignedUrl("blob:photo");
     await expect
