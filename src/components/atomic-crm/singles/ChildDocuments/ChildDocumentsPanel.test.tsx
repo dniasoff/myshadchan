@@ -12,8 +12,8 @@ import type {
   Single,
 } from "../../types";
 import { ChildDocumentsPanel } from "./ChildDocumentsPanel";
-import * as photoResize from "./photoResize";
 import { PHOTO_MAX_BYTES } from "./photoResize";
+import type { makeSmallerPhoto } from "./photoResize";
 
 const viewerRole = vi.hoisted(() => ({
   role: "parent_admin" as
@@ -132,6 +132,7 @@ function buildDataProvider(
 async function renderPanel(
   entityFiles?: EntityFileSummary[],
   getListOverride?: CrmDataProvider["getList"],
+  makeSmallerPhotoOverride?: typeof makeSmallerPhoto,
 ) {
   const dataProvider = buildDataProvider(entityFiles, getListOverride);
   const screen = await render(
@@ -140,7 +141,12 @@ async function renderPanel(
         dataProvider={dataProvider}
         i18nProvider={testI18nProvider}
       >
-        <ChildDocumentsPanel single={single} open onOpenChange={vi.fn()} />
+        <ChildDocumentsPanel
+          single={single}
+          open
+          onOpenChange={vi.fn()}
+          makeSmallerPhoto={makeSmallerPhotoOverride}
+        />
       </CoreAdminContext>
     </TestMemoryRouter>,
   );
@@ -475,18 +481,19 @@ describe("ChildDocumentsPanel", () => {
   });
 
   it("keeps the inline choice and progress visible while making a photo smaller", async () => {
-    let resolveResize!: (result: {
-      file: File;
-      resized: boolean;
-      sourceDimensions: { width: number; height: number };
-      outputDimensions: { width: number; height: number };
-    }) => void;
-    vi.spyOn(photoResize, "makeSmallerPhoto").mockReturnValue(
-      new Promise((resolve) => {
-        resolveResize = resolve;
-      }),
+    type ResizeResult = Awaited<ReturnType<typeof makeSmallerPhoto>>;
+    let resolveResize!: (result: ResizeResult) => void;
+    const mockResizePhoto: typeof makeSmallerPhoto = vi.fn(
+      () =>
+        new Promise<ResizeResult>((resolve) => {
+          resolveResize = resolve;
+        }),
     );
-    const { dataProvider, screen } = await renderPanel([paper]);
+    const { dataProvider, screen } = await renderPanel(
+      [paper],
+      undefined,
+      mockResizePhoto,
+    );
     const bytes = new Uint8Array(PHOTO_MAX_BYTES + 1);
     const file = new File([bytes], "phone.jpg", { type: "image/jpeg" });
 
@@ -530,9 +537,13 @@ describe("ChildDocumentsPanel", () => {
       .toBeInTheDocument();
 
     await screen.getByRole("button", { name: "Close" }).click();
-    await expect.element(screen.getByText("Documents")).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("heading", { name: "Documents" }))
+      .not.toBeInTheDocument();
     await screen.getByRole("button", { name: "Reopen Documents" }).click();
-    await expect.element(screen.getByText("Documents")).toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("heading", { name: "Documents" }))
+      .toBeInTheDocument();
     await expect
       .element(screen.getByRole("region", { name: "Choose picture size" }))
       .not.toBeInTheDocument();
@@ -542,9 +553,13 @@ describe("ChildDocumentsPanel", () => {
       .element(screen.getByRole("region", { name: "Forward picture" }))
       .toBeInTheDocument();
     await screen.getByRole("button", { name: "Close" }).click();
-    await expect.element(screen.getByText("Documents")).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("heading", { name: "Documents" }))
+      .not.toBeInTheDocument();
     await screen.getByRole("button", { name: "Reopen Documents" }).click();
-    await expect.element(screen.getByText("Documents")).toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("heading", { name: "Documents" }))
+      .toBeInTheDocument();
     await expect
       .element(screen.getByRole("region", { name: "Forward picture" }))
       .not.toBeInTheDocument();

@@ -47,7 +47,10 @@ import {
   validateChildPhotoType,
   type ChildPaperSlot,
 } from "./childDocuments";
-import { makeSmallerPhoto, PHOTO_RESIZE_ERROR_MESSAGE } from "./photoResize";
+import {
+  makeSmallerPhoto as defaultMakeSmallerPhoto,
+  PHOTO_RESIZE_ERROR_MESSAGE,
+} from "./photoResize";
 
 type DocumentKind = "resume" | "picture" | "paper";
 type DeleteTarget =
@@ -245,11 +248,14 @@ export function ChildDocumentsPanel({
   single,
   open,
   onOpenChange,
+  makeSmallerPhoto: makeSmallerPhotoOverride,
 }: {
   single: Single;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  makeSmallerPhoto?: typeof defaultMakeSmallerPhoto;
 }): ReactElement {
+  const resizePhoto = makeSmallerPhotoOverride ?? defaultMakeSmallerPhoto;
   const dataProvider = useDataProvider<CrmDataProvider>();
   const notify = useNotify();
   const refresh = useRefresh();
@@ -629,7 +635,7 @@ export function ChildDocumentsPanel({
     setIsResizingPhoto(makeSmaller);
     try {
       const prepared = makeSmaller
-        ? await makeSmallerPhoto(candidate.file)
+        ? await resizePhoto(candidate.file)
         : { file: candidate.file };
       await uploadPicture(prepared.file, candidate.replacement);
       setPhotoUploadCandidate(null);
@@ -807,9 +813,7 @@ export function ChildDocumentsPanel({
         }
         fetchedBlob = await response.blob();
         smallerFile = (
-          await makeSmallerPhoto(
-            new File([fetchedBlob], name, { type: mimeType }),
-          )
+          await resizePhoto(new File([fetchedBlob], name, { type: mimeType }))
         ).file;
       }
       if (canUseNativeFileShare()) {
