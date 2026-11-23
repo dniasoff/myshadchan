@@ -11,6 +11,7 @@ import type {
   Single,
 } from "../../types";
 import { ChildDocumentsPanel } from "./ChildDocumentsPanel";
+import { PHOTO_MAX_BYTES } from "./photoResize";
 
 const viewerRole = vi.hoisted(() => ({
   role: "parent_admin" as
@@ -179,6 +180,9 @@ describe("ChildDocumentsPanel", () => {
       .toBeInTheDocument();
     await expect.element(screen.getByText("photo.png")).toBeInTheDocument();
     await expect
+      .element(screen.getByRole("img", { name: "Picture preview" }))
+      .toHaveAttribute("src", "blob:photo");
+    await expect
       .element(screen.getByText("school-paper.pdf"))
       .toBeInTheDocument();
     await expect
@@ -211,6 +215,22 @@ describe("ChildDocumentsPanel", () => {
         .element(screen.getByRole("button", { name }))
         .toBeInTheDocument();
     }
+  });
+
+  it("opens the saved original when the picture preview is tapped", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { screen } = await renderPanel();
+
+    await screen
+      .getByRole("button", { name: "Open full-size picture preview" })
+      .click();
+
+    await expect.poll(() => open.mock.calls.length).toBe(1);
+    expect(open).toHaveBeenCalledWith(
+      "blob:photo",
+      "_blank",
+      "noopener,noreferrer",
+    );
   });
 
   it("shows loading while Retry refetches after a failed load", async () => {
@@ -352,6 +372,55 @@ describe("ChildDocumentsPanel", () => {
       .toHaveTextContent(
         "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.",
       );
+  });
+
+  it("shows the picture size choices and disables full size over 8 MiB", async () => {
+    const { dataProvider, screen } = await renderPanel([paper]);
+    const file = new File([new Uint8Array(PHOTO_MAX_BYTES + 1)], "phone.jpg", {
+      type: "image/jpeg",
+    });
+
+    await screen.getByRole("button", { name: "Replace Picture" }).click();
+    await screen.getByLabelText("Upload child document").upload(file);
+
+    await expect
+      .element(screen.getByRole("button", { name: "Keep full size" }))
+      .toBeDisabled();
+    await expect
+      .element(
+        screen.getByText(
+          "Not available for this photo. It is over the 8 MiB limit.",
+        ),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(
+        screen.getByText(
+          "The full-size photo is too large to save here. Make a smaller copy first.",
+        ),
+      )
+      .toBeInTheDocument();
+    expect(dataProvider.uploadResumePhoto).not.toHaveBeenCalled();
+  });
+
+  it("keeps a fitting picture's original bytes when Keep full size is chosen", async () => {
+    const { dataProvider, screen } = await renderPanel([paper]);
+    const file = new File(["small picture"], "small.jpg", {
+      type: "image/jpeg",
+    });
+
+    await screen.getByRole("button", { name: "Replace Picture" }).click();
+    await screen.getByLabelText("Upload child document").upload(file);
+    await screen.getByRole("button", { name: "Keep full size" }).click();
+
+    await expect
+      .poll(() => vi.mocked(dataProvider.uploadResumePhoto).mock.calls.length)
+      .toBe(1);
+    expect(dataProvider.uploadResumePhoto).toHaveBeenCalledWith({
+      singleId: single.id,
+      file,
+      visibility: "shared",
+    });
   });
 
   it("replaces a paper through the upload-before-swap provider method", async () => {
@@ -506,6 +575,13 @@ describe("ChildDocumentsPanel", () => {
 
     await screen.getByRole("button", { name: "Forward Picture" }).click();
     await expect
+      .element(screen.getByRole("button", { name: "Send full size" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Send smaller" }))
+      .toBeInTheDocument();
+    await screen.getByRole("button", { name: "Send full size" }).click();
+    await expect
       .element(screen.getByText("Download it, then attach it yourself."))
       .toBeInTheDocument();
     await expect
@@ -540,6 +616,7 @@ describe("ChildDocumentsPanel", () => {
     const { screen } = await renderPanel([paper]);
 
     await screen.getByRole("button", { name: "Forward Picture" }).click();
+    await screen.getByRole("button", { name: "Send full size" }).click();
     await expect
       .poll(
         () => (navigator.share as ReturnType<typeof vi.fn>).mock.calls.length,
@@ -568,6 +645,7 @@ describe("ChildDocumentsPanel", () => {
     const { screen } = await renderPanel([paper]);
 
     await screen.getByRole("button", { name: "Forward Picture" }).click();
+    await screen.getByRole("button", { name: "Send full size" }).click();
     await expect.poll(() => share.mock.calls.length).toBe(0);
     await expect
       .element(screen.getByText("Download it, then attach it yourself."))

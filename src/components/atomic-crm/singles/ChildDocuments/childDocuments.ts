@@ -51,9 +51,26 @@ export function validateChildDocument(file: File): string | null {
 }
 
 export function validateChildPhoto(file: File): string | null {
-  const documentError = validateChildDocument(file);
-  if (documentError) return documentError;
-  if (file.type !== "image/jpeg" && file.type !== "image/png") {
+  const typeError = validateChildPhotoType(file);
+  if (typeError) return typeError;
+  if (file.size > CHILD_DOCUMENT_MAX_BYTES)
+    return "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.";
+  return null;
+}
+
+/** Validate a picture before the size choice is shown. */
+export function validateChildPhotoType(file: File): string | null {
+  if (file.size < 1) {
+    return "Could not add this file. Use a PDF, Word, JPEG or PNG file smaller than 8 MiB.";
+  }
+  const extension = extensionOf(file.name);
+  const expectedType =
+    extension === "jpg" || extension === "jpeg"
+      ? "image/jpeg"
+      : extension === "png"
+        ? "image/png"
+        : null;
+  if (!expectedType || file.type !== expectedType) {
     return "Choose a JPEG or PNG picture.";
   }
   return null;

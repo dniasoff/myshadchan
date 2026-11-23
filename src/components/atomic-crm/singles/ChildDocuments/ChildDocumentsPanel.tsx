@@ -12,6 +12,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import type { CrmDataProvider } from "../../providers/types";
 import { useViewerRole } from "../../entity360/useViewerRole";
@@ -38,14 +45,16 @@ import {
 import { canDeleteResumeFile } from "../../resumes/resumeFileDelete";
 import {
   CHILD_DOCUMENT_ACCEPT,
+  CHILD_DOCUMENT_MAX_BYTES,
   CHILD_DOCUMENT_MAX_SIZE_LABEL,
   fileExtension,
   MAX_CHILD_DOCUMENTS,
   MAX_CHILD_PAPERS,
   validateChildDocument,
-  validateChildPhoto,
+  validateChildPhotoType,
   type ChildPaperSlot,
 } from "./childDocuments";
+import { makeSmallerPhoto, PHOTO_RESIZE_ERROR_MESSAGE } from "./photoResize";
 
 type DocumentKind = "resume" | "picture" | "paper";
 type DeleteTarget =
@@ -70,7 +79,15 @@ type PendingDelete = {
 type ShareFile = {
   name: string;
   url: string;
+  revoke?: () => void;
 };
+
+type PhotoUploadCandidate = {
+  file: File;
+  replacement: Extract<ReplaceTarget, { kind: "picture" }> | null;
+};
+
+type PhotoForwardMode = "full" | "smaller";
 
 const FILE_DELETE_UNDO_MS = 10_000;
 const DOCUMENT_SLOT_UNAVAILABLE_MESSAGE =
@@ -255,6 +272,13 @@ export function ChildDocumentsPanel({
     Map<string, PendingDelete>
   >(() => new Map());
   const [shareFile, setShareFile] = useState<ShareFile | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
+  const [photoUploadCandidate, setPhotoUploadCandidate] =
+    useState<PhotoUploadCandidate | null>(null);
+  const [isResizingPhoto, setIsResizingPhoto] = useState(false);
+  const [forwardPhotoTarget, setForwardPhotoTarget] =
+    useState<ResumePhoto | null>(null);
+  const [isPreparingSmallerShare, setIsPreparingSmallerShare] = useState(false);
 
   const {
     data: resumes,
@@ -399,6 +423,30 @@ export function ChildDocumentsPanel({
     paperSlotsInUse.size;
 
   useEffect(() => {
+    if (!open || !visiblePhoto) {
+      setPhotoPreviewUrl(null);
+      return;
+    }
+    let cancelled = false;
+    setPhotoPreviewUrl(null);
+    void dataProvider
+      .signResumePhotoUrl({ storagePath: visiblePhoto.path })
+      .then((url) => {
+        if (!cancelled) setPhotoPreviewUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setPhotoPreviewUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dataProvider, open, visiblePhoto]);
+
+  useEffect(() => {
+    return () => shareFile?.revoke?.();
+  }, [shareFile]);
+
+  useEffect(() => {
     const timers = [...pendingDeletes.entries()].map(([key, pending]) =>
       window.setTimeout(
         async () => {
@@ -526,6 +574,45 @@ export function ChildDocumentsPanel({
     setUploadReplaceTarget(null);
   };
 
+  const uploadPicture = async (
+    file: File,
+    replacement: PhotoUploadCandidate["replacement"],
+  ) => {
+    await dataProvider.uploadResumePhoto({
+      singleId: single.id,
+      file,
+      visibility: "shared",
+    });
+    if (replacement) {
+      await dataProvider.hideResumePhoto({ id: replacement.photo.id });
+    }
+    refresh();
+  };
+
+  const choosePhotoUpload = async (makeSmaller: boolean) => {
+    const candidate = photoUploadCandidate;
+    if (!candidate || isBusy) return;
+    if (!makeSmaller && candidate.file.size > CHILD_DOCUMENT_MAX_BYTES) return;
+    setUploadError(null);
+    setIsBusy(true);
+    setIsResizingPhoto(makeSmaller);
+    try {
+      const prepared = makeSmaller
+        ? await makeSmallerPhoto(candidate.file)
+        : { file: candidate.file };
+      await uploadPicture(prepared.file, candidate.replacement);
+      setPhotoUploadCandidate(null);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : PHOTO_RESIZE_ERROR_MESSAGE;
+      setUploadError(message);
+      notify(message, { type: "error" });
+    } finally {
+      setIsResizingPhoto(false);
+      setIsBusy(false);
+    }
+  };
+
   const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -537,12 +624,19 @@ export function ChildDocumentsPanel({
     setUploadError(null);
     const validationError =
       uploadKind === "picture"
-        ? validateChildPhoto(file)
+        ? validateChildPhotoType(file)
         : validateChildDocument(file);
     if (validationError) {
       setUploadError(validationError);
       notify(validationError, { type: "error" });
       clearUploadState();
+      return;
+    }
+    if (uploadKind === "picture") {
+      const replacement =
+        uploadReplaceTarget?.kind === "picture" ? uploadReplaceTarget : null;
+      clearUploadState();
+      setPhotoUploadCandidate({ file, replacement });
       return;
     }
     setIsBusy(true);
@@ -552,15 +646,6 @@ export function ChildDocumentsPanel({
         await dataProvider.uploadResumeFile({ singleId: single.id, file });
         if (replacement?.kind === "resume" && resume) {
           await queueResumeDelete(resume.id, replacement.file);
-        }
-      } else if (uploadKind === "picture") {
-        await dataProvider.uploadResumePhoto({
-          singleId: single.id,
-          file,
-          visibility: "shared",
-        });
-        if (replacement?.kind === "picture") {
-          await dataProvider.hideResumePhoto({ id: replacement.photo.id });
         }
       } else if (uploadSlot) {
         if (replacement?.kind === "paper") {
@@ -642,11 +727,15 @@ export function ChildDocumentsPanel({
   const forwardFile = async (
     kind: DocumentKind,
     file: ResumeFileVersion | ResumePhoto | EntityFileSummary,
+    photoMode: PhotoForwardMode = "full",
   ) => {
+    const makeSmaller = kind === "picture" && photoMode === "smaller";
+    setIsPreparingSmallerShare(makeSmaller);
     try {
       let url: string;
       let name: string;
       let mimeType: string;
+      let fetchedBlob: Blob | null = null;
       if (kind === "resume") {
         const resumeFile = file as ResumeFileVersion;
         name = resumeFile.filename;
@@ -671,27 +760,54 @@ export function ChildDocumentsPanel({
           fileName: name,
         });
       }
-      if (canUseNativeFileShare()) {
+      let smallerFile: File | null = null;
+      if (makeSmaller) {
         const response = await fetch(url);
         if (!response.ok) {
-          throw new Error("Could not download this file for sharing.");
+          throw new Error("Could not download this picture for sharing.");
         }
-        const payload = buildResumeSharePayload(await response.blob(), {
-          filename: name,
-          mime_type: mimeType,
+        fetchedBlob = await response.blob();
+        smallerFile = (
+          await makeSmallerPhoto(
+            new File([fetchedBlob], name, { type: mimeType }),
+          )
+        ).file;
+      }
+      if (canUseNativeFileShare()) {
+        if (!fetchedBlob) {
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error("Could not download this file for sharing.");
+          }
+          fetchedBlob = await response.blob();
+        }
+        const payload = buildResumeSharePayload(smallerFile ?? fetchedBlob, {
+          filename: smallerFile?.name ?? name,
+          mime_type: smallerFile?.type ?? mimeType,
         });
         if (navigator.canShare(payload)) {
           await navigator.share(payload);
           return;
         }
       }
-      setShareFile({ name, url });
+      if (smallerFile) {
+        const smallerUrl = URL.createObjectURL(smallerFile);
+        setShareFile({
+          name: smallerFile.name,
+          url: smallerUrl,
+          revoke: () => URL.revokeObjectURL(smallerUrl),
+        });
+      } else {
+        setShareFile({ name, url });
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       notify(
         error instanceof Error ? error.message : "Could not forward this file.",
         { type: "error" },
       );
+    } finally {
+      setIsPreparingSmallerShare(false);
     }
   };
 
@@ -988,6 +1104,7 @@ export function ChildDocumentsPanel({
                         }
                       : null
                   }
+                  previewUrl={photoPreviewUrl ?? undefined}
                   onAdd={() => beginUpload("picture")}
                   onOpen={() =>
                     visiblePhoto && void openFile("picture", visiblePhoto)
@@ -1000,7 +1117,7 @@ export function ChildDocumentsPanel({
                     })
                   }
                   onForward={() =>
-                    visiblePhoto && void forwardFile("picture", visiblePhoto)
+                    visiblePhoto && setForwardPhotoTarget(visiblePhoto)
                   }
                   onDelete={(event) =>
                     visiblePhoto &&
@@ -1168,6 +1285,148 @@ export function ChildDocumentsPanel({
           onChange={handleUpload}
         />
       </SheetContent>
+      <Dialog
+        open={photoUploadCandidate != null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && !isBusy) {
+            setPhotoUploadCandidate(null);
+            setUploadError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Choose picture size</DialogTitle>
+            <DialogDescription>
+              Keep the clear original, or make a smaller copy that stays sharp
+              on a full printed page.
+            </DialogDescription>
+          </DialogHeader>
+          {photoUploadCandidate ? (
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-muted-foreground">
+                Original size: {formatBytes(photoUploadCandidate.file.size)}.
+                <br />
+                Smaller copy: About 3 MB, still sharp on a full printed page.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-14 w-full justify-start px-4 text-left text-base"
+                disabled={
+                  isBusy ||
+                  photoUploadCandidate.file.size > CHILD_DOCUMENT_MAX_BYTES
+                }
+                onClick={() => void choosePhotoUpload(false)}
+              >
+                <span>
+                  <span className="block font-semibold">Keep full size</span>
+                  <span className="block text-sm font-normal text-muted-foreground">
+                    Save the original photo bytes.
+                  </span>
+                </span>
+              </Button>
+              {photoUploadCandidate.file.size > CHILD_DOCUMENT_MAX_BYTES ? (
+                <p className="text-sm text-muted-foreground">
+                  Not available for this photo. It is over the 8 MiB limit.
+                  <br />
+                  The full-size photo is too large to save here. Make a smaller
+                  copy first.
+                </p>
+              ) : null}
+              <Button
+                type="button"
+                className="min-h-14 w-full justify-start px-4 text-left text-base"
+                disabled={isBusy}
+                autoFocus={
+                  photoUploadCandidate.file.size > CHILD_DOCUMENT_MAX_BYTES
+                }
+                onClick={() => void choosePhotoUpload(true)}
+              >
+                <span>
+                  <span className="block font-semibold">
+                    Make smaller (recommended)
+                  </span>
+                  <span className="block text-sm font-normal opacity-90">
+                    Make a smaller JPEG copy for saving.
+                  </span>
+                </span>
+              </Button>
+              {isResizingPhoto ? (
+                <p role="status" aria-live="polite" className="text-sm">
+                  Making your photo smaller…
+                </p>
+              ) : null}
+              {uploadError ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {uploadError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={forwardPhotoTarget != null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && !isPreparingSmallerShare)
+            setForwardPhotoTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Forward picture</DialogTitle>
+            <DialogDescription>
+              Choose whether to send the saved original or a smaller copy.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-14 w-full justify-start px-4 text-left text-base"
+              onClick={() => {
+                const photo = forwardPhotoTarget;
+                setForwardPhotoTarget(null);
+                if (photo) void forwardFile("picture", photo, "full");
+              }}
+            >
+              <span>
+                <span className="block font-semibold">Send full size</span>
+                <span className="block text-sm font-normal text-muted-foreground">
+                  Send the saved original bytes.
+                </span>
+              </span>
+            </Button>
+            <Button
+              type="button"
+              className="min-h-14 w-full justify-start px-4 text-left text-base"
+              disabled={isPreparingSmallerShare}
+              onClick={() => {
+                const photo = forwardPhotoTarget;
+                setForwardPhotoTarget(null);
+                if (photo) void forwardFile("picture", photo, "smaller");
+              }}
+            >
+              <span>
+                <span className="block font-semibold">Send smaller</span>
+                <span className="block text-sm font-normal opacity-90">
+                  Make a smaller copy only for this send.
+                </span>
+              </span>
+            </Button>
+            <p className="text-sm text-muted-foreground">
+              Making it smaller will not make it clearer. Please ask for a
+              clearer picture.
+            </p>
+            {isPreparingSmallerShare ? (
+              <p role="status" aria-live="polite" className="text-sm">
+                Making your photo smaller…
+              </p>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
       <Confirm
         isOpen={deleteTarget != null}
         loading={isBusy}
@@ -1199,6 +1458,7 @@ function DocumentSlot({
   disabled,
   pending,
   unavailableMessage,
+  previewUrl,
 }: {
   label: string;
   slotName: string;
@@ -1213,6 +1473,7 @@ function DocumentSlot({
   onDelete: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled: boolean;
   unavailableMessage?: string;
+  previewUrl?: string;
 }): ReactElement {
   if (unavailableMessage)
     return (
@@ -1241,9 +1502,25 @@ function DocumentSlot({
       <div className="min-w-0">
         <p className="text-sm font-semibold">{label}</p>
         <div className="mt-2 flex min-w-0 items-center gap-2">
-          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-[10px] font-bold">
-            {fileExtension(file.name)}
-          </span>
+          {file.kind === "picture" && previewUrl ? (
+            <button
+              type="button"
+              className="size-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              aria-label="Open full-size picture preview"
+              disabled={disabled}
+              onClick={onOpen}
+            >
+              <img
+                src={previewUrl}
+                alt="Picture preview"
+                className="size-full object-cover"
+              />
+            </button>
+          ) : (
+            <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-[10px] font-bold">
+              {fileExtension(file.name)}
+            </span>
+          )}
           <span dir="auto" className="min-w-0 truncate text-sm font-medium">
             {file.name}
           </span>
