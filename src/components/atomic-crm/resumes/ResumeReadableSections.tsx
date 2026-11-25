@@ -17,6 +17,7 @@ import type { CrmDataProvider } from "../providers/types";
 import { getCallStatusDescriptor } from "../references/callStatus";
 import { ReferenceLinkRow } from "../references/ReferenceLinkRow";
 import { ReferencePhoneActions } from "../references/ReferencePhoneActions";
+import { splitPhoneValue } from "../references/phoneLinks";
 import { resumeSubjectFilter } from "./resumeSubject";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 import {
@@ -71,6 +72,13 @@ const normalizeReadableItemKey = (item: ParsedAdditionalSectionItem): string =>
     normalizeReadableText(item.label),
     normalizeReadableText(item.value),
   ]);
+
+const resumePhoneActionsClassName = (phone?: string | null): string => {
+  const phoneValue = splitPhoneValue(phone);
+  return phoneValue.hadExplicitSeparator && phoneValue.parts.length > 1
+    ? ""
+    : "sm:flex-row sm:items-center sm:justify-between";
+};
 
 function filterDuplicateFamilyExtras(
   additionalSections: ParsedAdditionalSection[],
@@ -728,6 +736,7 @@ function UnlinkedResumeReferenceCard({
         <ReferencePhoneActions
           phone={reference.phone}
           referenceName={reference.name}
+          className={resumePhoneActionsClassName(reference.phone)}
         />
         <p className="mt-3 text-xs text-muted-foreground">Not logged</p>
         <Button
