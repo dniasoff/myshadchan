@@ -139,6 +139,62 @@ describe("linkReferenceToShidduch", () => {
   });
 });
 
+describe("addResumeReferenceToShidduch", () => {
+  it("reuses the matching reference and keeps retries idempotent", async () => {
+    const dataProvider = makeProvider();
+
+    const first = await dataProvider.addResumeReferenceToShidduch({
+      shidduchim_id: 2,
+      name_en: "Chaim Feldman",
+      phone: "0542223344",
+    });
+    const { data: beforeRetry } = await dataProvider.getList("references", {
+      filter: { name_en: "Chaim Feldman" },
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "id", order: "ASC" },
+    });
+    const second = await dataProvider.addResumeReferenceToShidduch({
+      shidduchim_id: 2,
+      name_en: "Chaim Feldman",
+      phone: "0542223344",
+    });
+
+    expect(first.status).toBe("linked");
+    expect(second).toEqual(first);
+    expect(
+      (
+        await dataProvider.getList("references", {
+          filter: { name_en: "Chaim Feldman" },
+          pagination: { page: 1, perPage: 100 },
+          sort: { field: "id", order: "ASC" },
+        })
+      ).data,
+    ).toHaveLength(beforeRetry.length);
+  });
+
+  it("does not create a row when the phone evidence is ambiguous", async () => {
+    const dataProvider = makeProvider();
+    const { data: before } = await dataProvider.getList("references", {
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "id", order: "ASC" },
+    });
+
+    const result = await dataProvider.addResumeReferenceToShidduch({
+      shidduchim_id: 2,
+      name_en: "Someone Else",
+      phone: "0542223344",
+    });
+
+    const { data: after } = await dataProvider.getList("references", {
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(result.status).toBe("ambiguous");
+    expect(result.candidates).toHaveLength(2);
+    expect(after).toHaveLength(before.length);
+  });
+});
+
 describe("logReferenceCall", () => {
   it("records the call, appends to the conversation log, and pushes an interaction", async () => {
     // Arrange -- link #4 (reference #2 -> shidduch #4) starts not_started.

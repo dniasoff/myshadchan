@@ -11,6 +11,8 @@ import type {
   Account,
   AccountMember,
   AddEducationInput,
+  AddResumeReferenceInput,
+  AddResumeReferenceResult,
   AddRedtInput,
   AiEntitlementInfo,
   ChildGrant,
@@ -142,6 +144,7 @@ import type { Db } from "./dataGenerator/types";
 import { withSupabaseFilterAdapter } from "./internal/supabaseAdapter";
 import { resolveContextMembership } from "./internal/accountMemberships";
 import {
+  addResumeReferenceToShidduch,
   createReferenceForShidduch,
   linkReferenceToShidduch,
   logReferenceCall,
@@ -3326,6 +3329,19 @@ export const createDataProvider = ({
       }
       await assertCanEditShidduch(shidduch, shidduch);
       return createReferenceForShidduch(baseDataProvider, input);
+    },
+    addResumeReferenceToShidduch: async (
+      input: AddResumeReferenceInput,
+    ): Promise<AddResumeReferenceResult> => {
+      const shidduch = await findBaseRow<Shidduch>(
+        "shidduchim",
+        input.shidduchim_id,
+      );
+      if (!shidduch) {
+        throw new Error(`shidduch ${input.shidduchim_id} not found`);
+      }
+      await assertCanEditShidduch(shidduch, shidduch);
+      return addResumeReferenceToShidduch(baseDataProvider, input);
     },
     logReferenceCall: async (
       input: LogReferenceCallInput,

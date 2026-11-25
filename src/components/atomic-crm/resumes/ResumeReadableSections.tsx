@@ -686,16 +686,25 @@ function UnlinkedResumeReferenceCard({
   const refresh = useRefresh();
   const translate = useTranslate();
   const [isAdding, setIsAdding] = useState(false);
+  const [isAmbiguous, setIsAmbiguous] = useState(false);
 
   const addToList = async () => {
     setIsAdding(true);
     try {
-      await dataProvider.createReferenceForShidduch({
+      const result = await dataProvider.addResumeReferenceToShidduch({
         shidduchim_id: shidduchimId,
         name_en: reference.name,
         relationship: reference.relationship || null,
         phone: reference.phone || null,
       });
+      if (result.status === "ambiguous") {
+        setIsAmbiguous(true);
+        notify(
+          "We found more than one matching person. Please choose the right one in your reference book before adding this reference.",
+          { type: "warning" },
+        );
+        return;
+      }
       notify(
         translate("crm.entity360.resume.readable.referenceAdded", {
           _: "Added to your reference list.",
@@ -743,13 +752,19 @@ function UnlinkedResumeReferenceCard({
           type="button"
           variant="outline"
           className="mt-2 min-h-11"
-          disabled={isAdding}
+          disabled={isAdding || isAmbiguous}
           onClick={() => void addToList()}
         >
           {translate("crm.entity360.resume.readable.addReference", {
             _: "Add to my list",
           })}
         </Button>
+        {isAmbiguous ? (
+          <p role="alert" className="mt-2 text-sm text-muted-foreground">
+            We found more than one matching person. Choose the right one in your
+            reference book before adding this reference.
+          </p>
+        ) : null}
       </div>
     </article>
   );

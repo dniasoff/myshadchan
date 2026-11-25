@@ -11,6 +11,8 @@ import type {
   AddEducationInput,
   AddRedtInput,
   AiEntitlementInfo,
+  AddResumeReferenceInput,
+  AddResumeReferenceResult,
   ChildGrant,
   ChildGrantAccessLevel,
   ChildGrantPreview,
@@ -997,6 +999,26 @@ export const getDataProviderWithCustomMethods = () => {
       }
       const row = Array.isArray(data) ? data[0] : data;
       return row as Reference;
+    },
+
+    async addResumeReferenceToShidduch(
+      input: AddResumeReferenceInput,
+    ): Promise<AddResumeReferenceResult> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "add_resume_reference_to_shidduch",
+        {
+          p_shidduchim_id: input.shidduchim_id,
+          p_name_en: input.name_en ?? null,
+          p_name_he: input.name_he ?? null,
+          p_relationship: input.relationship ?? null,
+          p_phone: input.phone ?? null,
+        },
+      );
+      if (error) {
+        console.error("addResumeReferenceToShidduch.error", error);
+        throw new Error(error.message || "Failed to add the reference");
+      }
+      return data as AddResumeReferenceResult;
     },
 
     /**

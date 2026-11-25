@@ -91,10 +91,14 @@ export const ReferenceLinkRow = ({
   const lastCallAt = [...(link.conversation_log ?? [])].sort((a, b) =>
     a.at < b.at ? 1 : a.at > b.at ? -1 : 0,
   )[0]?.at;
+  // Omitting timeZone deliberately uses the browser's local timezone, matching
+  // the user's own call history rather than a fixed server timezone.
   const formattedCallDate = lastCallAt
     ? new Intl.DateTimeFormat("en-US", {
         month: "short",
         day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
       }).format(new Date(lastCallAt))
     : null;
 
@@ -155,7 +159,7 @@ export const ReferenceLinkRow = ({
             <CallStatusChip status={link.call_status} />
             {formattedCallDate ? (
               <span className="text-muted-foreground">
-                · {formattedCallDate}
+                Last call: {formattedCallDate}
               </span>
             ) : null}
             <span aria-label="Logged" className="font-semibold text-primary">

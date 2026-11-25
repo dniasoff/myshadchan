@@ -1068,6 +1068,30 @@ export type CreateReferenceForShidduchInput = {
   relationship_override?: string | null;
 };
 
+export type AddResumeReferenceInput = Pick<
+  CreateReferenceForShidduchInput,
+  "shidduchim_id" | "name_en" | "name_he" | "relationship" | "phone"
+>;
+
+export type AddResumeReferenceCandidate = Pick<
+  Reference,
+  "id" | "name_en" | "name_he" | "phone" | "relationship"
+>;
+
+export type AddResumeReferenceResult =
+  | {
+      status: "created" | "linked";
+      reference_id: Identifier;
+      link_id: Identifier;
+      candidates: [];
+    }
+  | {
+      status: "ambiguous";
+      reference_id: null;
+      link_id: null;
+      candidates: AddResumeReferenceCandidate[];
+    };
+
 export type LogReferenceCallInput = {
   reference_link_id: Identifier;
   call_status?: CallStatus | null;

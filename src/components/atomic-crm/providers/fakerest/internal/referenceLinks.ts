@@ -2,6 +2,8 @@ import type { DataProvider } from "ra-core";
 
 import type {
   ConversationLogEntry,
+  AddResumeReferenceInput,
+  AddResumeReferenceResult,
   CreateReferenceForShidduchInput,
   LinkReferenceInput,
   LogReferenceCallInput,
@@ -10,6 +12,7 @@ import type {
   Shidduch,
   ShidduchDiligenceProgress,
 } from "../../../types";
+import { normalizeIdentityText, normalizePhone } from "./referenceIdentity";
 
 const PAGE_ONE = { page: 1, perPage: 1 } as const;
 const BY_ID_ASC = { field: "id", order: "ASC" as const };
@@ -207,6 +210,134 @@ export async function createReferenceForShidduch(
   });
 
   return reference;
+}
+
+/** FakeRest mirror of the atomic account-scoped resume-reference add RPC. */
+export async function addResumeReferenceToShidduch(
+  baseDataProvider: DataProvider,
+  input: AddResumeReferenceInput,
+): Promise<AddResumeReferenceResult> {
+  const { data: shidduchim } = await baseDataProvider.getList<Shidduch>(
+    "shidduchim",
+    {
+      filter: { id: input.shidduchim_id },
+      pagination: PAGE_ONE,
+      sort: BY_ID_ASC,
+    },
+  );
+  const shidduch = shidduchim[0];
+  if (!shidduch) throw new Error(`shidduch ${input.shidduchim_id} not found`);
+
+  const { data: references } = await baseDataProvider.getList<Reference>(
+    "references",
+    {
+      filter: { account_id: shidduch.account_id },
+      pagination: { page: 1, perPage: 10_000 },
+      sort: BY_ID_ASC,
+    },
+  );
+  const name = normalizeIdentityText(input.name_en ?? input.name_he);
+  const phone = normalizePhone(input.phone);
+  const nameMatches = name
+    ? references.filter(
+        (reference) =>
+          normalizeIdentityText(reference.name_en) === name ||
+          normalizeIdentityText(reference.name_he) === name,
+      )
+    : [];
+  const phoneMatches = phone
+    ? references.filter(
+        (reference) => normalizePhone(reference.phone) === phone,
+      )
+    : [];
+  const combinedMatches = phoneMatches.filter((reference) =>
+    nameMatches.some((match) => match.id === reference.id),
+  );
+
+  let matchingReference: Reference | undefined;
+  let ambiguous: Reference[] = [];
+  if (phone) {
+    if (combinedMatches.length === 1) matchingReference = combinedMatches[0];
+    else if (combinedMatches.length > 1) ambiguous = combinedMatches;
+    else if (phoneMatches.length === 1) {
+      const candidate = phoneMatches[0];
+      const candidateName =
+        normalizeIdentityText(candidate.name_en) ??
+        normalizeIdentityText(candidate.name_he);
+      if (!candidateName || candidateName === name)
+        matchingReference = candidate;
+      else ambiguous = [...phoneMatches, ...nameMatches];
+    } else if (phoneMatches.length > 1) ambiguous = phoneMatches;
+    else if (nameMatches.length > 0) ambiguous = nameMatches;
+  } else if (nameMatches.length === 1) matchingReference = nameMatches[0];
+  else if (nameMatches.length > 1) ambiguous = nameMatches;
+
+  if (ambiguous.length > 0) {
+    const candidates = [
+      ...new Map(
+        ambiguous.map((reference) => [String(reference.id), reference]),
+      ).values(),
+    ];
+    return {
+      status: "ambiguous",
+      reference_id: null,
+      link_id: null,
+      candidates: candidates.map(
+        ({ id, name_en, name_he, phone: referencePhone, relationship }) => ({
+          id,
+          name_en,
+          name_he,
+          phone: referencePhone,
+          relationship,
+        }),
+      ),
+    };
+  }
+
+  const now = new Date().toISOString();
+  let reference = matchingReference;
+  let status: "created" | "linked" = "linked";
+  if (!reference) {
+    const created = await baseDataProvider.create<Reference>("references", {
+      data: {
+        account_id: shidduch.account_id,
+        name_en: input.name_en ?? null,
+        name_he: input.name_he ?? null,
+        relationship: input.relationship ?? null,
+        phone: input.phone ?? null,
+        school: null,
+        grad_year: null,
+        created_at: now,
+      },
+    });
+    reference = created.data;
+    status = "created";
+  }
+
+  const { data: existingLinks } = await baseDataProvider.getList<ReferenceLink>(
+    "reference_links",
+    {
+      filter: {
+        reference_id: reference.id,
+        shidduchim_id: input.shidduchim_id,
+      },
+      pagination: PAGE_ONE,
+      sort: BY_ID_ASC,
+    },
+  );
+  const link =
+    existingLinks[0] ??
+    (await linkReferenceToShidduch(baseDataProvider, {
+      reference_id: reference.id,
+      shidduchim_id: input.shidduchim_id,
+      relationship_override: input.relationship ?? null,
+    }));
+  return {
+    status,
+    reference_id: reference.id,
+    link_id: link.id,
+    candidates: [],
+  };
 }
 
 /**

@@ -208,7 +208,10 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   await expect(
     page.getByRole("button", { name: /Open note for Miriam E2E/ }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Log call" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Log a call" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Text Miriam E2E, number 1" }),
+  ).toHaveAttribute("href", "sms:+17329306891");
   await expect(
     page.getByRole("link", { name: "Call Miriam E2E, number 1" }),
   ).toHaveAttribute("href", "tel:+17329306891");

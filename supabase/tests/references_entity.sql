@@ -183,6 +183,79 @@ select 'confirming the same link twice does not duplicate it', count(*) = 1
 from public.reference_links rl
 where rl.reference_id = :ref1 and rl.shidduchim_id = :shid1;
 
+-- ---------------------------------------------------------------------------
+-- Atomic resume-reference add: account-scoped match, ambiguity, and retry.
+-- ---------------------------------------------------------------------------
+select id as miriam_existing
+from public.create_reference_for_shidduch(:shid1, 'Miriam Gold', null, 'neighbor', null) \gset
+insert into ids values ('miriam_existing', :miriam_existing);
+
+select public.add_resume_reference_to_shidduch(:shid2, 'Miriam Gold', null, 'neighbor', null) ->> 'status' as miriam_status \gset
+insert into results (name, passed) values
+  ('resume add reuses one existing same-name reference without a phone', :'miriam_status' = 'linked');
+
+insert into results (name, passed)
+select 'resume add reuses the existing canonical reference', count(*) = 1
+from public."references" r
+where r.account_id = public.current_context_id() and r.name_en = 'Miriam Gold';
+
+select id as miriam_ambiguous
+from public.create_reference_for_shidduch(:shid1, 'Miriam Gold', null, 'teacher', '055-111-2233') \gset
+insert into ids values ('miriam_ambiguous', :miriam_ambiguous);
+
+select public.add_resume_reference_to_shidduch(:shid2, 'Miriam Gold', null, null, null) ->> 'status' as ambiguous_status \gset
+insert into results (name, passed) values
+  ('resume add refuses an ambiguous name instead of inserting a third row', :'ambiguous_status' = 'ambiguous');
+
+insert into results (name, passed)
+select 'ambiguous resume add returns both existing candidates', count(*) = 2
+from jsonb_array_elements(
+  public.add_resume_reference_to_shidduch(:shid2, 'Miriam Gold', null, null, null) -> 'candidates'
+);
+
+select public.add_resume_reference_to_shidduch(:shid2, 'Retry Person', null, null, '055-222-3344') ->> 'status' as retry_first \gset
+select public.add_resume_reference_to_shidduch(:shid2, 'Retry Person', null, null, '055-222-3344') ->> 'status' as retry_second \gset
+insert into results (name, passed) values
+  ('retrying resume add is idempotent', :'retry_first' = 'created' and :'retry_second' = 'linked');
+
+insert into results (name, passed)
+select 'retrying resume add leaves one canonical reference and one link',
+       (select count(*) from public."references" where account_id = public.current_context_id() and name_en = 'Retry Person') = 1
+       and (select count(*) from public.reference_links rl join public."references" r on r.id = rl.reference_id
+            where rl.account_id = public.current_context_id() and rl.shidduchim_id = :shid2 and r.name_en = 'Retry Person') = 1;
+
+-- The matcher must never use a reference from another tenant.  Arrange a
+-- same-name reference in tenant A, then add the name while acting as tenant B;
+-- the result must be a new tenant-B reference, not a link to tenant A's row.
+reset role;
+insert into public."references" (account_id, name_en, phone)
+values (:acct_a, 'Cross Tenant Person', '055-333-4455')
+returning id as cross_tenant_a_ref \gset
+insert into public.singles (account_id, first_name_en, gender)
+values (:acct_b, 'Rivka', 'female') returning id as single_b_for_add \gset
+insert into public.shidduchim (account_id, single_id, name_en)
+values (:acct_b, :single_b_for_add, 'Cross Tenant Match') returning id as shid_b_for_add \gset
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
+select public.add_resume_reference_to_shidduch(:shid_b_for_add, 'Cross Tenant Person', null, null, '055-333-4455') ->> 'status' as cross_tenant_status \gset
+insert into results (name, passed) values
+  ('resume add scopes matching to the active account', :'cross_tenant_status' = 'created');
+
+reset role;
+insert into results (name, passed)
+select 'resume add creates the tenant-B copy instead of reusing tenant-A data',
+       count(*) filter (where account_id = :acct_a and name_en = 'Cross Tenant Person') = 1
+       and count(*) filter (where account_id = :acct_b and name_en = 'Cross Tenant Person') = 1
+from public."references";
+
+-- Remove the temporary tenant-B fixture before the suite's later RLS checks,
+-- which intentionally expect tenant B to have no reference rows yet.
+delete from public.shidduchim where id = :shid_b_for_add;
+delete from public."references" where account_id in (:acct_a, :acct_b) and name_en = 'Cross Tenant Person';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
 select public.log_reference_call(:link1, 'answered', 'Spoke warmly, very positive.', 'manual');
 select public.log_reference_call(:link1, 'answered', 'Also mentioned the family.', 'assistant');
 

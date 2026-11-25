@@ -194,12 +194,17 @@ describe("ShidduchReferencesSection — first conversation vs one of several (St
       )
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("button", { name: "Log call" }))
+      .element(screen.getByRole("button", { name: "Log a call" }))
       .toBeInTheDocument();
     await expect
       .element(screen.getByRole("link", { name: "Call Rivka Weiss, number 1" }))
       .toHaveAttribute("href", "tel:+17329306891");
-    await expect.element(screen.getByText("Nov 18")).toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("link", { name: "Text Rivka Weiss, number 1" }))
+      .toHaveAttribute("href", "sms:+17329306891");
+    await expect
+      .element(screen.getByText("Last call: Nov 18, 2:30 PM"))
+      .toBeInTheDocument();
     await expect.element(screen.getByText("Answered")).toBeInTheDocument();
   });
 
