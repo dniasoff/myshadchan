@@ -530,6 +530,29 @@ describe("ResumeReadableSections", () => {
     ).toBe("Personal details");
   });
 
+  it("adds an unlinked resume reference to the shidduch reference list", async () => {
+    const { screen, dataProvider } = await renderSections({ withLinks: false });
+    const createReferenceForShidduch = vi.spyOn(
+      dataProvider,
+      "createReferenceForShidduch",
+    );
+
+    await screen
+      .getByRole("button", { name: "Add to my list" })
+      .first()
+      .click();
+
+    await expect
+      .poll(() => createReferenceForShidduch.mock.calls.length)
+      .toBe(1);
+    expect(createReferenceForShidduch).toHaveBeenCalledWith({
+      shidduchim_id: record.id,
+      name_en: "Chaim Feldman",
+      relationship: "Rebbi",
+      phone: "054-222-3344",
+    });
+  });
+
   it("renders generic cards in order and preserves unique Family extras", async () => {
     const { screen } = await renderSections({
       sections: {

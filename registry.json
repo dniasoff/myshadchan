@@ -940,6 +940,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/references/ReferenceLinkRow.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/references/ReferenceInputs.tsx",
           "type": "registry:component"
         },

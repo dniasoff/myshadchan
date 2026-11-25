@@ -1,4 +1,13 @@
+import { createClient } from "@supabase/supabase-js";
+
 import { APP_URL, expect, test } from "./fixtures";
+import { supabaseUrlFromEnv } from "../scripts/stack-env.mjs";
+
+const adminSupabase = createClient(
+  supabaseUrlFromEnv(process.env),
+  process.env.SERVICE_ROLE_KEY!,
+  { auth: { autoRefreshToken: false, persistSession: false } },
+);
 
 test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   page,
@@ -203,6 +212,29 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   await expect(page.getByText("Miriam E2E")).toBeVisible();
   await expect(page.getByText("No number yet")).toBeVisible();
   await expect(page.getByText("Not logged", { exact: true })).toBeVisible();
+
+  const addReferenceResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().includes("/rest/v1/rpc/create_reference_for_shidduch"),
+  );
+  await page.getByRole("button", { name: "Add to my list" }).click();
+  const addReferenceResult = await addReferenceResponse;
+  expect(addReferenceResult.ok()).toBeTruthy();
+  const createdReferencePayload = await addReferenceResult.json();
+  const createdReference = Array.isArray(createdReferencePayload)
+    ? createdReferencePayload[0]
+    : createdReferencePayload;
+  expect(createdReference?.id).toBeTruthy();
+  const { data: createdReferenceLinks } = await adminSupabase
+    .from("reference_links")
+    .select("reference_id, shidduchim_id")
+    .eq("reference_id", createdReference.id)
+    .eq("shidduchim_id", created.id);
+  expect(createdReferenceLinks).toEqual([
+    { reference_id: createdReference.id, shidduchim_id: created.id },
+  ]);
+
   await expect(
     page.locator(
       '[data-testid="reference-phone-actions"] a[href^="tel:"], [data-testid="reference-phone-actions"] a[href*="wa.me"]',

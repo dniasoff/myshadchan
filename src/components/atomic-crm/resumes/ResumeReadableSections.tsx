@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactElement } from "react";
 import {
   useDataProvider,
@@ -7,26 +7,16 @@ import {
   useRefresh,
   useTranslate,
 } from "ra-core";
-import { MessageSquare, StickyNote } from "lucide-react";
+import { StickyNote } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { ReferenceLinkSummary, Resume, ShidduchSummary } from "../types";
 import type { CrmDataProvider } from "../providers/types";
-import { CallStatusChip } from "../references/CallStatusChip";
-import { CallCaptureSheet } from "../references/CallCaptureSheet";
-import { ReferencePhoneActions } from "../references/ReferencePhoneActions";
 import { getCallStatusDescriptor } from "../references/callStatus";
-import { splitPhoneValue } from "../references/phoneLinks";
+import { ReferenceLinkRow } from "../references/ReferenceLinkRow";
+import { ReferencePhoneActions } from "../references/ReferencePhoneActions";
 import { resumeSubjectFilter } from "./resumeSubject";
 import { sortResumeFilesNewestFirst } from "./useLatestResumeFile";
 import {
@@ -81,13 +71,6 @@ const normalizeReadableItemKey = (item: ParsedAdditionalSectionItem): string =>
     normalizeReadableText(item.label),
     normalizeReadableText(item.value),
   ]);
-
-const resumePhoneActionsClassName = (phone?: string | null): string => {
-  const phoneValue = splitPhoneValue(phone);
-  return phoneValue.hadExplicitSeparator && phoneValue.parts.length > 1
-    ? ""
-    : "sm:flex-row sm:items-center sm:justify-between";
-};
 
 function filterDuplicateFamilyExtras(
   additionalSections: ParsedAdditionalSection[],
@@ -497,6 +480,7 @@ export function ResumeReadableSections({
                 rows={referenceRows}
                 isPending={areLinksPending}
                 hasLinks={(links ?? []).length > 0}
+                shidduchimId={record.id}
               />
             ) : null}
           </>
@@ -562,10 +546,12 @@ function ReferenceGroup({
   rows,
   isPending,
   hasLinks,
+  shidduchimId,
 }: {
   rows: ReferenceRow[];
   isPending: boolean;
   hasLinks: boolean;
+  shidduchimId: ShidduchSummary["id"];
 }): ReactElement {
   const translate = useTranslate();
   const loggedCount = rows.filter(
@@ -643,6 +629,7 @@ function ReferenceGroup({
               reference={row.reference}
               link={row.link}
               rowIndex={index}
+              shidduchimId={shidduchimId}
             />
           ))}
         </div>
@@ -655,104 +642,70 @@ function ReferenceResumeCard({
   reference,
   link,
   rowIndex,
+  shidduchimId,
 }: {
   reference: ParsedResumeReference;
   link: ReferenceLinkSummary | null;
   rowIndex: number;
+  shidduchimId: ShidduchSummary["id"];
 }): ReactElement {
-  if (!link) {
+  if (link) {
     return (
-      <article
-        className="min-w-0 rounded-xl border p-3 outline-none"
-        data-reference-row-index={rowIndex}
-        tabIndex={-1}
-      >
-        <div className="min-w-0">
-          <p dir="auto" className="break-words text-sm font-semibold">
-            {reference.name}
-          </p>
-          {reference.relationship ? (
-            <p
-              dir="auto"
-              className="mt-1 break-words text-sm text-muted-foreground"
-            >
-              {reference.relationship}
-            </p>
-          ) : null}
-          <ReferencePhoneActions
-            phone={reference.phone}
-            referenceName={reference.name}
-            className={resumePhoneActionsClassName(reference.phone)}
-          />
-          <p className="mt-3 text-xs text-muted-foreground">Not logged</p>
-        </div>
-      </article>
+      <ReferenceLinkRow reference={reference} link={link} rowIndex={rowIndex} />
     );
   }
 
   return (
-    <LinkedReferenceResumeCard
+    <UnlinkedResumeReferenceCard
       reference={reference}
-      link={link}
       rowIndex={rowIndex}
+      shidduchimId={shidduchimId}
     />
   );
 }
 
-function LinkedReferenceResumeCard({
+function UnlinkedResumeReferenceCard({
   reference,
-  link,
   rowIndex,
+  shidduchimId,
 }: {
   reference: ParsedResumeReference;
-  link: ReferenceLinkSummary;
   rowIndex: number;
+  shidduchimId: ShidduchSummary["id"];
 }): ReactElement {
+  const dataProvider = useDataProvider<CrmDataProvider>();
+  const notify = useNotify();
+  const refresh = useRefresh();
   const translate = useTranslate();
-  const [isNoteOpen, setIsNoteOpen] = useState(false);
-  const [isCallCaptureOpen, setIsCallCaptureOpen] = useState(false);
-  const noteTriggerRef = useRef<HTMLButtonElement>(null);
-  const manualLogTriggerRef = useRef<HTMLButtonElement>(null);
-  const didOpenNote = useRef(false);
+  const [isAdding, setIsAdding] = useState(false);
 
-  useEffect(() => {
-    if (isNoteOpen) {
-      didOpenNote.current = true;
-    } else if (didOpenNote.current) {
-      didOpenNote.current = false;
-      requestAnimationFrame(() => noteTriggerRef.current?.focus());
+  const addToList = async () => {
+    setIsAdding(true);
+    try {
+      await dataProvider.createReferenceForShidduch({
+        shidduchim_id: shidduchimId,
+        name_en: reference.name,
+        relationship: reference.relationship || null,
+        phone: reference.phone || null,
+      });
+      notify(
+        translate("crm.entity360.resume.readable.referenceAdded", {
+          _: "Added to your reference list.",
+        }),
+        { type: "success" },
+      );
+      refresh();
+    } catch {
+      notify(
+        translate("crm.entity360.resume.readable.referenceAddError", {
+          _: "We could not add this reference. Try again.",
+        }),
+        { type: "error" },
+      );
+    } finally {
+      setIsAdding(false);
     }
-  }, [isNoteOpen]);
-
-  const displayRelationship =
-    link.effective_relationship || reference.relationship;
-  const displayPhone = link.reference_phone || reference.phone;
-  const displayName =
-    asText(link.reference_name_en) ||
-    asText(link.reference_name_he) ||
-    reference.name;
-  const noteExists = Boolean(link.what_they_said?.trim());
-  const noteAriaLabel = `${translate("crm.entity360.resume.readable.noteOpen", {
-    name: displayName,
-    _: "Open note for %{name}",
-  })}${
-    noteExists
-      ? `; ${translate("crm.entity360.resume.readable.noteSavedAria", {
-          _: "note saved",
-        })}`
-      : ""
-  }`;
-
-  const callStatus = getCallStatusDescriptor(link.call_status);
-  const lastCallAt = [...(link.conversation_log ?? [])].sort((a, b) =>
-    a.at < b.at ? 1 : a.at > b.at ? -1 : 0,
-  )[0]?.at;
-  const formattedCallDate = lastCallAt
-    ? new Intl.DateTimeFormat("en-US", {
-        month: "short",
-        day: "numeric",
-      }).format(new Date(lastCallAt))
-    : null;
+  };
 
   return (
     <article
@@ -760,207 +713,35 @@ function LinkedReferenceResumeCard({
       data-reference-row-index={rowIndex}
       tabIndex={-1}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p dir="auto" className="break-words text-sm font-semibold">
-            {displayName}
+      <div className="min-w-0">
+        <p dir="auto" className="break-words text-sm font-semibold">
+          {reference.name}
+        </p>
+        {reference.relationship ? (
+          <p
+            dir="auto"
+            className="mt-1 break-words text-sm text-muted-foreground"
+          >
+            {reference.relationship}
           </p>
-          {displayRelationship ? (
-            <p
-              dir="auto"
-              className="mt-1 break-words text-sm text-muted-foreground"
-            >
-              {displayRelationship}
-            </p>
-          ) : null}
-          <ReferencePhoneActions
-            phone={displayPhone}
-            referenceName={displayName}
-            referenceLink={link}
-            manualLogRef={manualLogTriggerRef}
-            onManualLog={() => setIsCallCaptureOpen(true)}
-            className={resumePhoneActionsClassName(displayPhone)}
-          />
-        </div>
+        ) : null}
+        <ReferencePhoneActions
+          phone={reference.phone}
+          referenceName={reference.name}
+        />
+        <p className="mt-3 text-xs text-muted-foreground">Not logged</p>
         <Button
-          ref={noteTriggerRef}
           type="button"
           variant="outline"
-          size="icon"
-          aria-label={noteAriaLabel}
-          aria-expanded={isNoteOpen}
-          aria-haspopup="dialog"
-          className="relative shrink-0"
-          onClick={() => setIsNoteOpen(true)}
+          className="mt-2 min-h-11"
+          disabled={isAdding}
+          onClick={() => void addToList()}
         >
-          <MessageSquare aria-hidden="true" />
-          {noteExists ? (
-            <span
-              className="absolute right-1 top-1 size-2 rounded-full bg-primary"
-              aria-hidden="true"
-            />
-          ) : null}
+          {translate("crm.entity360.resume.readable.addReference", {
+            _: "Add to my list",
+          })}
         </Button>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-        {callStatus.id === "not_started" ? (
-          <span className="text-muted-foreground">Not logged</span>
-        ) : (
-          <>
-            <CallStatusChip status={link.call_status} />
-            {formattedCallDate ? (
-              <span className="text-muted-foreground">
-                · {formattedCallDate}
-              </span>
-            ) : null}
-            <span aria-label="Logged" className="font-semibold text-primary">
-              ✓
-            </span>
-          </>
-        )}
-      </div>
-      <ReferenceNoteEditor
-        link={link}
-        referenceName={displayName}
-        open={isNoteOpen}
-        onOpenChange={setIsNoteOpen}
-      />
-      <CallCaptureSheet
-        link={link}
-        open={isCallCaptureOpen}
-        onOpenChange={(open) => {
-          setIsCallCaptureOpen(open);
-          if (!open) {
-            requestAnimationFrame(() => manualLogTriggerRef.current?.focus());
-          }
-        }}
-      />
     </article>
-  );
-}
-
-function ReferenceNoteEditor({
-  link,
-  referenceName,
-  open,
-  onOpenChange,
-}: {
-  link: ReferenceLinkSummary;
-  referenceName: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}): ReactElement {
-  const dataProvider = useDataProvider<CrmDataProvider>();
-  const notify = useNotify();
-  const refresh = useRefresh();
-  const translate = useTranslate();
-  const [note, setNote] = useState(link.what_they_said ?? "");
-  const [isSaving, setIsSaving] = useState(false);
-  const noteDirty = useRef(false);
-
-  useEffect(() => {
-    if (open && !noteDirty.current) setNote(link.what_they_said ?? "");
-  }, [link.what_they_said, open]);
-
-  const saveNote = async () => {
-    const nextNote = note.trim();
-    const previousNote = (link.what_they_said ?? "").trim();
-    if (!nextNote && previousNote) return;
-    if (nextNote === previousNote) {
-      noteDirty.current = false;
-      onOpenChange(false);
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      await dataProvider.logReferenceCall({
-        reference_link_id: link.id,
-        what_they_said: nextNote,
-        source: "manual",
-      });
-      refresh();
-      noteDirty.current = false;
-      onOpenChange(false);
-      notify(
-        translate("crm.entity360.resume.readable.noteSaved", {
-          _: "Saved to the call log.",
-        }),
-        { type: "success" },
-      );
-    } catch {
-      notify(
-        translate("crm.entity360.resume.readable.saveError", {
-          _: "We could not save this. Nothing was changed. Try again.",
-        }),
-        { type: "error" },
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (nextOpen && !noteDirty.current) {
-          setNote(link.what_they_said ?? "");
-        }
-        onOpenChange(nextOpen);
-      }}
-    >
-      <SheetContent
-        side="bottom"
-        className="max-h-[92dvh] overflow-y-auto pb-[calc(1rem+env(safe-area-inset-bottom))] md:bottom-auto md:left-1/2 md:right-auto md:top-1/2 md:w-[min(92vw,32rem)] md:translate-x-[-50%] md:translate-y-[-50%] md:rounded-xl md:border"
-      >
-        <SheetHeader className="pe-12">
-          <SheetTitle>
-            {translate("crm.entity360.resume.readable.noteTitle", {
-              name: referenceName,
-              _: "Note for %{name}",
-            })}
-          </SheetTitle>
-          <SheetDescription>
-            {translate("crm.entity360.resume.readable.noteDescription", {
-              _: "Write only what the reference said.",
-            })}
-          </SheetDescription>
-        </SheetHeader>
-        <div className="flex flex-col gap-3 px-4 pb-4 md:px-6">
-          <Textarea
-            aria-label={`What ${referenceName} said`}
-            dir="auto"
-            value={note}
-            onChange={(event) => {
-              noteDirty.current = true;
-              setNote(event.target.value);
-            }}
-            rows={5}
-            className="text-base"
-          />
-          <Button
-            type="button"
-            size="lg"
-            disabled={
-              isSaving || (!note.trim() && Boolean(link.what_they_said?.trim()))
-            }
-            onClick={() => void saveNote()}
-            className="min-h-11 w-full"
-          >
-            {translate("crm.entity360.resume.readable.saveNote", {
-              _: "Save note",
-            })}
-          </Button>
-          {!note.trim() && link.what_they_said?.trim() ? (
-            <p className="text-xs text-muted-foreground">
-              {translate("crm.entity360.resume.readable.noteEmpty", {
-                _: "Write a note to save it.",
-              })}
-            </p>
-          ) : null}
-        </div>
-      </SheetContent>
-    </Sheet>
   );
 }
