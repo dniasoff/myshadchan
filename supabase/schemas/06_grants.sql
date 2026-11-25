@@ -323,6 +323,9 @@ revoke all on function public.record_shidduch_stage_transition() from public, an
 revoke all on function public.undo_shidduch(bigint) from public, anon;
 grant execute on function public.undo_shidduch(bigint) to authenticated;
 grant execute on function public.undo_shidduch(bigint) to service_role;
+revoke all on function public.latest_reversible_shidduch_stage(bigint) from public, anon;
+grant execute on function public.latest_reversible_shidduch_stage(bigint) to authenticated;
+grant execute on function public.latest_reversible_shidduch_stage(bigint) to service_role;
 
 revoke all on function public.set_account_id_default() from public, anon;
 grant execute on function public.set_account_id_default() to authenticated;

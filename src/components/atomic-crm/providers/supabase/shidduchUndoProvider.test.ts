@@ -42,4 +42,20 @@ describe("Supabase shidduch undo provider", () => {
       "undo is not available for shidduch 42",
     );
   });
+
+  it("reads the latest reversible step through the scoped RPC", async () => {
+    rpc.mockResolvedValue({
+      data: [{ from_state: "new", to_state: "look_into" }],
+      error: null,
+    });
+    const provider = getDataProviderWithCustomMethods();
+
+    await expect(
+      provider.getLatestReversibleShidduchStage(42),
+    ).resolves.toEqual({ from_state: "new", to_state: "look_into" });
+    expect(rpc).toHaveBeenCalledExactlyOnceWith(
+      "latest_reversible_shidduch_stage",
+      { p_id: 42 },
+    );
+  });
 });
