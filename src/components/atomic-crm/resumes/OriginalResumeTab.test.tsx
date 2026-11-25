@@ -146,9 +146,11 @@ describe("OriginalResumeTab WhatsApp picture handling", () => {
 
     await expect
       .element(
-        screen.getByText(
-          "This picture type can't be used as the Photo yet; it stays safe in Files.",
-        ),
+        screen
+          .getByText(
+            "This picture type can't be used as the Photo yet; it stays safe in Files.",
+          )
+          .first(),
       )
       .toBeInTheDocument();
     expect(
