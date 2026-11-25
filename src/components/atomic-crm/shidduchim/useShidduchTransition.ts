@@ -35,10 +35,10 @@ export interface PipelineStateOption {
 
 export const reasonFor = (from: PipelineState): string => {
   if (from === "look_into") {
-    return "There are no more forward moves from Look-into. Use Move back above to reverse the last step.";
+    return "You can't go back from Look-into. You can mark it Yes, Unsure or No.";
   }
   if (isTerminalPipelineState(from)) {
-    return `This is a final stage. Use Move back above to return to the previous step.`;
+    return `This is a final stage. It stays at ${getPipelineStateDef(from)?.label ?? from}.`;
   }
   return "First move it to Look-into. Then you can mark it Yes, Unsure or No.";
 };

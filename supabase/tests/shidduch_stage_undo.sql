@@ -191,8 +191,10 @@ set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000002","r
 select public.transition_shidduch(:shidduch_later, 'look_into', 'yes', 'later actor');
 set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select public.undo_shidduch(:shidduch_later);
+reset role;
 select pipeline_state, close_reason is null as close_reason_is_null
 from public.shidduchim where id = :shidduch_later \gset later_first_undo_
+set local role authenticated;
 set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000002","role":"authenticated"}';
 select public.undo_shidduch(:shidduch_later);
 select pipeline_state, close_reason is null as close_reason_is_null
