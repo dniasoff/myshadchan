@@ -735,6 +735,10 @@ revoke all on function public.reconcile_resume_references_for_account(bigint, bi
 revoke all on function public.sync_resume_references_after_change() from public, anon, authenticated, service_role;
 
 -- Reference write paths.
+revoke all on function public.add_resume_reference_to_shidduch(bigint, text, text, text, text) from public, anon;
+grant execute on function public.add_resume_reference_to_shidduch(bigint, text, text, text, text) to authenticated;
+grant execute on function public.add_resume_reference_to_shidduch(bigint, text, text, text, text) to service_role;
+
 revoke all on function public.create_reference_for_shidduch(bigint, text, text, text, text, text, integer, text) from public, anon;
 grant execute on function public.create_reference_for_shidduch(bigint, text, text, text, text, text, integer, text) to authenticated;
 grant execute on function public.create_reference_for_shidduch(bigint, text, text, text, text, text, integer, text) to service_role;

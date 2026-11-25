@@ -530,6 +530,64 @@ describe("ResumeReadableSections", () => {
     ).toBe("Personal details");
   });
 
+  it("adds an unlinked resume reference to the shidduch reference list", async () => {
+    const { screen, dataProvider } = await renderSections({ withLinks: false });
+    const addResumeReferenceToShidduch = vi.spyOn(
+      dataProvider,
+      "addResumeReferenceToShidduch",
+    );
+
+    await screen
+      .getByRole("button", { name: "Add to my list" })
+      .first()
+      .click();
+
+    await expect
+      .poll(() => addResumeReferenceToShidduch.mock.calls.length)
+      .toBe(1);
+    expect(addResumeReferenceToShidduch).toHaveBeenCalledWith({
+      shidduchim_id: record.id,
+      name_en: "Chaim Feldman",
+      relationship: "Rebbi",
+      phone: "054-222-3344",
+    });
+  });
+
+  it("does not add a third reference when the match is ambiguous", async () => {
+    const { screen, dataProvider } = await renderSections({ withLinks: false });
+    const addResumeReferenceToShidduch = vi
+      .spyOn(dataProvider, "addResumeReferenceToShidduch")
+      .mockResolvedValue({
+        status: "ambiguous",
+        reference_id: null,
+        link_id: null,
+        candidates: [
+          {
+            id: 10,
+            name_en: "Miriam Gold",
+            name_he: null,
+            phone: null,
+            relationship: "Neighbor",
+          },
+          {
+            id: 11,
+            name_en: "Miriam Gold",
+            name_he: null,
+            phone: "555-0100",
+            relationship: "Teacher",
+          },
+        ],
+      });
+
+    const addButton = screen
+      .getByRole("button", { name: "Add to my list" })
+      .first();
+    await addButton.click();
+    await expect.element(screen.getByRole("alert")).toBeInTheDocument();
+    await expect.element(addButton).toBeDisabled();
+    expect(addResumeReferenceToShidduch).toHaveBeenCalledOnce();
+  });
+
   it("renders generic cards in order and preserves unique Family extras", async () => {
     const { screen } = await renderSections({
       sections: {
@@ -1223,7 +1281,7 @@ describe("ResumeReadableSections", () => {
     expect((await queueLocator.element()).className).toContain(
       "sm:grid-cols-2",
     );
-    const logCall = screen.getByRole("button", { name: "Log call" }).first();
+    const logCall = screen.getByRole("button", { name: "Log a call" }).first();
     await logCall.click();
     await expect
       .element(screen.getByRole("heading", { name: "Chaim Feldman" }))
@@ -1316,7 +1374,7 @@ describe("ResumeReadableSections", () => {
       pagination: { page: 1, perPage: 50 },
     });
     await expect
-      .element(screen.getByRole("button", { name: "Log call" }).first())
+      .element(screen.getByRole("button", { name: "Log a call" }).first())
       .toBeInTheDocument();
     await expect
       .element(screen.getByText("References are being prepared."))
@@ -1431,6 +1489,9 @@ describe("ResumeReadableSections", () => {
       name: /Open note for Chaim Feldman; note saved/i,
     });
     await expect.element(noteButton).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Notes", { exact: true }).first())
+      .toBeInTheDocument();
     await noteButton.click();
     const note = screen.getByRole("textbox", {
       name: "What Chaim Feldman said",

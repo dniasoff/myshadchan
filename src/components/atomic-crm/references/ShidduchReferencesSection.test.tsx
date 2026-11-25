@@ -133,6 +133,84 @@ describe("ShidduchReferencesSection — first conversation vs one of several (St
       .not.toBeInTheDocument();
   });
 
+  it("uses the full shared reference row for calls, notes, and phone actions", async () => {
+    const screen = await render(
+      <StoryWrapper
+        data={{
+          references: [
+            buildReference({
+              id: 3,
+              name_en: "Rivka Weiss",
+              relationship: "Teacher",
+              phone: "732-930-6891",
+            }),
+          ],
+          reference_links: [
+            buildLink({
+              id: 4,
+              reference_id: 3,
+              call_status: "answered",
+              what_they_said: "Warmly recommends her.",
+              conversation_log: [
+                {
+                  at: "2026-11-18T14:30:00Z",
+                  source: "manual",
+                  text: "Warmly recommends her.",
+                },
+              ],
+            }),
+          ],
+          shidduchim: [],
+          singles: [],
+          accounts: [
+            {
+              id: 1,
+              name: "Test household",
+              kind: "household",
+              transparency_level: "private",
+              default_thread_visibility: "open",
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+          account_members: [
+            {
+              id: 1,
+              account_id: 1,
+              user_id: "0",
+              role: "parent_admin",
+              status: "active",
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }}
+      >
+        <ShidduchReferencesSection shidduchimId={100} />
+      </StoryWrapper>,
+    );
+
+    await expect
+      .element(
+        screen.getByRole("button", { name: /Open note for Rivka Weiss/ }),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Notes", { exact: true }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Log a call" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("link", { name: "Call Rivka Weiss, number 1" }))
+      .toHaveAttribute("href", "tel:+17329306891");
+    await expect
+      .element(screen.getByRole("link", { name: "Text Rivka Weiss, number 1" }))
+      .toHaveAttribute("href", "sms:+17329306891");
+    await expect
+      .element(screen.getByText("Last call: Nov 18, 2:30 PM"))
+      .toBeInTheDocument();
+    await expect.element(screen.getByText("Answered")).toBeInTheDocument();
+  });
+
   it("renders the empty state with no fetch for the badge when nobody has been asked yet", async () => {
     // Arrange / Act
     const screen = await render(

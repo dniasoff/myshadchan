@@ -6,9 +6,8 @@ import { Button } from "@/components/ui/button";
 import { buildNewPath } from "../entity360/entityPaths";
 import { RecordLink } from "../entity360/RecordLink";
 import type { ReferenceLinkSummary, ReferenceSummary } from "../types";
-import { CallStatusChip } from "./CallStatusChip";
 import { summarizeCallProgress } from "./callStatus";
-import { ReferencePhoneActions } from "./ReferencePhoneActions";
+import { ReferenceLinkRow } from "./ReferenceLinkRow";
 
 /**
  * The references section of a shidduch's 360 view (FR38).
@@ -93,20 +92,28 @@ export const ShidduchReferencesSection = ({
             const linkedShidduchimCount =
               linkedShidduchimCountByReferenceId.get(link.reference_id);
             return (
-              <li
-                key={String(link.id)}
-                className="flex flex-wrap items-center justify-between gap-2 py-2"
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
+              <li key={String(link.id)} className="py-2">
+                <ReferenceLinkRow
+                  reference={{
+                    name:
+                      link.reference_name_en ||
+                      link.reference_name_he ||
+                      "Reference",
+                    relationship: link.effective_relationship,
+                    phone: link.reference_phone,
+                  }}
+                  link={link}
+                  nameContent={(name) => (
                     <RecordLink
                       resource="references"
                       id={link.reference_id}
                       className="inline-flex min-h-11 items-center font-medium hover:underline md:min-h-0"
                     >
-                      {link.reference_name_en}
+                      {name}
                     </RecordLink>
-                    {linkedShidduchimCount != null ? (
+                  )}
+                  badge={
+                    linkedShidduchimCount != null ? (
                       <Badge
                         variant={
                           linkedShidduchimCount > 1 ? "secondary" : "outline"
@@ -123,25 +130,9 @@ export const ShidduchReferencesSection = ({
                               { _: "First conversation" },
                             )}
                       </Badge>
-                    ) : null}
-                  </div>
-                  {link.effective_relationship ? (
-                    <p className="truncate text-xs text-muted-foreground">
-                      {link.effective_relationship}
-                    </p>
-                  ) : null}
-                  <ReferencePhoneActions
-                    phone={link.reference_phone}
-                    referenceName={link.reference_name_en}
-                    referenceLink={link}
-                  />
-                  {link.what_they_said ? (
-                    <p className="mt-1 line-clamp-2 text-sm">
-                      {link.what_they_said}
-                    </p>
-                  ) : null}
-                </div>
-                <CallStatusChip status={link.call_status} />
+                    ) : null
+                  }
+                />
               </li>
             );
           })}

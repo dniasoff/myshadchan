@@ -173,6 +173,13 @@ export const ReferencePhoneActions = ({
               Call
             </a>
             <a
+              href={`sms:${partNormalized.e164}`}
+              className="inline-flex min-h-11 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              aria-label={`Text ${numberLabel}`}
+            >
+              Text
+            </a>
+            <a
               href={`https://wa.me/${partNormalized.waDigits}`}
               target="_blank"
               rel="noopener noreferrer"
@@ -287,7 +294,7 @@ export const ReferencePhoneActions = ({
             className="min-h-11 self-start text-xs font-medium text-foreground underline underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             onClick={onManualLog}
           >
-            Log call
+            Log a call
           </button>
         ) : null}
       </div>

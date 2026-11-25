@@ -1,7 +1,9 @@
 import { createDataProvider } from "./dataProvider";
+import generateData from "./dataGenerator";
 import type { ReferenceLink } from "../../types";
 
 const makeProvider = () => createDataProvider({ latency: 0, silent: true });
+const SINGLE_USER_ID = "reference-match-single";
 
 describe("matchReferenceOnEntry", () => {
   it("returns no candidates when nothing identifying is supplied", async () => {
@@ -136,6 +138,159 @@ describe("linkReferenceToShidduch", () => {
         shidduchim_id: 999999,
       }),
     ).rejects.toThrow(/not found/);
+  });
+});
+
+describe("addResumeReferenceToShidduch", () => {
+  it("reuses the matching reference and keeps retries idempotent", async () => {
+    const dataProvider = makeProvider();
+
+    const first = await dataProvider.addResumeReferenceToShidduch({
+      shidduchim_id: 2,
+      name_en: "Chaim Feldman",
+      phone: "0542223344",
+    });
+    const { data: beforeRetry } = await dataProvider.getList("references", {
+      filter: { name_en: "Chaim Feldman" },
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "id", order: "ASC" },
+    });
+    const second = await dataProvider.addResumeReferenceToShidduch({
+      shidduchim_id: 2,
+      name_en: "Chaim Feldman",
+      phone: "0542223344",
+    });
+
+    expect(first.status).toBe("linked");
+    expect(second).toEqual(first);
+    expect(
+      (
+        await dataProvider.getList("references", {
+          filter: { name_en: "Chaim Feldman" },
+          pagination: { page: 1, perPage: 100 },
+          sort: { field: "id", order: "ASC" },
+        })
+      ).data,
+    ).toHaveLength(beforeRetry.length);
+  });
+
+  it("marks the link interaction with the RPC's resume-add provenance", async () => {
+    const dataProvider = makeProvider();
+
+    const result = await dataProvider.addResumeReferenceToShidduch({
+      shidduchim_id: 2,
+      name_en: "Resume Provenance Reference",
+      phone: "732-555-0188",
+    });
+
+    const { data: interactions } = await dataProvider.getList("interactions", {
+      filter: { reference_link_id: result.link_id, kind: "link_created" },
+      pagination: { page: 1, perPage: 10 },
+      sort: { field: "id", order: "ASC" },
+    });
+
+    expect(interactions).toHaveLength(1);
+    expect(interactions[0].metadata).toEqual({
+      shidduchim_id: 2,
+      source: "resume_reference_add",
+    });
+  });
+
+  it("does not create a row when the phone evidence is ambiguous", async () => {
+    const dataProvider = makeProvider();
+    const { data: before } = await dataProvider.getList("references", {
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "id", order: "ASC" },
+    });
+
+    const result = await dataProvider.addResumeReferenceToShidduch({
+      shidduchim_id: 2,
+      name_en: "Someone Else",
+      phone: "0542223344",
+    });
+
+    const { data: after } = await dataProvider.getList("references", {
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(result.status).toBe("ambiguous");
+    expect(result.candidates).toHaveLength(2);
+    expect(after).toHaveLength(before.length);
+  });
+
+  it("rejects a single before the FakeRest add path can write", async () => {
+    const db = generateData();
+    db.account_members = [
+      ...db.account_members,
+      {
+        id: 9001,
+        account_id: db.accounts[0].id,
+        user_id: SINGLE_USER_ID,
+        role: "single",
+        status: "active",
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    const dataProvider = createDataProvider({
+      db,
+      latency: 0,
+      silent: true,
+      authProvider: { getIdentity: async () => ({ id: SINGLE_USER_ID }) },
+    });
+
+    await expect(
+      dataProvider.addResumeReferenceToShidduch({
+        shidduchim_id: 2,
+        name_en: "Single Cannot Add",
+      }),
+    ).rejects.toThrow("a single cannot create references");
+  });
+
+  it("rejects an empty identity before the FakeRest add path can write", async () => {
+    const dataProvider = makeProvider();
+
+    await expect(
+      dataProvider.addResumeReferenceToShidduch({
+        shidduchim_id: 2,
+        name_en: "   ",
+        phone: "",
+      }),
+    ).rejects.toThrow("a reference needs a name or phone number");
+  });
+
+  it("serializes concurrent new-person adds like the account RPC", async () => {
+    const dataProvider = makeProvider();
+    const input = {
+      shidduchim_id: 2,
+      name_en: "Concurrent New Reference",
+      phone: "732-555-0199",
+    };
+
+    const results = await Promise.all([
+      dataProvider.addResumeReferenceToShidduch(input),
+      dataProvider.addResumeReferenceToShidduch(input),
+    ]);
+    const { data: references } = await dataProvider.getList("references", {
+      filter: { name_en: input.name_en },
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "id", order: "ASC" },
+    });
+    const { data: links } = await dataProvider.getList("reference_links", {
+      filter: { reference_id: results[0].reference_id, shidduchim_id: 2 },
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "id", order: "ASC" },
+    });
+
+    expect(results.map((result) => result.reference_id)).toEqual([
+      results[0].reference_id,
+      results[0].reference_id,
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual([
+      "created",
+      "linked",
+    ]);
+    expect(references).toHaveLength(1);
+    expect(links).toHaveLength(1);
   });
 });
 
