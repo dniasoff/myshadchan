@@ -91,8 +91,8 @@ export const ShidduchStateControl = ({
       {moveBack.loading ? null : moveBack.move ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/30 p-3">
           <p className="text-sm text-muted-foreground">
-            <span className="font-medium">Last move can be reversed.</span>{" "}
-            You can move this suggestion back one step.
+            <span className="font-medium">Last move can be reversed.</span> You
+            can move this suggestion back one step.
           </p>
           <Button
             type="button"
