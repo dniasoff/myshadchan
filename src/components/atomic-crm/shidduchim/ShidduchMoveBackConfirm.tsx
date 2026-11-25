@@ -20,7 +20,8 @@ import {
 } from "@/components/ui/sheet";
 
 import type { PipelineState } from "../types";
-import { getPipelineStateDef, isTerminalPipelineState } from "./pipelineStates";
+import { getPipelineStateDef } from "./pipelineStates";
+import { isTerminalPipelineState } from "./useShidduchTransition";
 
 export interface ShidduchMoveBackConfirmProps {
   move: { from_state: PipelineState; to_state: PipelineState } | null;
