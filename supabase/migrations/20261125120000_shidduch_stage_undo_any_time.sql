@@ -6,7 +6,7 @@ CREATE OR REPLACE FUNCTION "public"."undo_shidduch"("p_id" bigint) RETURNS SETOF
     SECURITY DEFINER
     LANGUAGE "plpgsql"
     SET "search_path" TO ''
-    AS $function$
+    AS $$
 declare
   v_account_id bigint;
   v_role text;
@@ -25,6 +25,9 @@ begin
   v_role := public.current_member_role();
   v_member_id := public.current_member_id();
 
+  -- A missing active context includes anonymous and pending memberships.  The
+  -- demo fence below is shared with other customer writes: a clearing/expired
+  -- demo must not accept a stale browser undo.
   if v_account_id is null
      or (not v_service_role and (auth.uid() is null or v_role is null or v_role = 'single')) then
     raise exception 'undo is not available for shidduch %', p_id
@@ -40,10 +43,14 @@ begin
     raise exception 'shidduch % not found', p_id;
   end if;
 
-  -- Keep the same global order as account_storage_cleanup_fence(): parent
-  -- rows (singles, then shidduchim) -> all related account advisory fences ->
-  -- all related account rows -> the target shidduch/history rows. Collect
-  -- every grant endpoint before taking any account row.
+  -- Match account_storage_cleanup_fence(): all target-account parent rows
+  -- (singles, then shidduchim in id order) come before any account lock. This
+  -- preserves the purge/undo order. Once those parents are held, take every
+  -- account involved by this shidduch (the caller, owner, and all accepted
+  -- grant endpoints for its target single) in ascending id order. The
+  -- advisory fences and account rows are acquired in separate ordered passes,
+  -- matching account_storage_cleanup_fence() and preventing an
+  -- owner/caller/grant-endpoint lock cycle.
   perform 1
   from public.singles
   where account_id = v_shidduch_account_id
@@ -90,6 +97,9 @@ begin
   end loop;
   perform public.demo_lock_account_axes(v_lock_accounts, 'update');
 
+  -- demo_storage_write_fence() takes the caller account row FOR KEY SHARE. It
+  -- runs after the parent-first locks, advisory fences, and account rows, so
+  -- it cannot invert the deterministic account order.
   if not public.demo_storage_write_fence(v_account_id) then
     raise exception 'undo is not available for shidduch %', p_id
       using errcode = 'insufficient_privilege';
@@ -104,10 +114,9 @@ begin
     raise exception 'shidduch % not found', p_id;
   end if;
 
-  -- Re-check authorization after the locks, using the same gate as
-  -- transition_shidduch(). This includes accepted edit child grants and the
-  -- halachic conflict guard; it does not require the caller to be the actor
-  -- who made the forward move.
+  -- Re-read the caller and authorization while holding both locks.  This is
+  -- intentionally the same owner/accepted-edit-grant/halachic gate as
+  -- transition_shidduch(), not a broader "can see the row" check.
   if not v_service_role then
     v_account_id := public.current_context_id();
     v_role := public.current_member_role();
@@ -152,9 +161,11 @@ begin
     end if;
   end if;
 
-  -- Only forward rows that have not already been reversed are candidates.
-  -- Excluding undo rows makes repeated calls walk backwards one step at a
-  -- time, while the row lock serializes concurrent callers.
+  -- Reverse the newest forward transition that has not already been undone.
+  -- The actor is intentionally not part of this selection: every person who
+  -- can move this suggestion today can correct its latest step.  Undo rows
+  -- are linked by undo_of_id and are excluded, so repeated calls walk one
+  -- step at a time through the preserved forward history.
   select h.* into v_latest
   from public.shidduch_stage_transitions h
   where h.shidduch_id = p_id
@@ -164,7 +175,6 @@ begin
   limit 1
   for update;
 
-  -- No history left to reverse is a safe no-op for an authorized caller.
   if not found then
     return query select * from public.shidduch_row(p_id);
     return;
@@ -219,13 +229,17 @@ begin
 
   return query select * from public.shidduch_row(p_id);
 end;
-$function$;
+$$;
 
+-- Read-only companion for the Overview action. It repeats the same
+-- owner/accepted-edit-grant/halachic gate as transition_shidduch(), while
+-- keeping the account-owned history table private from accepted child
+-- accounts. An empty result means there is no step left to reverse.
 CREATE OR REPLACE FUNCTION "public"."latest_reversible_shidduch_stage"("p_id" bigint)
 RETURNS TABLE("from_state" "public"."pipeline_state", "to_state" "public"."pipeline_state")
 LANGUAGE "plpgsql" STABLE SECURITY DEFINER
 SET "search_path" TO ''
-AS $function$
+AS $$
 declare
   v_account_id bigint := public.current_context_id();
   v_role text := public.current_member_role();
@@ -285,7 +299,7 @@ begin
   order by h.id desc
   limit 1;
 end;
-$function$;
+$$;
 
 revoke all on function public.latest_reversible_shidduch_stage(bigint) from public, anon;
 grant execute on function public.latest_reversible_shidduch_stage(bigint) to authenticated;
