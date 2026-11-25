@@ -22,6 +22,10 @@ const BY_ID_ASC = { field: "id", order: "ASC" as const };
 // serialized, while leaving different provider sessions isolated.
 const accountStorageLocks = new WeakMap<object, Map<string, Promise<void>>>();
 
+type LinkReferenceOptions = {
+  interactionSource?: "resume_reference_add";
+};
+
 async function withAccountStorageLock<T>(
   baseDataProvider: DataProvider,
   accountId: unknown,
@@ -90,6 +94,7 @@ export async function computeDiligenceProgress(
 export async function linkReferenceToShidduch(
   baseDataProvider: DataProvider,
   input: LinkReferenceInput,
+  options: LinkReferenceOptions = {},
 ): Promise<ReferenceLink> {
   const { data: referenceMatches } = await baseDataProvider.getList<Reference>(
     "references",
@@ -159,7 +164,12 @@ export async function linkReferenceToShidduch(
       actor_member_id: null,
       kind: "link_created",
       body: null,
-      metadata: { shidduchim_id: input.shidduchim_id },
+      metadata: {
+        shidduchim_id: input.shidduchim_id,
+        ...(options.interactionSource
+          ? { source: options.interactionSource }
+          : {}),
+      },
       created_at: now,
     },
   });
@@ -336,6 +346,10 @@ export async function addResumeReferenceToShidduch(
         };
       }
 
+      if (!name && !phone) {
+        throw new Error("a reference needs a name or phone number");
+      }
+
       const now = new Date().toISOString();
       let reference = matchingReference;
       let status: "created" | "linked" = "linked";
@@ -367,11 +381,17 @@ export async function addResumeReferenceToShidduch(
         });
       const link =
         existingLinks[0] ??
-        (await linkReferenceToShidduch(baseDataProvider, {
-          reference_id: reference.id,
-          shidduchim_id: input.shidduchim_id,
-          relationship_override: input.relationship ?? null,
-        }));
+        (await linkReferenceToShidduch(
+          baseDataProvider,
+          {
+            reference_id: reference.id,
+            shidduchim_id: input.shidduchim_id,
+            relationship_override: input.relationship ?? null,
+          },
+          {
+            interactionSource: "resume_reference_add",
+          },
+        ));
       return {
         status,
         reference_id: reference.id,

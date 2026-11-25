@@ -174,6 +174,28 @@ describe("addResumeReferenceToShidduch", () => {
     ).toHaveLength(beforeRetry.length);
   });
 
+  it("marks the link interaction with the RPC's resume-add provenance", async () => {
+    const dataProvider = makeProvider();
+
+    const result = await dataProvider.addResumeReferenceToShidduch({
+      shidduchim_id: 2,
+      name_en: "Resume Provenance Reference",
+      phone: "732-555-0188",
+    });
+
+    const { data: interactions } = await dataProvider.getList("interactions", {
+      filter: { reference_link_id: result.link_id, kind: "link_created" },
+      pagination: { page: 1, perPage: 10 },
+      sort: { field: "id", order: "ASC" },
+    });
+
+    expect(interactions).toHaveLength(1);
+    expect(interactions[0].metadata).toEqual({
+      shidduchim_id: 2,
+      source: "resume_reference_add",
+    });
+  });
+
   it("does not create a row when the phone evidence is ambiguous", async () => {
     const dataProvider = makeProvider();
     const { data: before } = await dataProvider.getList("references", {
@@ -222,6 +244,18 @@ describe("addResumeReferenceToShidduch", () => {
         name_en: "Single Cannot Add",
       }),
     ).rejects.toThrow("a single cannot create references");
+  });
+
+  it("rejects an empty identity before the FakeRest add path can write", async () => {
+    const dataProvider = makeProvider();
+
+    await expect(
+      dataProvider.addResumeReferenceToShidduch({
+        shidduchim_id: 2,
+        name_en: "   ",
+        phone: "",
+      }),
+    ).rejects.toThrow("a reference needs a name or phone number");
   });
 
   it("serializes concurrent new-person adds like the account RPC", async () => {
