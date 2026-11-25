@@ -200,7 +200,7 @@ describe("FilesTab — upload (AC 6b)", () => {
     await screen.getByLabelText("Upload a file").upload(file);
 
     // Assert
-    await expect.element(screen.getByText("boom")).toBeInTheDocument();
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("boom");
     await expect
       .element(screen.getByRole("button", { name: "Upload a file" }))
       .toBeInTheDocument();
