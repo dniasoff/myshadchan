@@ -93,9 +93,7 @@ describe("OriginalResumeTab WhatsApp picture handling", () => {
     const { screen } = await renderTab(capture);
 
     await expect.poll(() => signInboxAttachmentUrl.mock.calls.length).toBe(1);
-    expect(signInboxAttachmentUrl).toHaveBeenCalledWith(
-      "1/inbox/42/photo.jpg",
-    );
+    expect(signInboxAttachmentUrl).toHaveBeenCalledWith("1/inbox/42/photo.jpg");
     await expect
       .element(
         screen.getByRole("img", {
@@ -150,9 +148,8 @@ describe("OriginalResumeTab WhatsApp picture handling", () => {
       )
       .toBeInTheDocument();
     expect(
-      screen.container.querySelectorAll(
-        'button:not([aria-hidden="true"])',
-      ).length,
+      screen.container.querySelectorAll('button:not([aria-hidden="true"])')
+        .length,
     ).toBe(0);
   });
 });
