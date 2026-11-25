@@ -3388,6 +3388,10 @@ export const createDataProvider = ({
       if (!shidduch) {
         throw new Error(`shidduch ${input.shidduchim_id} not found`);
       }
+      const caller = await requireCallerMembership();
+      if (caller.membership.role === "single") {
+        throw new Error("a single cannot create references");
+      }
       await assertCanEditShidduch(shidduch, shidduch);
       return addResumeReferenceToShidduch(baseDataProvider, input);
     },

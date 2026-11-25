@@ -1489,6 +1489,9 @@ describe("ResumeReadableSections", () => {
       name: /Open note for Chaim Feldman; note saved/i,
     });
     await expect.element(noteButton).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Notes", { exact: true }).first())
+      .toBeInTheDocument();
     await noteButton.click();
     const note = screen.getByRole("textbox", {
       name: "What Chaim Feldman said",

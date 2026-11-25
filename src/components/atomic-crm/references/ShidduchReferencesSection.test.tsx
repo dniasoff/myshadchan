@@ -194,6 +194,9 @@ describe("ShidduchReferencesSection — first conversation vs one of several (St
       )
       .toBeInTheDocument();
     await expect
+      .element(screen.getByText("Notes", { exact: true }))
+      .toBeInTheDocument();
+    await expect
       .element(screen.getByRole("button", { name: "Log a call" }))
       .toBeInTheDocument();
     await expect

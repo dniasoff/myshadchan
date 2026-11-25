@@ -135,14 +135,14 @@ export const ReferenceLinkRow = ({
           ref={noteTriggerRef}
           type="button"
           variant="outline"
-          size="icon"
           aria-label={noteAriaLabel}
           aria-expanded={isNoteOpen}
           aria-haspopup="dialog"
-          className="relative shrink-0"
+          className="relative min-h-11 min-w-11 shrink-0 gap-1.5 px-3"
           onClick={() => setIsNoteOpen(true)}
         >
-          <MessageSquare aria-hidden="true" />
+          <MessageSquare className="size-4" aria-hidden="true" />
+          <span>Notes</span>
           {noteExists ? (
             <span
               className="absolute right-1 top-1 size-2 rounded-full bg-primary"

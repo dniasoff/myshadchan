@@ -208,6 +208,7 @@ test("Add a suggestion exposes a mobile-friendly resume picker", async ({
   await expect(
     page.getByRole("button", { name: /Open note for Miriam E2E/ }),
   ).toBeVisible();
+  await expect(page.getByText("Notes", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Log a call" })).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Text Miriam E2E, number 1" }),

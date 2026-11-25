@@ -1,7 +1,9 @@
 import { createDataProvider } from "./dataProvider";
+import generateData from "./dataGenerator";
 import type { ReferenceLink } from "../../types";
 
 const makeProvider = () => createDataProvider({ latency: 0, silent: true });
+const SINGLE_USER_ID = "reference-match-single";
 
 describe("matchReferenceOnEntry", () => {
   it("returns no candidates when nothing identifying is supplied", async () => {
@@ -192,6 +194,69 @@ describe("addResumeReferenceToShidduch", () => {
     expect(result.status).toBe("ambiguous");
     expect(result.candidates).toHaveLength(2);
     expect(after).toHaveLength(before.length);
+  });
+
+  it("rejects a single before the FakeRest add path can write", async () => {
+    const db = generateData();
+    db.account_members = [
+      ...db.account_members,
+      {
+        id: 9001,
+        account_id: db.accounts[0].id,
+        user_id: SINGLE_USER_ID,
+        role: "single",
+        status: "active",
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    const dataProvider = createDataProvider({
+      db,
+      latency: 0,
+      silent: true,
+      authProvider: { getIdentity: async () => ({ id: SINGLE_USER_ID }) },
+    });
+
+    await expect(
+      dataProvider.addResumeReferenceToShidduch({
+        shidduchim_id: 2,
+        name_en: "Single Cannot Add",
+      }),
+    ).rejects.toThrow("a single cannot create references");
+  });
+
+  it("serializes concurrent new-person adds like the account RPC", async () => {
+    const dataProvider = makeProvider();
+    const input = {
+      shidduchim_id: 2,
+      name_en: "Concurrent New Reference",
+      phone: "732-555-0199",
+    };
+
+    const results = await Promise.all([
+      dataProvider.addResumeReferenceToShidduch(input),
+      dataProvider.addResumeReferenceToShidduch(input),
+    ]);
+    const { data: references } = await dataProvider.getList("references", {
+      filter: { name_en: input.name_en },
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "id", order: "ASC" },
+    });
+    const { data: links } = await dataProvider.getList("reference_links", {
+      filter: { reference_id: results[0].reference_id, shidduchim_id: 2 },
+      pagination: { page: 1, perPage: 100 },
+      sort: { field: "id", order: "ASC" },
+    });
+
+    expect(results.map((result) => result.reference_id)).toEqual([
+      results[0].reference_id,
+      results[0].reference_id,
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual([
+      "created",
+      "linked",
+    ]);
+    expect(references).toHaveLength(1);
+    expect(links).toHaveLength(1);
   });
 });
 
