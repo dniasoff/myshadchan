@@ -19,10 +19,12 @@ const viewerRole = vi.hoisted(() => ({
   role: "parent_admin" as const,
   isPending: false,
 }));
+const useIsMobile = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("../entity360/useViewerRole", () => ({
   useViewerRole: () => viewerRole,
 }));
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile }));
 vi.mock("./AddSingleLink", () => ({ AddSingleLink: () => null }));
 vi.mock("./SendToShadchanDialog", () => ({
   SendToShadchanButton: () => null,
@@ -38,6 +40,11 @@ const single = {
   last_name_en: "Cohen",
   status: "active",
   created_at: "2026-01-01T00:00:00Z",
+} as const;
+const secondSingle = {
+  ...single,
+  id: 12,
+  first_name_en: "Leah",
 } as const;
 const file = {
   path: "1/resumes/33/latest.pdf",
@@ -78,10 +85,34 @@ const renderScheduler = async (
   return { screen, getList };
 };
 
+const renderSwitcher = async (isMobile: boolean) => {
+  useIsMobile.mockReturnValue(isMobile);
+  const onSelectSingle = vi.fn();
+  const dataProvider = {
+    getList: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+  } as unknown as CrmDataProvider;
+  const screen = await render(
+    <TestMemoryRouter>
+      <CoreAdminContext
+        dataProvider={dataProvider}
+        i18nProvider={testI18nProvider}
+      >
+        <DashboardHeader
+          singleList={[single, secondSingle]}
+          singleId={single.id}
+          onSelectSingle={onSelectSingle}
+        />
+      </CoreAdminContext>
+    </TestMemoryRouter>,
+  );
+  return { screen, onSelectSingle };
+};
+
 describe("DashboardHeader document visibility", () => {
   beforeEach(() => {
     viewerRole.role = "parent_admin";
     viewerRole.isPending = false;
+    useIsMobile.mockReturnValue(false);
     pendingResumeFileDeletes.clear();
     window.localStorage.clear();
   });
@@ -103,6 +134,30 @@ describe("DashboardHeader document visibility", () => {
     expect(canViewChildDocuments("single", false)).toBe(false);
     expect(canViewChildDocuments("parent_admin", true)).toBe(false);
     expect(canViewChildDocuments(undefined, false)).toBe(false);
+  });
+
+  it("does not render the child switcher on desktop while keeping Documents", async () => {
+    const { screen } = await renderSwitcher(false);
+
+    await expect
+      .element(screen.getByRole("button", { name: "Documents" }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Miriam Cohen" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Leah Cohen" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps the child switcher and selection callback on mobile", async () => {
+    const { screen, onSelectSingle } = await renderSwitcher(true);
+
+    await expect
+      .element(screen.getByRole("button", { name: "Miriam Cohen" }))
+      .toBeInTheDocument();
+    await screen.getByRole("button", { name: "Leah Cohen" }).click();
+    expect(onSelectSingle).toHaveBeenCalledWith(secondSingle.id);
   });
 
   it("only hydrates durable resume cleanup for manager roles", () => {
