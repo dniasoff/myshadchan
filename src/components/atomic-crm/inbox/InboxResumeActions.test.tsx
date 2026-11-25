@@ -154,31 +154,37 @@ describe("Inbox resume action buttons", () => {
     expect(onChoose).toHaveBeenCalledWith("new");
   });
 
-  it("disables both actions with the safe file-first copy for picture-only items", async () => {
+  it.each([
+    [
+      "picture-only",
+      item([
+        {
+          title: "photo.jpg",
+          type: "image/jpeg",
+          path: "1/inbox/photo.jpg",
+          src: "https://example.test/photo.jpg",
+        },
+      ]),
+    ],
+    ["text-only", { ...item(null), raw_text: "Pasted text" }],
+  ])("offers Open to file for %s items", async (_label, inboxItem) => {
+    const onChoose = vi.fn();
     const screen = await render(
-      <InboxResumeActionButtons
-        item={item([
-          {
-            title: "photo.jpg",
-            type: "image/jpeg",
-            path: "1/inbox/photo.jpg",
-            src: "https://example.test/photo.jpg",
-          },
-        ])}
-        enabled
-        onChoose={vi.fn()}
-      />,
+      <InboxResumeActionButtons item={inboxItem} enabled onChoose={onChoose} />,
     );
 
     await expect
+      .element(screen.getByRole("button", { name: "Open to file" }))
+      .toBeEnabled();
+    await expect
       .element(screen.getByRole("button", { name: /Attach to a suggestion/ }))
-      .toBeDisabled();
+      .not.toBeInTheDocument();
     await expect
       .element(screen.getByRole("button", { name: /Make a new suggestion/ }))
-      .toBeDisabled();
-    await expect
-      .element(screen.getByText("Add a resume file first."))
-      .toBeInTheDocument();
+      .not.toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "Open to file" }).click();
+    expect(onChoose).toHaveBeenCalledWith("attach");
   });
 
   it("keeps held items disabled until the sender is trusted", async () => {

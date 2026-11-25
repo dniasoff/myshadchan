@@ -91,8 +91,32 @@ export const InboxResumeActionButtons = ({
   onChoose: (action: InboxResumeAction) => void;
 }) => {
   const hasResume = hasResumeDocumentAttachment(item);
-  const disabled = !enabled || !hasResume;
-  const reason = !enabled ? "Trust sender first." : "Add a resume file first.";
+  const disabled = !enabled;
+  const reason = "Trust sender first.";
+
+  if (!hasResume) {
+    return (
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <Button
+          type="button"
+          variant="default"
+          disabled={disabled}
+          title={disabled ? reason : undefined}
+          aria-label={`Open to file${disabled ? ` — ${reason}` : ""}`}
+          onClick={() => onChoose("attach")}
+          className="min-h-11 w-full sm:flex-1"
+        >
+          Open to file
+        </Button>
+        {disabled ? (
+          <span className="text-xs text-muted-foreground sm:sr-only">
+            {reason}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
       <Button
