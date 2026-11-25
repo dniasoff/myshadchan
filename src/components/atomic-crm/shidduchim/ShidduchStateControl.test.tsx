@@ -7,6 +7,7 @@ import { useShidduchMoveBack } from "./useShidduchMoveBack";
 vi.mock("./useShidduchMoveBack");
 vi.mock("./useShidduchTransition", () => ({
   classifySelection: () => "noop",
+  isTerminalPipelineState: () => false,
   useShidduchTransition: () => ({
     options: [],
     pendingTo: null,
