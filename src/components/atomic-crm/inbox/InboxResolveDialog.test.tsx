@@ -157,6 +157,7 @@ const renderDialog = async (
   item: InboxItem,
   linkedShadchanim: Shadchan[] = [],
   dataProviderOverrides: Partial<CrmDataProvider> = {},
+  fileActionsEnabled = false,
 ) => {
   const dataProvider = buildDataProvider(
     linkedShadchanim,
@@ -180,7 +181,12 @@ const renderDialog = async (
         queryClient={queryClient}
         i18nProvider={testI18nProvider}
       >
-        <InboxResolveDialog item={item} open onClose={onClose} />
+        <InboxResolveDialog
+          item={item}
+          open
+          fileActionsEnabled={fileActionsEnabled}
+          onClose={onClose}
+        />
         <Notification />
       </CoreAdminContext>
     </TestMemoryRouter>,
@@ -451,6 +457,26 @@ describe("InboxResolveDialog — attachment links are re-signed at click time (r
 });
 
 describe("InboxResolveDialog — confirm details", () => {
+  it("uses the no-AI filing flow for photo-only items even when file actions are enabled", async () => {
+    const item = buildItem({
+      attachments: [
+        buildAttachment({
+          title: "photo.jpg",
+          type: "image/jpeg",
+          path: "1/abc-123.jpg",
+        }),
+      ],
+    });
+    const { screen } = await renderDialog(item, [], {}, true);
+
+    await expect
+      .element(screen.getByText("Confirm the details", { exact: true }))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("button", { name: "Auto-fill from resume" }))
+      .not.toBeInTheDocument();
+  });
+
   it("shows the From fields, defaults the safe sender, and filters active shadchanim", async () => {
     const item = buildItem({
       sender: "Sara Cohen",
