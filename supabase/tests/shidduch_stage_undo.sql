@@ -197,9 +197,9 @@ from public.shidduchim where id = :shidduch_later \gset later_first_undo_
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000002","role":"authenticated"}';
 select public.undo_shidduch(:shidduch_later);
+reset role;
 select pipeline_state, close_reason is null as close_reason_is_null
 from public.shidduchim where id = :shidduch_later \gset later_second_undo_
-reset role;
 
 insert into results values (
   'repeated back steps reverse one history row at a time',
