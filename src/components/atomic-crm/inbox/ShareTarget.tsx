@@ -603,7 +603,16 @@ export const ShareTarget = () => {
       if (!textDraft && shareReadPromise.current) {
         textDraft = await shareReadPromise.current;
       }
-      if (hasRawText && !hasResumeDocumentAttachment(item) && !textDraft) {
+      // Once the automatic read has settled unsuccessfully, filing must keep
+      // the exact Inbox capture as-is. A Save click is not an implicit retry:
+      // retrying here would make a second model request after a transient
+      // failure. The visible Try again action is the explicit retry path.
+      if (
+        hasRawText &&
+        !hasResumeDocumentAttachment(item) &&
+        !textDraft &&
+        shareReadState === "idle"
+      ) {
         try {
           textDraft = await parse(item);
           parsedTextResumeRef.current = textDraft;

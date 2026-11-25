@@ -303,6 +303,22 @@ describe("Android share target", () => {
       .toHaveTextContent("Nothing was saved. Try again.");
   });
 
+  it("files the raw capture after a failed automatic read without reparsing", async () => {
+    parseResume.mockRejectedValueOnce(new Error("temporary model timeout"));
+    const { screen } = await renderShareTarget([
+      "/share?text=failed-read&shareKey=failed-read-save",
+    ]);
+
+    await expect.poll(() => parseResume.mock.calls.length).toBe(1);
+    await expect
+      .element(screen.getByText("We couldn’t read the text yet."))
+      .toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "Save & review" }).click();
+
+    expect(parseResume).toHaveBeenCalledTimes(1);
+  });
+
   it("surfaces a recovery failure when the row cannot retain an orphan path", async () => {
     installSharedFiles([
       { name: "first.jpg", type: "image/jpeg" },

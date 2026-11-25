@@ -34,6 +34,14 @@ function isPictureAttachment(attachment: InboxAttachment): boolean {
   );
 }
 
+function canPromotePictureToPhoto(attachment: InboxAttachment): boolean {
+  const declaredType = (attachment.type ?? "").trim().toLowerCase();
+  if (declaredType) {
+    return declaredType === "image/jpeg" || declaredType === "image/png";
+  }
+  return /\.(jpeg|jpg|png)$/iu.test(attachment.title ?? "");
+}
+
 function hasParsedResumeData(resume?: Resume): boolean {
   if (!resume) return false;
   if (resume.extracted != null) return true;
@@ -68,11 +76,51 @@ function WhatsAppTextSource({
     () => new Set(),
   );
   const [photoErrors, setPhotoErrors] = useState<Record<string, boolean>>({});
+  const [picturePreviewUrls, setPicturePreviewUrls] = useState<
+    Record<string, string>
+  >({});
+  const [picturePreviewErrors, setPicturePreviewErrors] = useState<
+    Record<string, boolean>
+  >({});
   const { parse } = useParseResume();
   const pictures = useMemo(
     () => (capture.attachments ?? []).filter(isPictureAttachment),
     [capture.attachments],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    setPicturePreviewUrls({});
+    setPicturePreviewErrors({});
+    void Promise.all(
+      pictures.map(async (attachment) => {
+        try {
+          // A persisted src is only a one-hour cache of the object. Re-sign
+          // from the durable path for every tab mount; data URLs are local
+          // captures and do not need a storage request.
+          const url = attachment.src.startsWith("data:")
+            ? attachment.src
+            : await signInboxAttachmentUrl(attachment.path);
+          if (!cancelled) {
+            setPicturePreviewUrls((current) => ({
+              ...current,
+              [attachment.path]: url,
+            }));
+          }
+        } catch {
+          if (!cancelled) {
+            setPicturePreviewErrors((current) => ({
+              ...current,
+              [attachment.path]: true,
+            }));
+          }
+        }
+      }),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [pictures]);
   const [readState, setReadState] = useState<
     "idle" | "reading" | "saved" | "failed"
   >(hasParsedResumeData(resume) ? "saved" : "failed");
@@ -295,11 +343,21 @@ function WhatsAppTextSource({
           key={attachment.path}
           className="rounded-xl border border-border p-3"
         >
-          <img
-            src={attachment.src}
-            alt={`Private picture from WhatsApp: ${attachment.title}`}
-            className="mb-3 h-24 w-24 rounded-lg object-cover"
-          />
+          {picturePreviewUrls[attachment.path] ? (
+            <img
+              src={picturePreviewUrls[attachment.path]}
+              alt={`Private picture from WhatsApp: ${attachment.title}`}
+              className="mb-3 h-24 w-24 rounded-lg object-cover"
+            />
+          ) : picturePreviewErrors[attachment.path] ? (
+            <p role="alert" className="mb-3 text-sm text-destructive">
+              Couldn&apos;t show this picture, try again.
+            </p>
+          ) : (
+            <p role="status" className="mb-3 text-sm text-muted-foreground">
+              Loading picture…
+            </p>
+          )}
           <p className="text-sm font-semibold">Picture from WhatsApp</p>
           <p className="text-sm text-muted-foreground">{attachment.title}</p>
           <p className="text-sm font-medium text-muted-foreground">
@@ -311,38 +369,47 @@ function WhatsAppTextSource({
           <p className="mt-1 text-sm text-muted-foreground">
             Nothing was turned into a file.
           </p>
-          <Button
-            type="button"
-            className="mt-3 min-h-11"
-            disabled={
-              photoBusy === attachment.path ||
-              promotedPhotos.has(attachment.path)
-            }
-            onClick={() => void handleUseAsPhoto(attachment)}
-          >
-            {photoBusy === attachment.path
-              ? "Using this picture…"
-              : promotedPhotos.has(attachment.path)
-                ? "Already your Photo"
-                : "Use this picture as Photo"}
-          </Button>
-          {promotedPhotos.has(attachment.path) ? (
-            <p role="status" className="mt-2 text-sm text-green-700">
-              This picture is now the Photo.
-            </p>
-          ) : photoErrors[attachment.path] ? (
-            <div role="alert" className="mt-2 text-sm text-destructive">
-              <p>We couldn’t use this picture as Photo yet.</p>
+          {canPromotePictureToPhoto(attachment) ? (
+            <>
               <Button
                 type="button"
-                variant="outline"
-                className="mt-2 min-h-11"
+                className="mt-3 min-h-11"
+                disabled={
+                  photoBusy === attachment.path ||
+                  promotedPhotos.has(attachment.path)
+                }
                 onClick={() => void handleUseAsPhoto(attachment)}
               >
-                Try again
+                {photoBusy === attachment.path
+                  ? "Using this picture…"
+                  : promotedPhotos.has(attachment.path)
+                    ? "Already your Photo"
+                    : "Use this picture as Photo"}
               </Button>
-            </div>
-          ) : null}
+              {promotedPhotos.has(attachment.path) ? (
+                <p role="status" className="mt-2 text-sm text-green-700">
+                  This picture is now the Photo.
+                </p>
+              ) : photoErrors[attachment.path] ? (
+                <div role="alert" className="mt-2 text-sm text-destructive">
+                  <p>We couldn’t use this picture as Photo yet.</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-2 min-h-11"
+                    onClick={() => void handleUseAsPhoto(attachment)}
+                  >
+                    Try again
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              This picture type can&apos;t be used as the Photo yet; it stays
+              safe in Files.
+            </p>
+          )}
         </div>
       ))}
     </div>
