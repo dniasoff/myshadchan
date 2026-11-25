@@ -28,7 +28,7 @@ const PRIMARY_NAV_HEADINGS: Record<string, string | RegExp> = {
   "/inbox_items": "Inbox",
   "/shidduchim": /redts$/,
   "/shadchanim": "Shadchanim",
-  "/tasks": "Tasks",
+  "/tasks": "To-dos",
   "/reminders": "Reminders",
   "/settings": "Settings",
 };
@@ -150,7 +150,7 @@ test("every tab restricted by 6.2 AC-10 / 6.3 AC-9 renders for a self-manager vi
   const SINGLES_TAB_LABELS: Record<string, string> = {
     files: "Files",
     notes: "Notes",
-    tasks: "Tasks",
+    tasks: "To-dos",
     activity: "Activity",
   };
   for (const [tab, label] of Object.entries(SINGLES_TAB_LABELS)) {
@@ -174,10 +174,10 @@ test("every tab restricted by 6.2 AC-10 / 6.3 AC-9 renders for a self-manager vi
   const SHIDDUCH_TAB_LABELS: Record<string, string> = {
     medical: "Medical",
     files: "Files",
-    diligence: "Diligence",
+    diligence: "Reference calls",
     "external-links": "External links",
     notes: "Notes",
-    tasks: "Tasks",
+    tasks: "To-dos",
     activity: "Activity",
   };
   for (const [tab, label] of Object.entries(SHIDDUCH_TAB_LABELS)) {

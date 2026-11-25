@@ -38,7 +38,7 @@ function TasksRailEmpty(): ReactElement {
   const translate = useTranslate();
   return (
     <p className="text-sm text-muted-foreground">
-      {translate("crm.entity360.tasks.empty", { _: "No tasks yet." })}
+      {translate("crm.entity360.tasks.empty", { _: "No to-dos yet." })}
     </p>
   );
 }
@@ -51,7 +51,7 @@ function TasksRailError(): ReactElement {
   return (
     <p role="alert" className="text-sm text-destructive">
       {translate("crm.entity360.tasks.error", {
-        _: "Could not load the tasks.",
+        _: "Could not load the to-dos.",
       })}
     </p>
   );
@@ -153,7 +153,7 @@ export function TasksRailSummary({
         to={buildTabPath(resource, targetId, "tasks")}
         className="inline-flex min-h-11 items-center text-sm underline md:min-h-0"
       >
-        {translate("crm.entity360.tasks.viewAll", { _: "See all tasks" })}
+        {translate("crm.entity360.tasks.viewAll", { _: "See all to-dos" })}
       </Link>
     </div>
   );

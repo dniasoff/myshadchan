@@ -25,7 +25,7 @@ export const TaskScopeToggle = ({ scope, onChange }: TaskScopeToggleProps) => {
     _: "Assigned to me",
   });
   const groupLabel = translate("crm.tasks.assignee.scope_group", {
-    _: "Task scope",
+    _: "To-do scope",
   });
 
   return (

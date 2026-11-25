@@ -40,7 +40,7 @@ const mobileMoreStep: DriveStep = {
   popover: {
     title: "More",
     description:
-      "Inbox, Tasks, Reminders and Settings live here — tap More to reach them.",
+      "Inbox, To-dos, Reminders and Settings live here — tap More to reach them.",
     side: "top",
     align: "end",
   },

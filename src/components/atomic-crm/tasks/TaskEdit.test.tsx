@@ -81,7 +81,7 @@ describe("TaskEdit", () => {
 
     await screen.getByRole("button", { name: "Delete" }).click();
     await expect
-      .element(screen.getByRole("heading", { name: "Delete this task?" }))
+      .element(screen.getByRole("heading", { name: "Delete this to-do?" }))
       .toBeInTheDocument();
 
     await screen

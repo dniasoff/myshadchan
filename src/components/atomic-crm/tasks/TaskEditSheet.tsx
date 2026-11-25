@@ -121,7 +121,7 @@ export const TaskEditSheet = ({
       </EditSheet>
       <Confirm
         isOpen={confirmDelete}
-        title="Delete this task?"
+        title="Delete this to-do?"
         cancel="Cancel"
         confirm="Delete"
         confirmColor="warning"

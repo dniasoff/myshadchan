@@ -54,7 +54,7 @@ describe("EntityList — the heading resolves through the guarded registry acces
     const screen = await renderEntityList("tasks");
 
     // Assert
-    await expect.element(screen.getByText("Tasks")).toBeInTheDocument();
+    await expect.element(screen.getByText("To-dos")).toBeInTheDocument();
   });
 
   it("shows 'Singles' for a resource with a registered descriptor", async () => {
