@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 import { supabaseUrlFromEnv } from "../scripts/stack-env.mjs";
-import { expect, test } from "./fixtures";
+import { APP_URL, expect, test } from "./fixtures";
 
 /**
  * Story 4.3, AC-1/AC-4: proves the board/list/cards switch is store-keyed
@@ -177,4 +177,27 @@ test("board, list and cards share filters and context, and both survive a reload
   await expect(page.getByPlaceholder(/search/i)).toHaveValue("Katz");
   await expect(page.getByText("Dovid Katz")).toBeVisible();
   await expect(page.getByText("Moshe Adler")).not.toBeVisible();
+
+  // The dashboard follows the same selected single. On desktop the TopBar is
+  // the only child switcher; on mobile the dashboard keeps its local pill.
+  await page.goto(`${APP_URL}/#/`);
+  await expect(
+    page.getByRole("heading", { name: "Rivka's shidduchim" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Documents" })).toBeVisible();
+  if (test.info().project.name === "Mobile Chrome") {
+    await expect(
+      page.getByRole("button", { name: "Rivka", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Switch single: Rivka" }),
+    ).toHaveCount(0);
+  } else {
+    await expect(
+      page.getByRole("button", { name: "Switch single: Rivka" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Rivka", exact: true }),
+    ).toHaveCount(0);
+  }
 });
