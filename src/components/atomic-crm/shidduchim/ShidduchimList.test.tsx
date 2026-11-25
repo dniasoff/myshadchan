@@ -918,7 +918,7 @@ describe("ShidduchimList — AC 1: a record URL renders Entity360, not the board
 
     // Assert — ShidduchTasksTab -> the universal TasksTab.
     await expect
-      .element(screen.getByRole("button", { name: "Add task" }))
+      .element(screen.getByRole("button", { name: "Add to-do" }))
       .toBeInTheDocument();
   });
 

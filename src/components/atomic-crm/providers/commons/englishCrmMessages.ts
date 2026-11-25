@@ -86,8 +86,8 @@ export const englishCrmMessages = {
     },
     tasks: {
       completeLabel: "Mark done: %{task}",
-      name: "Task |||| Tasks",
-      forcedCaseName: "Task",
+      name: "To-do |||| To-dos",
+      forcedCaseName: "To-do",
       fields: {
         text: "Description",
         due_date: "Due date",
@@ -95,18 +95,18 @@ export const englishCrmMessages = {
         due_short: "due",
       },
       action: {
-        edit: "Edit task",
+        edit: "Edit to-do",
       },
       actions: {
         postpone_next_week: "Postpone to next week",
         postpone_tomorrow: "Postpone to tomorrow",
-        title: "task actions",
+        title: "to-do actions",
       },
-      deleted: "Task deleted successfully",
+      deleted: "To-do deleted successfully",
       sheet: {
-        edit: "Edit task",
+        edit: "Edit to-do",
       },
-      empty_list_hint: "Tasks you add will appear here.",
+      empty_list_hint: "To-dos you add will appear here.",
       filters: {
         later: "Later",
         overdue: "Overdue",
@@ -114,7 +114,7 @@ export const englishCrmMessages = {
         today: "Today",
         tomorrow: "Tomorrow",
       },
-      updated: "Task updated",
+      updated: "To-do updated",
     },
   },
   crm: {
@@ -665,14 +665,14 @@ export const englishCrmMessages = {
         "original-resume": "Original resume",
         activity: "Activity",
         notes: "Notes",
-        tasks: "Tasks",
+        tasks: "To-dos",
         files: "Files",
         related: "Related",
         resume: "Resume",
         photo: "Photo",
         medical: "Medical",
-        diligence: "Diligence",
-        "diligence-progress": "Diligence progress",
+        diligence: "Reference calls",
+        "diligence-progress": "Reference calls progress",
         "external-links": "External links",
         shidduchim: "Shidduchim",
         conversations: "Conversations",
@@ -751,15 +751,15 @@ export const englishCrmMessages = {
       // only component in the codebase that mutates tasks from a 360), and
       // TasksRailSummary's link into the tab.
       tasks: {
-        textLabel: "Task",
-        empty: "No tasks yet.",
-        error: "Could not load the tasks.",
-        placeholder: "Add a task…",
+        textLabel: "To-do",
+        empty: "No to-dos yet.",
+        error: "Could not load the to-dos.",
+        placeholder: "Add a to-do…",
         dueDate: "Due date",
-        add: "Add task",
-        addError: "Failed to add the task",
-        toggleError: "Failed to update the task",
-        viewAll: "See all tasks",
+        add: "Add to-do",
+        addError: "Failed to add the to-do",
+        toggleError: "Failed to update the to-do",
+        viewAll: "See all to-dos",
       },
       // Story 3.7 — FilesTab.tsx's own UX-DR11 states, its upload/replace/
       // delete controls, and the per-row visibility control (rendered only
@@ -1301,7 +1301,7 @@ export const englishCrmMessages = {
         you: "You",
         everyone: "Everyone",
         mine: "Assigned to me",
-        scope_group: "Task scope",
+        scope_group: "To-do scope",
         former_member: "No longer in this household",
         reassign: "Reassign",
       },
@@ -1556,7 +1556,7 @@ export const englishCrmMessages = {
         },
         data_collected: {
           title: "2. Data We Collect",
-          body: "We collect what you enter: account email, family member names, shidduch records, reference people, notes, tasks, and uploaded files. We also record first-party usage counts (which suggestions were filed, reference calls logged, inbox captures) that are linked to your account and can be turned off in Settings → Privacy. There are no tracking pixels, third-party cookies, or third-party analytics.",
+          body: "We collect what you enter: account email, family member names, shidduch records, reference people, notes, to-dos, and uploaded files. We also record first-party usage counts (which suggestions were filed, reference calls logged, inbox captures) that are linked to your account and can be turned off in Settings → Privacy. There are no tracking pixels, third-party cookies, or third-party analytics.",
         },
         purpose: {
           title: "3. Purpose & Legal Basis",

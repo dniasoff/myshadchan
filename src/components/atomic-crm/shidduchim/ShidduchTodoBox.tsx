@@ -35,7 +35,7 @@ export const ShidduchTodoBox = ({
         className="min-h-11 shrink-0 inline-flex items-center rounded-lg px-2 text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
         to={buildTabPath("shidduchim", shidduch.id, "tasks")}
       >
-        See all tasks
+        See all to-dos
       </Link>
     }
   />

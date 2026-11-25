@@ -133,7 +133,7 @@ describe("connectionsDescriptor — tab strip order (Story 8.5, AC-3)", () => {
       "Overview",
       "Discussions",
       "Notes",
-      "Tasks",
+      "To-dos",
       "Activity",
     ]);
   });
@@ -441,7 +441,7 @@ describe("connectionsDescriptor — the real Tasks tab is scoped to targetType='
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Tasks", exact: true }).click();
+    await screen.getByRole("tab", { name: "To-dos", exact: true }).click();
 
     // Assert
     await expect

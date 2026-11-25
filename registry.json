@@ -252,6 +252,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/shidduchim/useShidduchMoveBack.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/shidduchim/useShidduchCatch.ts",
           "type": "registry:component"
         },
@@ -377,6 +381,10 @@
         },
         {
           "path": "src/components/atomic-crm/shidduchim/ShidduchMoveSheet.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/shidduchim/ShidduchMoveBackConfirm.tsx",
           "type": "registry:component"
         },
         {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 import type { Resume, Single } from "../types";
 import type { CrmDataProvider } from "../providers/types";
@@ -39,6 +40,7 @@ export const DashboardHeader = ({
   const { role, isPending: isRolePending } = useViewerRole();
   const canViewDocuments = canViewChildDocuments(role, isRolePending);
   const canFinalizeResumeDeletes = canDeleteResumeFile(role, isRolePending);
+  const isMobile = useIsMobile();
   const selected = singleList.find((single) => single.id === singleId);
   const nameEn = selected ? singleLabel(selected) : "";
 
@@ -120,7 +122,7 @@ export const DashboardHeader = ({
             ) : null}
           </>
         ) : null}
-        {singleList.length > 1 ? (
+        {isMobile && singleList.length > 1 ? (
           // The pills drive the whole dashboard, so they get the 44px touch
           // floor on a phone (`min-h-11 md:min-h-0`, the same shape
           // `ui/button.tsx`'s default size uses) and stop wrapping their own

@@ -200,11 +200,11 @@ describe("TaskReminderBox", () => {
     const deleteButton = screen.getByRole("button", { name: "Delete" });
     await deleteButton.click();
     await expect
-      .element(screen.getByRole("heading", { name: "Delete this task?" }))
+      .element(screen.getByRole("heading", { name: "Delete this to-do?" }))
       .toBeInTheDocument();
     await userEvent.keyboard("{Escape}");
     await expect
-      .element(screen.getByRole("heading", { name: "Delete this task?" }))
+      .element(screen.getByRole("heading", { name: "Delete this to-do?" }))
       .not.toBeInTheDocument();
     await expect.element(deleteButton).toHaveFocus();
   });
@@ -353,7 +353,7 @@ describe("TaskReminderBox", () => {
 
     await screen.getByRole("button", { name: "Delete" }).click();
     await expect
-      .element(screen.getByRole("heading", { name: "Delete this task?" }))
+      .element(screen.getByRole("heading", { name: "Delete this to-do?" }))
       .toBeInTheDocument();
     await expect
       .element(

@@ -336,6 +336,30 @@ describe("InboxList — delete and undo", () => {
 });
 
 describe("InboxList — the working inbox tab (regression guard)", () => {
+  it("offers Open to file for a photo capture and opens the full filing flow", async () => {
+    const photoItem: InboxItem = {
+      ...UNRESOLVED_ITEM,
+      raw_text: null,
+      attachments: [
+        {
+          title: "photo.jpg",
+          type: "image/jpeg",
+          path: "1/inbox/photo.jpg",
+          src: "https://example.test/photo.jpg",
+        },
+      ],
+    };
+    const { screen } = await renderInboxList([photoItem]);
+
+    await expect
+      .element(screen.getByRole("button", { name: "Open to file" }))
+      .toBeEnabled();
+    await screen.getByRole("button", { name: "Open to file" }).click();
+    await expect
+      .element(screen.getByText("Confirm the details", { exact: true }))
+      .toBeInTheDocument();
+  });
+
   it("shows an unresolved item and does NOT show a held item — the whole design depends on this", async () => {
     // Arrange / Act
     const { screen } = await renderInboxList([UNRESOLVED_ITEM, HELD_ITEM]);

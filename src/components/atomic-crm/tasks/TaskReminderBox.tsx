@@ -391,7 +391,7 @@ const ReminderRow = ({
       )}
       <Confirm
         isOpen={confirmOpen}
-        title="Delete this task?"
+        title="Delete this to-do?"
         cancel="Cancel"
         confirm="Delete"
         confirmColor="warning"

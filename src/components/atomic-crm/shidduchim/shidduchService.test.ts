@@ -127,4 +127,43 @@ describe("transitionShidduch (sole state writer)", () => {
     );
     expect(moved.pipeline_state).toBe("look_into");
   });
+
+  it("reverses one history step at a time, restores close notes, then no-ops", async () => {
+    const dataProvider = makeProvider();
+    const created = await dataProvider.createShidduch({
+      single_id: 1,
+      name_en: "History mover",
+      initial_state: "new",
+    });
+
+    await dataProvider.transitionShidduch(created.id, "new", "look_into");
+    await dataProvider.transitionShidduch(
+      created.id,
+      "look_into",
+      "yes",
+      "A later close note",
+    );
+
+    expect(
+      await dataProvider.getLatestReversibleShidduchStage(created.id),
+    ).toEqual({ from_state: "look_into", to_state: "yes" });
+
+    const firstUndo = await dataProvider.undoShidduch(created.id);
+    expect(firstUndo.pipeline_state).toBe("look_into");
+    expect(firstUndo.close_reason).toBeNull();
+    expect(
+      await dataProvider.getLatestReversibleShidduchStage(created.id),
+    ).toEqual({ from_state: "new", to_state: "look_into" });
+
+    const secondUndo = await dataProvider.undoShidduch(created.id);
+    expect(secondUndo.pipeline_state).toBe("new");
+    expect(secondUndo.close_reason).toBeNull();
+    expect(
+      await dataProvider.getLatestReversibleShidduchStage(created.id),
+    ).toBeNull();
+
+    const noOp = await dataProvider.undoShidduch(created.id);
+    expect(noOp.pipeline_state).toBe("new");
+    expect(noOp.close_reason).toBeNull();
+  });
 });

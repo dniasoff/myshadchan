@@ -783,6 +783,26 @@ export const getDataProviderWithCustomMethods = () => {
       const row = Array.isArray(data) ? data[0] : data;
       return row as Shidduch;
     },
+    async getLatestReversibleShidduchStage(id: Identifier): Promise<{
+      from_state: PipelineState;
+      to_state: PipelineState;
+    } | null> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "latest_reversible_shidduch_stage",
+        { p_id: id },
+      );
+      if (error) {
+        console.error("latestReversibleShidduchStage.error", error);
+        throw new Error(error.message || "Could not read stage history");
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return row
+        ? (row as {
+            from_state: PipelineState;
+            to_state: PipelineState;
+          })
+        : null;
+    },
     /** Manager-only lifecycle RPCs. Account and role are always derived by the
      * database; these methods intentionally do not accept either as input. */
     async archiveShidduch(id: Identifier): Promise<void> {
