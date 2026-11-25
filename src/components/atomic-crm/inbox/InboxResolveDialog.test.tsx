@@ -224,7 +224,9 @@ describe("InboxResolveDialog — origin selection (AC-4)", () => {
       .not.toBeDisabled();
 
     // Act
-    await screen.getByLabelText("Name of the person").fill("Chaya");
+    await screen
+      .getByLabelText("Name of the person being suggested")
+      .fill("Chaya");
     await screen.getByRole("button", { name: "File as a suggestion" }).click();
 
     // Assert
@@ -252,7 +254,9 @@ describe("InboxResolveDialog — origin selection (AC-4)", () => {
     ]);
 
     // Act
-    await screen.getByLabelText("Name of the person").fill("Chaya");
+    await screen
+      .getByLabelText("Name of the person being suggested")
+      .fill("Chaya");
     await screen.getByRole("button", { name: "File as a suggestion" }).click();
 
     // Assert
@@ -294,7 +298,9 @@ describe("InboxResolveDialog — the locked shadchan_id field (AC-3)", () => {
       .toBeDisabled();
 
     // Act
-    await screen.getByLabelText("Name of the person").fill("Chaya");
+    await screen
+      .getByLabelText("Name of the person being suggested")
+      .fill("Chaya");
     await screen.getByRole("button", { name: "File as a suggestion" }).click();
 
     // Assert
@@ -323,7 +329,9 @@ describe("InboxResolveDialog — the locked shadchan_id field (AC-3)", () => {
       .toBeDisabled();
 
     // Act — resolving is still possible, just without a shadchan credited.
-    await screen.getByLabelText("Name of the person").fill("Chaya");
+    await screen
+      .getByLabelText("Name of the person being suggested")
+      .fill("Chaya");
     await screen.getByRole("button", { name: "File as a suggestion" }).click();
 
     // Assert
@@ -518,8 +526,19 @@ describe("InboxResolveDialog — confirm details", () => {
     await expect
       .element(screen.getByLabelText("Which child is this for?"))
       .toBeInTheDocument();
+    const nameInput = screen.getByLabelText(
+      "Name of the person being suggested",
+    );
+    await expect.element(nameInput).toBeInTheDocument();
     await expect
-      .element(screen.getByLabelText("Name of the person"))
+      .element(nameInput)
+      .toHaveAttribute("aria-describedby", "name-of-person-description");
+    await expect
+      .element(
+        screen.getByText("The person the message or resume is about", {
+          exact: true,
+        }),
+      )
       .toBeInTheDocument();
     await expect
       .element(screen.getByText("Dovid Berkowitz, BMG", { exact: true }))
@@ -536,24 +555,30 @@ describe("InboxResolveDialog — confirm details", () => {
     const item = buildItem();
     const { screen, dataProvider } = await renderDialog(item);
 
-    const nameInput = screen.getByLabelText("Name of the person");
+    const nameInput = screen.getByLabelText(
+      "Name of the person being suggested",
+    );
     await screen.getByRole("button", { name: "File as a suggestion" }).click();
 
     await expect
       .element(
-        screen.getByText("Name of the person is required", { exact: true }),
+        screen.getByText("Name of the person being suggested is required", {
+          exact: true,
+        }),
       )
       .toBeInTheDocument();
     await expect
       .element(screen.getByRole("alert"))
-      .toHaveTextContent("Name of the person is required");
+      .toHaveTextContent("Name of the person being suggested is required");
     await expect.poll(() => document.activeElement).toBe(nameInput.element());
     expect(dataProvider.createShidduch).not.toHaveBeenCalled();
   });
 
   it("uses automatic direction for RTL person names", async () => {
     const { screen } = await renderDialog(buildItem());
-    const nameInput = screen.getByLabelText("Name of the person");
+    const nameInput = screen.getByLabelText(
+      "Name of the person being suggested",
+    );
 
     await nameInput.fill("חיה לוי");
 
@@ -564,7 +589,9 @@ describe("InboxResolveDialog — confirm details", () => {
     const item = buildItem({ attachments: [buildAttachment()] });
     const { screen, dataProvider } = await renderDialog(item);
 
-    await screen.getByLabelText("Name of the person").fill("Chaya");
+    await screen
+      .getByLabelText("Name of the person being suggested")
+      .fill("Chaya");
     await screen.getByRole("button", { name: "File as a suggestion" }).click();
 
     await expect
