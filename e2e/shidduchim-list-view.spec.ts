@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 import { supabaseUrlFromEnv } from "../scripts/stack-env.mjs";
-import { expect, test } from "./fixtures";
+import { APP_URL, expect, test } from "./fixtures";
 
 /**
  * Story 4.3, AC-1/AC-4: proves the board/list/cards switch is store-keyed
