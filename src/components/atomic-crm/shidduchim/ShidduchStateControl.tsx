@@ -88,9 +88,10 @@ export const ShidduchStateControl = ({
         onSelect={handleSelect}
         orientation="row"
       />
-      {moveBack.move ? (
+      {moveBack.loading ? null : moveBack.move ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/30 p-3">
           <p className="text-sm text-muted-foreground">
+            <span className="font-medium">Last move can be reversed.</span>{" "}
             You can move this suggestion back one step.
           </p>
           <Button
@@ -105,7 +106,11 @@ export const ShidduchStateControl = ({
               moveBack.move.from_state}
           </Button>
         </div>
-      ) : null}
+      ) : (
+        <p className="mt-4 text-sm text-muted-foreground">
+          Nothing to move back yet.
+        </p>
+      )}
       <TerminalMoveConfirm
         toState={confirmState}
         name={name}
