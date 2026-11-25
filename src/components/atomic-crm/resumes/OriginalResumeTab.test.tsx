@@ -19,6 +19,9 @@ vi.mock("../providers/supabase/inboxAttachments", () => ({
   copyInboxAttachmentsToEntityFiles: vi.fn(),
   signInboxAttachmentUrl,
 }));
+vi.mock("../entity360/entityPaths", () => ({
+  buildTabPath: () => "/shidduchim/7/resume",
+}));
 vi.mock("../entity360/useViewerRole", () => ({
   useViewerRole: () => ({ role: "parent_admin", isPending: false }),
 }));
