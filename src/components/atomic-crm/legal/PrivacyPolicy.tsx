@@ -64,7 +64,7 @@ export const PrivacyPolicy = () => {
           </h2>
           <p className="text-base leading-relaxed text-muted-foreground">
             {translate("crm.legal.privacy.data_collected.body", {
-              _: "We collect what you enter: account email, family member names, shidduch records, reference people, notes, tasks, and uploaded files. We also record first-party usage counts (which suggestions were filed, reference calls logged, inbox captures) that are linked to your account and can be turned off in Settings → Privacy. There are no tracking pixels, third-party cookies, or third-party analytics.",
+              _: "We collect what you enter: account email, family member names, shidduch records, reference people, notes, to-dos, and uploaded files. We also record first-party usage counts (which suggestions were filed, reference calls logged, inbox captures) that are linked to your account and can be turned off in Settings → Privacy. There are no tracking pixels, third-party cookies, or third-party analytics.",
             })}
           </p>
         </section>

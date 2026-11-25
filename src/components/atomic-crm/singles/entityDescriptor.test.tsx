@@ -125,7 +125,7 @@ describe("singlesDescriptor — tab strip order (Story 5.8, AC 6)", () => {
       "Files",
       "Shidduchim",
       "Notes",
-      "Tasks",
+      "To-dos",
       "Activity",
     ]);
   });
@@ -172,7 +172,7 @@ describe("singlesDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC 10
 
     // Assert
     await expect
-      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .element(screen.getByRole("tab", { name: "To-dos" }))
       .toBeInTheDocument();
   });
 
@@ -186,9 +186,9 @@ describe("singlesDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC 10
       .element(screen.getByRole("tab", { name: "Overview" }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .element(screen.getByRole("tab", { name: "To-dos" }))
       .not.toBeInTheDocument();
-    expect(screen.container.textContent ?? "").not.toContain("Tasks");
+    expect(screen.container.textContent ?? "").not.toContain("To-dos");
   });
 });
 
@@ -465,7 +465,7 @@ describe("singlesDescriptor — the real Tasks tab is scoped to targetType='sing
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Tasks" }).click();
+    await screen.getByRole("tab", { name: "To-dos" }).click();
 
     // Assert
     await expect

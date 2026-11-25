@@ -52,7 +52,7 @@ function TasksEmpty(): ReactElement {
   const translate = useTranslate();
   return (
     <p className="text-sm text-muted-foreground">
-      {translate("crm.entity360.tasks.empty", { _: "No tasks yet." })}
+      {translate("crm.entity360.tasks.empty", { _: "No to-dos yet." })}
     </p>
   );
 }
@@ -64,7 +64,7 @@ function TasksError(): ReactElement {
   return (
     <p role="alert" className="text-sm text-destructive">
       {translate("crm.entity360.tasks.error", {
-        _: "Could not load the tasks.",
+        _: "Could not load the to-dos.",
       })}
     </p>
   );
@@ -139,7 +139,7 @@ function LegacyTasksTab({
         err instanceof Error
           ? err.message
           : translate("crm.entity360.tasks.addError", {
-              _: "Failed to add the task",
+              _: "Failed to add the to-do",
             }),
         { type: "error" },
       );
@@ -165,7 +165,7 @@ function LegacyTasksTab({
         err instanceof Error
           ? err.message
           : translate("crm.entity360.tasks.toggleError", {
-              _: "Failed to update the task",
+              _: "Failed to update the to-do",
             }),
         { type: "error" },
       );
@@ -182,10 +182,10 @@ function LegacyTasksTab({
           value={text}
           onChange={(event) => setText(event.target.value)}
           aria-label={translate("crm.entity360.tasks.textLabel", {
-            _: "Task",
+            _: "To-do",
           })}
           placeholder={translate("crm.entity360.tasks.placeholder", {
-            _: "Add a task…",
+            _: "Add a to-do…",
           })}
         />
         <Input
@@ -210,7 +210,7 @@ function LegacyTasksTab({
           disabled={isCreating || text.trim() === ""}
           onClick={handleAdd}
         >
-          {translate("crm.entity360.tasks.add", { _: "Add task" })}
+          {translate("crm.entity360.tasks.add", { _: "Add to-do" })}
         </Button>
       </div>
 

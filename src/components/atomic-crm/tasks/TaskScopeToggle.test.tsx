@@ -87,7 +87,7 @@ describe("TaskScopeToggle — controlled two-button control (AC-2)", () => {
 
     // Assert
     await expect
-      .element(screen.getByRole("group", { name: "Task scope" }))
+      .element(screen.getByRole("group", { name: "To-do scope" }))
       .toBeInTheDocument();
   });
 });

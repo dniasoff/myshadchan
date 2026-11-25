@@ -182,10 +182,10 @@ describe("shidduchimDescriptor — tab strip order (Story 5.6, AC 1 / AC 2; Stor
       "Photo",
       "Medical",
       "Files",
-      "Diligence",
+      "Reference calls",
       "External links",
       "Notes",
-      "Tasks",
+      "To-dos",
       "Activity",
       "Discussions",
     ]);
@@ -277,7 +277,7 @@ describe("shidduchimDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC
 
     // Assert
     await expect
-      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .element(screen.getByRole("tab", { name: "To-dos" }))
       .toBeInTheDocument();
   });
 
@@ -291,16 +291,16 @@ describe("shidduchimDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC
       .element(screen.getByRole("tab", { name: "Overview" }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("tab", { name: "Tasks" }))
+      .element(screen.getByRole("tab", { name: "To-dos" }))
       .not.toBeInTheDocument();
-    expect(screen.container.textContent ?? "").not.toContain("Tasks");
+    expect(screen.container.textContent ?? "").not.toContain("To-dos");
   });
 });
 
 describe("shidduchimDescriptor — the real diligence/external-links/files/notes/activity tabs' visibleTo (Story 6.3, AC 9)", () => {
   it.each([
     ["Files", "parent_admin"],
-    ["Diligence", "parent_admin"],
+    ["Reference calls", "parent_admin"],
     ["External links", "parent_admin"],
     ["Notes", "parent_admin"],
     ["Activity", "parent_admin"],
@@ -316,7 +316,7 @@ describe("shidduchimDescriptor — the real diligence/external-links/files/notes
 
   it.each([
     "Files",
-    "Diligence",
+    "Reference calls",
     "External links",
     "Notes",
     "Activity",
@@ -503,7 +503,7 @@ describe("shidduchimDescriptor — the right rail (Story 5.7, AC 1 / AC 2 / AC 3
     await expect.element(screen.getByText("Reminders")).toBeInTheDocument();
     const remindersPanel = screen.getByRole("region", { name: "Reminders" });
     await expect
-      .element(remindersPanel.getByRole("link", { name: "See all tasks" }))
+      .element(remindersPanel.getByRole("link", { name: "See all to-dos" }))
       .toBeInTheDocument();
     // The forward action, disabled — no resume exists for this shidduch.
     await expect
@@ -602,7 +602,7 @@ describe("shidduchimDescriptor — the right rail (Story 5.7, AC 1 / AC 2 / AC 3
     // built through `buildTabPath` — a wrong `targetId` (e.g. a stray
     // literal) would still pass every other assertion here but produce a
     // broken href.
-    const link = remindersPanel.getByRole("link", { name: "See all tasks" });
+    const link = remindersPanel.getByRole("link", { name: "See all to-dos" });
     await expect.element(link).toBeInTheDocument();
     expect(link.element().getAttribute("href")).toBe(
       buildTabPath("shidduchim", capturedShidduchId!, "tasks"),

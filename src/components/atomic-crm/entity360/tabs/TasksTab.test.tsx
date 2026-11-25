@@ -93,12 +93,12 @@ describe("TasksTab — one target type per test (AC 3a)", () => {
       );
       await screen
         .getByPlaceholder(
-          targetType === "shadchan" ? "What do I need to do?" : "Add a task…",
+          targetType === "shadchan" ? "What do I need to do?" : "Add a to-do…",
         )
         .fill(`a task about ${targetType}`);
       await screen
         .getByRole("button", {
-          name: targetType === "shadchan" ? "Add reminder" : "Add task",
+          name: targetType === "shadchan" ? "Add reminder" : "Add to-do",
         })
         .click();
 
@@ -137,8 +137,8 @@ describe("TasksTab — create payload shape (AC 3c / Story 12.3 AC-11)", () => {
       { targetType: "reference", targetId: 7 },
       { create, getList },
     );
-    await screen.getByPlaceholder("Add a task…").fill("Call back Sunday");
-    await screen.getByRole("button", { name: "Add task" }).click();
+    await screen.getByPlaceholder("Add a to-do…").fill("Call back Sunday");
+    await screen.getByRole("button", { name: "Add to-do" }).click();
 
     // Assert — never member_id, account_id or delivery_channels: a stray
     // one of those in the payload is exactly what `toEqual` (not
@@ -182,12 +182,12 @@ describe("TasksTab — create payload shape (AC 3c / Story 12.3 AC-11)", () => {
       { targetType: "reference", targetId: 7 },
       { create, getList },
     );
-    await screen.getByPlaceholder("Add a task…").fill("Call back Sunday");
+    await screen.getByPlaceholder("Add a to-do…").fill("Call back Sunday");
     await screen.getByRole("combobox").click();
     await screen
       .getByRole("option", { name: "Chani Klein (You) · Parent / admin" })
       .click();
-    await screen.getByRole("button", { name: "Add task" }).click();
+    await screen.getByRole("button", { name: "Add to-do" }).click();
 
     // Assert — exactly the four original fields plus member_id; account_id
     // and delivery_channels are still never sent (still `toEqual`, not
@@ -209,11 +209,11 @@ describe("TasksTab — create payload shape (AC 3c / Story 12.3 AC-11)", () => {
 
     // Act
     const { screen } = await renderTasksTab({}, { create, getList });
-    await screen.getByPlaceholder("Add a task…").fill("   ");
+    await screen.getByPlaceholder("Add a to-do…").fill("   ");
 
     // Assert — the button stays disabled for whitespace-only input.
     await expect
-      .element(screen.getByRole("button", { name: "Add task" }))
+      .element(screen.getByRole("button", { name: "Add to-do" }))
       .toBeDisabled();
     expect(create).not.toHaveBeenCalled();
   });
@@ -272,8 +272,8 @@ describe("TasksTab — the resource name matches the global Tasks list (AC 4b)",
 
     // Act
     const { screen } = await renderTasksTab({}, { create, getList });
-    await screen.getByPlaceholder("Add a task…").fill("Something to do");
-    await screen.getByRole("button", { name: "Add task" }).click();
+    await screen.getByPlaceholder("Add a to-do…").fill("Something to do");
+    await screen.getByRole("button", { name: "Add to-do" }).click();
 
     // Assert
     expect(create.mock.calls[0][0]).toBe("tasks");
@@ -291,7 +291,7 @@ describe("TasksTab — loading, empty and error states (AC 6)", () => {
     // Assert
     expect(screen.container.querySelector('[aria-busy="true"]')).not.toBeNull();
     await expect
-      .element(screen.getByText("No tasks yet."))
+      .element(screen.getByText("No to-dos yet."))
       .not.toBeInTheDocument();
   });
 
@@ -303,9 +303,11 @@ describe("TasksTab — loading, empty and error states (AC 6)", () => {
     const { screen } = await renderTasksTab({}, { getList });
 
     // Assert
-    await expect.element(screen.getByText("No tasks yet.")).toBeInTheDocument();
     await expect
-      .element(screen.getByPlaceholder("Add a task…"))
+      .element(screen.getByText("No to-dos yet."))
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByPlaceholder("Add a to-do…"))
       .toBeInTheDocument();
   });
 
@@ -319,10 +321,10 @@ describe("TasksTab — loading, empty and error states (AC 6)", () => {
     // Assert
     await expect.element(screen.getByRole("alert")).toBeInTheDocument();
     await expect
-      .element(screen.getByText("Could not load the tasks."))
+      .element(screen.getByText("Could not load the to-dos."))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByPlaceholder("Add a task…"))
+      .element(screen.getByPlaceholder("Add a to-do…"))
       .toBeInTheDocument();
   });
 
@@ -333,9 +335,9 @@ describe("TasksTab — loading, empty and error states (AC 6)", () => {
 
     // Act
     const { screen } = await renderTasksTab({}, { getList, create });
-    const input = screen.getByPlaceholder("Add a task…");
+    const input = screen.getByPlaceholder("Add a to-do…");
     await input.fill("do not lose me");
-    await screen.getByRole("button", { name: "Add task" }).click();
+    await screen.getByRole("button", { name: "Add to-do" }).click();
 
     // Assert
     await expect.element(input).toHaveValue("do not lose me");

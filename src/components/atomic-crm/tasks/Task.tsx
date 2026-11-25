@@ -159,7 +159,7 @@ export const Task = ({ task }: { task: TData }) => {
     },
     onError: () => {
       deleteActivationRef.current = false;
-      notify("Could not delete the task. Please try again.", {
+      notify("Could not delete the to-do. Please try again.", {
         type: "error",
       });
     },
@@ -398,7 +398,7 @@ export const Task = ({ task }: { task: TData }) => {
       )}
       <Confirm
         isOpen={confirmDelete}
-        title="Delete this task?"
+        title="Delete this to-do?"
         cancel="Cancel"
         confirm="Delete"
         confirmColor="warning"
