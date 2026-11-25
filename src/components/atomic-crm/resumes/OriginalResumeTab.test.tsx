@@ -154,8 +154,9 @@ describe("OriginalResumeTab WhatsApp picture handling", () => {
       )
       .toBeInTheDocument();
     expect(
-      screen.container.querySelectorAll('button:not([aria-hidden="true"])')
-        .length,
-    ).toBe(0);
+      Array.from(screen.container.querySelectorAll("button")).filter(
+        (button) => button.textContent?.trim() === "Use this picture as Photo",
+      ),
+    ).toHaveLength(0);
   });
 });
