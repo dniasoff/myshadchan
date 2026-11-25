@@ -86,15 +86,24 @@ function NameInput() {
     <>
       <TextInput
         source="name_en"
-        label="Name of the person"
+        label="Name of the person being suggested"
         dir="auto"
-        aria-describedby={message ? "name-of-person-error" : undefined}
+        aria-describedby={`name-of-person-description${
+          message ? " name-of-person-error" : ""
+        }`}
         validate={(value) =>
           typeof value === "string" && value.trim() !== ""
             ? undefined
-            : "Name of the person is required"
+            : "Name of the person being suggested is required"
         }
-        helperText={false}
+        helperText={
+          <span
+            id="name-of-person-description"
+            className="text-xs text-muted-foreground"
+          >
+            The person the message or resume is about
+          </span>
+        }
       />
       {message ? (
         <p
@@ -209,7 +218,9 @@ const LegacyInboxResolveDialog = ({
       };
 
       if (!input.name_en) {
-        notify("Name of the person is required", { type: "warning" });
+        notify("Name of the person being suggested is required", {
+          type: "warning",
+        });
         return;
       }
       if (input.single_id == null) {
