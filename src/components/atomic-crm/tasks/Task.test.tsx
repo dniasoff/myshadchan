@@ -89,7 +89,7 @@ const renderStatefulTaskList = async (tasks: TaskRecord[]) => {
       >
         <ListBase resource="tasks" disableAuthentication>
           <h2 data-tasks-list-heading tabIndex={-1}>
-            Tasks
+            To-dos
           </h2>
           <TasksIterator />
         </ListBase>
@@ -214,7 +214,7 @@ describe("Task — destructive actions are confirmed", () => {
     await screen.getByRole("button", { name: "Delete" }).click();
 
     await expect
-      .element(screen.getByRole("heading", { name: "Delete this task?" }))
+      .element(screen.getByRole("heading", { name: "Delete this to-do?" }))
       .toBeInTheDocument();
     await screen
       .getByRole("dialog")
@@ -336,7 +336,7 @@ describe("Task — keyboard and focus behavior", () => {
           i18nProvider={testI18nProvider}
         >
           <h2 data-tasks-list-heading tabIndex={-1}>
-            Tasks
+            To-dos
           </h2>
           <Task task={first} />
           <Task task={second} />

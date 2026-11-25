@@ -70,7 +70,7 @@ export const PRIMARY_NAV: NavItem[] = [
   {
     to: "/tasks",
     labelKey: "crm.navigation.tasks",
-    labelDefault: "Tasks",
+    labelDefault: "To-dos",
     icon: ListChecks,
     tourId: "tasks",
   },

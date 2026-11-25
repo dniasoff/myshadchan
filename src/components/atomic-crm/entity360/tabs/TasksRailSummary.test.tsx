@@ -250,7 +250,7 @@ describe("TasksRailSummary — loading, empty and error states (AC 6)", () => {
     // Assert
     expect(screen.container.querySelector('[aria-busy="true"]')).not.toBeNull();
     await expect
-      .element(screen.getByText("No tasks yet."))
+      .element(screen.getByText("No to-dos yet."))
       .not.toBeInTheDocument();
   });
 
@@ -262,7 +262,9 @@ describe("TasksRailSummary — loading, empty and error states (AC 6)", () => {
     const { screen } = await renderRailSummary({}, { getList });
 
     // Assert
-    await expect.element(screen.getByText("No tasks yet.")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("No to-dos yet."))
+      .toBeInTheDocument();
   });
 
   it("renders the same empty state for a single viewer, whose tasks read RLS denies entirely (Story 6.2, AC 10) — no client-side role guard added here, Ruling 2 keeps the rail read-only", async () => {
@@ -278,7 +280,9 @@ describe("TasksRailSummary — loading, empty and error states (AC 6)", () => {
     const { screen } = await renderRailSummary({}, { getList });
 
     // Assert
-    await expect.element(screen.getByText("No tasks yet.")).toBeInTheDocument();
+    await expect
+      .element(screen.getByText("No to-dos yet."))
+      .toBeInTheDocument();
   });
 
   it("shows a translated error message and still renders the link into the tab", async () => {
@@ -291,7 +295,7 @@ describe("TasksRailSummary — loading, empty and error states (AC 6)", () => {
     // Assert
     await expect.element(screen.getByRole("alert")).toBeInTheDocument();
     await expect
-      .element(screen.getByText("Could not load the tasks."))
+      .element(screen.getByText("Could not load the to-dos."))
       .toBeInTheDocument();
     const link = screen.getByRole("link");
     await expect.element(link).toBeInTheDocument();

@@ -87,9 +87,9 @@ describe("MobileNavigation — More menu contents (AC-5)", () => {
       document.querySelectorAll('[role="menuitem"]'),
     ).map((item) => item.textContent?.trim());
     const orderedLabels = labels.filter((label): label is string =>
-      ["Inbox", "Tasks", "Reminders", "Settings"].includes(label ?? ""),
+      ["Inbox", "To-dos", "Reminders", "Settings"].includes(label ?? ""),
     );
-    expect(orderedLabels).toEqual(["Inbox", "Tasks", "Reminders", "Settings"]);
+    expect(orderedLabels).toEqual(["Inbox", "To-dos", "Reminders", "Settings"]);
   });
 
   it("never renders a References item — RULING 7", async () => {
@@ -278,7 +278,7 @@ describe("MobileNavigation — shadchanus context (Story 8.1, AC-1/AC-2/AC-7)", 
     await screen.getByRole("button", { name: "More" }).click();
 
     // Assert
-    for (const label of ["Inbox", "Tasks", "Reminders"]) {
+    for (const label of ["Inbox", "To-dos", "Reminders"]) {
       await expect
         .element(screen.getByRole("menuitem", { name: label }))
         .not.toBeInTheDocument();

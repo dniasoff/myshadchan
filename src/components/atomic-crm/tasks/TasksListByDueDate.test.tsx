@@ -82,7 +82,7 @@ describe("TasksListByDueDate — Everyone/Mine scope (AC-1, AC-2)", () => {
     // Assert
     await expect.element(screen.getByText("Nothing here")).toBeInTheDocument();
     await expect
-      .element(screen.getByRole("group", { name: "Task scope" }))
+      .element(screen.getByRole("group", { name: "To-do scope" }))
       .toBeInTheDocument();
   });
 });

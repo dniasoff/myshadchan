@@ -151,7 +151,7 @@ describe("referencesDescriptor — tab strip order (Story 5.10, AC 4)", () => {
       "Conversations",
       "Shidduchim",
       "Notes",
-      "Tasks",
+      "To-dos",
       "Activity",
       "Assistant",
     ]);
@@ -165,7 +165,7 @@ describe("referencesDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC
 
     // Assert
     await expect
-      .element(screen.getByRole("tab", { name: "Tasks", exact: true }))
+      .element(screen.getByRole("tab", { name: "To-dos", exact: true }))
       .toBeInTheDocument();
   });
 
@@ -179,9 +179,9 @@ describe("referencesDescriptor — the real Tasks tab's visibleTo (Story 6.2, AC
       .element(screen.getByRole("tab", { name: "Overview", exact: true }))
       .toBeInTheDocument();
     await expect
-      .element(screen.getByRole("tab", { name: "Tasks", exact: true }))
+      .element(screen.getByRole("tab", { name: "To-dos", exact: true }))
       .not.toBeInTheDocument();
-    expect(screen.container.textContent ?? "").not.toContain("Tasks");
+    expect(screen.container.textContent ?? "").not.toContain("To-dos");
   });
 });
 
@@ -375,7 +375,7 @@ describe("referencesDescriptor — the real Tasks tab is scoped to targetType='r
     });
 
     // Act
-    await screen.getByRole("tab", { name: "Tasks", exact: true }).click();
+    await screen.getByRole("tab", { name: "To-dos", exact: true }).click();
 
     // Assert
     await expect
