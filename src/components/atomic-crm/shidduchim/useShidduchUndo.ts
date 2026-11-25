@@ -16,7 +16,7 @@ import {
   type ShidduchMoveReceipt,
 } from "./useShidduchTransition";
 
-/** The visible Undo window. The server permits a small grace period after it. */
+/** The visible quick-Undo window; the record page also offers persistent undo. */
 export const SHIDDUCH_UNDO_MS = 10_000;
 
 const focusShidduch = (id: Identifier) => {
@@ -47,9 +47,9 @@ export interface ShidduchUndoState {
 }
 
 /**
- * Owns the short-lived client state for a server-side stage undo. The RPC is
- * still the authority: this hook only controls the 10-second affordance and
- * asks the provider to undo the exact move receipt.
+ * Owns the short-lived client state for the list's quick stage undo. The RPC
+ * remains authoritative: this hook only controls the ten-second affordance,
+ * while the record page exposes the persistent history action.
  */
 export const useShidduchUndo = (): ShidduchUndoState => {
   const dataProvider =

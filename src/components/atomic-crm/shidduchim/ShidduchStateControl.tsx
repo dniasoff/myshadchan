@@ -2,15 +2,17 @@ import { useState } from "react";
 import type { Identifier } from "ra-core";
 
 import type { PipelineState } from "../types";
+import { Button } from "@/components/ui/button";
 import { PipelineStateOptions } from "./PipelineStateOptions";
+import { getPipelineStateDef } from "./pipelineStates";
+import { ShidduchMoveBackConfirm } from "./ShidduchMoveBackConfirm";
 import { TerminalMoveConfirm } from "./TerminalMoveConfirm";
-import { UndoBar } from "./UndoBar";
 import type { PipelineStateOption } from "./useShidduchTransition";
 import {
   classifySelection,
   useShidduchTransition,
 } from "./useShidduchTransition";
-import { useShidduchUndo } from "./useShidduchUndo";
+import { useShidduchMoveBack } from "./useShidduchMoveBack";
 
 /**
  * The state-transition control (Screen 18 body). Renders all 7 states via
@@ -41,14 +43,15 @@ export const ShidduchStateControl = ({
   currentState: PipelineState;
   name?: string | null;
 }) => {
-  const undoState = useShidduchUndo();
+  const moveBack = useShidduchMoveBack(id);
   const { options, pendingTo, move } = useShidduchTransition({
     id,
     currentState,
     name,
-    onMoved: undoState.recordMove,
+    onMoved: () => void moveBack.reload(),
   });
   const [confirmState, setConfirmState] = useState<PipelineState | null>(null);
+  const [backConfirmOpen, setBackConfirmOpen] = useState(false);
 
   const handleSelect = (option: PipelineStateOption) => {
     const outcome = classifySelection(option);
@@ -85,12 +88,59 @@ export const ShidduchStateControl = ({
         onSelect={handleSelect}
         orientation="row"
       />
-      <UndoBar {...undoState} />
+      {moveBack.loading ? null : moveBack.loadError ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+          <p className="text-sm text-muted-foreground">
+            {moveBack.loadError} Try again to check whether this suggestion can
+            move back.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            onClick={() => void moveBack.reload()}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : moveBack.move ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/30 p-3">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium">Last move can be reversed.</span> You
+            can move this suggestion back one step.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            onClick={() => setBackConfirmOpen(true)}
+            disabled={moveBack.busy}
+          >
+            Back to{" "}
+            {getPipelineStateDef(moveBack.move.from_state)?.label ??
+              moveBack.move.from_state}
+          </Button>
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-muted-foreground">
+          Nothing to move back yet.
+        </p>
+      )}
       <TerminalMoveConfirm
         toState={confirmState}
         name={name}
         onCancel={() => setConfirmState(null)}
         onConfirm={handleConfirm}
+      />
+      <ShidduchMoveBackConfirm
+        move={backConfirmOpen ? moveBack.move : null}
+        name={name}
+        busy={moveBack.busy}
+        onCancel={() => setBackConfirmOpen(false)}
+        onConfirm={() => {
+          void moveBack.moveBack();
+          setBackConfirmOpen(false);
+        }}
       />
     </section>
   );

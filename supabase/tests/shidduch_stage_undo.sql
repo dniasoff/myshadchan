@@ -1,6 +1,7 @@
--- Server-side undo coverage.  The graph remains the source of legal forward
+-- Server-side undo coverage. The graph remains the source of legal forward
 -- moves; this suite proves the separate transaction-bound reverse door is
--- private, actor-bound, stale-safe, terminal-state-safe, and demo-fenced.
+-- private, permission-equivalent to forward moves, history-safe, terminal-
+-- state-safe, and demo-fenced.
 
 create temporary table results (
   name text,
@@ -128,27 +129,28 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select public.transition_shidduch(:shidduch_one, 'new', 'look_into') \gset
 
--- A different actor cannot consume user one's undo window.
+-- A different authorized actor can reverse the move. The permission is about
+-- who can edit the suggestion today, not who made the forward move.
 set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000002","role":"authenticated"}';
-select * from pg_temp.try_undo(:shidduch_one) \gset other_actor_
+select public.undo_shidduch(:shidduch_one);
 reset role;
 
 insert into results values (
-  'a second actor cannot undo another actor''s move',
-  :'other_actor_raised'::boolean
-    and :'other_actor_message' = format('undo is not available for shidduch %s', :shidduch_one),
-  format('raised=%s message=%s', :'other_actor_raised', :'other_actor_message')
+  'a second authorized actor can undo another actor''s move',
+  (select pipeline_state = 'new'
+     from public.shidduchim where id = :shidduch_one),
+  format('state=%s', (select pipeline_state from public.shidduchim where id = :shidduch_one))
 );
 
--- User one can undo its own move, and a second click is idempotent.
+-- With no earlier forward transition left, another call is an authorized
+-- no-op rather than a second reverse mutation.
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
-select public.undo_shidduch(:shidduch_one);
 select * from pg_temp.try_undo(:shidduch_one) \gset double_click_
 reset role;
 
 insert into results
-select 'undo restores a normal move and a second click is idempotent',
+select 'undo with no history left is a no-op',
        s.pipeline_state = 'new'
        and s.close_reason is null
        and :'double_click_raised'::boolean is false,
@@ -180,24 +182,43 @@ insert into results values (
   format('raised=%s sqlstate=%s message=%s', :'stale_from_raised', :'stale_from_sqlstate_code', :'stale_from_message')
 );
 
--- A later move by another actor makes the earlier actor's undo stale.
+-- Two forward moves can be reversed one step at a time, even by different
+-- authorized actors. The second reverse consumes the earlier history row.
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select public.transition_shidduch(:shidduch_later, 'new', 'look_into');
 set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000002","role":"authenticated"}';
 select public.transition_shidduch(:shidduch_later, 'look_into', 'yes', 'later actor');
 set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
-select * from pg_temp.try_undo(:shidduch_later) \gset later_move_
+select public.undo_shidduch(:shidduch_later);
 reset role;
+select pipeline_state, close_reason is null as close_reason_is_null
+from public.shidduchim where id = :shidduch_later \gset later_first_undo_
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000002","role":"authenticated"}';
+select public.undo_shidduch(:shidduch_later);
+reset role;
+select pipeline_state, close_reason is null as close_reason_is_null
+from public.shidduchim where id = :shidduch_later \gset later_second_undo_
 
 insert into results values (
-  'undo after a later move is refused',
-  :'later_move_raised'::boolean
-    and :'later_move_message' = format('undo is not available for shidduch %s', :shidduch_later),
-  format('raised=%s message=%s', :'later_move_raised', :'later_move_message')
+  'repeated back steps reverse one history row at a time',
+  :'later_first_undo_pipeline_state' = 'look_into'
+    and :'later_first_undo_close_reason_is_null'::boolean
+    and :'later_second_undo_pipeline_state' = 'new'
+    and :'later_second_undo_close_reason_is_null'::boolean
+    and (select count(*) from public.shidduch_stage_transitions
+         where shidduch_id = :shidduch_later) = 4
+    and (select count(*) from public.shidduch_stage_transitions
+         where shidduch_id = :shidduch_later and undo_of_id is not null) = 2,
+  format('first=%s/%s second=%s/%s', :'later_first_undo_pipeline_state',
+         case when :'later_first_undo_close_reason_is_null'::boolean then '<null>' else '<set>' end,
+         :'later_second_undo_pipeline_state',
+         case when :'later_second_undo_close_reason_is_null'::boolean then '<null>' else '<set>' end)
 );
 
--- The age guard is independent of actor and current-state checks.
+-- The reverse remains available after the old ten-second client affordance has
+-- expired; server history, not a browser timer, is the source of truth.
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"9f500000-0000-0000-0000-000000000001","role":"authenticated"}';
 select public.transition_shidduch(:shidduch_age, 'new', 'look_into');
@@ -211,10 +232,10 @@ select * from pg_temp.try_undo(:shidduch_age) \gset aged_move_
 reset role;
 
 insert into results values (
-  'undo outside the ten-second window plus grace is refused',
-  :'aged_move_raised'::boolean
-    and :'aged_move_message' = format('undo is not available for shidduch %s', :shidduch_age),
-  format('raised=%s message=%s', :'aged_move_raised', :'aged_move_message')
+  'undo remains available after the old ten-second window',
+  (select pipeline_state = 'new'
+     from public.shidduchim where id = :shidduch_age),
+  format('state=%s', (select pipeline_state from public.shidduchim where id = :shidduch_age))
 );
 
 -- Terminal transitions restore both the prior state and the prior close reason.
