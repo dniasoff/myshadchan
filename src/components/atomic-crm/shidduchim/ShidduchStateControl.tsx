@@ -88,7 +88,22 @@ export const ShidduchStateControl = ({
         onSelect={handleSelect}
         orientation="row"
       />
-      {moveBack.loading ? null : moveBack.move ? (
+      {moveBack.loading ? null : moveBack.loadError ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+          <p className="text-sm text-muted-foreground">
+            {moveBack.loadError} Try again to check whether this suggestion can
+            move back.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            onClick={() => void moveBack.reload()}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : moveBack.move ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/30 p-3">
           <p className="text-sm text-muted-foreground">
             <span className="font-medium">Last move can be reversed.</span> You

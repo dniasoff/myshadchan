@@ -14,6 +14,7 @@ export interface ReversibleShidduchMove {
 export interface UseShidduchMoveBackResult {
   move: ReversibleShidduchMove | null;
   loading: boolean;
+  loadError: string | null;
   busy: boolean;
   reload: () => Promise<void>;
   moveBack: () => Promise<void>;
@@ -32,15 +33,18 @@ export const useShidduchMoveBack = (
   const refresh = useRefresh();
   const [move, setMove] = useState<ReversibleShidduchMove | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const next = await dataProvider.getLatestReversibleShidduchStage(id);
       setMove(next);
     } catch (error) {
       setMove(null);
+      setLoadError("Could not read this suggestion's move history.");
       notify(
         error instanceof Error ? error.message : "Could not read stage history",
         {
@@ -82,5 +86,5 @@ export const useShidduchMoveBack = (
     }
   }, [busy, dataProvider, id, move, notify, refresh, reload]);
 
-  return { move, loading, busy, reload, moveBack };
+  return { move, loading, loadError, busy, reload, moveBack };
 };

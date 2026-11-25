@@ -23,6 +23,7 @@ const setMoveBackState = (
   mockedUseShidduchMoveBack.mockReturnValue({
     move: null,
     loading: false,
+    loadError: null,
     busy: false,
     reload: vi.fn().mockResolvedValue(undefined),
     moveBack: vi.fn().mockResolvedValue(undefined),
@@ -58,6 +59,40 @@ describe("ShidduchStateControl move-back affordance", () => {
     await expect
       .element(screen.getByRole("button", { name: /Back to/ }))
       .not.toBeInTheDocument();
+  });
+
+  it("shows a read error with retry and recovers without claiming there is no history", async () => {
+    const reload = vi.fn().mockResolvedValue(undefined);
+    setMoveBackState({
+      loadError: "Could not read this suggestion's move history.",
+      reload,
+    });
+
+    const screen = await render(
+      <ShidduchStateControl id="shidduch-1" currentState="look_into" />,
+    );
+
+    await expect
+      .element(
+        screen.getByText(
+          "Could not read this suggestion's move history. Try again to check whether this suggestion can move back.",
+        ),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(screen.getByText("Nothing to move back yet."))
+      .not.toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "Try again" }).click();
+    expect(reload).toHaveBeenCalledOnce();
+
+    setMoveBackState();
+    await screen.rerender(
+      <ShidduchStateControl id="shidduch-1" currentState="look_into" />,
+    );
+    await expect
+      .element(screen.getByText("Nothing to move back yet."))
+      .toBeInTheDocument();
   });
 
   it("names the reversible last move and its target", async () => {
