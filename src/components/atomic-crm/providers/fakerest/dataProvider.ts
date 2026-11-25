@@ -402,19 +402,19 @@ export const createDataProvider = ({
     }
   >();
   let nextShidduchStoragePurgeId = 1;
-  // FakeRest has no trigger-backed history table, so retain the same narrow
-  // server-owned undo receipt in this provider session. A later transition
-  // replaces it, and the method below enforces the actor/current-state/window
-  // checks before restoring the prior row values.
+  // FakeRest has no trigger-backed history table, so retain the same
+  // server-owned stage history in this provider session. Undo rows point back
+  // to their forward row just like shidduch_stage_transitions.undo_of_id.
   const shidduchUndoMoves = new Map<
     string,
-    {
-      actorUserId: string;
+    Array<{
       from: PipelineState;
       to: PipelineState;
-      closeReason: string | null;
-      movedAt: number;
-    }
+      previousCloseReason: string | null;
+      producedCloseReason: string | null;
+      undoOf: number | null;
+      undone: boolean;
+    }>
   >();
 
   // Resume tab (Story 5.3): the same in-memory "bytes" idea, kept in its own
@@ -3127,7 +3127,7 @@ export const createDataProvider = ({
       to: PipelineState,
       closeReason?: string,
     ): Promise<Shidduch> => {
-      const caller = await requireCallerMembership();
+      await requireCallerMembership();
       const { data: current } = await baseDataProvider.getOne("shidduchim", {
         id,
       });
@@ -3157,13 +3157,16 @@ export const createDataProvider = ({
         },
         previousData: current,
       });
-      shidduchUndoMoves.set(String(id), {
-        actorUserId: caller.userId,
+      const history = shidduchUndoMoves.get(String(id)) ?? [];
+      history.push({
         from,
         to,
-        closeReason: current.close_reason ?? null,
-        movedAt: Date.now(),
+        previousCloseReason: current.close_reason ?? null,
+        producedCloseReason: (data as Shidduch).close_reason ?? null,
+        undoOf: null,
+        undone: false,
       });
+      shidduchUndoMoves.set(String(id), history);
       return data as Shidduch;
     },
     undoShidduch: async (id: Identifier): Promise<Shidduch> => {
@@ -3171,29 +3174,74 @@ export const createDataProvider = ({
       const { data: current } = await baseDataProvider.getOne("shidduchim", {
         id,
       });
-      const move = shidduchUndoMoves.get(String(id));
-      const age = move ? Date.now() - move.movedAt : Infinity;
-      if (
-        !current ||
-        caller.membership.role === "single" ||
-        move == null ||
-        move.actorUserId !== caller.userId ||
-        String(current.pipeline_state) !== String(move.to) ||
-        age > 15_000
-      ) {
+      if (!current || caller.membership.role === "single") {
         throw new Error(`undo is not available for shidduch ${id}`);
       }
       await assertCanEditShidduch(current, current);
+      const history = shidduchUndoMoves.get(String(id)) ?? [];
+      let moveIndex = -1;
+      for (let index = history.length - 1; index >= 0; index -= 1) {
+        const candidate = history[index];
+        if (
+          !candidate.undone &&
+          candidate.undoOf === null &&
+          String(current.pipeline_state) === String(candidate.to) &&
+          (current.close_reason ?? null) === candidate.producedCloseReason
+        ) {
+          moveIndex = index;
+          break;
+        }
+      }
+      if (moveIndex < 0) return current as Shidduch;
+      const move = history[moveIndex];
       const { data } = await baseDataProvider.update("shidduchim", {
         id,
         data: {
           pipeline_state: move.from,
-          close_reason: move.closeReason,
+          close_reason: move.previousCloseReason,
         },
         previousData: current,
       });
-      shidduchUndoMoves.delete(String(id));
+      move.undone = true;
+      history.push({
+        from: move.to,
+        to: move.from,
+        previousCloseReason: move.producedCloseReason,
+        producedCloseReason: move.previousCloseReason,
+        undoOf: moveIndex,
+        undone: false,
+      });
+      shidduchUndoMoves.set(String(id), history);
       return data as Shidduch;
+    },
+    getLatestReversibleShidduchStage: async (
+      id: Identifier,
+    ): Promise<{
+      from_state: PipelineState;
+      to_state: PipelineState;
+    } | null> => {
+      const caller = await requireCallerMembership();
+      if (caller.membership.role === "single") return null;
+      const { data: current } = await baseDataProvider.getOne("shidduchim", {
+        id,
+      });
+      if (!current) return null;
+      await assertCanEditShidduch(current, current);
+      const history = shidduchUndoMoves.get(String(id)) ?? [];
+      let move: (typeof history)[number] | undefined;
+      for (let index = history.length - 1; index >= 0; index -= 1) {
+        const candidate = history[index];
+        if (
+          !candidate.undone &&
+          candidate.undoOf === null &&
+          String(current.pipeline_state) === String(candidate.to) &&
+          (current.close_reason ?? null) === candidate.producedCloseReason
+        ) {
+          move = candidate;
+          break;
+        }
+      }
+      return move ? { from_state: move.from, to_state: move.to } : null;
     },
     // Append a redt (same or different shadchan, new date) — FakeRest mirror of
     // the add_redt RPC. Recomputes the shidduch's redt summary (redt_date =
