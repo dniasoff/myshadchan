@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { rpc, upload, download, maybeSingle, eq, select } = vi.hoisted(() => ({
-  rpc: vi.fn(),
-  upload: vi.fn(),
-  download: vi.fn(),
-  maybeSingle: vi.fn(),
-  eq: vi.fn(),
-  select: vi.fn(),
-  addResumePhoto: vi.fn(),
-}));
+const { rpc, upload, download, remove, maybeSingle, eq, select } = vi.hoisted(
+  () => ({
+    rpc: vi.fn(),
+    upload: vi.fn(),
+    download: vi.fn(),
+    remove: vi.fn(),
+    maybeSingle: vi.fn(),
+    eq: vi.fn(),
+    select: vi.fn(),
+    addResumePhoto: vi.fn(),
+  }),
+);
 
 const tableQuery = { select, eq, maybeSingle };
 
@@ -16,7 +19,7 @@ vi.mock("./supabase", () => ({
   getSupabaseClient: () => ({
     rpc,
     from: () => tableQuery,
-    storage: { from: () => ({ upload, download }) },
+    storage: { from: () => ({ upload, download, remove }) },
   }),
 }));
 
@@ -38,6 +41,7 @@ describe("Supabase resume photo promotion", () => {
       error: null,
     });
     upload.mockReset().mockResolvedValue({ error: null });
+    remove.mockReset().mockResolvedValue({ error: null });
     download.mockReset().mockResolvedValue({
       data: new Blob(["photo"], { type: "image/jpeg" }),
       error: null,
@@ -95,6 +99,10 @@ describe("Supabase resume photo promotion", () => {
     expect(upload).toHaveBeenCalledWith(
       expect.stringMatching(/\/photos\/shared\/42\/inbox-/),
       expect.any(File),
+    );
+    expect(rpc).toHaveBeenCalledWith(
+      "add_resume_photo",
+      expect.objectContaining({ p_only_if_no_visible_photo: true }),
     );
   });
 });

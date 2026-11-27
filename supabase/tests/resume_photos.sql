@@ -175,6 +175,24 @@ select public.add_resume_photo(
   p_visibility => 'shared'
 );
 
+select public.add_resume_photo(
+  p_shidduchim_id => :shidduch_id,
+  p_path => :'acct_a' || '/photos/shared/' || :'shidduch_id' || '/p-race-loser.jpg',
+  p_visibility => 'shared',
+  p_only_if_no_visible_photo => true
+);
+
+insert into results (name, passed)
+select '(f) add_resume_photo: automatic promotion returns the existing visible Photo',
+       (select count(*) from public.resume_photos rp
+          join public.resumes r on r.id = rp.resume_id
+        where r.shidduchim_id = :shidduch_id
+          and rp.path = :'acct_a' || '/photos/shared/' || :'shidduch_id' || '/p-shared.jpg') = 1
+       and (select count(*) from public.resume_photos rp
+          join public.resumes r on r.id = rp.resume_id
+        where r.shidduchim_id = :shidduch_id
+          and rp.path = :'acct_a' || '/photos/shared/' || :'shidduch_id' || '/p-race-loser.jpg') = 0;
+
 insert into results (name, passed)
 select '(f) add_resume_photo: the first call creates exactly one resumes row for the shidduch',
        (select count(*) from public.resumes where shidduchim_id = :shidduch_id) = 1;

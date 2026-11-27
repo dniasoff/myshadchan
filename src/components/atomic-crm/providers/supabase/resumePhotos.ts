@@ -49,6 +49,7 @@ export type UploadResumePhotoParams = ResumeSubject & {
   file: File;
   visibility?: ResumePhotoVisibility;
   sourceAttachmentPath?: string;
+  onlyIfNoVisiblePhoto?: boolean;
 };
 
 export type CopyInboxAttachmentToResumePhotoParams = ResumeSubject & {
@@ -123,6 +124,7 @@ export async function uploadResumePhoto(
     file,
     visibility = "shared",
     sourceAttachmentPath,
+    onlyIfNoVisiblePhoto = false,
     ...subject
   } = params;
   const validationError = validateChildPhoto(file);
@@ -158,6 +160,7 @@ export async function uploadResumePhoto(
     p_path: storagePath,
     p_size: file.size,
     p_visibility: visibility,
+    p_only_if_no_visible_photo: onlyIfNoVisiblePhoto,
     p_shidduchim_id: isSingleSubject(subject)
       ? undefined
       : subject.shidduchimId,
@@ -175,6 +178,14 @@ export async function uploadResumePhoto(
   }
 
   const row = Array.isArray(data) ? data[0] : data;
+  if (row?.path !== storagePath) {
+    await getSupabaseClient()
+      .storage.from(DOCUMENTS_BUCKET)
+      .remove([storagePath])
+      .catch((removeError) => {
+        console.error("uploadResumePhoto.loser_cleanup.error", removeError);
+      });
+  }
   return row as ResumePhoto;
 }
 
@@ -205,6 +216,7 @@ export async function copyInboxAttachmentToResumePhoto(
     file,
     visibility: "shared",
     sourceAttachmentPath: attachment.path,
+    onlyIfNoVisiblePhoto: true,
   });
 }
 

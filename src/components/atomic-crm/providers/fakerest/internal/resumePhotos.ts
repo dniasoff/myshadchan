@@ -28,6 +28,7 @@ export type UploadResumePhotoParams = ResumeSubject & {
   file: File;
   visibility?: ResumePhotoVisibility;
   sourceAttachmentPath?: string;
+  onlyIfNoVisiblePhoto?: boolean;
 };
 
 export type CopyInboxAttachmentToResumePhotoParams = ResumeSubject & {
@@ -38,6 +39,29 @@ export type FindResumePhotoBySourceParams = ResumeSubject & {
   sourceAttachmentPath: string;
   visibility?: ResumePhotoVisibility;
 };
+
+const automaticPhotoLocks = new Map<string, Promise<void>>();
+
+async function withAutomaticPhotoLock<T>(
+  key: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const previous = automaticPhotoLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  automaticPhotoLocks.set(key, current);
+  await previous;
+  try {
+    return await work();
+  } finally {
+    release();
+    if (automaticPhotoLocks.get(key) === current) {
+      automaticPhotoLocks.delete(key);
+    }
+  }
+}
 
 function ownerSegment(subject: ResumeSubject): string {
   return isSingleSubject(subject)
@@ -86,73 +110,104 @@ export async function uploadResumePhoto(
     file,
     visibility = "shared",
     sourceAttachmentPath,
+    onlyIfNoVisiblePhoto = false,
     ...subject
   } = params;
-  if (isSingleSubject(subject)) {
-    const { data: targets } = await baseDataProvider.getList<{
-      id: Identifier;
-      account_id: Identifier;
-    }>("singles", {
-      filter: { id: subject.singleId },
-      pagination: { page: 1, perPage: 1 },
-      sort: { field: "id", order: "ASC" },
-    });
-    if (!targets[0] || String(targets[0].account_id) !== String(accountId)) {
-      throw new Error("single photo target is missing");
+  const upload = async (): Promise<ResumePhoto> => {
+    if (isSingleSubject(subject)) {
+      const { data: targets } = await baseDataProvider.getList<{
+        id: Identifier;
+        account_id: Identifier;
+      }>("singles", {
+        filter: { id: subject.singleId },
+        pagination: { page: 1, perPage: 1 },
+        sort: { field: "id", order: "ASC" },
+      });
+      if (!targets[0] || String(targets[0].account_id) !== String(accountId)) {
+        throw new Error("single photo target is missing");
+      }
     }
-  }
-  const validationError = validateChildPhoto(file);
-  if (validationError) throw new Error(validationError);
-  const storagePath = resumePhotoStoragePath(
-    accountId,
-    ownerSegment(subject),
-    visibility,
-    sourceAttachmentPath,
-    file.name,
-  );
-  if (sourceAttachmentPath) {
-    const existing = await findResumePhotoBySource(
-      baseDataProvider,
+    const validationError = validateChildPhoto(file);
+    if (validationError) throw new Error(validationError);
+    const storagePath = resumePhotoStoragePath(
       accountId,
+      ownerSegment(subject),
+      visibility,
+      sourceAttachmentPath,
+      file.name,
+    );
+    if (sourceAttachmentPath) {
+      const existing = await findResumePhotoBySource(
+        baseDataProvider,
+        accountId,
+        {
+          ...subject,
+          sourceAttachmentPath,
+          visibility,
+        },
+      );
+      if (existing) return existing;
+    }
+
+    const { data: matches } = await baseDataProvider.getList<Resume>(
+      "resumes",
       {
-        ...subject,
-        sourceAttachmentPath,
-        visibility,
+        filter: resumeSubjectFilter(subject),
+        pagination: { page: 1, perPage: 1 },
+        sort: { field: "id", order: "ASC" },
       },
     );
-    if (existing) return existing;
-  }
-  blobUrls.set(storagePath, URL.createObjectURL(file));
+    let resumeId = matches[0]?.id;
 
-  const { data: matches } = await baseDataProvider.getList<Resume>("resumes", {
-    filter: resumeSubjectFilter(subject),
-    pagination: { page: 1, perPage: 1 },
-    sort: { field: "id", order: "ASC" },
-  });
-  let resumeId = matches[0]?.id;
+    if (onlyIfNoVisiblePhoto && resumeId != null) {
+      const { data: photos } = await baseDataProvider.getList<ResumePhoto>(
+        "resume_photos",
+        {
+          filter: { resume_id: resumeId, "hidden_at@is": null },
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "uploaded_at", order: "ASC" },
+        },
+      );
+      if (photos[0]) return photos[0];
+    }
 
-  if (resumeId == null) {
-    const { data: resume } = await baseDataProvider.create<Resume>("resumes", {
-      data: {
-        account_id: accountId,
-        ...resumeSubjectFilter(subject),
-        created_at: new Date().toISOString(),
+    blobUrls.set(storagePath, URL.createObjectURL(file));
+
+    if (resumeId == null) {
+      const { data: resume } = await baseDataProvider.create<Resume>(
+        "resumes",
+        {
+          data: {
+            account_id: accountId,
+            ...resumeSubjectFilter(subject),
+            created_at: new Date().toISOString(),
+          },
+        },
+      );
+      resumeId = resume.id;
+    }
+
+    const { data } = await baseDataProvider.create<ResumePhoto>(
+      "resume_photos",
+      {
+        data: {
+          account_id: accountId,
+          resume_id: resumeId,
+          path: storagePath,
+          uploaded_at: new Date().toISOString(),
+          visibility,
+          hidden_at: null,
+        },
       },
-    });
-    resumeId = resume.id;
-  }
+    );
+    return data;
+  };
 
-  const { data } = await baseDataProvider.create<ResumePhoto>("resume_photos", {
-    data: {
-      account_id: accountId,
-      resume_id: resumeId,
-      path: storagePath,
-      uploaded_at: new Date().toISOString(),
-      visibility,
-      hidden_at: null,
-    },
-  });
-  return data;
+  if (!onlyIfNoVisiblePhoto) return upload();
+  return withAutomaticPhotoLock(
+    `${accountId}:${ownerSegment(subject)}`,
+    upload,
+  );
 }
 
 /** FakeRest mirror of the Supabase Inbox-to-Photo copy. The inbox blob map is
@@ -181,6 +236,7 @@ export async function copyInboxAttachmentToResumePhoto(
     file,
     visibility: "shared",
     sourceAttachmentPath: params.attachment.path,
+    onlyIfNoVisiblePhoto: true,
   });
 }
 
