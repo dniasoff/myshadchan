@@ -46,6 +46,92 @@ describe("FakeRest resume capture methods", () => {
     expect(attachment.type).toBe("image/jpeg");
   });
 
+  it("promotes the captured JPEG through the same idempotent Photo path", async () => {
+    const dataProvider = createDataProvider({ latency: 0, silent: true });
+    const attachment = await dataProvider.uploadInboxAttachment({
+      file: new File(["picture"], "picture.jpg", { type: "image/jpeg" }),
+      inboxItemId: 701,
+    });
+
+    const photo = await dataProvider.copyInboxAttachmentToResumePhoto({
+      shidduchimId: 99,
+      attachment,
+    });
+
+    expect(photo.visibility).toBe("shared");
+    expect(photo.path).toContain("/photos/shared/99/inbox-");
+    const { data: photos } = await dataProvider.getList("resume_photos", {
+      filter: { path: photo.path },
+      pagination: { page: 1, perPage: 10 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(photos).toHaveLength(1);
+  });
+
+  it("keeps concurrent automatic promotions to one visible Photo", async () => {
+    const dataProvider = createDataProvider({ latency: 0, silent: true });
+    const [firstAttachment, secondAttachment] = await Promise.all([
+      dataProvider.uploadInboxAttachment({
+        file: new File(["first"], "first.jpg", { type: "image/jpeg" }),
+        inboxItemId: 702,
+      }),
+      dataProvider.uploadInboxAttachment({
+        file: new File(["second"], "second.jpg", { type: "image/jpeg" }),
+        inboxItemId: 703,
+      }),
+    ]);
+
+    const [firstPhoto, secondPhoto] = await Promise.all([
+      dataProvider.copyInboxAttachmentToResumePhoto({
+        shidduchimId: 99,
+        attachment: firstAttachment,
+      }),
+      dataProvider.copyInboxAttachmentToResumePhoto({
+        shidduchimId: 99,
+        attachment: secondAttachment,
+      }),
+    ]);
+
+    expect(firstPhoto.path).toBe(secondPhoto.path);
+    const { data: photos } = await dataProvider.getList("resume_photos", {
+      filter: { resume_id: firstPhoto.resume_id, "hidden_at@is": null },
+      pagination: { page: 1, perPage: 10 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(photos).toHaveLength(1);
+  });
+
+  it("does not re-promote a deterministic Photo after Ronit removes it", async () => {
+    const dataProvider = createDataProvider({ latency: 0, silent: true });
+    const attachment = await dataProvider.uploadInboxAttachment({
+      file: new File(["picture"], "removed.jpg", { type: "image/jpeg" }),
+      inboxItemId: 704,
+    });
+
+    const firstPhoto = await dataProvider.copyInboxAttachmentToResumePhoto({
+      shidduchimId: 99,
+      attachment,
+    });
+    await dataProvider.hideResumePhoto({ id: firstPhoto.id });
+
+    const retryPhoto = await dataProvider.copyInboxAttachmentToResumePhoto({
+      shidduchimId: 99,
+      attachment,
+    });
+
+    expect(retryPhoto.id).toBe(firstPhoto.id);
+    expect(retryPhoto.hidden_at).not.toBeNull();
+    const { data: visiblePhotos } = await dataProvider.getList(
+      "resume_photos",
+      {
+        filter: { resume_id: firstPhoto.resume_id, "hidden_at@is": null },
+        pagination: { page: 1, perPage: 10 },
+        sort: { field: "id", order: "ASC" },
+      },
+    );
+    expect(visiblePhotos).toHaveLength(0);
+  });
+
   it("finalizes one exact duplicate-path file at a time", async () => {
     const path = "1/resumes/99/duplicate.pdf";
     const first: ResumeFileVersion = {

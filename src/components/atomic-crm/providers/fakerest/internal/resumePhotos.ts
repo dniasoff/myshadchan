@@ -6,11 +6,13 @@ import {
   type ResumeSubject,
 } from "../../../resumes/resumeSubject";
 import type {
+  InboxAttachment,
   Resume,
   ResumePhoto,
   ResumePhotoVisibility,
 } from "../../../types";
 import { validateChildPhoto } from "../../../singles/ChildDocuments/childDocuments";
+import { resumePhotoStoragePath } from "../../resumePhotoIdempotency";
 
 /**
  * The AD-10 mirror of `providers/supabase/resumePhotos.ts` for demo mode.
@@ -25,7 +27,69 @@ export type ResumePhotoBlobUrls = Map<string, string>;
 export type UploadResumePhotoParams = ResumeSubject & {
   file: File;
   visibility?: ResumePhotoVisibility;
+  sourceAttachmentPath?: string;
+  onlyIfNoVisiblePhoto?: boolean;
 };
+
+export type CopyInboxAttachmentToResumePhotoParams = ResumeSubject & {
+  attachment: InboxAttachment;
+};
+
+export type FindResumePhotoBySourceParams = ResumeSubject & {
+  sourceAttachmentPath: string;
+  visibility?: ResumePhotoVisibility;
+};
+
+const automaticPhotoLocks = new Map<string, Promise<void>>();
+
+async function withAutomaticPhotoLock<T>(
+  key: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const previous = automaticPhotoLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  automaticPhotoLocks.set(key, current);
+  await previous;
+  try {
+    return await work();
+  } finally {
+    release();
+    if (automaticPhotoLocks.get(key) === current) {
+      automaticPhotoLocks.delete(key);
+    }
+  }
+}
+
+function ownerSegment(subject: ResumeSubject): string {
+  return isSingleSubject(subject)
+    ? `single-${subject.singleId}`
+    : `${subject.shidduchimId}`;
+}
+
+export async function findResumePhotoBySource(
+  baseDataProvider: DataProvider,
+  accountId: Identifier,
+  params: FindResumePhotoBySourceParams,
+): Promise<ResumePhoto | null> {
+  const path = resumePhotoStoragePath(
+    accountId,
+    ownerSegment(params),
+    params.visibility ?? "shared",
+    params.sourceAttachmentPath,
+  );
+  const { data } = await baseDataProvider.getList<ResumePhoto>(
+    "resume_photos",
+    {
+      filter: { path },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    },
+  );
+  return data[0] ?? null;
+}
 
 /**
  * FakeRest mirror of `add_resume_photo` (AC 2; widened to a single subject
@@ -42,57 +106,138 @@ export async function uploadResumePhoto(
   accountId: Identifier,
   params: UploadResumePhotoParams,
 ): Promise<ResumePhoto> {
-  const { file, visibility = "shared", ...subject } = params;
-  if (isSingleSubject(subject)) {
-    const { data: targets } = await baseDataProvider.getList<{
-      id: Identifier;
-      account_id: Identifier;
-    }>("singles", {
-      filter: { id: subject.singleId },
-      pagination: { page: 1, perPage: 1 },
-      sort: { field: "id", order: "ASC" },
-    });
-    if (!targets[0] || String(targets[0].account_id) !== String(accountId)) {
-      throw new Error("single photo target is missing");
+  const {
+    file,
+    visibility = "shared",
+    sourceAttachmentPath,
+    onlyIfNoVisiblePhoto = false,
+    ...subject
+  } = params;
+  const upload = async (): Promise<ResumePhoto> => {
+    if (isSingleSubject(subject)) {
+      const { data: targets } = await baseDataProvider.getList<{
+        id: Identifier;
+        account_id: Identifier;
+      }>("singles", {
+        filter: { id: subject.singleId },
+        pagination: { page: 1, perPage: 1 },
+        sort: { field: "id", order: "ASC" },
+      });
+      if (!targets[0] || String(targets[0].account_id) !== String(accountId)) {
+        throw new Error("single photo target is missing");
+      }
     }
-  }
-  const validationError = validateChildPhoto(file);
-  if (validationError) throw new Error(validationError);
-  const ownerSegment = isSingleSubject(subject)
-    ? `single-${subject.singleId}`
-    : `${subject.shidduchimId}`;
-  const storagePath = `${accountId}/photos/${visibility}/${ownerSegment}/${crypto.randomUUID()}-${file.name}`;
-  blobUrls.set(storagePath, URL.createObjectURL(file));
-
-  const { data: matches } = await baseDataProvider.getList<Resume>("resumes", {
-    filter: resumeSubjectFilter(subject),
-    pagination: { page: 1, perPage: 1 },
-    sort: { field: "id", order: "ASC" },
-  });
-  let resumeId = matches[0]?.id;
-
-  if (resumeId == null) {
-    const { data: resume } = await baseDataProvider.create<Resume>("resumes", {
-      data: {
-        account_id: accountId,
-        ...resumeSubjectFilter(subject),
-        created_at: new Date().toISOString(),
-      },
-    });
-    resumeId = resume.id;
-  }
-
-  const { data } = await baseDataProvider.create<ResumePhoto>("resume_photos", {
-    data: {
-      account_id: accountId,
-      resume_id: resumeId,
-      path: storagePath,
-      uploaded_at: new Date().toISOString(),
+    const validationError = validateChildPhoto(file);
+    if (validationError) throw new Error(validationError);
+    const storagePath = resumePhotoStoragePath(
+      accountId,
+      ownerSegment(subject),
       visibility,
-      hidden_at: null,
-    },
+      sourceAttachmentPath,
+      file.name,
+    );
+    if (sourceAttachmentPath) {
+      const existing = await findResumePhotoBySource(
+        baseDataProvider,
+        accountId,
+        {
+          ...subject,
+          sourceAttachmentPath,
+          visibility,
+        },
+      );
+      if (existing) return existing;
+    }
+
+    const { data: matches } = await baseDataProvider.getList<Resume>(
+      "resumes",
+      {
+        filter: resumeSubjectFilter(subject),
+        pagination: { page: 1, perPage: 1 },
+        sort: { field: "id", order: "ASC" },
+      },
+    );
+    let resumeId = matches[0]?.id;
+
+    if (onlyIfNoVisiblePhoto && resumeId != null) {
+      const { data: photos } = await baseDataProvider.getList<ResumePhoto>(
+        "resume_photos",
+        {
+          filter: { resume_id: resumeId, "hidden_at@is": null },
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "uploaded_at", order: "ASC" },
+        },
+      );
+      if (photos[0]) return photos[0];
+    }
+
+    blobUrls.set(storagePath, URL.createObjectURL(file));
+
+    if (resumeId == null) {
+      const { data: resume } = await baseDataProvider.create<Resume>(
+        "resumes",
+        {
+          data: {
+            account_id: accountId,
+            ...resumeSubjectFilter(subject),
+            created_at: new Date().toISOString(),
+          },
+        },
+      );
+      resumeId = resume.id;
+    }
+
+    const { data } = await baseDataProvider.create<ResumePhoto>(
+      "resume_photos",
+      {
+        data: {
+          account_id: accountId,
+          resume_id: resumeId,
+          path: storagePath,
+          uploaded_at: new Date().toISOString(),
+          visibility,
+          hidden_at: null,
+        },
+      },
+    );
+    return data;
+  };
+
+  if (!onlyIfNoVisiblePhoto) return upload();
+  return withAutomaticPhotoLock(
+    `${accountId}:${ownerSegment(subject)}`,
+    upload,
+  );
+}
+
+/** FakeRest mirror of the Supabase Inbox-to-Photo copy. The inbox blob map is
+ * the durable source in demo mode, so an expired persisted `src` does not
+ * prevent the automatic promotion. */
+export async function copyInboxAttachmentToResumePhoto(
+  baseDataProvider: DataProvider,
+  inboxBlobUrls: Map<string, string>,
+  photoBlobUrls: ResumePhotoBlobUrls,
+  accountId: Identifier,
+  params: CopyInboxAttachmentToResumePhotoParams,
+): Promise<ResumePhoto> {
+  const sourceUrl =
+    inboxBlobUrls.get(params.attachment.path) ?? params.attachment.src;
+  const response = await fetch(sourceUrl);
+  if (!response.ok) {
+    throw new Error("Failed to read the captured picture");
+  }
+  const blob = await response.blob();
+  const file = new File([blob], params.attachment.title, {
+    type: params.attachment.type || blob.type || "application/octet-stream",
   });
-  return data;
+  const { attachment: _attachment, ...subject } = params;
+  return uploadResumePhoto(baseDataProvider, photoBlobUrls, accountId, {
+    ...subject,
+    file,
+    visibility: "shared",
+    sourceAttachmentPath: params.attachment.path,
+    onlyIfNoVisiblePhoto: true,
+  });
 }
 
 /** FakeRest mirror of `signResumePhotoUrl` — returns the same object URL on

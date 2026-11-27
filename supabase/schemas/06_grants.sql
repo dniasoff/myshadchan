@@ -592,6 +592,9 @@ grant execute on function public.resume_read_in_progress(bigint, text) to servic
 
 -- Story 5.4: the two write paths into resume_photos (AC 2). Story 5.8
 -- widened add_resume_photo the same way as add_resume_file above.
+revoke all on function public.add_resume_photo(text, boolean, bigint, bigint, text, bigint) from public, anon;
+grant execute on function public.add_resume_photo(text, boolean, bigint, bigint, text, bigint) to authenticated;
+grant execute on function public.add_resume_photo(text, boolean, bigint, bigint, text, bigint) to service_role;
 revoke all on function public.add_resume_photo(text, bigint, bigint, text, bigint) from public, anon;
 grant execute on function public.add_resume_photo(text, bigint, bigint, text, bigint) to authenticated;
 grant execute on function public.add_resume_photo(text, bigint, bigint, text, bigint) to service_role;

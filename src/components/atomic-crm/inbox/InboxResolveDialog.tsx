@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   Form,
@@ -10,7 +10,7 @@ import {
   useRefresh,
   useTranslate,
 } from "ra-core";
-import { useFormState } from "react-hook-form";
+import { useFormContext, useFormState } from "react-hook-form";
 import { CancelButton } from "@/components/admin/cancel-button";
 import { AutocompleteInput } from "@/components/admin/autocomplete-input";
 import { SaveButton } from "@/components/admin/form";
@@ -41,7 +41,12 @@ import {
   suggestedByPhoneFromInboxItem,
   useResolveInboxItem,
 } from "./useResolveInboxItem";
-import { hasResumeShapedAttachment } from "./useParseResume";
+import {
+  hasResumeShapedAttachment,
+  useParseResume,
+  type ParsedResumeResponse,
+} from "./useParseResume";
+import { parseWhatsAppText } from "./whatsappText";
 
 const PAGE_ONE = { page: 1, perPage: 1 } as const;
 const SORT_BY_ID = { field: "id", order: "ASC" } as const;
@@ -70,7 +75,7 @@ function readTextField(value: unknown): string | null {
   return null;
 }
 
-function NameInput() {
+function NameInput({ suggested }: { suggested: boolean }) {
   const { errors, submitCount } = useFormState({ name: "name_en" });
   const message =
     typeof errors.name_en?.message === "string"
@@ -86,7 +91,9 @@ function NameInput() {
     <>
       <TextInput
         source="name_en"
-        label="Name of the person being suggested"
+        label={
+          suggested ? "Suggested name" : "Name of the person being suggested"
+        }
         dir="auto"
         aria-describedby={`name-of-person-description${
           message ? " name-of-person-error" : ""
@@ -101,7 +108,14 @@ function NameInput() {
             id="name-of-person-description"
             className="text-xs text-muted-foreground"
           >
-            The person the message or resume is about
+            {suggested ? (
+              <>
+                <span>Taken from the first bold words. You can change it.</span>{" "}
+                <span>The person the message or resume is about</span>
+              </>
+            ) : (
+              "The person the message or resume is about"
+            )}
           </span>
         }
       />
@@ -117,6 +131,28 @@ function NameInput() {
       ) : null}
     </>
   );
+}
+
+function ApplyParsedResumeDefaults({
+  parsed,
+  firstBoldText,
+}: {
+  parsed: ParsedResumeResponse | null;
+  firstBoldText: string | null;
+}) {
+  const { formState, setValue } = useFormContext<Record<string, unknown>>();
+
+  useEffect(() => {
+    if (!parsed) return;
+    const dirtyFields = formState.dirtyFields as Record<string, unknown>;
+    for (const [field, value] of Object.entries(parsed.fields)) {
+      if (field === "name_en" && firstBoldText) continue;
+      if (dirtyFields[field]) continue;
+      setValue(field, value, { shouldDirty: false });
+    }
+  }, [firstBoldText, formState.dirtyFields, parsed, setValue]);
+
+  return null;
 }
 
 /**
@@ -156,6 +192,64 @@ const LegacyInboxResolveDialog = ({
   // while "File as a suggestion" is mid-submit — and send two competing
   // resolutions for the one item. One flag gates all three.
   const [isBusy, setIsBusy] = useState(false);
+  const [parsedTextResume, setParsedTextResume] =
+    useState<ParsedResumeResponse | null>(null);
+  const [textReadState, setTextReadState] = useState<
+    "idle" | "reading" | "saved" | "failed" | "unavailable"
+  >("idle");
+  const textReadAttempt = useRef<Identifier | null>(null);
+  const textReadPromise = useRef<Promise<ParsedResumeResponse | null> | null>(
+    null,
+  );
+  const { parse } = useParseResume();
+  const textResume =
+    Boolean(item.raw_text?.trim()) && !hasResumeDocumentAttachment(item);
+  const firstBoldText = textResume
+    ? parseWhatsAppText(item.raw_text ?? "").firstBoldText
+    : null;
+
+  const readTextResume =
+    useCallback(async (): Promise<ParsedResumeResponse | null> => {
+      if (!textResume) return null;
+      if (textReadPromise.current) return textReadPromise.current;
+      textReadAttempt.current = item.id;
+      setTextReadState("reading");
+      const promise = (async () => {
+        try {
+          const result = await parse(item);
+          if (textReadAttempt.current !== item.id) return null;
+          setParsedTextResume(result);
+          setTextReadState("saved");
+          return result;
+        } catch (error) {
+          if (textReadAttempt.current !== item.id) return null;
+          const message = error instanceof Error ? error.message : "";
+          setTextReadState(
+            /monthly|entitled|allowance|available/i.test(message)
+              ? "unavailable"
+              : "failed",
+          );
+          return null;
+        } finally {
+          textReadPromise.current = null;
+        }
+      })();
+      textReadPromise.current = promise;
+      return promise;
+    }, [item, parse, textResume]);
+
+  useEffect(() => {
+    setParsedTextResume(null);
+    setTextReadState("idle");
+    textReadAttempt.current = null;
+    textReadPromise.current = null;
+  }, [item.id]);
+
+  useEffect(() => {
+    if (open && textResume && textReadState === "idle") {
+      void readTextResume();
+    }
+  }, [open, readTextResume, textReadState, textResume]);
 
   // AC 3's inline "+ Add a shadchan" (FR78): the shared helper (review fix
   // F4) keeps the affordance available in this short confirmation form.
@@ -186,7 +280,9 @@ const LegacyInboxResolveDialog = ({
     : null;
 
   const resumeAttachment = item.attachments?.find((attachment) =>
-    hasResumeShapedAttachment({ ...item, attachments: [attachment] }),
+    textResume
+      ? hasResumeDocumentAttachment({ ...item, attachments: [attachment] })
+      : hasResumeShapedAttachment({ ...item, attachments: [attachment] }),
   );
 
   const onSubmit = async (values: Record<string, unknown>) => {
@@ -228,14 +324,20 @@ const LegacyInboxResolveDialog = ({
         return;
       }
 
+      const settledTextDraft = textResume
+        ? textReadPromise.current
+          ? await textReadPromise.current
+          : (parsedTextResume ??
+            (textReadState === "idle" ? await readTextResume() : null))
+        : null;
       await resolveAsNewShidduch(
         item,
         input,
-        resumeAttachment
+        textResume || resumeAttachment
           ? {
               attachment: resumeAttachment,
-              rawDraft: null,
-              sections: null,
+              rawDraft: settledTextDraft?.rawDraft ?? null,
+              sections: settledTextDraft?.sections ?? null,
             }
           : undefined,
       );
@@ -311,6 +413,67 @@ const LegacyInboxResolveDialog = ({
         {/* The raw capture, verbatim, for reference while filing. */}
         <InboxCapturePreview item={item} />
 
+        {textResume ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded-xl border border-border bg-background/60 p-4 text-sm"
+          >
+            {textReadState === "reading" ? (
+              <>
+                <p className="font-semibold">Reading the text now…</p>
+                <p className="text-muted-foreground">
+                  Your original text is safe. You can leave this page.
+                </p>
+              </>
+            ) : textReadState === "saved" ? (
+              <>
+                <p className="font-semibold">Resume tab saved</p>
+                <p className="text-muted-foreground">
+                  Saved from this text. You can review and edit it.
+                </p>
+              </>
+            ) : textReadState === "unavailable" ? (
+              <p>
+                Automatic reading is not available right now. Your original text
+                is still saved.
+              </p>
+            ) : textReadState === "failed" ? (
+              <>
+                <p className="font-semibold">We couldn’t read the text yet.</p>
+                <p className="text-muted-foreground">
+                  Your original text is safe.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="min-h-11 rounded-xl border border-border px-4 font-medium"
+                    onClick={() => void readTextResume()}
+                  >
+                    Try again
+                  </button>
+                  <button
+                    type="button"
+                    className="min-h-11 rounded-xl border border-border px-4 font-medium"
+                    onClick={() => setTextReadState("unavailable")}
+                  >
+                    Fill it in myself
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p>
+                  Reading this text into the Resume tab starts automatically.
+                </p>
+                <p className="text-muted-foreground">
+                  One AI read may cost money.
+                </p>
+              </>
+            )}
+          </div>
+        ) : null}
+
         {isShadchanSourced && isLoadingLinkedShadchan ? (
           // Story 8.3 (AC-3): never mount the form with the wrong default —
           // wait for the connection's shadchan to resolve rather than
@@ -331,8 +494,13 @@ const LegacyInboxResolveDialog = ({
               suggested_by_phone: suggestedByPhoneFromInboxItem(item) ?? "",
               initial_state: "new",
               redt_date: item.created_at?.split("T")[0],
+              name_en: firstBoldText ?? undefined,
             }}
           >
+            <ApplyParsedResumeDefaults
+              parsed={parsedTextResume}
+              firstBoldText={firstBoldText}
+            />
             <div className="flex flex-col gap-4">
               <ReferenceInput
                 source="shadchan_id"
@@ -361,7 +529,7 @@ const LegacyInboxResolveDialog = ({
                   helperText={false}
                 />
               </ReferenceInput>
-              <NameInput />
+              <NameInput suggested={firstBoldText !== null} />
               <SuggestedByFields />
             </div>
 
@@ -376,7 +544,7 @@ const LegacyInboxResolveDialog = ({
               </span>
               <LinkToShidduchSearch
                 onLink={handleLinkToExisting}
-                disabled={isBusy}
+                disabled={isBusy || textReadState === "reading"}
               />
             </div>
 
@@ -406,7 +574,7 @@ const LegacyInboxResolveDialog = ({
                   <SaveButton
                     label="File as a suggestion"
                     className={`${INBOX_PRIMARY_CTA_CLASS} w-full justify-center sm:w-auto`}
-                    disabled={isBusy}
+                    disabled={isBusy || textReadState === "reading"}
                   />
                 </div>
               </div>

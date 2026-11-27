@@ -2545,7 +2545,7 @@ begin
 end;
 $function$;
 
-CREATE OR REPLACE FUNCTION "public"."add_resume_photo"("p_path" "text", "p_shidduchim_id" bigint DEFAULT NULL::bigint, "p_single_id" bigint DEFAULT NULL::bigint, "p_visibility" "text" DEFAULT 'shared'::"text", "p_size" bigint DEFAULT NULL::bigint) RETURNS SETOF "public"."resume_photos"
+CREATE OR REPLACE FUNCTION "public"."add_resume_photo"("p_path" "text", "p_only_if_no_visible_photo" boolean, "p_shidduchim_id" bigint, "p_single_id" bigint, "p_visibility" "text", "p_size" bigint) RETURNS SETOF "public"."resume_photos"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -2553,6 +2553,7 @@ declare
   v_account_id bigint;
   v_resume_id bigint;
   v_parent_id bigint;
+  v_existing_photo public.resume_photos;
 begin
   v_account_id := public.current_context_id();
   if public.current_member_role() not in ('parent_admin', 'self_manager') then
@@ -2606,10 +2607,11 @@ begin
       do update set shidduchim_id = excluded.shidduchim_id
     returning id into v_resume_id;
   else
-    if not exists (
-      select 1 from public.singles s
-      where s.id = p_single_id and s.account_id = v_account_id
-    ) then
+    select s.id into v_parent_id
+    from public.singles s
+    where s.id = p_single_id and s.account_id = v_account_id
+    for update;
+    if v_parent_id is null then
       raise exception 'single % not found in current account', p_single_id;
     end if;
 
@@ -2620,11 +2622,39 @@ begin
     returning id into v_resume_id;
   end if;
 
+  if coalesce(p_only_if_no_visible_photo, false) then
+    select rp.* into v_existing_photo
+    from public.resume_photos rp
+    where rp.resume_id = v_resume_id
+      and rp.hidden_at is null
+    order by rp.uploaded_at asc, rp.id asc
+    limit 1;
+    if found then
+      return next v_existing_photo;
+      return;
+    end if;
+  end if;
+
   return query
   insert into public.resume_photos (account_id, resume_id, path, visibility)
   values (v_account_id, v_resume_id, p_path, coalesce(p_visibility, 'shared'))
   returning *;
 end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."add_resume_photo"("p_path" "text", "p_shidduchim_id" bigint DEFAULT NULL::bigint, "p_single_id" bigint DEFAULT NULL::bigint, "p_visibility" "text" DEFAULT 'shared'::"text", "p_size" bigint DEFAULT NULL::bigint) RETURNS SETOF "public"."resume_photos"
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select *
+  from public.add_resume_photo(
+    p_path => p_path,
+    p_shidduchim_id => p_shidduchim_id,
+    p_single_id => p_single_id,
+    p_visibility => p_visibility,
+    p_size => p_size,
+    p_only_if_no_visible_photo => false
+  );
 $$;
 
 CREATE OR REPLACE FUNCTION "public"."ai_cost_per_active_family"() RETURNS numeric

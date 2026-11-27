@@ -102,13 +102,17 @@ import type {
   UploadResumeFileParams,
 } from "./resumes";
 import {
+  copyInboxAttachmentToResumePhoto as copyInboxAttachmentToResumePhotoImpl,
   hideResumePhoto as hideResumePhotoImpl,
+  findResumePhotoBySource as findResumePhotoBySourceImpl,
   restoreResumePhoto as restoreResumePhotoImpl,
   signResumePhotoUrl as signResumePhotoUrlImpl,
   uploadResumePhoto as uploadResumePhotoImpl,
 } from "./resumePhotos";
 import type {
   HideResumePhotoParams,
+  FindResumePhotoBySourceParams,
+  CopyInboxAttachmentToResumePhotoParams,
   RestoreResumePhotoParams,
   SignResumePhotoUrlParams,
   UploadResumePhotoParams,
@@ -1567,6 +1571,16 @@ export const getDataProviderWithCustomMethods = () => {
       params: UploadResumePhotoParams,
     ): Promise<ResumePhoto> {
       return uploadResumePhotoImpl(params);
+    },
+    async copyInboxAttachmentToResumePhoto(
+      params: CopyInboxAttachmentToResumePhotoParams,
+    ): Promise<ResumePhoto> {
+      return copyInboxAttachmentToResumePhotoImpl(params);
+    },
+    async findResumePhotoBySource(
+      params: FindResumePhotoBySourceParams,
+    ): Promise<ResumePhoto | null> {
+      return findResumePhotoBySourceImpl(params);
     },
     async signResumePhotoUrl(
       params: SignResumePhotoUrlParams,

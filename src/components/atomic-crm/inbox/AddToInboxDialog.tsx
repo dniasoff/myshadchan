@@ -211,7 +211,7 @@ export const AddToInboxDialog = ({
       const response = await dataProvider.create<InboxItem>("inbox_items", {
         data: {
           source: "upload",
-          raw_text: text.trim() || null,
+          raw_text: text.trim().length > 0 ? text : null,
           sender: sender.trim() || null,
           sender_phone: senderPhone.trim() || null,
           status: "unresolved",

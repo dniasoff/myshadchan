@@ -4,8 +4,14 @@ import {
   isSingleSubject,
   type ResumeSubject,
 } from "../../resumes/resumeSubject";
-import type { ResumePhoto, ResumePhotoVisibility } from "../../types";
+import type {
+  InboxAttachment,
+  ResumePhoto,
+  ResumePhotoVisibility,
+} from "../../types";
 import { validateChildPhoto } from "../../singles/ChildDocuments/childDocuments";
+import { ATTACHMENTS_BUCKET } from "../commons/attachments";
+import { resumePhotoStoragePath } from "../resumePhotoIdempotency";
 import { getSupabaseClient } from "./supabase";
 
 /**
@@ -42,6 +48,17 @@ async function getCurrentAccountId(): Promise<number> {
 export type UploadResumePhotoParams = ResumeSubject & {
   file: File;
   visibility?: ResumePhotoVisibility;
+  sourceAttachmentPath?: string;
+  onlyIfNoVisiblePhoto?: boolean;
+};
+
+export type CopyInboxAttachmentToResumePhotoParams = ResumeSubject & {
+  attachment: InboxAttachment;
+};
+
+export type FindResumePhotoBySourceParams = ResumeSubject & {
+  sourceAttachmentPath: string;
+  visibility?: ResumePhotoVisibility;
 };
 
 export type SignResumePhotoUrlParams = {
@@ -55,6 +72,38 @@ export type HideResumePhotoParams = {
 export type RestoreResumePhotoParams = {
   id: Identifier;
 };
+
+function ownerSegment(subject: ResumeSubject): string {
+  return isSingleSubject(subject)
+    ? `single-${subject.singleId}`
+    : `${subject.shidduchimId}`;
+}
+
+async function findResumePhotoByPath(
+  path: string,
+): Promise<ResumePhoto | null> {
+  const { data, error } = await getSupabaseClient()
+    .from("resume_photos")
+    .select("*")
+    .eq("path", path)
+    .maybeSingle();
+  if (error) throw new Error(error.message || "Failed to find the photo");
+  return (data as ResumePhoto | null) ?? null;
+}
+
+export async function findResumePhotoBySource(
+  params: FindResumePhotoBySourceParams,
+): Promise<ResumePhoto | null> {
+  const accountId = await getCurrentAccountId();
+  const visibility = params.visibility ?? "shared";
+  const path = resumePhotoStoragePath(
+    accountId,
+    ownerSegment(params),
+    visibility,
+    params.sourceAttachmentPath,
+  );
+  return findResumePhotoByPath(path);
+}
 
 /**
  * AC 2/AC 4: uploads under the AC-4 key grammar — the visibility is segment
@@ -71,19 +120,38 @@ export type RestoreResumePhotoParams = {
 export async function uploadResumePhoto(
   params: UploadResumePhotoParams,
 ): Promise<ResumePhoto> {
-  const { file, visibility = "shared", ...subject } = params;
+  const {
+    file,
+    visibility = "shared",
+    sourceAttachmentPath,
+    onlyIfNoVisiblePhoto = false,
+    ...subject
+  } = params;
   const validationError = validateChildPhoto(file);
   if (validationError) throw new Error(validationError);
   const accountId = await getCurrentAccountId();
-  const ownerSegment = isSingleSubject(subject)
-    ? `single-${subject.singleId}`
-    : `${subject.shidduchimId}`;
-  const storagePath = `${accountId}/photos/${visibility}/${ownerSegment}/${crypto.randomUUID()}-${file.name}`;
+  const subjectOwnerSegment = ownerSegment(subject);
+  const storagePath = resumePhotoStoragePath(
+    accountId,
+    subjectOwnerSegment,
+    visibility,
+    sourceAttachmentPath,
+    file.name,
+  );
+
+  if (sourceAttachmentPath) {
+    const existing = await findResumePhotoByPath(storagePath);
+    if (existing) return existing;
+  }
 
   const { error: uploadError } = await getSupabaseClient()
     .storage.from(DOCUMENTS_BUCKET)
     .upload(storagePath, file);
   if (uploadError) {
+    if (sourceAttachmentPath) {
+      const existing = await findResumePhotoByPath(storagePath);
+      if (existing) return existing;
+    }
     console.error("uploadResumePhoto.upload.error", uploadError);
     throw new Error("Failed to upload the photo");
   }
@@ -92,10 +160,11 @@ export async function uploadResumePhoto(
     p_path: storagePath,
     p_size: file.size,
     p_visibility: visibility,
-    p_shidduchim_id: isSingleSubject(subject)
-      ? undefined
-      : subject.shidduchimId,
-    p_single_id: isSingleSubject(subject) ? subject.singleId : undefined,
+    p_only_if_no_visible_photo: onlyIfNoVisiblePhoto,
+    // The atomic overload intentionally has no defaults. Passing null for the
+    // unused owner keeps the RPC call unambiguous with the legacy overload.
+    p_shidduchim_id: isSingleSubject(subject) ? null : subject.shidduchimId,
+    p_single_id: isSingleSubject(subject) ? subject.singleId : null,
   });
   if (error) {
     console.error("uploadResumePhoto.add_resume_photo.error", error);
@@ -109,7 +178,46 @@ export async function uploadResumePhoto(
   }
 
   const row = Array.isArray(data) ? data[0] : data;
+  if (row?.path !== storagePath) {
+    await getSupabaseClient()
+      .storage.from(DOCUMENTS_BUCKET)
+      .remove([storagePath])
+      .catch((removeError) => {
+        console.error("uploadResumePhoto.loser_cleanup.error", removeError);
+      });
+  }
   return row as ResumePhoto;
+}
+
+/**
+ * Copy the durable Inbox object into the Photo surface without trusting the
+ * persisted, expiring attachment URL. This is the automatic-photo counterpart
+ * to the manual promotion in OriginalResumeTab: the Inbox path is the source
+ * of truth, and uploadResumePhoto supplies the same deterministic idempotency
+ * key and object/row cleanup guarantees.
+ */
+export async function copyInboxAttachmentToResumePhoto(
+  params: CopyInboxAttachmentToResumePhotoParams,
+): Promise<ResumePhoto> {
+  const { attachment, ...subject } = params;
+  const { data: blob, error } = await getSupabaseClient()
+    .storage.from(ATTACHMENTS_BUCKET)
+    .download(attachment.path);
+  if (error || !blob) {
+    console.error("copyInboxAttachmentToResumePhoto.download.error", error);
+    throw new Error("Failed to read the captured picture");
+  }
+
+  const file = new File([blob], attachment.title, {
+    type: attachment.type || blob.type || "application/octet-stream",
+  });
+  return uploadResumePhoto({
+    ...subject,
+    file,
+    visibility: "shared",
+    sourceAttachmentPath: attachment.path,
+    onlyIfNoVisiblePhoto: true,
+  });
 }
 
 /**

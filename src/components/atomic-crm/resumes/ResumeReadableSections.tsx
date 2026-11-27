@@ -425,6 +425,17 @@ export function ResumeReadableSections({
         })}
       </h2>
       <CardContent className="flex flex-col gap-0 px-4 py-0 sm:px-6">
+        {visibleResumeFiles.length === 0 && hasParsedContent ? (
+          <div
+            className="my-5 rounded-xl border border-border bg-secondary/40 p-4 text-sm"
+            role="status"
+          >
+            <p className="font-semibold">Resume tab saved</p>
+            <p className="text-muted-foreground">
+              Saved from this text. You can review and edit it.
+            </p>
+          </div>
+        ) : null}
         {canOfferRead && newestFile ? (
           <div className="my-5 flex items-start gap-3 rounded-xl border border-dashed p-4 text-sm">
             <StickyNote

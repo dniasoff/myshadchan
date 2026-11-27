@@ -12,6 +12,7 @@ import type {
   Interaction,
   Resume,
   ResumeFileVersion,
+  ResumePhoto,
   Shidduch,
 } from "../types";
 import { isAutomaticallyReadableResume } from "../resumes/resumeAutoReadHelpers";
@@ -257,6 +258,9 @@ export function useResolveInboxItem() {
       action: "new",
       input: filingInput,
       resume_draft: draft,
+      ...(item.raw_text?.trim()
+        ? { resume_source_inbox_item_id: item.id }
+        : {}),
     };
     const lockedItem = await acquireResolutionLock(
       dataProvider,
@@ -370,9 +374,11 @@ export function useResolveInboxItem() {
           },
         );
 
-        const existingResumeForAttempt = existingResumes.find((resume) =>
-          findResumeFile(resume, item.id, savedDraft.attachment.path),
-        );
+        const existingResumeForAttempt = savedDraft.attachment
+          ? existingResumes.find((resume) =>
+              findResumeFile(resume, item.id, savedDraft.attachment!.path),
+            )
+          : existingResumes[0];
         if (existingResumes.length > 0 && !existingResumeForAttempt) {
           throw new Error(
             "A different resume is already attached to this suggestion.",
@@ -386,25 +392,31 @@ export function useResolveInboxItem() {
               draftProgress.resume_transfer_state === "cleanup_pending") &&
             draftProgress.resume_transfer_path;
           try {
-            copiedFile = stashedTransferPath
-              ? {
-                  storagePath: stashedTransferPath,
-                  size: draftProgress.resume_transfer_size ?? 0,
-                }
-              : await dataProvider.copyInboxAttachmentToResumeFile({
-                  shidduchimId: created.id,
-                  inboxItemId: item.id,
-                  attachment: savedDraft.attachment,
-                });
+            copiedFile = savedDraft.attachment
+              ? stashedTransferPath
+                ? {
+                    storagePath: stashedTransferPath,
+                    size: draftProgress.resume_transfer_size ?? 0,
+                  }
+                : await dataProvider.copyInboxAttachmentToResumeFile({
+                    shidduchimId: created.id,
+                    inboxItemId: item.id,
+                    attachment: savedDraft.attachment,
+                  })
+              : undefined;
 
-            if (!stashedTransferPath) {
+            if (savedDraft.attachment && !copiedFile) {
+              throw new Error("Could not copy the resume attachment.");
+            }
+
+            if (savedDraft.attachment && !stashedTransferPath) {
               resolutionSnapshot = await updateOwnedInboxResolution(
                 item,
                 {
                   resolution_input: {
                     ...draftProgress,
-                    resume_transfer_path: copiedFile.storagePath,
-                    resume_transfer_size: copiedFile.size,
+                    resume_transfer_path: copiedFile!.storagePath,
+                    resume_transfer_size: copiedFile!.size,
                     resume_transfer_state: "pending",
                   },
                 },
@@ -412,25 +424,29 @@ export function useResolveInboxItem() {
               );
               draftProgress = {
                 ...draftProgress,
-                resume_transfer_path: copiedFile.storagePath,
-                resume_transfer_size: copiedFile.size,
+                resume_transfer_path: copiedFile!.storagePath,
+                resume_transfer_size: copiedFile!.size,
                 resume_transfer_state: "pending",
               };
             }
             const resumeData: Record<string, unknown> = {
               shidduchim_id: created.id,
-              files: [
-                {
-                  path: copiedFile.storagePath,
-                  filename: savedDraft.attachment.title,
-                  mime_type: savedDraft.attachment.type,
-                  uploaded_at: new Date().toISOString(),
-                  uploaded_by: null,
-                  size: copiedFile.size,
-                  source_inbox_item_id: item.id,
-                  source_inbox_attachment_path: savedDraft.attachment.path,
-                },
-              ],
+              files:
+                copiedFile && savedDraft.attachment
+                  ? [
+                      {
+                        path: copiedFile.storagePath,
+                        filename: savedDraft.attachment.title,
+                        mime_type: savedDraft.attachment.type,
+                        uploaded_at: new Date().toISOString(),
+                        uploaded_by: null,
+                        size: copiedFile.size,
+                        source_inbox_item_id: item.id,
+                        source_inbox_attachment_path:
+                          savedDraft.attachment.path,
+                      },
+                    ]
+                  : [],
             };
             // A plain confirmation does not have extracted fields. Leave them
             // absent so the Resume-tab reader remains the only writer of read
@@ -439,7 +455,21 @@ export function useResolveInboxItem() {
               resumeData.extracted = savedDraft.rawDraft;
             }
             if (savedDraft.sections != null) {
-              resumeData.sections = savedDraft.sections;
+              resumeData.sections =
+                !savedDraft.attachment &&
+                typeof savedDraft.sections === "object" &&
+                savedDraft.sections !== null &&
+                !Array.isArray(savedDraft.sections)
+                  ? {
+                      ...(savedDraft.sections as Record<string, unknown>),
+                      source_inbox_item_id: item.id,
+                    }
+                  : savedDraft.sections;
+            } else if (!savedDraft.attachment) {
+              // Text captures have no file-version row in which to retain
+              // provenance. Keep the source id alongside the parsed sections
+              // metadata without changing the exact Inbox raw_text.
+              resumeData.sections = { source_inbox_item_id: item.id };
             }
             await dataProvider.create<Resume>("resumes", {
               data: resumeData,
@@ -486,12 +516,56 @@ export function useResolveInboxItem() {
           },
           attemptId,
         );
-        if (item.source === "upload") {
+        if (item.source === "upload" && savedDraft.attachment) {
           await dataProvider
             .removeInboxAttachment(savedDraft.attachment.path)
             .catch(() => undefined);
         }
       }
+
+      const pictureAttachments = (
+        (item.attachments ?? []) as InboxAttachment[]
+      ).filter(
+        (attachment) =>
+          INBOX_IMAGE_EXTENSIONS.has(
+            attachmentExtension(attachment.title ?? ""),
+          ) || (attachment.type ?? "").toLowerCase().startsWith("image/"),
+      );
+      const pictureProgress = (resolutionSnapshot.resolution_input ??
+        draftProgress) as NewResolutionProgress;
+      if (
+        pictureAttachments.length > 0 &&
+        !pictureProgress.picture_files_created
+      ) {
+        await dataProvider.copyInboxAttachmentsToEntityFiles({
+          baseDataProvider: dataProvider,
+          attachments: pictureAttachments,
+          targetType: "shidduch",
+          targetId: created.id,
+          visibility: "private_parent",
+          sourceInboxItemId: item.id,
+        });
+        resolutionSnapshot = await updateOwnedInboxResolution(
+          item,
+          {
+            resolution_input: {
+              ...pictureProgress,
+              picture_files_created: true,
+            },
+          },
+          attemptId,
+        );
+      }
+
+      const promotedSnapshot = await autoPromoteFirstPicture(
+        item,
+        created.id,
+        pictureAttachments,
+        (resolutionSnapshot.resolution_input ??
+          pictureProgress) as NewResolutionProgress,
+        attemptId,
+      );
+      if (promotedSnapshot) resolutionSnapshot = promotedSnapshot;
 
       resolutionSnapshot = await updateOwnedInboxResolution(
         item,
@@ -535,6 +609,9 @@ export function useResolveInboxItem() {
     const resolutionInput: ResolutionInput = {
       action: "link",
       shidduchim_id: shidduchimId,
+      ...(item.raw_text?.trim()
+        ? { resume_source_inbox_item_id: item.id }
+        : {}),
     };
     const lockedItem = await acquireResolutionLock(
       dataProvider,
@@ -602,9 +679,9 @@ export function useResolveInboxItem() {
 
       // Story 10.4: carry any capture attachments into the linked shidduch's
       // Files tab so they remain reachable after the inbox item is resolved.
-      // Pictures are deliberately parent-private here: linking an Inbox item
-      // must not turn an unreviewed picture into a shared suggestion asset.
-      // Explicit photo flows are the only place that may promote a picture.
+      // Pictures remain parent-private in Files. If the suggestion has no
+      // current Photo, the first supported picture is also promoted through
+      // the same deterministic Photo path; later pictures remain in Files.
       const attachments = (item.attachments ?? []) as InboxAttachment[];
       const documentAttachments = attachments.filter(
         isAffirmativeInboxDocument,
@@ -632,6 +709,16 @@ export function useResolveInboxItem() {
           sourceInboxItemId: item.id,
         });
       }
+
+      const promotedSnapshot = await autoPromoteFirstPicture(
+        item,
+        shidduchimId,
+        pictureAttachments,
+        (resolutionSnapshot.resolution_input ??
+          stashed) as LinkResolutionProgress,
+        attemptId,
+      );
+      if (promotedSnapshot) resolutionSnapshot = promotedSnapshot;
 
       resolutionSnapshot = await updateOwnedInboxResolution(
         item,
@@ -745,6 +832,64 @@ export function useResolveInboxItem() {
     );
     if (!updated) throw new ResolutionClaimLostError();
     return updated;
+  };
+
+  const autoPromoteFirstPicture = async (
+    item: InboxItem,
+    shidduchimId: Identifier,
+    pictures: InboxAttachment[],
+    progress: {
+      picture_photo_created?: boolean;
+      picture_photo_source_path?: string;
+    },
+    ownerAttemptId: string,
+  ): Promise<InboxItem | null> => {
+    if (progress.picture_photo_created) return null;
+    const candidate = pictures.find((attachment) => {
+      const mimeType = (attachment.type ?? "").trim().toLowerCase();
+      if (mimeType) {
+        return mimeType === "image/jpeg" || mimeType === "image/png";
+      }
+      return /\.(jpeg|jpg|png)$/iu.test(attachment.title ?? "");
+    });
+    if (!candidate) return null;
+
+    const { data: resumes } = await dataProvider.getList<Resume>("resumes", {
+      filter: { shidduchim_id: shidduchimId },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    });
+    const resume = resumes[0];
+    if (resume) {
+      const { data: photos } = await dataProvider.getList<ResumePhoto>(
+        "resume_photos",
+        {
+          filter: { resume_id: resume.id, "hidden_at@is": null },
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "uploaded_at", order: "DESC" },
+        },
+      );
+      if (photos.length > 0) return null;
+    }
+
+    const promotedPhoto = await dataProvider.copyInboxAttachmentToResumePhoto({
+      shidduchimId,
+      attachment: candidate,
+    });
+    return updateOwnedInboxResolution(
+      item,
+      {
+        resolution_input: {
+          ...progress,
+          // A deterministic source row can survive Ronit's Remove action as
+          // a hidden photo. The automatic path must not silently restore it,
+          // and its progress marker must describe the visible Photo surface.
+          picture_photo_created: promotedPhoto.hidden_at == null,
+          picture_photo_source_path: candidate.path,
+        },
+      },
+      ownerAttemptId,
+    );
   };
 
   const releaseInboxResolution = async (

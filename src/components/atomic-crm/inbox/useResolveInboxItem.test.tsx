@@ -144,6 +144,11 @@ const buildDataProvider = (
   const copyInboxAttachmentsToEntityFiles = vi.fn(async () => {
     return [] as EntityFile[];
   });
+  const copyInboxAttachmentToResumePhoto = vi.fn().mockResolvedValue({
+    id: 1,
+    path: "7/photos/shared/99/inbox-photo.jpg",
+    visibility: "shared",
+  });
 
   const getOne = vi.fn(async (resource: string, params: { id: Identifier }) => {
     if (resource === "inbox_items" && params.id === currentItem.id) {
@@ -232,6 +237,7 @@ const buildDataProvider = (
       storagePath: "7/resumes/99/generated-uuid-resume.pdf",
       size: 245678,
     }),
+    copyInboxAttachmentToResumePhoto,
     removeResumeFileObjects: defaultRemoveResumeFileObjects,
     removeResumeFileObjectsStrict,
     removeInboxAttachment: vi.fn().mockResolvedValue(undefined),
@@ -683,6 +689,73 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
   });
 });
 
+it("automatically promotes the first JPEG/PNG picture when no Photo exists", async () => {
+  const picture = {
+    title: "portrait.jpg",
+    type: "image/jpeg",
+    path: "1/inbox-portrait.jpg",
+    src: "https://example.test/portrait.jpg",
+  };
+  const item = buildItem({ attachments: [picture] });
+  const { screen, dataProvider } = await renderProbe(item);
+
+  await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+  await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+
+  expect(dataProvider.copyInboxAttachmentToResumePhoto).toHaveBeenCalledWith({
+    shidduchimId: 99,
+    attachment: picture,
+  });
+  expect(dataProvider.update).toHaveBeenCalledWith(
+    "inbox_items",
+    expect.objectContaining({
+      data: expect.objectContaining({
+        resolution_input: expect.objectContaining({
+          picture_photo_created: true,
+          picture_photo_source_path: picture.path,
+        }),
+      }),
+    }),
+  );
+});
+
+it("records an automatic Photo retry as not promoted when the source Photo is hidden", async () => {
+  const picture = {
+    title: "portrait.jpg",
+    type: "image/jpeg",
+    path: "1/inbox-portrait.jpg",
+    src: "https://example.test/portrait.jpg",
+  };
+  const item = buildItem({ attachments: [picture] });
+  const hiddenPhoto = {
+    id: 12,
+    path: "7/photos/shared/99/inbox-portrait.jpg",
+    visibility: "shared",
+    hidden_at: "2026-11-27T00:00:00.000Z",
+  };
+  const copyInboxAttachmentToResumePhoto = vi
+    .fn()
+    .mockResolvedValue(hiddenPhoto);
+  const { screen, dataProvider } = await renderProbe(item, {
+    copyInboxAttachmentToResumePhoto,
+  });
+
+  await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+  await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+
+  expect(dataProvider.update).toHaveBeenCalledWith(
+    "inbox_items",
+    expect.objectContaining({
+      data: expect.objectContaining({
+        resolution_input: expect.objectContaining({
+          picture_photo_created: false,
+          picture_photo_source_path: picture.path,
+        }),
+      }),
+    }),
+  );
+});
+
 describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 review fix, Finding 2 + also-fixes)", () => {
   it("persists the copied documents-bucket path and the real byte size on the new resumes row — the regression test for Finding 2", async () => {
     // Arrange
@@ -702,7 +775,7 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
     expect(copyInboxAttachmentToResumeFile).toHaveBeenCalledWith({
       shidduchimId: 99,
       inboxItemId: item.id,
-      attachment: draft.attachment,
+      attachment: draft.attachment!,
     });
 
     // Assert: the persisted file version uses the COPIED path (the bucket
@@ -727,7 +800,7 @@ describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 
       }),
     );
     expect(dataProvider.removeInboxAttachment).toHaveBeenCalledWith(
-      draft.attachment.path,
+      draft.attachment!.path,
     );
   });
 
@@ -1023,6 +1096,16 @@ describe("useResolveInboxItem — resolveAsLinkToExisting (AC 5: never a second 
       },
     });
     expect(dataProvider.createShidduch).not.toHaveBeenCalled();
+    expect(dataProvider.update).toHaveBeenCalledWith(
+      "inbox_items",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          resolution_input: expect.objectContaining({
+            resume_source_inbox_item_id: item.id,
+          }),
+        }),
+      }),
+    );
 
     // Story 10.5: resolving -> note inserted -> resolved
     expect(dataProvider.update).toHaveBeenCalledTimes(3);

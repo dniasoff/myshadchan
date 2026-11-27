@@ -26,6 +26,7 @@ const { signInboxAttachmentUrl } = vi.hoisted(() => ({
 
 vi.mock("../providers/supabase/inboxAttachments", () => ({
   signInboxAttachmentUrl,
+  copyInboxAttachmentsToEntityFiles: vi.fn().mockResolvedValue([]),
 }));
 
 /**

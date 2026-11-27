@@ -22,7 +22,8 @@ import type { CreateShidduchInput, InboxAttachment, InboxItem } from "../types";
  * the new shidduch so the original attachment and extracted draft are kept.
  */
 export type ResumeDraft = {
-  attachment: InboxAttachment;
+  /** File-backed resumes carry the source attachment; text resumes do not. */
+  attachment?: InboxAttachment;
   rawDraft: unknown;
   sections: unknown;
 };
@@ -36,19 +37,28 @@ export type ResolutionInput =
   | {
       action: "new";
       input: CreateShidduchInput;
+      /** The capture that supplied a text resume, when this is a text resume. */
+      resume_source_inbox_item_id?: Identifier;
       resolved_shidduchim_id?: Identifier;
       resume_draft?: ResumeDraft;
       resume_created?: boolean;
       resume_transfer_path?: string;
       resume_transfer_size?: number;
       resume_transfer_state?: "pending" | "cleanup_pending" | "cleaned";
+      picture_files_created?: boolean;
+      picture_photo_created?: boolean;
+      picture_photo_source_path?: string;
       claimed_from_status?: "unresolved" | "held";
       lock_acquired_at?: string;
     }
   | {
       action: "link";
       shidduchim_id: Identifier;
+      /** The capture that supplied a text resume, when this is a text resume. */
+      resume_source_inbox_item_id?: Identifier;
       note_inserted?: boolean;
+      picture_photo_created?: boolean;
+      picture_photo_source_path?: string;
       claimed_from_status?: "unresolved" | "held";
       lock_acquired_at?: string;
     }

@@ -107,7 +107,9 @@ import type {
   UploadResumeFileParams,
 } from "./internal/resumes";
 import {
+  copyInboxAttachmentToResumePhoto as copyInboxAttachmentToResumePhotoImpl,
   hideResumePhoto as hideResumePhotoImpl,
+  findResumePhotoBySource as findResumePhotoBySourceImpl,
   restoreResumePhoto as restoreResumePhotoImpl,
   signResumePhotoUrl as signResumePhotoUrlImpl,
   uploadResumePhoto as uploadResumePhotoImpl,
@@ -115,6 +117,8 @@ import {
 import { suggestedByPhoneSearchDigits } from "../../inbox/suggestedBy";
 import type {
   ResumePhotoBlobUrls,
+  FindResumePhotoBySourceParams,
+  CopyInboxAttachmentToResumePhotoParams,
   UploadResumePhotoParams,
 } from "./internal/resumePhotos";
 import {
@@ -4239,6 +4243,26 @@ export const createDataProvider = ({
         accountId,
         params,
       );
+    },
+    copyInboxAttachmentToResumePhoto: async (
+      params: CopyInboxAttachmentToResumePhotoParams,
+    ): Promise<ResumePhoto> => {
+      const accountId = await resolveCurrentAccountId();
+      const caller = await requireCallerMembership();
+      assertResumeUploadRole(caller.membership.role);
+      return copyInboxAttachmentToResumePhotoImpl(
+        baseDataProvider,
+        inboxAttachmentBlobUrls,
+        resumePhotoBlobUrls,
+        accountId,
+        params,
+      );
+    },
+    findResumePhotoBySource: async (
+      params: FindResumePhotoBySourceParams,
+    ): Promise<ResumePhoto | null> => {
+      const accountId = await resolveCurrentAccountId();
+      return findResumePhotoBySourceImpl(baseDataProvider, accountId, params);
     },
     signResumePhotoUrl: (params: { storagePath: string }): Promise<string> =>
       signResumePhotoUrlImpl(resumePhotoBlobUrls, params.storagePath),

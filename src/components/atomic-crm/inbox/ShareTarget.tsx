@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import type { Identifier } from "ra-core";
 import {
@@ -14,15 +14,14 @@ import { AutocompleteInput } from "@/components/admin/autocomplete-input";
 import { SaveButton } from "@/components/admin/form";
 import { ReferenceInput } from "@/components/admin/reference-input";
 import { FormToolbar } from "@/components/admin/simple-form";
+import { TextInput } from "@/components/admin/text-input";
 import { cn } from "@/lib/utils";
 
-import { uploadToBucket } from "../providers/supabase/dataProvider";
 import type { CrmDataProvider } from "../providers/types";
 import type {
   CreateShidduchInput,
   InboxItem,
   InboxSource,
-  RAFile,
   Single,
 } from "../types";
 import { createShadchanInline } from "../shidduchim/createShadchanInline";
@@ -36,8 +35,19 @@ import {
 import {
   suggestedByNameFromInboxItem,
   suggestedByPhoneFromInboxItem,
+  hasResumeDocumentAttachment,
   useResolveInboxItem,
 } from "./useResolveInboxItem";
+import { useParseResume } from "./useParseResume";
+import { parseWhatsAppText } from "./whatsappText";
+import {
+  uploadSharedFiles,
+  applyParsedResumeFields,
+  deriveShareSource,
+  removeSharedFilesBestEffort,
+  SHARE_RECOVERY_FAILURE_COPY,
+  SHARE_UPLOAD_FAILURE_COPY,
+} from "./ShareTarget.helpers";
 
 /**
  * Story 10.1 (Task 1): must match `src/sw.ts`'s own copy of these three
@@ -52,10 +62,31 @@ import {
  * — `src/sw.ts`'s own header comment has the full reproduction.
  */
 const SHARE_TARGET_CACHE = "share-target-inbox";
+const SHARE_ORPHANED_ATTACHMENTS_KEY = "myshadchan.share.orphaned-attachments";
 const shareTargetManifestKey = (shareKey: string) =>
   `/share-target-inbox/${shareKey}/manifest`;
 const shareTargetFileKey = (shareKey: string, index: number) =>
   `/share-target-inbox/${shareKey}/${index}`;
+
+function rememberOrphanedShareAttachments(paths: string[]): void {
+  const record = { recordedAt: new Date().toISOString(), paths };
+  try {
+    const existing = window.sessionStorage.getItem(
+      SHARE_ORPHANED_ATTACHMENTS_KEY,
+    );
+    const records = existing ? JSON.parse(existing) : [];
+    const nextRecords = Array.isArray(records) ? records : [];
+    window.sessionStorage.setItem(
+      SHARE_ORPHANED_ATTACHMENTS_KEY,
+      JSON.stringify([...nextRecords, record].slice(-20)),
+    );
+  } catch (storageError) {
+    console.error("ShareTarget.orphanedAttachments.sessionStorage.error", {
+      paths,
+      storageError,
+    });
+  }
+}
 
 /** The three source choices AC 2 renders — a plain three-way toggle, not a
  * new resource. `InboxSource` also has `"email"`/`"upload"`/`"shadchan"`,
@@ -140,39 +171,6 @@ async function readSharedFiles(shareKey: string): Promise<SharedFilesResult> {
   return { files, failed: files.length < manifest.length };
 }
 
-/** Task 4: uploads through the SAME primitive `members.avatar` already
- * uses (`uploadToBucket`, exported this story) rather than a second upload
- * path — one upload primitive across every entry point. */
-async function uploadSharedFiles(
-  files: File[],
-  inboxItemId?: Identifier,
-): Promise<SharedAttachment[]> {
-  const uploaded: SharedAttachment[] = [];
-  for (const file of files) {
-    const objectUrl = URL.createObjectURL(file);
-    try {
-      const raFile: RAFile = {
-        src: objectUrl,
-        title: file.name,
-        rawFile: file,
-        type: file.type,
-      };
-      const prefix = inboxItemId != null ? `inbox/${inboxItemId}` : undefined;
-      const result = await uploadToBucket(raFile, prefix);
-      uploaded.push({
-        title: result.title,
-        type: result.type ?? file.type,
-        path: result.path ?? "",
-        src: result.src,
-        size: file.size,
-      });
-    } finally {
-      URL.revokeObjectURL(objectUrl);
-    }
-  }
-  return uploaded;
-}
-
 /**
  * PWA share-target landing (Epic 2, mockup `isShare`; Story 10.1 replaces
  * the auto-file-and-redirect body this used to have). Android/WhatsApp/SMS
@@ -188,6 +186,7 @@ export const ShareTarget = () => {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const { resolveAsNewShidduch, resolveAsLinkToExisting } =
     useResolveInboxItem();
+  const { parse } = useParseResume();
   const navigate = useNavigate();
   const notify = useNotify();
   const translate = useTranslate();
@@ -197,7 +196,22 @@ export const ShareTarget = () => {
   const text = searchParams.get("text") ?? "";
   const url = searchParams.get("url") ?? "";
   const shareKey = searchParams.get("shareKey");
-  const rawText = [title, text, url].filter(Boolean).join("\n").trim();
+  // Keep the source byte-for-byte. The separate emptiness check below is only
+  // for deciding whether a capture exists; it must never change what is saved.
+  const rawText = [title, text, url]
+    .filter((value) => value.length > 0)
+    .join("\n");
+  const hasRawText = rawText.trim().length > 0;
+  const parsedTextResumeRef = useRef<Awaited<ReturnType<typeof parse>> | null>(
+    null,
+  );
+  const shareReadPromise = useRef<Promise<Awaited<
+    ReturnType<typeof parse>
+  > | null> | null>(null);
+  const shareReadStarted = useRef(false);
+  const [shareReadState, setShareReadState] = useState<
+    "idle" | "reading" | "saved" | "skipped" | "failed" | "unavailable"
+  >("idle");
 
   // `null` = still resolving from the Cache API (only when a `shareKey` was
   // handed off); an empty array covers both "no shareKey" and "no files".
@@ -205,6 +219,10 @@ export const ShareTarget = () => {
   const [sourceTab, setSourceTab] = useState<ShareSourceTab | null>(null);
   const [singleId, setSingleId] = useState<Identifier | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [shareCaptureFailure, setShareCaptureFailure] = useState<{
+    message: string;
+    retryable: boolean;
+  } | null>(null);
   // {url, name}, not a bare url: the filename is the ONLY description a
   // screen-reader user can be given of what they are about to file, and
   // a photo shared with no accompanying text leaves the preview panel
@@ -259,10 +277,10 @@ export const ShareTarget = () => {
   // visit to /#/share) — nothing to file, matching the previous
   // auto-redirect's fast path.
   useEffect(() => {
-    if (files !== null && files.length === 0 && rawText === "") {
+    if (files !== null && files.length === 0 && !hasRawText) {
       navigate("/inbox_items", { replace: true });
     }
-  }, [files, rawText, navigate]);
+  }, [files, hasRawText, navigate]);
 
   // Image thumbnails (Task 4: "a preview of the raw text or image(s)").
   // Revoked on every recompute so a re-share never leaks the previous set.
@@ -305,11 +323,12 @@ export const ShareTarget = () => {
    * write never leaves orphaned storage objects. Files are uploaded into a
    * row-scoped path (`{accountId}/inbox/{inboxItemId}/{uuid}{ext}`); the
    * same row is then updated with the attachment metadata. */
-  const createInboxItem = async (): Promise<InboxItem> => {
+  const createInboxItem = useCallback(async (): Promise<InboxItem> => {
+    const derivedSource: ShareSourceTab = deriveShareSource(files ?? []);
     const { data } = await dataProvider.create<InboxItem>("inbox_items", {
       data: {
-        source: sourceTab ?? "whatsapp",
-        raw_text: rawText || null,
+        source: sourceTab ?? derivedSource,
+        raw_text: hasRawText ? rawText : null,
         attachments: null,
         status: "unresolved",
       },
@@ -317,22 +336,104 @@ export const ShareTarget = () => {
     const item = data;
 
     if (files && files.length > 0) {
-      const attachments = await uploadSharedFiles(files, item.id);
-      const { data: updated } = await dataProvider.update<InboxItem>(
-        "inbox_items",
-        {
-          id: item.id,
-          data: {
-            attachments: attachments.length > 0 ? attachments : null,
+      let uploadedAttachments: SharedAttachment[] = [];
+      let partialUploadedAttachments: SharedAttachment[] = [];
+      let cleanupFailedAttachments: SharedAttachment[] = [];
+      let partialCleanupAttempted = false;
+      try {
+        uploadedAttachments = await uploadSharedFiles(
+          files,
+          item.id,
+          async (uploaded) => {
+            partialUploadedAttachments = uploaded;
+            partialCleanupAttempted = true;
+            cleanupFailedAttachments = await removeSharedFilesBestEffort(
+              uploaded,
+              (path) => dataProvider.removeInboxAttachment(path),
+            );
           },
-          previousData: item,
-        },
-      );
-      return updated ?? item;
+        );
+        const { data: updated } = await dataProvider.update<InboxItem>(
+          "inbox_items",
+          {
+            id: item.id,
+            data: {
+              attachments:
+                uploadedAttachments.length > 0 ? uploadedAttachments : null,
+            },
+            previousData: item,
+          },
+        );
+        return updated ?? item;
+      } catch (error) {
+        const cleanupCandidates =
+          partialUploadedAttachments.length > 0
+            ? partialUploadedAttachments
+            : uploadedAttachments;
+        if (!partialCleanupAttempted && cleanupCandidates.length > 0) {
+          cleanupFailedAttachments = await removeSharedFilesBestEffort(
+            cleanupCandidates,
+            (path) => dataProvider.removeInboxAttachment(path),
+          );
+        }
+        if (cleanupFailedAttachments.length > 0) {
+          let recoverySaved = false;
+          for (let attempt = 0; attempt < 2 && !recoverySaved; attempt += 1) {
+            try {
+              await dataProvider.update<InboxItem>("inbox_items", {
+                id: item.id,
+                data: { attachments: cleanupFailedAttachments },
+                previousData: item,
+              });
+              recoverySaved = true;
+            } catch (cleanupError) {
+              if (attempt === 1) {
+                console.error(
+                  "ShareTarget.orphanedAttachments",
+                  cleanupFailedAttachments.map((attachment) => attachment.path),
+                  cleanupError,
+                );
+              }
+            }
+          }
+          if (!recoverySaved) {
+            const orphanedPaths = cleanupFailedAttachments.map(
+              (attachment) => attachment.path,
+            );
+            rememberOrphanedShareAttachments(orphanedPaths);
+            console.error(
+              "ShareTarget.orphanedAttachments.recoveryFailed",
+              `Failed to persist cleanup paths: ${orphanedPaths.join(", ")}`,
+            );
+          }
+          setShareCaptureFailure({
+            message: SHARE_RECOVERY_FAILURE_COPY,
+            retryable: false,
+          });
+        } else {
+          let rowDeleted = false;
+          try {
+            await dataProvider.delete("inbox_items", {
+              id: item.id,
+              previousData: item,
+            });
+            rowDeleted = true;
+          } catch (cleanupError) {
+            console.error("ShareTarget.rowCleanup.error", cleanupError);
+          }
+          setShareCaptureFailure({
+            message: rowDeleted
+              ? SHARE_UPLOAD_FAILURE_COPY
+              : SHARE_RECOVERY_FAILURE_COPY,
+            retryable: rowDeleted,
+          });
+        }
+        throw error;
+      }
     }
 
     return item;
-  };
+  }, [dataProvider, files, hasRawText, rawText, sourceTab]);
 
   // Review fix (F6, MEDIUM): Save, every "Link" press, and Skip each used
   // to call `createInboxItem()` independently. Any sequence that runs more
@@ -345,7 +446,7 @@ export const ShareTarget = () => {
   // cache so the next click gets a genuine retry rather than being stuck
   // replaying the same rejection.
   const createdItemRef = useRef<Promise<InboxItem> | null>(null);
-  const getOrCreateInboxItem = (): Promise<InboxItem> => {
+  const getOrCreateInboxItem = useCallback((): Promise<InboxItem> => {
     if (!createdItemRef.current) {
       createdItemRef.current = createInboxItem().catch((error: unknown) => {
         createdItemRef.current = null;
@@ -353,6 +454,103 @@ export const ShareTarget = () => {
       });
     }
     return createdItemRef.current;
+  }, [createInboxItem]);
+
+  // The row is created as soon as automatic reading starts. Keep its source
+  // in step with a later tab choice so the persisted capture reflects what
+  // Ronit selected, not whichever tab happened to be derived first.
+  const latestSourceTabRef = useRef<ShareSourceTab | null>(sourceTab);
+  latestSourceTabRef.current = sourceTab;
+  const sourceSyncPromiseRef = useRef(Promise.resolve());
+  const syncCreatedItemSource = useCallback(() => {
+    const queued = sourceSyncPromiseRef.current.then(async () => {
+      const cached = createdItemRef.current;
+      if (!cached) return;
+      const item = await cached;
+      const nextSource = latestSourceTabRef.current;
+      if (!nextSource || item.source === nextSource) return;
+      const { data: updated } = await dataProvider.update<InboxItem>(
+        "inbox_items",
+        {
+          id: item.id,
+          data: { source: nextSource },
+          previousData: item,
+        },
+      );
+      createdItemRef.current = Promise.resolve(
+        updated ?? { ...item, source: nextSource },
+      );
+    });
+    sourceSyncPromiseRef.current = queued.catch((error: unknown) => {
+      setShareCaptureFailure({
+        message: "Couldn't update where this share came from. Try again.",
+        retryable: true,
+      });
+      console.error("ShareTarget.sourceUpdate.error", error);
+    });
+    return queued;
+  }, [dataProvider]);
+
+  useEffect(() => {
+    if (sourceTab !== null) {
+      void syncCreatedItemSource().catch(() => undefined);
+    }
+  }, [sourceTab, syncCreatedItemSource]);
+
+  const getOrCreateAndSyncInboxItem = useCallback(async () => {
+    const item = await getOrCreateInboxItem();
+    await syncCreatedItemSource();
+    return createdItemRef.current ? await createdItemRef.current : item;
+  }, [getOrCreateInboxItem, syncCreatedItemSource]);
+
+  const readSharedText = useCallback(async () => {
+    if (!hasRawText || files === null) return;
+    if (shareReadPromise.current) return shareReadPromise.current;
+    setShareReadState("reading");
+    const promise = (async () => {
+      try {
+        const item = await getOrCreateAndSyncInboxItem();
+        if (hasResumeDocumentAttachment(item)) {
+          setShareReadState("skipped");
+          return null;
+        }
+        const result = await parse(item);
+        parsedTextResumeRef.current = result;
+        setShareReadState("saved");
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        setShareReadState(
+          /monthly|entitled|allowance|available/i.test(message)
+            ? "unavailable"
+            : "failed",
+        );
+        return null;
+      } finally {
+        shareReadPromise.current = null;
+      }
+    })();
+    shareReadPromise.current = promise;
+    return promise;
+  }, [files, getOrCreateAndSyncInboxItem, hasRawText, parse]);
+
+  // The helper intentionally closes over the one-shot capture promise. The
+  // ref guard prevents a render-driven effect retry from reading twice.
+  useEffect(() => {
+    if (files !== null && hasRawText && !shareReadStarted.current) {
+      shareReadStarted.current = true;
+      void readSharedText();
+    }
+  }, [files, hasRawText, readSharedText]);
+
+  const retryShareCapture = () => {
+    setShareCaptureFailure(null);
+    shareReadStarted.current = false;
+    if (hasRawText) {
+      void readSharedText();
+    } else {
+      void getOrCreateAndSyncInboxItem().catch(() => undefined);
+    }
   };
 
   const resolveSingleId = (): Identifier | null => {
@@ -374,7 +572,7 @@ export const ShareTarget = () => {
     }
     setIsSaving(true);
     try {
-      const item = await getOrCreateInboxItem();
+      const item = await getOrCreateAndSyncInboxItem();
       const suggestedBy = await resolveSuggestedByValues(values);
       const suggestedByName =
         suggestedBy.suggestedByName ?? suggestedByNameFromInboxItem(item);
@@ -396,8 +594,52 @@ export const ShareTarget = () => {
         initial_state: "new",
         visibility: "shared",
         redt_date: item.created_at.split("T")[0],
+        name_en:
+          typeof values.name_en === "string" && values.name_en.trim()
+            ? values.name_en.trim()
+            : null,
       };
-      await resolveAsNewShidduch(item, input);
+      let textDraft = parsedTextResumeRef.current;
+      if (!textDraft && shareReadPromise.current) {
+        textDraft = await shareReadPromise.current;
+      }
+      // Once the automatic read has settled unsuccessfully, filing must keep
+      // the exact Inbox capture as-is. A Save click is not an implicit retry:
+      // retrying here would make a second model request after a transient
+      // failure. The visible Try again action is the explicit retry path.
+      if (
+        hasRawText &&
+        !hasResumeDocumentAttachment(item) &&
+        !textDraft &&
+        shareReadState === "idle"
+      ) {
+        try {
+          textDraft = await parse(item);
+          parsedTextResumeRef.current = textDraft;
+        } catch {
+          // The Inbox capture remains the source of truth. Filing manually is
+          // still available when automatic reading is unavailable.
+        }
+      }
+      if (textDraft) {
+        const manuallyEnteredName = input.name_en ?? null;
+        applyParsedResumeFields(
+          input,
+          textDraft.fields,
+          manuallyEnteredName,
+          parseWhatsAppText(item.raw_text ?? "").firstBoldText,
+        );
+      }
+      await resolveAsNewShidduch(
+        item,
+        input,
+        hasRawText && !hasResumeDocumentAttachment(item)
+          ? {
+              rawDraft: textDraft?.rawDraft ?? null,
+              sections: textDraft?.sections ?? null,
+            }
+          : undefined,
+      );
       notify(
         translate("crm.inbox.share.saved", { _: "Filed as a suggestion" }),
         {
@@ -426,7 +668,7 @@ export const ShareTarget = () => {
   const handleLinkToExisting = async (shidduchimId: Identifier) => {
     setIsSaving(true);
     try {
-      const item = await getOrCreateInboxItem();
+      const item = await getOrCreateAndSyncInboxItem();
       await resolveAsLinkToExisting(item, shidduchimId);
       notify(
         translate("crm.inbox.share.linked", {
@@ -454,7 +696,7 @@ export const ShareTarget = () => {
   const handleSkip = async () => {
     setIsSaving(true);
     try {
-      await getOrCreateInboxItem();
+      await getOrCreateAndSyncInboxItem();
       notify(
         translate("crm.inbox.share.skipped", { _: "Shared to your inbox" }),
         {
@@ -515,7 +757,7 @@ export const ShareTarget = () => {
               aria-selected={isActive}
               onClick={() => setSourceTab(tab)}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
+                "inline-flex min-h-11 items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
                 isActive
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-border text-muted-foreground hover:text-foreground",
@@ -534,8 +776,17 @@ export const ShareTarget = () => {
       {/* Task 4: "a preview of the raw text or image(s)". */}
       <div className="rounded-2xl border border-border bg-secondary/60 p-4">
         {rawText ? (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-            {rawText}
+          <p
+            className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground"
+            dir="auto"
+          >
+            {parseWhatsAppText(rawText).parts.map((part, index) =>
+              part.bold ? (
+                <strong key={index}>{part.text}</strong>
+              ) : (
+                <span key={index}>{part.text}</span>
+              ),
+            )}
           </p>
         ) : imagePreviews.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -543,6 +794,66 @@ export const ShareTarget = () => {
               _: "No text — see the attached file.",
             })}
           </p>
+        ) : null}
+        {hasRawText ? (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-busy={shareReadState === "reading"}
+            className="mt-3 rounded-xl border border-border bg-background/60 p-3 text-sm"
+          >
+            <p className="font-medium">
+              {shareReadState === "reading"
+                ? "Reading the text now…"
+                : shareReadState === "saved"
+                  ? "Resume tab saved"
+                  : shareReadState === "skipped"
+                    ? "Resume file ready"
+                    : shareReadState === "failed"
+                      ? "We couldn’t read the text yet."
+                      : shareReadState === "unavailable"
+                        ? "Automatic reading is not available right now."
+                        : "Reading this text into the Resume tab starts automatically."}
+            </p>
+            <p className="text-muted-foreground">
+              {shareReadState === "saved"
+                ? "You can review and edit the suggestion before filing."
+                : shareReadState === "skipped"
+                  ? "Automatic text reading is skipped because a resume file is attached."
+                  : "Your original text is still saved."}
+            </p>
+            {(shareReadState === "failed" ||
+              shareReadState === "unavailable") &&
+            shareCaptureFailure?.retryable !== false ? (
+              <button
+                type="button"
+                className="mt-2 min-h-11 rounded-lg border px-3 text-sm font-medium"
+                onClick={() => {
+                  shareReadStarted.current = false;
+                  void readSharedText();
+                }}
+              >
+                Try again
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {shareCaptureFailure ? (
+          <div
+            role="alert"
+            className="mt-3 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm"
+          >
+            <p className="font-medium">{shareCaptureFailure.message}</p>
+            {shareCaptureFailure.retryable ? (
+              <button
+                type="button"
+                className="mt-2 min-h-11 rounded-lg border px-3 text-sm font-medium"
+                onClick={retryShareCapture}
+              >
+                Try again
+              </button>
+            ) : null}
+          </div>
         ) : null}
         {sharedDocumentCount > 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -578,6 +889,7 @@ export const ShareTarget = () => {
         defaultValues={{
           suggested_by_name: "",
           suggested_by_phone: "",
+          name_en: parseWhatsAppText(rawText).firstBoldText ?? "",
         }}
       >
         <div className="flex flex-col gap-4">
@@ -599,6 +911,21 @@ export const ShareTarget = () => {
           </ReferenceInput>
 
           <SuggestedByFields />
+
+          <TextInput
+            source="name_en"
+            label={
+              parseWhatsAppText(rawText).firstBoldText
+                ? "Suggested name"
+                : "Name of the person"
+            }
+            dir="auto"
+            helperText={
+              parseWhatsAppText(rawText).firstBoldText
+                ? "Taken from the first bold words. You can change it."
+                : false
+            }
+          />
 
           {/* AC 4: a pill picker, shown only when there is more than one
               single to disambiguate. */}
@@ -622,7 +949,7 @@ export const ShareTarget = () => {
                       type="button"
                       onClick={() => setSingleId(single.id)}
                       className={cn(
-                        "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                        "min-h-11 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
                         isActive
                           ? "border-primary bg-primary/10 text-primary"
                           : "border-border text-muted-foreground hover:text-foreground",
@@ -645,7 +972,11 @@ export const ShareTarget = () => {
             </span>
             <LinkToShidduchSearch
               onLink={handleLinkToExisting}
-              disabled={isSaving}
+              disabled={
+                isSaving ||
+                shareReadState === "reading" ||
+                shareCaptureFailure !== null
+              }
             />
           </div>
 
@@ -654,7 +985,11 @@ export const ShareTarget = () => {
               <button
                 type="button"
                 onClick={() => void handleSkip()}
-                disabled={isSaving}
+                disabled={
+                  isSaving ||
+                  shareReadState === "reading" ||
+                  shareCaptureFailure !== null
+                }
                 className="inline-flex h-11 items-center rounded-xl px-4 text-sm font-medium text-muted-foreground hover:text-foreground"
               >
                 {translate("crm.inbox.share.skip", {
@@ -666,7 +1001,11 @@ export const ShareTarget = () => {
                   _: "Save & review",
                 })}
                 className={INBOX_PRIMARY_CTA_CLASS}
-                disabled={isSaving}
+                disabled={
+                  isSaving ||
+                  shareReadState === "reading" ||
+                  shareCaptureFailure !== null
+                }
               />
             </div>
           </FormToolbar>

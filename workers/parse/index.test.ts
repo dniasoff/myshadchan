@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createParseApp } from "./index";
+import { createParseApp, MAX_TEXT_SOURCE_CHARS } from "./index";
 import { DocxExtractionError } from "./docxExtractor";
 import { DOCX_MIME_TYPE } from "./resumeExtractor";
 import type { RawExtraction } from "./resumeExtractor";
@@ -680,6 +680,63 @@ describe("parse worker", () => {
     });
     expect(download).not.toHaveBeenCalled();
     expect(claimParseAttempt).not.toHaveBeenCalled();
+  });
+
+  it("passes captured text to the extractor when no resume file exists", async () => {
+    const extract = vi.fn().mockResolvedValue(makeExtract());
+    const app = createParseApp({ extract });
+    const source = "*Sarah Cohen*\nAge: 24";
+    rpc.mockResolvedValue({ data: ENTITLED_PAYLOAD, error: null });
+    single.mockResolvedValue({
+      data: {
+        id: 1,
+        account_id: 10,
+        attachments: [
+          { title: "picture.jpg", type: "image/jpeg", path: "10/picture.jpg" },
+        ],
+        raw_text: source,
+      },
+      error: null,
+    });
+    claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
+
+    const res = await postParse(app);
+
+    expect(res.status).toBe(200);
+    expect(extract).toHaveBeenCalledWith(expect.any(ArrayBuffer), "text/plain");
+    const bytes = extract.mock.calls[0][0] as ArrayBuffer;
+    expect(new TextDecoder().decode(bytes)).toBe(source);
+    expect(confirmParseAttempt).toHaveBeenCalled();
+    expect(storageFrom).not.toHaveBeenCalled();
+  });
+
+  it("refuses an overlong text model copy while preserving the exact Inbox source", async () => {
+    const extract = vi.fn().mockResolvedValue(makeExtract());
+    const app = createParseApp({ extract });
+    const source = `*Sarah Cohen*\n${"A".repeat(MAX_TEXT_SOURCE_CHARS + 1)}`;
+    rpc.mockResolvedValue({ data: ENTITLED_PAYLOAD, error: null });
+    single.mockResolvedValue({
+      data: {
+        id: 1,
+        account_id: 10,
+        attachments: [],
+        raw_text: source,
+      },
+      error: null,
+    });
+    claimParseAttempt.mockResolvedValue(CLAIMED_ATTEMPT);
+
+    const res = await postParse(app);
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({
+      success: false,
+      error:
+        "This text is too long to read automatically. Your original text is still saved.",
+    });
+    expect(extract).not.toHaveBeenCalled();
+    expect(releaseParseAttempt).toHaveBeenCalled();
+    expect(source.length).toBeGreaterThan(MAX_TEXT_SOURCE_CHARS);
   });
 
   it("passes DOCX bytes to the injected extractor and confirms the result", async () => {
