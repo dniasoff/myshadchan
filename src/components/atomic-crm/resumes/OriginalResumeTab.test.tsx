@@ -8,7 +8,7 @@ import {
 
 import { testI18nProvider } from "../providers/commons/i18nProvider";
 import type { CrmDataProvider } from "../providers/types";
-import type { InboxItem, ShidduchSummary } from "../types";
+import type { InboxItem, ResumePhoto, ShidduchSummary } from "../types";
 import { OriginalResumeTab } from "./OriginalResumeTab";
 
 const { signInboxAttachmentUrl } = vi.hoisted(() => ({
@@ -50,14 +50,17 @@ const buildCapture = (
     resolution_input: { resume_source_inbox_item_id: 42 },
   }) as InboxItem;
 
-const renderTab = async (capture: InboxItem) => {
+const renderTab = async (
+  capture: InboxItem,
+  existingPhoto: ResumePhoto | null = null,
+) => {
   const dataProvider = {
     getList: vi.fn(async (resource: string) => {
       if (resource === "inbox_items") return { data: [capture], total: 1 };
       if (resource === "resumes") return { data: [], total: 0 };
       return { data: [], total: 0 };
     }),
-    findResumePhotoBySource: vi.fn().mockResolvedValue(null),
+    findResumePhotoBySource: vi.fn().mockResolvedValue(existingPhoto),
   } as unknown as CrmDataProvider;
 
   const screen = await render(
@@ -185,5 +188,33 @@ describe("OriginalResumeTab WhatsApp picture handling", () => {
         (button) => button.textContent?.trim() === "Use this picture as Photo",
       ),
     ).toHaveLength(0);
+  });
+
+  it("keeps explicit Photo promotion available after an automatic Photo was hidden", async () => {
+    signInboxAttachmentUrl.mockReset().mockResolvedValue("fresh-picture-url");
+    const capture = buildCapture([
+      {
+        path: "1/inbox/42/photo.jpg",
+        src: "expired-picture-url",
+        title: "photo.jpg",
+        type: "image/jpeg",
+      },
+    ]);
+
+    const { screen } = await renderTab(capture, {
+      id: 13,
+      account_id: 1,
+      resume_id: 55,
+      path: "1/photos/shared/7/inbox-photo.jpg",
+      uploaded_at: "2026-11-27T00:00:00.000Z",
+      visibility: "shared",
+      hidden_at: "2026-11-27T01:00:00.000Z",
+    });
+
+    await expect
+      .element(
+        screen.getByRole("button", { name: "Use this picture as Photo" }),
+      )
+      .toBeInTheDocument();
   });
 });

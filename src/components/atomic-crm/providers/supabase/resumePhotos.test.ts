@@ -71,6 +71,34 @@ describe("Supabase resume photo promotion", () => {
     expect(eq).toHaveBeenCalledWith("path", expect.stringMatching(/\.jpg$/));
   });
 
+  it("returns a hidden deterministic source photo without promoting it again", async () => {
+    const hidden = {
+      id: 13,
+      account_id: 7,
+      resume_id: 55,
+      path: "7/photos/shared/42/inbox-stable.jpg",
+      visibility: "shared" as const,
+      hidden_at: "2026-11-27T00:00:00.000Z",
+    };
+    maybeSingle.mockResolvedValueOnce({ data: hidden, error: null });
+
+    const result = await copyInboxAttachmentToResumePhoto({
+      shidduchimId: 42,
+      attachment: {
+        path: "7/inbox/900/photo.jpg",
+        src: "expired-url",
+        title: "photo.jpg",
+        type: "image/jpeg",
+        size: 5,
+      },
+    });
+
+    expect(result).toEqual(hidden);
+    expect(upload).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith("current_context_id");
+    expect(rpc).not.toHaveBeenCalledWith("add_resume_photo", expect.anything());
+  });
+
   it("keeps the image filename suffix for direct uploads", async () => {
     await uploadResumePhoto({
       shidduchimId: 42,

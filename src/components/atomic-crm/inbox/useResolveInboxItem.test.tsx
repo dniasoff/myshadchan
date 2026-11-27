@@ -719,6 +719,43 @@ it("automatically promotes the first JPEG/PNG picture when no Photo exists", asy
   );
 });
 
+it("records an automatic Photo retry as not promoted when the source Photo is hidden", async () => {
+  const picture = {
+    title: "portrait.jpg",
+    type: "image/jpeg",
+    path: "1/inbox-portrait.jpg",
+    src: "https://example.test/portrait.jpg",
+  };
+  const item = buildItem({ attachments: [picture] });
+  const hiddenPhoto = {
+    id: 12,
+    path: "7/photos/shared/99/inbox-portrait.jpg",
+    visibility: "shared",
+    hidden_at: "2026-11-27T00:00:00.000Z",
+  };
+  const copyInboxAttachmentToResumePhoto = vi
+    .fn()
+    .mockResolvedValue(hiddenPhoto);
+  const { screen, dataProvider } = await renderProbe(item, {
+    copyInboxAttachmentToResumePhoto,
+  });
+
+  await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+  await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+
+  expect(dataProvider.update).toHaveBeenCalledWith(
+    "inbox_items",
+    expect.objectContaining({
+      data: expect.objectContaining({
+        resolution_input: expect.objectContaining({
+          picture_photo_created: false,
+          picture_photo_source_path: picture.path,
+        }),
+      }),
+    }),
+  );
+});
+
 describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 review fix, Finding 2 + also-fixes)", () => {
   it("persists the copied documents-bucket path and the real byte size on the new resumes row — the regression test for Finding 2", async () => {
     // Arrange

@@ -101,6 +101,37 @@ describe("FakeRest resume capture methods", () => {
     expect(photos).toHaveLength(1);
   });
 
+  it("does not re-promote a deterministic Photo after Ronit removes it", async () => {
+    const dataProvider = createDataProvider({ latency: 0, silent: true });
+    const attachment = await dataProvider.uploadInboxAttachment({
+      file: new File(["picture"], "removed.jpg", { type: "image/jpeg" }),
+      inboxItemId: 704,
+    });
+
+    const firstPhoto = await dataProvider.copyInboxAttachmentToResumePhoto({
+      shidduchimId: 99,
+      attachment,
+    });
+    await dataProvider.hideResumePhoto({ id: firstPhoto.id });
+
+    const retryPhoto = await dataProvider.copyInboxAttachmentToResumePhoto({
+      shidduchimId: 99,
+      attachment,
+    });
+
+    expect(retryPhoto.id).toBe(firstPhoto.id);
+    expect(retryPhoto.hidden_at).not.toBeNull();
+    const { data: visiblePhotos } = await dataProvider.getList(
+      "resume_photos",
+      {
+        filter: { resume_id: firstPhoto.resume_id, "hidden_at@is": null },
+        pagination: { page: 1, perPage: 10 },
+        sort: { field: "id", order: "ASC" },
+      },
+    );
+    expect(visiblePhotos).toHaveLength(0);
+  });
+
   it("finalizes one exact duplicate-path file at a time", async () => {
     const path = "1/resumes/99/duplicate.pdf";
     const first: ResumeFileVersion = {

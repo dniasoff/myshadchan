@@ -872,7 +872,7 @@ export function useResolveInboxItem() {
       if (photos.length > 0) return null;
     }
 
-    await dataProvider.copyInboxAttachmentToResumePhoto({
+    const promotedPhoto = await dataProvider.copyInboxAttachmentToResumePhoto({
       shidduchimId,
       attachment: candidate,
     });
@@ -881,7 +881,10 @@ export function useResolveInboxItem() {
       {
         resolution_input: {
           ...progress,
-          picture_photo_created: true,
+          // A deterministic source row can survive Ronit's Remove action as
+          // a hidden photo. The automatic path must not silently restore it,
+          // and its progress marker must describe the visible Photo surface.
+          picture_photo_created: promotedPhoto.hidden_at == null,
           picture_photo_source_path: candidate.path,
         },
       },

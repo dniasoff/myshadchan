@@ -76,6 +76,9 @@ function WhatsAppTextSource({
   const [promotedPhotos, setPromotedPhotos] = useState<Set<string>>(
     () => new Set(),
   );
+  const [hiddenPhotoIds, setHiddenPhotoIds] = useState<
+    Record<string, Identifier>
+  >({});
   const [photoErrors, setPhotoErrors] = useState<Record<string, boolean>>({});
   const [picturePreviewUrls, setPicturePreviewUrls] = useState<
     Record<string, string>
@@ -155,11 +158,18 @@ function WhatsAppTextSource({
             visibility: "shared",
           });
           if (existing && !cancelled) {
-            setPromotedPhotos((current) => {
-              const next = new Set(current);
-              next.add(attachment.path);
-              return next;
-            });
+            if (existing.hidden_at == null) {
+              setPromotedPhotos((current) => {
+                const next = new Set(current);
+                next.add(attachment.path);
+                return next;
+              });
+            } else {
+              setHiddenPhotoIds((current) => ({
+                ...current,
+                [attachment.path]: existing.id,
+              }));
+            }
           }
         } catch {
           // A lookup failure must not hide the still-safe manual promotion.
@@ -200,21 +210,33 @@ function WhatsAppTextSource({
     setPhotoBusy(attachment.path);
     setPhotoErrors((current) => ({ ...current, [attachment.path]: false }));
     try {
-      const url = attachment.src.startsWith("data:")
-        ? attachment.src
-        : await signInboxAttachmentUrl(attachment.path);
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("photo download failed");
-      const blob = await response.blob();
-      const file = new File([blob], attachment.title, {
-        type: attachment.type || blob.type,
-      });
-      await dataProvider.uploadResumePhoto({
-        shidduchimId: record.id,
-        file,
-        visibility: "shared",
-        sourceAttachmentPath: attachment.path,
-      });
+      const hiddenPhotoId = hiddenPhotoIds[attachment.path];
+      if (hiddenPhotoId != null) {
+        // This is an explicit user action after Remove. Automatic filing never
+        // restores a hidden Photo, but the manual action may do so.
+        await dataProvider.restoreResumePhoto({ id: hiddenPhotoId });
+        setHiddenPhotoIds((current) => {
+          const next = { ...current };
+          delete next[attachment.path];
+          return next;
+        });
+      } else {
+        const url = attachment.src.startsWith("data:")
+          ? attachment.src
+          : await signInboxAttachmentUrl(attachment.path);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("photo download failed");
+        const blob = await response.blob();
+        const file = new File([blob], attachment.title, {
+          type: attachment.type || blob.type,
+        });
+        await dataProvider.uploadResumePhoto({
+          shidduchimId: record.id,
+          file,
+          visibility: "shared",
+          sourceAttachmentPath: attachment.path,
+        });
+      }
       setPromotedPhotos((current) => {
         const next = new Set(current);
         next.add(attachment.path);
@@ -380,7 +402,8 @@ function WhatsAppTextSource({
           <p className="mt-1 text-sm text-muted-foreground">
             Nothing was turned into a file.
           </p>
-          {canPromotePictureToPhoto(attachment) && hasExistingPhoto ? (
+          {canPromotePictureToPhoto(attachment) &&
+          (hasExistingPhoto || hiddenPhotoIds[attachment.path] != null) ? (
             <>
               <Button
                 type="button"
