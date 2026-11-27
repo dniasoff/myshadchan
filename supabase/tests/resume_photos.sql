@@ -179,7 +179,9 @@ select public.add_resume_photo(
   p_shidduchim_id => :shidduch_id,
   p_path => :'acct_a' || '/photos/shared/' || :'shidduch_id' || '/p-race-loser.jpg',
   p_visibility => 'shared',
-  p_only_if_no_visible_photo => true
+  p_only_if_no_visible_photo => true,
+  p_single_id => null,
+  p_size => null
 );
 
 insert into results (name, passed)

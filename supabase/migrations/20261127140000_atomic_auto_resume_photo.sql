@@ -8,10 +8,10 @@ drop function if exists public.add_resume_photo(text, bigint, bigint, text, bigi
 CREATE OR REPLACE FUNCTION public.add_resume_photo(
   p_path text,
   p_only_if_no_visible_photo boolean,
-  p_shidduchim_id bigint DEFAULT NULL,
-  p_single_id bigint DEFAULT NULL,
-  p_visibility text DEFAULT 'shared',
-  p_size bigint DEFAULT NULL
+  p_shidduchim_id bigint,
+  p_single_id bigint,
+  p_visibility text,
+  p_size bigint
 ) RETURNS SETOF public.resume_photos
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path TO ''

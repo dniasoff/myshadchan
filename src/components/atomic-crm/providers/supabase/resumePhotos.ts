@@ -161,10 +161,10 @@ export async function uploadResumePhoto(
     p_size: file.size,
     p_visibility: visibility,
     p_only_if_no_visible_photo: onlyIfNoVisiblePhoto,
-    p_shidduchim_id: isSingleSubject(subject)
-      ? undefined
-      : subject.shidduchimId,
-    p_single_id: isSingleSubject(subject) ? subject.singleId : undefined,
+    // The atomic overload intentionally has no defaults. Passing null for the
+    // unused owner keeps the RPC call unambiguous with the legacy overload.
+    p_shidduchim_id: isSingleSubject(subject) ? null : subject.shidduchimId,
+    p_single_id: isSingleSubject(subject) ? subject.singleId : null,
   });
   if (error) {
     console.error("uploadResumePhoto.add_resume_photo.error", error);
