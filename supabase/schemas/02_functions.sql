@@ -2228,11 +2228,10 @@ begin
       raise exception 'shidduch % not found in current account', p_shidduchim_id;
     end if;
   else
-    select s.id into v_parent_id
-    from public.singles s
-    where s.id = p_single_id and s.account_id = v_account_id
-    for update;
-    if v_parent_id is null then
+    if not exists (
+      select 1 from public.singles s
+      where s.id = p_single_id and s.account_id = v_account_id
+    ) then
       raise exception 'single % not found in current account', p_single_id;
     end if;
   end if;
@@ -2608,10 +2607,11 @@ begin
       do update set shidduchim_id = excluded.shidduchim_id
     returning id into v_resume_id;
   else
-    if not exists (
-      select 1 from public.singles s
-      where s.id = p_single_id and s.account_id = v_account_id
-    ) then
+    select s.id into v_parent_id
+    from public.singles s
+    where s.id = p_single_id and s.account_id = v_account_id
+    for update;
+    if v_parent_id is null then
       raise exception 'single % not found in current account', p_single_id;
     end if;
 
