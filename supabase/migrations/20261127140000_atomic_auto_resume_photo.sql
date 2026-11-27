@@ -7,11 +7,11 @@ drop function if exists public.add_resume_photo(text, bigint, bigint, text, bigi
 
 CREATE OR REPLACE FUNCTION public.add_resume_photo(
   p_path text,
+  p_only_if_no_visible_photo boolean,
   p_shidduchim_id bigint DEFAULT NULL,
   p_single_id bigint DEFAULT NULL,
   p_visibility text DEFAULT 'shared',
-  p_size bigint DEFAULT NULL,
-  p_only_if_no_visible_photo boolean DEFAULT false
+  p_size bigint DEFAULT NULL
 ) RETURNS SETOF public.resume_photos
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path TO ''
@@ -130,7 +130,7 @@ AS $function$
   );
 $function$;
 
-revoke all on function public.add_resume_photo(text, bigint, bigint, text, bigint, boolean) from public, anon;
-grant execute on function public.add_resume_photo(text, bigint, bigint, text, bigint, boolean) to authenticated, service_role;
+revoke all on function public.add_resume_photo(text, boolean, bigint, bigint, text, bigint) from public, anon;
+grant execute on function public.add_resume_photo(text, boolean, bigint, bigint, text, bigint) to authenticated, service_role;
 revoke all on function public.add_resume_photo(text, bigint, bigint, text, bigint) from public, anon;
 grant execute on function public.add_resume_photo(text, bigint, bigint, text, bigint) to authenticated, service_role;
