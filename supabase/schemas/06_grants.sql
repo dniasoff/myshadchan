@@ -595,6 +595,9 @@ grant execute on function public.resume_read_in_progress(bigint, text) to servic
 revoke all on function public.add_resume_photo(text, bigint, bigint, text, bigint, boolean) from public, anon;
 grant execute on function public.add_resume_photo(text, bigint, bigint, text, bigint, boolean) to authenticated;
 grant execute on function public.add_resume_photo(text, bigint, bigint, text, bigint, boolean) to service_role;
+revoke all on function public.add_resume_photo(text, bigint, bigint, text, bigint) from public, anon;
+grant execute on function public.add_resume_photo(text, bigint, bigint, text, bigint) to authenticated;
+grant execute on function public.add_resume_photo(text, bigint, bigint, text, bigint) to service_role;
 
 revoke all on function public.hide_resume_photo(bigint) from public, anon;
 grant execute on function public.hide_resume_photo(bigint) to authenticated;

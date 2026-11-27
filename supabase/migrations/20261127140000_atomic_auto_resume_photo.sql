@@ -109,5 +109,28 @@ begin
 end;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.add_resume_photo(
+  p_path text,
+  p_shidduchim_id bigint DEFAULT NULL,
+  p_single_id bigint DEFAULT NULL,
+  p_visibility text DEFAULT 'shared',
+  p_size bigint DEFAULT NULL
+) RETURNS SETOF public.resume_photos
+LANGUAGE sql SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+  select *
+  from public.add_resume_photo(
+    p_path => p_path,
+    p_shidduchim_id => p_shidduchim_id,
+    p_single_id => p_single_id,
+    p_visibility => p_visibility,
+    p_size => p_size,
+    p_only_if_no_visible_photo => false
+  );
+$function$;
+
 revoke all on function public.add_resume_photo(text, bigint, bigint, text, bigint, boolean) from public, anon;
 grant execute on function public.add_resume_photo(text, bigint, bigint, text, bigint, boolean) to authenticated, service_role;
+revoke all on function public.add_resume_photo(text, bigint, bigint, text, bigint) from public, anon;
+grant execute on function public.add_resume_photo(text, bigint, bigint, text, bigint) to authenticated, service_role;
