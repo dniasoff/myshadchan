@@ -4,8 +4,13 @@ import {
   isSingleSubject,
   type ResumeSubject,
 } from "../../resumes/resumeSubject";
-import type { ResumePhoto, ResumePhotoVisibility } from "../../types";
+import type {
+  InboxAttachment,
+  ResumePhoto,
+  ResumePhotoVisibility,
+} from "../../types";
 import { validateChildPhoto } from "../../singles/ChildDocuments/childDocuments";
+import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import { resumePhotoStoragePath } from "../resumePhotoIdempotency";
 import { getSupabaseClient } from "./supabase";
 
@@ -44,6 +49,10 @@ export type UploadResumePhotoParams = ResumeSubject & {
   file: File;
   visibility?: ResumePhotoVisibility;
   sourceAttachmentPath?: string;
+};
+
+export type CopyInboxAttachmentToResumePhotoParams = ResumeSubject & {
+  attachment: InboxAttachment;
 };
 
 export type FindResumePhotoBySourceParams = ResumeSubject & {
@@ -167,6 +176,36 @@ export async function uploadResumePhoto(
 
   const row = Array.isArray(data) ? data[0] : data;
   return row as ResumePhoto;
+}
+
+/**
+ * Copy the durable Inbox object into the Photo surface without trusting the
+ * persisted, expiring attachment URL. This is the automatic-photo counterpart
+ * to the manual promotion in OriginalResumeTab: the Inbox path is the source
+ * of truth, and uploadResumePhoto supplies the same deterministic idempotency
+ * key and object/row cleanup guarantees.
+ */
+export async function copyInboxAttachmentToResumePhoto(
+  params: CopyInboxAttachmentToResumePhotoParams,
+): Promise<ResumePhoto> {
+  const { attachment, ...subject } = params;
+  const { data: blob, error } = await getSupabaseClient()
+    .storage.from(ATTACHMENTS_BUCKET)
+    .download(attachment.path);
+  if (error || !blob) {
+    console.error("copyInboxAttachmentToResumePhoto.download.error", error);
+    throw new Error("Failed to read the captured picture");
+  }
+
+  const file = new File([blob], attachment.title, {
+    type: attachment.type || blob.type || "application/octet-stream",
+  });
+  return uploadResumePhoto({
+    ...subject,
+    file,
+    visibility: "shared",
+    sourceAttachmentPath: attachment.path,
+  });
 }
 
 /**

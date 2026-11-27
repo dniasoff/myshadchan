@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { rpc, upload, maybeSingle, eq, select } = vi.hoisted(() => ({
+const { rpc, upload, download, maybeSingle, eq, select } = vi.hoisted(() => ({
   rpc: vi.fn(),
   upload: vi.fn(),
+  download: vi.fn(),
   maybeSingle: vi.fn(),
   eq: vi.fn(),
   select: vi.fn(),
@@ -15,11 +16,14 @@ vi.mock("./supabase", () => ({
   getSupabaseClient: () => ({
     rpc,
     from: () => tableQuery,
-    storage: { from: () => ({ upload }) },
+    storage: { from: () => ({ upload, download }) },
   }),
 }));
 
-import { uploadResumePhoto } from "./resumePhotos";
+import {
+  copyInboxAttachmentToResumePhoto,
+  uploadResumePhoto,
+} from "./resumePhotos";
 
 describe("Supabase resume photo promotion", () => {
   beforeEach(() => {
@@ -34,6 +38,10 @@ describe("Supabase resume photo promotion", () => {
       error: null,
     });
     upload.mockReset().mockResolvedValue({ error: null });
+    download.mockReset().mockResolvedValue({
+      data: new Blob(["photo"], { type: "image/jpeg" }),
+      error: null,
+    });
     select.mockReset().mockReturnValue(tableQuery);
     eq.mockReset().mockReturnValue(tableQuery);
     maybeSingle.mockReset().mockResolvedValue({ data: null, error: null });
@@ -67,6 +75,25 @@ describe("Supabase resume photo promotion", () => {
 
     expect(upload).toHaveBeenCalledWith(
       expect.stringMatching(/\/photos\/shared\/42\/[0-9a-f-]+-portrait\.png$/),
+      expect.any(File),
+    );
+  });
+
+  it("copies the Inbox object by durable path for automatic promotion", async () => {
+    await copyInboxAttachmentToResumePhoto({
+      shidduchimId: 42,
+      attachment: {
+        path: "7/inbox/900/photo.jpg",
+        src: "expired-url",
+        title: "photo.jpg",
+        type: "image/jpeg",
+        size: 5,
+      },
+    });
+
+    expect(download).toHaveBeenCalledWith("7/inbox/900/photo.jpg");
+    expect(upload).toHaveBeenCalledWith(
+      expect.stringMatching(/\/photos\/shared\/42\/inbox-/),
       expect.any(File),
     );
   });

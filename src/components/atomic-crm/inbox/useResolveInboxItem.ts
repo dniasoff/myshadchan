@@ -12,6 +12,7 @@ import type {
   Interaction,
   Resume,
   ResumeFileVersion,
+  ResumePhoto,
   Shidduch,
 } from "../types";
 import { isAutomaticallyReadableResume } from "../resumes/resumeAutoReadHelpers";
@@ -556,6 +557,16 @@ export function useResolveInboxItem() {
         );
       }
 
+      const promotedSnapshot = await autoPromoteFirstPicture(
+        item,
+        created.id,
+        pictureAttachments,
+        (resolutionSnapshot.resolution_input ??
+          pictureProgress) as NewResolutionProgress,
+        attemptId,
+      );
+      if (promotedSnapshot) resolutionSnapshot = promotedSnapshot;
+
       resolutionSnapshot = await updateOwnedInboxResolution(
         item,
         finalizePayload("resolved", {
@@ -668,9 +679,9 @@ export function useResolveInboxItem() {
 
       // Story 10.4: carry any capture attachments into the linked shidduch's
       // Files tab so they remain reachable after the inbox item is resolved.
-      // Pictures are deliberately parent-private here: linking an Inbox item
-      // must not turn an unreviewed picture into a shared suggestion asset.
-      // Explicit photo flows are the only place that may promote a picture.
+      // Pictures remain parent-private in Files. If the suggestion has no
+      // current Photo, the first supported picture is also promoted through
+      // the same deterministic Photo path; later pictures remain in Files.
       const attachments = (item.attachments ?? []) as InboxAttachment[];
       const documentAttachments = attachments.filter(
         isAffirmativeInboxDocument,
@@ -698,6 +709,16 @@ export function useResolveInboxItem() {
           sourceInboxItemId: item.id,
         });
       }
+
+      const promotedSnapshot = await autoPromoteFirstPicture(
+        item,
+        shidduchimId,
+        pictureAttachments,
+        (resolutionSnapshot.resolution_input ??
+          stashed) as LinkResolutionProgress,
+        attemptId,
+      );
+      if (promotedSnapshot) resolutionSnapshot = promotedSnapshot;
 
       resolutionSnapshot = await updateOwnedInboxResolution(
         item,
@@ -811,6 +832,61 @@ export function useResolveInboxItem() {
     );
     if (!updated) throw new ResolutionClaimLostError();
     return updated;
+  };
+
+  const autoPromoteFirstPicture = async (
+    item: InboxItem,
+    shidduchimId: Identifier,
+    pictures: InboxAttachment[],
+    progress: {
+      picture_photo_created?: boolean;
+      picture_photo_source_path?: string;
+    },
+    ownerAttemptId: string,
+  ): Promise<InboxItem | null> => {
+    if (progress.picture_photo_created) return null;
+    const candidate = pictures.find((attachment) => {
+      const mimeType = (attachment.type ?? "").trim().toLowerCase();
+      if (mimeType) {
+        return mimeType === "image/jpeg" || mimeType === "image/png";
+      }
+      return /\.(jpeg|jpg|png)$/iu.test(attachment.title ?? "");
+    });
+    if (!candidate) return null;
+
+    const { data: resumes } = await dataProvider.getList<Resume>("resumes", {
+      filter: { shidduchim_id: shidduchimId },
+      pagination: { page: 1, perPage: 1 },
+      sort: { field: "id", order: "ASC" },
+    });
+    const resume = resumes[0];
+    if (resume) {
+      const { data: photos } = await dataProvider.getList<ResumePhoto>(
+        "resume_photos",
+        {
+          filter: { resume_id: resume.id, "hidden_at@is": null },
+          pagination: { page: 1, perPage: 1 },
+          sort: { field: "uploaded_at", order: "DESC" },
+        },
+      );
+      if (photos.length > 0) return null;
+    }
+
+    await dataProvider.copyInboxAttachmentToResumePhoto({
+      shidduchimId,
+      attachment: candidate,
+    });
+    return updateOwnedInboxResolution(
+      item,
+      {
+        resolution_input: {
+          ...progress,
+          picture_photo_created: true,
+          picture_photo_source_path: candidate.path,
+        },
+      },
+      ownerAttemptId,
+    );
   };
 
   const releaseInboxResolution = async (

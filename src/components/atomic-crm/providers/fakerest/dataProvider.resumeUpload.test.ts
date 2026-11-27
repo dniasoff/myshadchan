@@ -46,6 +46,28 @@ describe("FakeRest resume capture methods", () => {
     expect(attachment.type).toBe("image/jpeg");
   });
 
+  it("promotes the captured JPEG through the same idempotent Photo path", async () => {
+    const dataProvider = createDataProvider({ latency: 0, silent: true });
+    const attachment = await dataProvider.uploadInboxAttachment({
+      file: new File(["picture"], "picture.jpg", { type: "image/jpeg" }),
+      inboxItemId: 701,
+    });
+
+    const photo = await dataProvider.copyInboxAttachmentToResumePhoto({
+      shidduchimId: 99,
+      attachment,
+    });
+
+    expect(photo.visibility).toBe("shared");
+    expect(photo.path).toContain("/photos/shared/99/inbox-");
+    const { data: photos } = await dataProvider.getList("resume_photos", {
+      filter: { path: photo.path },
+      pagination: { page: 1, perPage: 10 },
+      sort: { field: "id", order: "ASC" },
+    });
+    expect(photos).toHaveLength(1);
+  });
+
   it("finalizes one exact duplicate-path file at a time", async () => {
     const path = "1/resumes/99/duplicate.pdf";
     const first: ResumeFileVersion = {

@@ -6,6 +6,7 @@ import {
   type ResumeSubject,
 } from "../../../resumes/resumeSubject";
 import type {
+  InboxAttachment,
   Resume,
   ResumePhoto,
   ResumePhotoVisibility,
@@ -27,6 +28,10 @@ export type UploadResumePhotoParams = ResumeSubject & {
   file: File;
   visibility?: ResumePhotoVisibility;
   sourceAttachmentPath?: string;
+};
+
+export type CopyInboxAttachmentToResumePhotoParams = ResumeSubject & {
+  attachment: InboxAttachment;
 };
 
 export type FindResumePhotoBySourceParams = ResumeSubject & {
@@ -148,6 +153,35 @@ export async function uploadResumePhoto(
     },
   });
   return data;
+}
+
+/** FakeRest mirror of the Supabase Inbox-to-Photo copy. The inbox blob map is
+ * the durable source in demo mode, so an expired persisted `src` does not
+ * prevent the automatic promotion. */
+export async function copyInboxAttachmentToResumePhoto(
+  baseDataProvider: DataProvider,
+  inboxBlobUrls: Map<string, string>,
+  photoBlobUrls: ResumePhotoBlobUrls,
+  accountId: Identifier,
+  params: CopyInboxAttachmentToResumePhotoParams,
+): Promise<ResumePhoto> {
+  const sourceUrl =
+    inboxBlobUrls.get(params.attachment.path) ?? params.attachment.src;
+  const response = await fetch(sourceUrl);
+  if (!response.ok) {
+    throw new Error("Failed to read the captured picture");
+  }
+  const blob = await response.blob();
+  const file = new File([blob], params.attachment.title, {
+    type: params.attachment.type || blob.type || "application/octet-stream",
+  });
+  const { attachment: _attachment, ...subject } = params;
+  return uploadResumePhoto(baseDataProvider, photoBlobUrls, accountId, {
+    ...subject,
+    file,
+    visibility: "shared",
+    sourceAttachmentPath: params.attachment.path,
+  });
 }
 
 /** FakeRest mirror of `signResumePhotoUrl` — returns the same object URL on

@@ -125,6 +125,33 @@ describe("OriginalResumeTab WhatsApp picture handling", () => {
       .toBeInTheDocument();
   });
 
+  it("does not offer manual promotion when the suggestion has no Photo", async () => {
+    signInboxAttachmentUrl.mockReset().mockResolvedValue("fresh-picture-url");
+    const capture = buildCapture([
+      {
+        path: "1/inbox/42/photo.jpg",
+        src: "expired-picture-url",
+        title: "photo.jpg",
+        type: "image/jpeg",
+      },
+    ]);
+
+    const { screen } = await renderTab(capture);
+
+    await expect
+      .element(
+        screen.getByText(
+          "This picture will be added to Photo automatically when you file it. It stays private in Files until then.",
+        ),
+      )
+      .toBeInTheDocument();
+    expect(
+      Array.from(screen.container.querySelectorAll("button")).filter(
+        (button) => button.textContent?.trim() === "Use this picture as Photo",
+      ),
+    ).toHaveLength(0);
+  });
+
   it("does not offer Photo promotion for HEIC or WebP captures", async () => {
     signInboxAttachmentUrl.mockReset().mockResolvedValue("fresh-picture-url");
     const capture = buildCapture([

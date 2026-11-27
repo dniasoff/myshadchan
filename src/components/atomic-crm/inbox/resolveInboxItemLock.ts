@@ -46,6 +46,8 @@ export type ResolutionInput =
       resume_transfer_size?: number;
       resume_transfer_state?: "pending" | "cleanup_pending" | "cleaned";
       picture_files_created?: boolean;
+      picture_photo_created?: boolean;
+      picture_photo_source_path?: string;
       claimed_from_status?: "unresolved" | "held";
       lock_acquired_at?: string;
     }
@@ -55,6 +57,8 @@ export type ResolutionInput =
       /** The capture that supplied a text resume, when this is a text resume. */
       resume_source_inbox_item_id?: Identifier;
       note_inserted?: boolean;
+      picture_photo_created?: boolean;
+      picture_photo_source_path?: string;
       claimed_from_status?: "unresolved" | "held";
       lock_acquired_at?: string;
     }

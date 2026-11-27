@@ -16,6 +16,7 @@ import type {
   InboxItem,
   Resume,
   ShidduchSummary,
+  ResumePhoto,
 } from "../types";
 import type { CrmDataProvider } from "../providers/types";
 import { signInboxAttachmentUrl } from "../providers/supabase/inboxAttachments";
@@ -87,6 +88,16 @@ function WhatsAppTextSource({
     () => (capture.attachments ?? []).filter(isPictureAttachment),
     [capture.attachments],
   );
+  const { data: currentPhotos = [] } = useGetList<ResumePhoto>(
+    "resume_photos",
+    {
+      filter: { resume_id: resume?.id, "hidden_at@is": null },
+      sort: { field: "uploaded_at", order: "DESC" },
+      pagination: { page: 1, perPage: 50 },
+    },
+    { enabled: resume?.id != null },
+  );
+  const hasExistingPhoto = currentPhotos.length > 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -369,7 +380,7 @@ function WhatsAppTextSource({
           <p className="mt-1 text-sm text-muted-foreground">
             Nothing was turned into a file.
           </p>
-          {canPromotePictureToPhoto(attachment) ? (
+          {canPromotePictureToPhoto(attachment) && hasExistingPhoto ? (
             <>
               <Button
                 type="button"
@@ -404,6 +415,11 @@ function WhatsAppTextSource({
                 </div>
               ) : null}
             </>
+          ) : canPromotePictureToPhoto(attachment) ? (
+            <p className="mt-3 text-sm text-muted-foreground">
+              This picture will be added to Photo automatically when you file
+              it. It stays private in Files until then.
+            </p>
           ) : (
             <p className="mt-3 text-sm text-muted-foreground">
               This picture type can&apos;t be used as the Photo yet; it stays

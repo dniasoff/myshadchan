@@ -144,6 +144,11 @@ const buildDataProvider = (
   const copyInboxAttachmentsToEntityFiles = vi.fn(async () => {
     return [] as EntityFile[];
   });
+  const copyInboxAttachmentToResumePhoto = vi.fn().mockResolvedValue({
+    id: 1,
+    path: "7/photos/shared/99/inbox-photo.jpg",
+    visibility: "shared",
+  });
 
   const getOne = vi.fn(async (resource: string, params: { id: Identifier }) => {
     if (resource === "inbox_items" && params.id === currentItem.id) {
@@ -232,6 +237,7 @@ const buildDataProvider = (
       storagePath: "7/resumes/99/generated-uuid-resume.pdf",
       size: 245678,
     }),
+    copyInboxAttachmentToResumePhoto,
     removeResumeFileObjects: defaultRemoveResumeFileObjects,
     removeResumeFileObjectsStrict,
     removeInboxAttachment: vi.fn().mockResolvedValue(undefined),
@@ -681,6 +687,36 @@ describe("useResolveInboxItem — resolveAsNewShidduch (AC 7: the sole createShi
       ),
     ).toHaveLength(1);
   });
+});
+
+it("automatically promotes the first JPEG/PNG picture when no Photo exists", async () => {
+  const picture = {
+    title: "portrait.jpg",
+    type: "image/jpeg",
+    path: "1/inbox-portrait.jpg",
+    src: "https://example.test/portrait.jpg",
+  };
+  const item = buildItem({ attachments: [picture] });
+  const { screen, dataProvider } = await renderProbe(item);
+
+  await screen.getByRole("button", { name: "resolveAsNewShidduch" }).click();
+  await expect.element(screen.getByText("result:new:99")).toBeInTheDocument();
+
+  expect(dataProvider.copyInboxAttachmentToResumePhoto).toHaveBeenCalledWith({
+    shidduchimId: 99,
+    attachment: picture,
+  });
+  expect(dataProvider.update).toHaveBeenCalledWith(
+    "inbox_items",
+    expect.objectContaining({
+      data: expect.objectContaining({
+        resolution_input: expect.objectContaining({
+          picture_photo_created: true,
+          picture_photo_source_path: picture.path,
+        }),
+      }),
+    }),
+  );
 });
 
 describe("useResolveInboxItem — resolveAsNewShidduch resume draft (Story 11.2 review fix, Finding 2 + also-fixes)", () => {
